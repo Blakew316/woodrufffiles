@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.tv.material3.OutlinedButton
@@ -73,6 +74,7 @@ import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ActionMenu
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.ToolButton
+import com.woodruff.tvexplorer.R
 import com.woodruff.tvexplorer.ui.components.FileGlyph
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.color
@@ -103,7 +105,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
 
     Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TvIcon(Icons.Rounded.AddToDrive, size = 32.dp, tint = Palette.drive)
+            Image(painterResource(R.drawable.brand_google_drive), contentDescription = null, modifier = Modifier.size(32.dp))
             Text(state.place.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Text(
@@ -253,7 +255,7 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TvIcon(Icons.Rounded.AddToDrive, size = 32.dp, tint = Palette.drive)
+                Image(painterResource(R.drawable.brand_google_drive), contentDescription = null, modifier = Modifier.size(32.dp))
                 Text(
                     if (setup) "Set up Google Drive" else "Sign in with your phone",
                     style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 12.dp),

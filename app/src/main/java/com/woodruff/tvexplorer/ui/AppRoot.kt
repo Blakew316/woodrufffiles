@@ -117,7 +117,7 @@ fun AppRoot(vm: MainViewModel) {
                 Brand(Modifier.padding(start = 8.dp, bottom = 24.dp))
                 RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
                 RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS) { vm.show(Screen.CAMERAS) }
-                RailItem("Google Drive", Icons.Rounded.AddToDrive, screen == Screen.DRIVE) { vm.show(Screen.DRIVE) }
+                RailItem("Google Drive", Icons.Rounded.AddToDrive, screen == Screen.DRIVE, brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) }
                 RailItem("Mail", Icons.Rounded.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
                 RailItem(
                     if (unread > 0) "Notifications · $unread" else "Notifications",
@@ -192,7 +192,7 @@ private fun RailLabel(text: String) {
 }
 
 @Composable
-private fun RailItem(label: String, icon: ImageVector, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun RailItem(label: String, icon: ImageVector, active: Boolean, modifier: Modifier = Modifier, brand: Int? = null, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
@@ -206,7 +206,7 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, modifier
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvIcon(icon)
+            if (brand != null) Image(painterResource(brand), contentDescription = null, modifier = Modifier.size(24.dp)) else TvIcon(icon)
             Spacer(Modifier.width(14.dp))
             Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
         }

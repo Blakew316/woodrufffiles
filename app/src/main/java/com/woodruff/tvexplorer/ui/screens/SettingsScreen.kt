@@ -62,6 +62,10 @@ import androidx.tv.material3.ListItemDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.BuildConfig
+import com.woodruff.tvexplorer.R
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.mail.MailAccount
 import com.woodruff.tvexplorer.mail.MailAccounts
@@ -175,7 +179,7 @@ fun SettingsScreen(vm: MainViewModel) {
 
         section("Cameras")
         item {
-            SettingRow(Icons.Rounded.Videocam, "Command center", if (nestConnected) "Connected" else "Not connected") { vm.show(Screen.CAMERAS) }
+            SettingRow(Icons.Rounded.Videocam, "Command center", if (nestConnected) "Connected" else "Not connected", brand = R.drawable.brand_google_home) { vm.show(Screen.CAMERAS) }
         }
         item {
             SettingRow(Icons.Rounded.Key, "Device Access Project ID", nestProject?.let { mask(it, 13) } ?: "Not set") {
@@ -192,7 +196,7 @@ fun SettingsScreen(vm: MainViewModel) {
         }
 
         section("Google Drive")
-        item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up") { vm.show(Screen.DRIVE) } }
+        item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up", brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
         item { SettingRow(Icons.Rounded.Key, "Client ID", clientId?.let { mask(it, 18) } ?: "Not set") { dialog = SettingsDialog.ClientId } }
         item { SettingRow(Icons.Rounded.Lock, "Client secret", if (configured) "•••••••• saved" else "Not set") { dialog = SettingsDialog.ClientSecret } }
         if (connected) item {
@@ -381,7 +385,7 @@ private fun LazyListScope.section(title: String) {
 }
 
 @Composable
-private fun SettingRow(icon: ImageVector, title: String, value: String?, danger: Boolean = false, onClick: () -> Unit) {
+private fun SettingRow(icon: ImageVector, title: String, value: String?, danger: Boolean = false, brand: Int? = null, onClick: () -> Unit) {
     ListItem(
         selected = false,
         onClick = onClick,
@@ -392,7 +396,10 @@ private fun SettingRow(icon: ImageVector, title: String, value: String?, danger:
         ),
         shape = ListItemDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
         scale = ListItemDefaults.scale(focusedScale = 1.01f),
-        leadingContent = { IconBadge(icon, badgeColor(icon, danger), size = 30.dp) },
+        leadingContent = {
+            if (brand != null) Image(painterResource(brand), contentDescription = null, modifier = Modifier.size(30.dp))
+            else IconBadge(icon, badgeColor(icon, danger), size = 30.dp)
+        },
         headlineContent = { Text(title, color = if (danger) Palette.danger else androidx.compose.ui.graphics.Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         trailingContent = if (value != null) {
             { Text(value, color = Palette.muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }

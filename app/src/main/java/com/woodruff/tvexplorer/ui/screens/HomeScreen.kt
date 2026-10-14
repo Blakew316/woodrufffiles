@@ -1,6 +1,9 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.res.painterResource
+import com.woodruff.tvexplorer.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -96,7 +99,15 @@ import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
 
-private data class Tile(val title: String, val subtitle: String?, val icon: ImageVector, val color: Color, val onClick: () -> Unit)
+/** [brand] is the real app icon (drawable) for third-party services; our own features use [icon]. */
+private data class Tile(
+    val title: String,
+    val subtitle: String?,
+    val icon: ImageVector,
+    val color: Color,
+    val brand: Int? = null,
+    val onClick: () -> Unit,
+)
 
 /** Landing page: greeting, Continue watching, cloud, storage, library and tools, as TV-style rows. */
 @Composable
@@ -110,9 +121,9 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching() }
 
     val cloud = listOf(
-        Tile("Cameras", null, Icons.Rounded.Videocam, Palette.accent) { vm.show(Screen.CAMERAS) },
-        Tile("Google Drive", null, Icons.Rounded.AddToDrive, Palette.drive) { vm.show(Screen.DRIVE) },
-        Tile("iCloud", null, Icons.Rounded.Cloud, Palette.icloud) { showICloud = true },
+        Tile("Cameras", null, Icons.Rounded.Videocam, Palette.accent, R.drawable.brand_google_home) { vm.show(Screen.CAMERAS) },
+        Tile("Google Drive", null, Icons.Rounded.AddToDrive, Palette.drive, R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) },
+        Tile("iCloud", null, Icons.Rounded.Cloud, Palette.icloud, R.drawable.brand_icloud) { showICloud = true },
         Tile("Mail", null, Icons.Rounded.Email, Palette.accent) { vm.show(Screen.MAIL) },
     )
     val library = listOf(
@@ -121,9 +132,9 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     ).map { (kind, title) -> Tile(title, null, kind.icon(), kind.color()) { vm.open(Location.Category(kind, title)) } } +
         Tile("Downloads", null, Icons.Rounded.Download, Palette.accent) { vm.openDownloads() }
     val watch = listOf(
-        Tile("YouTube", null, Icons.Rounded.SmartDisplay, Color(0xFFFF0033)) { Handoff.launch(context, Handoff.YOUTUBE) },
-        Tile("Apple Music", null, Icons.Rounded.MusicNote, Color(0xFFFA2D48)) { Handoff.launch(context, Handoff.APPLE_MUSIC) },
-        Tile("Spotify", null, Icons.Rounded.LibraryMusic, Color(0xFF1ED760)) { Handoff.launch(context, Handoff.SPOTIFY) },
+        Tile("YouTube", null, Icons.Rounded.SmartDisplay, Color(0xFFFF0033), R.drawable.brand_youtube) { Handoff.launch(context, Handoff.YOUTUBE) },
+        Tile("Apple Music", null, Icons.Rounded.MusicNote, Color(0xFFFA2D48), R.drawable.brand_apple_music) { Handoff.launch(context, Handoff.APPLE_MUSIC) },
+        Tile("Spotify", null, Icons.Rounded.LibraryMusic, Color(0xFF1ED760), R.drawable.brand_spotify) { Handoff.launch(context, Handoff.SPOTIFY) },
         Tile("Photo slideshow", null, Icons.Rounded.Slideshow, Palette.drive) { SlideshowActivity.start(context) },
     )
     val tools = listOf(
@@ -221,7 +232,8 @@ private fun ContinueCard(r: RecentItem, onClick: () -> Unit, onLongClick: () -> 
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Palette.background),
                 contentAlignment = Alignment.Center,
             ) {
-                TvIcon(if (ref is MediaRef.Drive) Icons.Rounded.AddToDrive else FileKind.VIDEO.icon(), size = 48.dp, tint = if (ref is MediaRef.Drive) Palette.drive else Palette.video)
+                if (ref is MediaRef.Drive) Image(painterResource(R.drawable.brand_google_drive), contentDescription = null, modifier = Modifier.size(48.dp))
+                else TvIcon(FileKind.VIDEO.icon(), size = 48.dp, tint = Palette.video)
                 if (ref is MediaRef.Local) {
                     AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 }
@@ -287,7 +299,8 @@ private fun TileCard(tile: Tile, wide: Boolean = false) {
     ) {
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(tile.color.copy(alpha = 0.18f), Color.Transparent)))) {
             Column(Modifier.padding(20.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                IconBadge(tile.icon, tile.color, size = 46.dp)
+                if (tile.brand != null) Image(painterResource(tile.brand), contentDescription = null, modifier = Modifier.size(46.dp))
+                else IconBadge(tile.icon, tile.color, size = 46.dp)
                 Column {
                     Text(tile.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     tile.subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.muted, maxLines = 1) }
