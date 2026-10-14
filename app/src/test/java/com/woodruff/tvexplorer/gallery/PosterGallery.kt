@@ -69,6 +69,15 @@ class PosterGallery {
         val movieFiles = movies.mapIndexed { i, (name, key) -> DriveFile("m$i", name, "video/x-matroska", 0, 0, null, art(key)) }
         val showFiles = shows.mapIndexed { i, (name, key) -> DriveFile("t$i", name, DriveFile.FOLDER_MIME, 0, 0, null, art(key)) }
 
+        // Headless rendering: decode images right away and into normal (not hardware) bitmaps,
+        // which the JVM renderer can draw. The app itself keeps Coil's defaults.
+        coil.Coil.setImageLoader(
+            coil.ImageLoader.Builder(ApplicationProvider.getApplicationContext())
+                .dispatcher(kotlinx.coroutines.Dispatchers.Unconfined)
+                .allowHardware(false)
+                .crossfade(false)
+                .build(),
+        )
         var page by mutableStateOf("Movies" to movieFiles)
         compose.setContent {
             TvExplorerTheme {
