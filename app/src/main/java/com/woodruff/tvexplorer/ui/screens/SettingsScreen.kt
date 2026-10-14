@@ -82,6 +82,16 @@ import androidx.tv.material3.ListItem
 import androidx.tv.material3.ListItemDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.woodruff.tvexplorer.data.FileKind
+import com.woodruff.tvexplorer.ui.components.icon
+import com.woodruff.tvexplorer.ui.Location
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.FolderOpen
+import com.woodruff.tvexplorer.ui.components.DialogFrame
+import com.woodruff.tvexplorer.ui.components.ButtonRow
+import androidx.tv.material3.OutlinedButton
+import androidx.tv.material3.Button
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.R
 import androidx.compose.foundation.Image
@@ -130,6 +140,8 @@ private sealed interface SettingsDialog {
     data object AddTv : SettingsDialog
     data object MediaAccessHelp : SettingsDialog
     data object UnlinkHubs : SettingsDialog
+    data object ICloud : SettingsDialog
+    data object BrowseTypes : SettingsDialog
     data class RemoveTv(val tv: LinkedTv) : SettingsDialog
     data class RemovePhone(val phone: Phone) : SettingsDialog
 }
@@ -202,7 +214,9 @@ fun SettingsScreen(vm: MainViewModel) {
             }
         }
 
+        item { SettingRow(Icons.Rounded.FolderOpen, "Browse by type", "Videos, music, photos, documents…") { dialog = SettingsDialog.BrowseTypes } }
         item { SettingRow(Icons.Rounded.Apps, "Apps", null) { vm.openApps(Screen.SETTINGS) } }
+        item { SettingRow(Icons.Rounded.Cloud, "iCloud", "Mail, Drive and Photos", brand = R.drawable.brand_icloud) { dialog = SettingsDialog.ICloud } }
 
         section("Screensaver & background")
 
@@ -441,6 +455,16 @@ fun SettingsScreen(vm: MainViewModel) {
             "Unlink ${d.tv.name}?", "This TV stops showing what ${d.tv.name} is playing.", "Unlink",
             onConfirm = { TvLinks.remove(context, d.tv.id) }, onDismiss = { dialog = null },
         )
+        SettingsDialog.ICloud -> ICloudDialog(onDismiss = { dialog = null }, onStart = { dialog = null; vm.show(Screen.TRANSFER) })
+        SettingsDialog.BrowseTypes -> ActionMenu(
+            title = "Browse by type", subtitle = "Everything of that kind on this TV and attached drives",
+            onDismiss = { dialog = null },
+            actions = listOf(
+                FileKind.VIDEO to "Videos", FileKind.AUDIO to "Music", FileKind.IMAGE to "Photos",
+                FileKind.DOCUMENT to "Documents", FileKind.APK to "APK files", FileKind.ARCHIVE to "Archives",
+            ).map { (kind, title) -> MenuAction(title, kind.icon()) { vm.open(Location.Category(kind, title)) } } +
+                MenuAction("Downloads", Icons.Rounded.Download) { vm.openDownloads() },
+        )
         SettingsDialog.UnlinkHubs -> ConfirmDialog(
             "Stop other TVs seeing this one?", "Every TV linked to this one loses access. Link again with a new code.", "Stop",
             onConfirm = { TvLinks.resetLinkKey(context); vm.say("Other TVs can no longer see this one") }, onDismiss = { dialog = null },
@@ -563,3 +587,28 @@ private fun SettingRow(icon: ImageVector, title: String, value: String?, danger:
     )
 }
 
+
+/**
+ * Apple offers no way for Android apps to sign in to iCloud, so this explains the reliable route:
+ * the iPhone's own file picker can upload straight from iCloud Drive and Photos to "Send files".
+ */
+@Composable
+private fun ICloudDialog(onDismiss: () -> Unit, onStart: () -> Unit) {
+    DialogFrame("iCloud on your TV", onDismiss, width = 640) {
+        Text(
+            "iCloud Mail: add it in Settings → Mail with an app-specific password from account.apple.com.\n\n" +
+                "iCloud Drive and Photos: Apple doesn't offer Android apps a way to sign in to iCloud Drive, so send files from your iPhone or iPad:",
+            color = Palette.muted,
+        )
+        listOf(
+            "1.  Choose Start below to show the Phone QR code.",
+            "2.  Scan it with the iPhone Camera app (once: it stays paired).",
+            "3.  In Files, tap +, then Upload Photos or Files, and choose iCloud Drive or your photo library.",
+            "4.  Files land in the folder you picked, ready to play here.",
+        ).forEach { Text(it) }
+        ButtonRow {
+            OutlinedButton(onClick = onDismiss) { Text("Close") }
+            Button(onClick = onStart) { Text("Start") }
+        }
+    }
+}

@@ -60,7 +60,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Command center**: live Google Home / Nest cameras and doorbells (WebRTC, so the newest models work). Either
   cameras only or "all on one" next to the clock, notifications and notes. Select a camera for full screen with sound,
   Left/Right flips between cameras. It can open automatically when the app starts. Setup is [below](#connect-google-home-cameras).
-- **Watch & listen**: Home shortcuts to YouTube and Apple Music.
+- **Home dashboard**: one screen that shows everything at a glance. *Continue watching* resumes what you were
+  watching; *TVs* switches between the family's linked TVs to show what's on each, with a live picture; *Cameras*
+  shows each camera live when you move onto it, and opens it full screen; *At a glance* has the next calendar
+  event, the latest notifications and a pinned note. YouTube, Apple Music and the photo slideshow are one click
+  away at the top. Setup (iCloud, storage, apps, browse by type) lives in Settings.
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…` (the URL is shown on that tab) for automations like "when I get home".
 - **Notifications**: messages from the phone and new mail appear as a pop-up, even over other apps once
@@ -74,7 +78,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   iCloud Drive has no supported sign-in for Android apps, so files come from the iPhone through **Phone → Files → Upload → Browse**.
 
 - **Browse everything**: internal storage, SD cards and USB drives. The list refreshes when a drive is plugged in.
-- **Library shortcuts**: Videos, Music, Pictures, Documents, APK files, Archives and Downloads, across all drives.
+- **Browse by type** (Settings → Storage & apps): Videos, Music, Pictures, Documents, APK files, Archives and Downloads, across all drives.
 - **File operations**: copy, move, rename, delete, new folder, zip and unzip. Multi-select works with the remote.
   Large copies show progress and can be cancelled. Existing files are never overwritten (the copy is named `name (1).ext` instead).
 - **Built-in player and viewer**: videos and music play in a Media3 (ExoPlayer) player, and photos open in a viewer with a slideshow.

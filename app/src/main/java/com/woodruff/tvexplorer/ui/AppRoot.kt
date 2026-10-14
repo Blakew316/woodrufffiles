@@ -154,7 +154,7 @@ fun AppRoot(vm: MainViewModel) {
             Box(Modifier.fillMaxSize()) {
                 Crossfade(targetState = screen, label = "screen") { s ->
                     when (s) {
-                        Screen.HOME -> HomeScreen(vm, roots)
+                        Screen.HOME -> HomeScreen(vm, drive)
                         Screen.BROWSER -> BrowserScreen(vm)
                         Screen.DRIVE -> DriveScreen(vm, drive)
                         Screen.MAIL -> MailScreen(vm)

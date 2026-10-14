@@ -18,6 +18,10 @@ import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
+import com.woodruff.tvexplorer.ui.screens.DashboardSamples
+import com.woodruff.tvexplorer.player.RecentStore
+import com.woodruff.tvexplorer.tvs.TvStatus
+import com.woodruff.tvexplorer.nowplaying.Playing
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,5 +83,17 @@ class TvGallery {
         Notices.post(app, NoticeSource.MAIL, "Your order has shipped", "Arriving Thursday")
         Notices.post(app, NoticeSource.SYSTEM, "Movie starts in 5 minutes", "")
         Notices.markAllRead(app)
+        // Home dashboard: things in progress, the family's TVs and cameras (no network in the gallery).
+        RecentStore(app).apply {
+            save("drive:sample-3", "Paper Planes (2022)", 3_000_000, 5_600_000)
+            save("drive:sample-2", "Backyard Science · S2 E4", 410_000, 1_320_000)
+            save("drive:sample-1", "Midnight Harbor (2024)", 2_710_000, 6_840_000)
+        }
+        DashboardSamples.tvs = listOf(
+            TvStatus("this", "Living Room", true, true, Playing("Midnight Harbor", null, "Woodruff Family", true, 2_710_000, 6_840_000)),
+            TvStatus("kids", "Kids Room", true, false, Playing("Backyard Science", null, "YouTube", true, 410_000, 1_320_000)),
+            TvStatus("bed", "Bedroom", false, false, null),
+        )
+        DashboardSamples.cameras = listOf("Front Door", "Backyard", "Garage", "Driveway")
     }
 }

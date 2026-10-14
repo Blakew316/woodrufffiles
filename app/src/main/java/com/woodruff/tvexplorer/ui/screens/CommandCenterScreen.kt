@@ -94,6 +94,9 @@ import java.util.Locale
  */
 private const val MAX_LIVE = 4
 
+/** Set by Home's camera tiles before opening the Command center, to show that camera full screen. */
+internal var openCameraAt: Int? = null
+
 /**
  * Command center: live Google Home / Nest cameras, either on their own or next to the clock,
  * notifications and notes ("all on one"). Select a camera for full screen; Left/Right flips
@@ -102,7 +105,8 @@ private const val MAX_LIVE = 4
 @Composable
 fun CommandCenterScreen(vm: MainViewModel) {
     val state by Nest.state.collectAsStateWithLifecycle()
-    var full by remember { mutableStateOf<Int?>(null) }
+    // Opened from a Home camera tile: go straight to that camera full screen.
+    var full by remember { mutableStateOf(openCameraAt.also { openCameraAt = null }) }
     var askProject by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { Nest.open() }
     BackHandler { if (full != null) full = null else vm.show(Screen.HOME) }
@@ -258,7 +262,7 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
 
 /** One WebRTC live view. The renderer and stream live exactly as long as this composable. */
 @Composable
-private fun LiveVideo(cam: Camera, audio: Boolean) {
+internal fun LiveVideo(cam: Camera, audio: Boolean) {
     val context = LocalContext.current
     val renderer = remember {
         SurfaceViewRenderer(context).apply {

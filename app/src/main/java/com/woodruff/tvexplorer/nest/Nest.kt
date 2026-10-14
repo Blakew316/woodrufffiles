@@ -86,6 +86,13 @@ object Nest {
         }
     }
 
+    /** For the Home dashboard: load cameras when already connected, without starting any sign-in. */
+    fun warm() {
+        val s = step()
+        _state.update { it.copy(step = s) }
+        if (s == NestStep.CONNECTED && _state.value.cameras.isEmpty() && !_state.value.loading) refresh()
+    }
+
     fun refresh() {
         scope.launch {
             _state.update { it.copy(loading = true, error = null) }
