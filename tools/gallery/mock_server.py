@@ -30,6 +30,7 @@ SETTINGS = {
     'google': {'clientId': '1234-example.apps.googleusercontent.com', 'hasSecret': True, 'connected': True,
                'redirectUri': 'https://blakew316.github.io/woodrufffiles/oauth.html'},
     'nest': {'project': '1a2b3c4d-5e6f-7a8b-9c0d', 'connected': True},
+    'tmdb': True,
     'mail': [{'id': 'm1', 'email': 'family@icloud.com', 'provider': 'iCloud Mail'}],
     'providers': [{'id': 'ICLOUD', 'label': 'iCloud Mail', 'help': 'Create an app-specific password at account.apple.com.', 'custom': False}],
 }
@@ -76,6 +77,8 @@ class Handler(BaseHTTPRequestHandler):
         self.rfile.read(n)
         if urlparse(self.path).path == '/api/phone/hello':
             return self.send({'phone': {'id': 'p-blake', 'name': "Blake's iPhone", 'alerts': True, 'topic': 'woodruff-example'}, 'phones': PHONES})
+        if urlparse(self.path).path.startswith('/api/settings'):
+            return self.send(SETTINGS)  # like the TV: settings changes answer with the full settings
         self.send({'ok': True})
 
 
