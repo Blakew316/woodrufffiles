@@ -32,7 +32,11 @@ object CrashLog {
         f.delete()
         // The first lines say what failed and where; the full trace stays short enough to read.
         val lines = text.lines()
-        val shown = (lines.take(2) + lines.drop(2).filter { it.contains("woodruff") || it.startsWith("Caused by") }.take(8)).joinToString("\n")
+        // The top frames say where it failed even when that's inside a library; then our own
+        // frames and any "Caused by" further down.
+        val top = lines.take(8)
+        val ours = lines.drop(8).filter { it.contains("woodruff") || it.startsWith("Caused by") }.take(8)
+        val shown = (top + ours).joinToString("\n") { it.trim() }
         Notices.post(c, NoticeSource.SYSTEM, "Woodruff closed unexpectedly last time", shown)
     }
 }

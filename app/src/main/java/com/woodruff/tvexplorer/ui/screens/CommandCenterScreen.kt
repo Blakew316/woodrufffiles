@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,9 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -204,25 +202,28 @@ private fun SignInPanel(state: NestState) {
 @Composable
 private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, onOpen: (Int) -> Unit) {
     val first = remember { FocusRequester() }
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        itemsIndexed(cams, key = { _, c -> c.name }) { i, cam ->
-            Surface(
-                onClick = { onOpen(i) },
-                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).then(if (i == 0) Modifier.focusRequester(first) else Modifier),
-                shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
-            ) {
-                // Inset so the focus border isn't hidden under the video surface.
-                Box(Modifier.fillMaxSize().padding(4.dp).clip(RoundedCornerShape(18.dp))) {
-                    if (i < MAX_LIVE && cam.webRtc) key(cam.name) { LiveVideo(cam, audio = false) }
-                    else Placeholder(if (cam.webRtc) "Select to watch" else "This camera model doesn't support live view here")
-                    CameraLabel(cam, Modifier.align(Alignment.BottomStart))
+    // Plain scrolling rows, not a lazy grid: live video is an Android view, and Android views in
+    // lazy layouts crashed when the grid closed (leaving the Command center).
+    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        cams.withIndex().chunked(columns).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                for ((i, cam) in row) key(cam.name) {
+                    Surface(
+                        onClick = { onOpen(i) },
+                        modifier = Modifier.weight(1f).aspectRatio(16f / 9f).then(if (i == 0) Modifier.focusRequester(first) else Modifier),
+                        shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                    ) {
+                        // Inset so the focus border isn't hidden under the video surface.
+                        Box(Modifier.fillMaxSize().padding(4.dp).clip(RoundedCornerShape(18.dp))) {
+                            if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false)
+                            else Placeholder(if (cam.webRtc) "Select to watch" else "This camera model doesn't support live view here")
+                            CameraLabel(cam, Modifier.align(Alignment.BottomStart))
+                        }
+                    }
                 }
+                // Keep a lone last camera the same size as the others.
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
@@ -260,8 +261,6 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
-private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-
 /** One WebRTC live view. The renderer and stream live exactly as long as this composable. */
 @Composable
 internal fun LiveVideo(cam: Camera, audio: Boolean) {
@@ -279,8 +278,8 @@ internal fun LiveVideo(cam: Camera, audio: Boolean) {
     DisposableEffect(Unit) {
         stream.start()
         onDispose {
-            // Release the renderer only after the stream has let go of it.
-            stream.close { mainHandler.post { renderer.release() } }
+            stream.close()
+            renderer.release()
         }
     }
     LaunchedEffect(audio) { stream.setAudio(audio) }
