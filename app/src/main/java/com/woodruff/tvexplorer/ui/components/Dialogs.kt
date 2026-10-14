@@ -28,7 +28,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -99,7 +102,15 @@ fun ConfirmDialog(title: String, body: String, confirmLabel: String, onConfirm: 
 
 /** Single-line text entry; the on-screen keyboard opens when the field is clicked with OK. */
 @Composable
-fun TextInputDialog(title: String, initial: String, confirmLabel: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+fun TextInputDialog(
+    title: String,
+    initial: String,
+    confirmLabel: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+    secret: Boolean = false,
+    hint: String? = null,
+) {
     // Pre-select the name without its extension, the part people usually want to change.
     val stemEnd = initial.lastIndexOf('.').takeIf { it > 0 } ?: initial.length
     var value by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, stemEnd))) }
@@ -107,6 +118,7 @@ fun TextInputDialog(title: String, initial: String, confirmLabel: String, onConf
     val field = remember { FocusRequester() }
     val submit = { if (value.text.isNotBlank()) { onDismiss(); onConfirm(value.text.trim()) } }
     DialogFrame(title, onDismiss) {
+        if (hint != null) Text(hint, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
         Box(
             Modifier
                 .fillMaxWidth()
@@ -119,7 +131,8 @@ fun TextInputDialog(title: String, initial: String, confirmLabel: String, onConf
                 singleLine = true,
                 textStyle = TextStyle(color = Palette.text, fontSize = 20.sp),
                 cursorBrush = SolidColor(Palette.accent),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = if (secret) KeyboardType.Password else KeyboardType.Text),
+                visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardActions = KeyboardActions(onDone = { submit() }),
                 modifier = Modifier
                     .fillMaxWidth()

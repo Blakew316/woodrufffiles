@@ -13,6 +13,7 @@ class MediaRefTest {
 
         val local = MediaRef.parse("/storage/emulated/0/Movies/a.mkv")
         assertTrue(local is MediaRef.Local)
+        assertTrue(MediaRef.parse("https://example.com/a.mp4") is MediaRef.Remote)
         assertEquals("/storage/emulated/0/Movies/a.mkv", local.key)
     }
 }

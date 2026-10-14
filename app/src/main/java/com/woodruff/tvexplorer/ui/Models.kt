@@ -5,7 +5,7 @@ import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.data.OpProgress
 import java.io.File
 
-enum class Screen { HOME, BROWSER, DRIVE, APPS, TRANSFER }
+enum class Screen { HOME, BROWSER, DRIVE, MAIL, NOTIFICATIONS, APPS, TRANSFER, SETTINGS }
 
 /** What the browser is showing: a real folder, a library category, or search results. */
 sealed interface Location {

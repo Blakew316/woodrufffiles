@@ -11,6 +11,7 @@ coil = "2.7.0"
 nanohttpd = "2.3.1"
 zxing = "3.5.3"
 junit = "4.13.2"
+androidMail = "1.6.7"
 coroutines = "1.9.0"
 
 [libraries]
@@ -30,6 +31,8 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 coil-video = { group = "io.coil-kt", name = "coil-video", version.ref = "coil" }
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+android-mail = { group = "com.sun.mail", name = "android-mail", version.ref = "androidMail" }
+android-activation = { group = "com.sun.mail", name = "android-activation", version.ref = "androidMail" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 

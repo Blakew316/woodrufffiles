@@ -25,12 +25,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddToDrive
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhoneIphone
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,7 +45,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import com.woodruff.tvexplorer.R
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,9 +64,14 @@ import com.woodruff.tvexplorer.ui.screens.AppsScreen
 import com.woodruff.tvexplorer.ui.screens.BrowserScreen
 import com.woodruff.tvexplorer.ui.screens.DriveScreen
 import com.woodruff.tvexplorer.ui.screens.HomeScreen
+import com.woodruff.tvexplorer.ui.screens.MailScreen
+import com.woodruff.tvexplorer.ui.screens.NotificationsScreen
+import com.woodruff.tvexplorer.ui.screens.SettingsScreen
 import com.woodruff.tvexplorer.ui.screens.TransferScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
-import com.woodruff.tvexplorer.ui.theme.ThemeSetting
+import com.woodruff.tvexplorer.notify.Notice
+import com.woodruff.tvexplorer.notify.NoticeSource
+import com.woodruff.tvexplorer.notify.Notices
 import kotlinx.coroutines.delay
 
 /** Main window: branded side rail, the active screen, and global overlays. */
@@ -80,6 +85,9 @@ fun AppRoot(vm: MainViewModel) {
     val message by vm.message.collectAsStateWithLifecycle()
     val driveState by drive.state.collectAsStateWithLifecycle()
     val server by TransferService.state.collectAsStateWithLifecycle()
+    val notices by Notices.items.collectAsStateWithLifecycle()
+    val latestNotice by Notices.latest.collectAsStateWithLifecycle()
+    val unread = notices.count { !it.read }
     val homeFocus = remember { FocusRequester() }
 
     Row(Modifier.fillMaxSize().background(Palette.backdrop)) {
@@ -95,6 +103,11 @@ fun AppRoot(vm: MainViewModel) {
             Brand(Modifier.padding(start = 8.dp, bottom = 24.dp))
             RailItem("Home", Icons.Filled.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
             RailItem("Google Drive", Icons.Filled.AddToDrive, screen == Screen.DRIVE) { vm.show(Screen.DRIVE) }
+            RailItem("Mail", Icons.Filled.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
+            RailItem(
+                if (unread > 0) "Notifications · $unread" else "Notifications",
+                Icons.Filled.Notifications, screen == Screen.NOTIFICATIONS,
+            ) { vm.show(Screen.NOTIFICATIONS) }
             RailLabel("This TV")
             roots.forEach { root ->
                 val active = screen == Screen.BROWSER &&
@@ -103,18 +116,12 @@ fun AppRoot(vm: MainViewModel) {
                     vm.openRoot(root.dir)
                 }
             }
-            RailLabel("Tools")
             RailItem("Apps", Icons.Filled.Apps, screen == Screen.APPS) { vm.show(Screen.APPS) }
-            RailItem(if (server.running) "Send files · On" else "Send files", Icons.Filled.Wifi, screen == Screen.TRANSFER) {
+            RailLabel("Connect")
+            RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Filled.PhoneIphone, screen == Screen.TRANSFER) {
                 vm.show(Screen.TRANSFER)
             }
-            RailLabel("Display")
-            val context = LocalContext.current
-            RailItem(
-                if (Palette.light) "Dark mode" else "Light mode",
-                if (Palette.light) Icons.Filled.DarkMode else Icons.Filled.LightMode,
-                active = false,
-            ) { ThemeSetting.toggle(context) }
+            RailItem("Settings", Icons.Filled.Settings, screen == Screen.SETTINGS) { vm.show(Screen.SETTINGS) }
         }
         Box(Modifier.fillMaxSize()) {
             Crossfade(targetState = screen, label = "screen") { s ->
@@ -122,12 +129,16 @@ fun AppRoot(vm: MainViewModel) {
                     Screen.HOME -> HomeScreen(vm, roots)
                     Screen.BROWSER -> BrowserScreen(vm)
                     Screen.DRIVE -> DriveScreen(vm, drive)
+                    Screen.MAIL -> MailScreen(vm)
+                    Screen.NOTIFICATIONS -> NotificationsScreen(vm)
                     Screen.APPS -> AppsScreen(vm)
                     Screen.TRANSFER -> TransferScreen(vm)
+                    Screen.SETTINGS -> SettingsScreen(vm)
                 }
             }
             MessageBanner(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
             MessageBanner(driveState.message, drive::dismissMessage, Modifier.align(Alignment.BottomCenter))
+            NoticeBanner(latestNotice, Modifier.align(Alignment.TopEnd)) { vm.show(Screen.NOTIFICATIONS) }
         }
     }
 
@@ -182,6 +193,37 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, modifier
             TvIcon(icon)
             Spacer(Modifier.width(14.dp))
             Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+        }
+    }
+}
+
+/**
+ * In-app notification card (top right) for messages from the phone and new mail while the app
+ * is open. Outside the app the same notice appears as an overlay or system notification.
+ */
+@Composable
+private fun NoticeBanner(notice: Notice?, modifier: Modifier, onOpen: () -> Unit) {
+    LaunchedEffect(notice) { if (notice != null) { delay(7000); Notices.dismissLatest() } }
+    AnimatedVisibility(
+        visible = notice != null,
+        enter = fadeIn() + slideInVertically { -it },
+        exit = fadeOut() + slideOutVertically { -it },
+        modifier = modifier.padding(top = 24.dp, end = 24.dp),
+    ) {
+        val n = notice ?: return@AnimatedVisibility
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            colors = SurfaceDefaults.colors(containerColor = Palette.surfaceHigh, contentColor = Palette.text),
+            modifier = Modifier.width(360.dp),
+        ) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
+                Text(
+                    when (n.source) { NoticeSource.PHONE -> "FROM YOUR PHONE"; NoticeSource.MAIL -> "NEW MAIL"; NoticeSource.SYSTEM -> "WOODRUFF PICTURES" },
+                    style = MaterialTheme.typography.labelSmall, color = Palette.accent,
+                )
+                Text(n.title, style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                if (n.body.isNotBlank()) Text(n.body, style = MaterialTheme.typography.bodyMedium, color = Palette.muted, maxLines = 3)
+            }
         }
     }
 }

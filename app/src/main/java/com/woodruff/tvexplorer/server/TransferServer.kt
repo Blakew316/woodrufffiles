@@ -19,7 +19,7 @@ import java.security.SecureRandom
 /**
  * LAN file server behind the "Wireless transfer" screen.
  *
- * Security model: the TV shows a URL containing a random [token] (also as a QR code). Every request
+ * Security model: the TV shows a URL containing the pairing [token] (also as a QR code). Every request
  * must carry it, either as `?k=` on first visit or the cookie set in response. Paths are resolved
  * canonically and must stay inside one of [roots], so `..` or symlinks can't reach app-private data.
  * Uploads stream straight to the destination with no temp copy, because TV internal storage is
@@ -27,13 +27,17 @@ import java.security.SecureRandom
  */
 class TransferServer(
     port: Int,
+    /** Pairing key; persistent (see [PairingKey]) so a bookmarked phone stays connected. */
+    val token: String,
     /** The single-page web UI, loaded from assets/web/index.html. */
     private val page: String,
     private val roots: () -> List<StorageRoot>,
     private val onActivity: (String) -> Unit,
+    /** Extra authenticated routes (notifications, settings, mail, Google sign-in); null = not handled. */
+    private val extra: (IHTTPSession) -> Response? = { null },
+    /** Routes that carry their own proof (Google's OAuth callback checks `state`). */
+    private val public: (IHTTPSession) -> Response? = { null },
 ) : NanoHTTPD(port) {
-
-    val token: String = randomToken()
 
     override fun serve(session: IHTTPSession): Response = try {
         route(session)
@@ -43,15 +47,18 @@ class TransferServer(
         text(Response.Status.INTERNAL_ERROR, e.message ?: "I/O error")
     } catch (e: IllegalArgumentException) {
         text(Response.Status.BAD_REQUEST, e.message ?: "Bad request")
+    } catch (e: Exception) {
+        text(Response.Status.INTERNAL_ERROR, e.message ?: "Something went wrong on the TV")
     }
 
     private fun route(s: IHTTPSession): Response {
+        public(s)?.let { return it }
         val keyParam = s.parameters["k"]?.firstOrNull()
         if (s.uri == "/" && keyParam != null && same(keyParam, token)) {
             // Swap the key in the URL for a cookie so it doesn't linger in browser history.
             return newFixedLengthResponse(Response.Status.REDIRECT_SEE_OTHER, MIME_HTML, "").apply {
                 addHeader("Location", "/")
-                addHeader("Set-Cookie", "tvx=$token; Path=/; HttpOnly; SameSite=Strict")
+                addHeader("Set-Cookie", "tvx=$token; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax")
             }
         }
         if (!authorized(s, keyParam)) {
@@ -78,7 +85,7 @@ class TransferServer(
                 onActivity("Deleted ${f.name}")
                 json(JSONObject().put("ok", true))
             }
-            else -> text(Response.Status.NOT_FOUND, "Not found")
+            else -> extra(s) ?: text(Response.Status.NOT_FOUND, "Not found")
         }
     }
 

@@ -70,7 +70,7 @@ object ThemeSetting {
 }
 
 object Shapes {
-    val card = RoundedCornerShape(18.dp)
+    val card = RoundedCornerShape(22.dp)
     val pill = RoundedCornerShape(50)
 }
 
@@ -117,7 +117,7 @@ fun TvExplorerTheme(content: @Composable () -> Unit) {
             onSurfaceVariant = Palette.muted,
             error = Palette.danger,
         )
-    MaterialTheme(colorScheme = scheme) {
+    MaterialTheme(colorScheme = scheme, typography = AppTypography) {
         // Text placed straight on the backdrop (not inside a Surface) should follow the theme too.
         CompositionLocalProvider(LocalContentColor provides Palette.text, content = content)
     }

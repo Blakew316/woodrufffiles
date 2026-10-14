@@ -192,7 +192,7 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
     ) {
         Column {
             Box(
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)).background(Palette.background),
+                Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Palette.background),
                 contentAlignment = Alignment.Center,
             ) {
                 TvIcon(f.kind.icon(), size = 48.dp, tint = f.kind.color())
@@ -260,8 +260,8 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
             }
             Text(if (setup) "Step 1 of 2" else "Step 2 of 2", color = Palette.accent, style = MaterialTheme.typography.labelLarge)
             Text(
-                if (setup) "Scan the QR code with your phone (on the same Wi-Fi as this TV), then paste the Client ID " +
-                    "and Client secret of your Google Cloud \"Web application\" OAuth client."
+                if (setup) "Scan the QR code with your phone (same Wi-Fi as this TV). It opens Settings, where you paste the Client ID " +
+                    "and Client secret of your Google Cloud \"Web application\" OAuth client. You can also type them in Settings on the TV."
                 else "Scan the QR code with your phone and sign in to Google. Keep the phone on the same Wi-Fi as this TV.",
                 color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
             )

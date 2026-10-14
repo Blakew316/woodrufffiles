@@ -7,23 +7,23 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -40,12 +40,15 @@ import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Qr
 
-/** Starts the LAN server and shows how to reach it from a phone or computer. */
+/**
+ * Pair a phone: the QR code opens the companion web app (files, send-to-TV, settings). The
+ * pairing key is persistent, so a phone that scanned once stays connected.
+ */
 @Composable
 fun TransferScreen(vm: MainViewModel) {
     val context = LocalContext.current
     val state by TransferService.state.collectAsStateWithLifecycle()
-    // The ongoing notification needs this on Android 13+; the server works either way.
+    // The ongoing notification needs this on Android 13+; the connection works either way.
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         TransferService.start(context)
     }
@@ -53,7 +56,7 @@ fun TransferScreen(vm: MainViewModel) {
         if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         else TransferService.start(context)
     }
-
+    LaunchedEffect(Unit) { if (!state.running) TransferService.start(context) }
     BackHandler { vm.show(Screen.HOME) }
 
     // QR first at a fixed size, text gets the rest: TVs give apps only ~960x540dp.
@@ -62,37 +65,38 @@ fun TransferScreen(vm: MainViewModel) {
         horizontalArrangement = Arrangement.spacedBy(32.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val url = state.url
-        if (state.running && url != null) {
-            val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
-            Image(
-                qr, contentDescription = "QR code for $url",
-                modifier = Modifier.size(250.dp).clip(RoundedCornerShape(16.dp)).background(Color.White),
-            )
+        Box(Modifier.size(250.dp).clip(RoundedCornerShape(20.dp)).background(Color.White), contentAlignment = Alignment.Center) {
+            val url = state.url
+            if (state.running && url != null) {
+                val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
+                Image(qr, contentDescription = "QR code to connect your phone", modifier = Modifier.fillMaxSize())
+            } else {
+                Text(if (state.error != null) "Not connected" else "Starting…", color = Color.Black)
+            }
         }
         Column(
             Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
         ) {
-            Text("Send files to this TV", style = MaterialTheme.typography.headlineSmall)
+            Text("Connect your phone", style = MaterialTheme.typography.headlineLarge)
+            Text(
+                "Scan once with your iPhone or Android camera. The page it opens works like an app: add it to your Home Screen to keep it.",
+                color = Palette.muted, style = MaterialTheme.typography.bodyLarge,
+            )
             if (state.running) {
-                Text("Scan the QR code with your phone, or open this address in a browser:", color = Palette.muted)
-                Text(state.url.orEmpty(), style = MaterialTheme.typography.bodyLarge, color = Palette.accent)
-                Text(
-                    "On an iPhone, Upload files → Browse picks from iCloud Drive or your Photo Library. " +
-                        "The address includes a private key; stopping the server invalidates it.",
-                    color = Palette.muted, style = MaterialTheme.typography.bodySmall,
-                )
-                ToolButton(Icons.Filled.Stop, "Stop server", { TransferService.stop(context) })
-                state.log.take(5).forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, maxLines = 1) }
+                Text("From your phone you can:", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 6.dp))
+                listOf(
+                    "Send photos, videos and files, including from iCloud Drive",
+                    "Pop up a message on the TV, or play a video link",
+                    "Press Play on any video stored on the TV",
+                    "Enter Google keys and mail accounts without the remote",
+                ).forEach { Text("•  $it", style = MaterialTheme.typography.bodyMedium) }
+                Text("Or type this address on a computer:", color = Palette.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+                Text(state.url.orEmpty(), color = Palette.accent, style = MaterialTheme.typography.bodyMedium)
+                state.log.take(4).forEach { Text("· $it", color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
             } else {
-                Text(
-                    "Use any phone or computer on the same Wi-Fi. On an iPhone, the upload button can pick straight from " +
-                        "iCloud Drive and your Photo Library. Uploads go to the folder you choose, including USB drives.",
-                    color = Palette.muted,
-                )
-                ToolButton(Icons.Filled.PlayArrow, "Start server", start)
                 state.error?.let { Text(it, color = Palette.danger) }
+                ToolButton(Icons.Filled.PlayArrow, "Turn on phone connection", start)
             }
         }
     }

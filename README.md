@@ -7,11 +7,26 @@ None of its code is reused: the original no longer builds, because it depends on
 
 ## Features
 
+- **Settings** (side menu): Google Drive keys, mail accounts, theme, pop-ups and phone pairing.
+  Secrets are stored **encrypted** with a key in the Android Keystore. They persist across restarts and updates,
+  and you can type them on the TV or paste them from your phone.
+- **Mail**: iCloud Mail, Gmail, Yahoo or any IMAP account, using an app-specific password. There's an inbox and a reader,
+  and new mail shows up as a notification.
+- **Phone connection**: scan the QR code once (the pairing key persists). The page it opens has three tabs:
+  - **Files**: upload, download, delete, and *Play on TV*.
+  - **Send to TV**: pop up a message, or play/open a link.
+  - **Settings**: Google keys and mail accounts.
+
+  An iPhone **Shortcut** can POST to `/api/notify?k=…` (the URL is shown on that tab) for automations like "when I get home".
+- **Notifications**: messages from the phone and new mail appear as a pop-up, even over other apps once
+  "Pop-ups over other apps" is allowed in Settings. They're also kept in the Notifications screen.
+- **Typeface**: Inter, the closest open-license match to Apple's San Francisco font, with Apple-style tracking.
+
 - **Google Drive**: stream videos and music (with seeking), view photos, or download files to the TV. Read-only access.
   You sign in on your phone by scanning a QR code; it needs a one-time setup, described [below](#connect-google-drive-one-time-setup).
 - **Continue watching**: playback resumes where you stopped, and Home shows what you're partway through.
-- **iCloud**: Apple has no sign-in that Android apps can use. Use **Send files** instead: on an iPhone,
-  the upload button picks straight from iCloud Drive and the Photo Library.
+- **iCloud**: iCloud Mail works through Mail (Apple supports IMAP with an app-specific password).
+  iCloud Drive has no supported sign-in for Android apps, so files come from the iPhone through **Phone → Files → Upload → Browse**.
 
 - **Browse everything**: internal storage, SD cards and USB drives. The list refreshes when a drive is plugged in.
 - **Library shortcuts**: Videos, Music, Pictures, Documents, APK files, Archives and Downloads, across all drives.

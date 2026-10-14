@@ -2,155 +2,261 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Woodruff">
 <title>Woodruff Pictures</title>
 <style>
-  :root { --bg:#f7f5f0; --card:#fff; --text:#1f2328; --muted:#656d76; --line:#e2ddd2; --accent:#a51d24; --on-accent:#fff; --danger:#cf222e; }
+  :root { --bg:#f2f2f7; --card:#fff; --text:#1c1c1e; --muted:#6e6e73; --line:#e5e5ea; --accent:#c4232b; --on-accent:#fff; --danger:#d1242f; --ok:#1e9e63; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#080b10; --card:#121822; --text:#f2f4f7; --muted:#93a1b4; --line:#2a3544; --accent:#e5484d; --on-accent:#ffffff; --danger:#ff7b72; }
+    :root { --bg:#000; --card:#1c1c1e; --text:#f2f2f7; --muted:#98989f; --line:#2c2c2e; --accent:#ff5257; --on-accent:#fff; --danger:#ff6961; --ok:#30d158; }
   }
-  * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
-  header { padding:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:2; }
-  h1 { font-size:18px; margin:0 auto 0 0; }
-  select, button { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 12px; cursor:pointer; }
-  button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); font-weight:600; }
-  button.danger { color:var(--danger); }
-  main { max-width:960px; margin:0 auto; padding:16px; }
-  #path { color:var(--muted); word-break:break-all; margin:0 0 12px; }
-  #drop { border:2px dashed var(--line); border-radius:12px; padding:20px; text-align:center; color:var(--muted); margin-bottom:16px; }
-  #drop.over { border-color:var(--accent); color:var(--accent); }
-  ul { list-style:none; padding:0; margin:0; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-  li { display:flex; align-items:center; gap:12px; padding:10px 14px; border-top:1px solid var(--line); }
-  li:first-child { border-top:0; }
-  li .name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  li .name a { color:inherit; text-decoration:none; }
-  li .name a:hover { color:var(--accent); }
-  li .meta { color:var(--muted); font-size:13px; white-space:nowrap; }
-  li .acts { display:flex; gap:6px; }
-  li .acts button, li .acts a { font-size:13px; padding:4px 10px; }
-  li .acts a { border:1px solid var(--line); border-radius:8px; color:inherit; text-decoration:none; }
-  .uploads { margin-bottom:16px; }
-  .up { display:flex; gap:10px; align-items:center; font-size:13px; margin:4px 0; }
-  .up .bar { flex:1; height:6px; background:var(--line); border-radius:3px; overflow:hidden; }
-  .up .bar i { display:block; height:100%; background:var(--accent); width:0; }
-  .err { color:var(--danger); }
-  @media (max-width:600px) { li .meta { display:none; } }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font:17px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif; background:var(--bg); color:var(--text); padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
+  header { padding:calc(18px + env(safe-area-inset-top)) 20px 8px; }
+  h1 { font-size:32px; font-weight:700; letter-spacing:-0.5px; margin:0; }
+  h2 { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:26px 20px 8px; }
+  .sub { color:var(--muted); margin:2px 0 0; font-size:15px; }
+  .group { background:var(--card); border-radius:14px; margin:0 16px; overflow:hidden; }
+  .row { display:flex; align-items:center; gap:12px; padding:13px 16px; border-top:0.5px solid var(--line); min-height:48px; }
+  .row:first-child { border-top:0; }
+  .row .grow { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .meta { color:var(--muted); font-size:14px; white-space:nowrap; }
+  .row a { color:inherit; text-decoration:none; }
+  label.field { display:block; padding:10px 16px; border-top:0.5px solid var(--line); }
+  label.field:first-child { border-top:0; }
+  label.field span { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
+  input, select, textarea { width:100%; font:inherit; color:var(--text); background:transparent; border:0; outline:0; padding:2px 0; }
+  textarea { resize:vertical; min-height:70px; }
+  .btn { display:block; width:calc(100% - 32px); margin:12px 16px 0; padding:14px; border:0; border-radius:12px; font:inherit; font-weight:600; background:var(--accent); color:var(--on-accent); }
+  .btn.secondary { background:var(--card); color:var(--accent); }
+  .small { font:inherit; font-size:14px; padding:6px 12px; border-radius:8px; border:0; background:var(--bg); color:var(--accent); font-weight:600; }
+  .small.danger { color:var(--danger); }
+  .note { color:var(--muted); font-size:13px; margin:8px 20px 0; }
+  .ok { color:var(--ok); } .err { color:var(--danger); }
+  nav { position:fixed; left:0; right:0; bottom:0; display:flex; background:color-mix(in srgb, var(--card) 85%, transparent); backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px); border-top:0.5px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
+  nav button { flex:1; border:0; background:none; font:inherit; font-size:11px; color:var(--muted); padding:8px 0 6px; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  nav button svg { width:26px; height:26px; }
+  nav button.on { color:var(--accent); }
+  section { display:none; } section.on { display:block; }
+  #drop.over { outline:2px dashed var(--accent); }
+  .bar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; margin-top:6px; } .bar i { display:block; height:100%; width:0; background:var(--accent); }
+  .toast { position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:20px; font-size:15px; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; }
+  .toast.show { opacity:1; }
+  code { font-size:13px; word-break:break-all; }
 </style>
 </head>
 <body>
-<header>
-  <h1><span style="color:var(--accent)">&#9654;</span> Woodruff Pictures</h1>
-  <select id="roots" aria-label="Storage"></select>
-  <button id="up">Up</button>
-  <button id="mkdir">New folder</button>
-  <button id="pick" class="primary">Upload files</button>
+<header><h1 id="title">Files</h1><p class="sub" id="subtitle">Woodruff Pictures on your TV</p></header>
+
+<!-- FILES -->
+<section id="files">
+  <div class="group">
+    <div class="row"><select id="roots" aria-label="Storage"></select></div>
+    <div class="row"><span class="grow meta" id="path"></span><button class="small" id="up">Up</button><button class="small" id="mkdir">New folder</button></div>
+  </div>
+  <button class="btn" id="pick">Upload files</button>
   <input id="file" type="file" multiple hidden>
-</header>
-<main>
-  <p id="path"></p>
-  <div id="drop">Drop files here to send them to the TV.<br><small>On iPhone: tap <b>Upload files</b>, then <b>Browse</b> for iCloud Drive or <b>Photo Library</b>.</small></div>
-  <div class="uploads" id="uploads"></div>
-  <ul id="list"></ul>
-</main>
+  <p class="note" id="drop">On iPhone, choose <b>Browse</b> for iCloud Drive or <b>Photo Library</b> for photos and videos. On a computer you can drop files onto this page.</p>
+  <div id="uploads"></div>
+  <h2>Contents</h2>
+  <div class="group" id="list"></div>
+</section>
+
+<!-- SEND -->
+<section id="send">
+  <h2>Show a message on the TV</h2>
+  <div class="group">
+    <label class="field"><span>Title</span><input id="n-title" placeholder="Dinner's ready"></label>
+    <label class="field"><span>Message</span><textarea id="n-body" placeholder="Optional"></textarea></label>
+  </div>
+  <button class="btn" id="n-send">Send to TV</button>
+  <h2>Play or open a link on the TV</h2>
+  <div class="group">
+    <label class="field"><span>Web address</span><input id="o-url" type="url" inputmode="url" autocapitalize="off" placeholder="https://…/movie.mp4"></label>
+  </div>
+  <button class="btn" id="o-send">Open on TV</button>
+  <p class="note">Video and audio links play in the TV's built-in player; other links open in an app on the TV if there is one.</p>
+  <h2>iPhone Shortcut</h2>
+  <div class="group"><div class="row"><span class="grow" style="white-space:normal;font-size:15px">
+    In the Shortcuts app, add <b>Get Contents of URL</b>. Set it to <b>POST</b> to the address below, with a JSON body containing <code>title</code> and <code>body</code>. Run it from Siri, a button or an automation, for example "when I arrive home".
+  </span></div><div class="row"><code id="shortcut-url"></code></div></div>
+</section>
+
+<!-- SETTINGS -->
+<section id="settings">
+  <h2>Google Drive</h2>
+  <div class="group">
+    <div class="row"><span class="grow">Status</span><span class="meta" id="g-status">…</span></div>
+    <label class="field"><span>Client ID</span><input id="g-id" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1234…apps.googleusercontent.com"></label>
+    <label class="field"><span>Client secret</span><input id="g-secret" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="GOCSPX-… (leave blank to keep the saved one)"></label>
+  </div>
+  <button class="btn" id="g-save">Save Google keys</button>
+  <p class="note">From Google Cloud → Credentials → your <b>Web application</b> OAuth client. Its redirect URI must be <code id="g-redirect"></code>. The keys are stored encrypted on the TV and kept across restarts.</p>
+
+  <h2>Mail accounts</h2>
+  <div class="group" id="m-list"></div>
+  <h2>Add a mail account</h2>
+  <div class="group">
+    <label class="field"><span>Provider</span><select id="m-provider"></select></label>
+    <label class="field"><span>Email address</span><input id="m-email" type="email" autocapitalize="off" autocomplete="off"></label>
+    <label class="field"><span>App-specific password</span><input id="m-pass" type="password" autocapitalize="off" autocomplete="off"></label>
+    <label class="field" id="m-hostrow" hidden><span>IMAP server</span><input id="m-host" autocapitalize="off" placeholder="imap.example.com"></label>
+  </div>
+  <p class="note" id="m-help"></p>
+  <button class="btn" id="m-add">Add account</button>
+</section>
+
+<nav>
+  <button data-tab="files"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>Files</button>
+  <button data-tab="send"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 3 10.5l7 2.5 2.5 7L21 3z"/></svg>Send to TV</button>
+  <button data-tab="settings"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.5 7.5 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.5 7.5 0 0 0 1.7-1l2.5 1 2-3.4L19.4 13zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>Settings</button>
+</nav>
+<div class="toast" id="toast"></div>
+
 <script>
 (function () {
-  var cwd = null, parent = null;
-  var el = function (id) { return document.getElementById(id); };
+  var $ = function (id) { return document.getElementById(id); };
+  var cwd = null, parent = null, settings = null;
+  var titles = { files: ['Files', 'Browse and send files to your TV'], send: ['Send to TV', 'Messages, links and shortcuts'], settings: ['Settings', 'Saved on the TV, encrypted'] };
 
-  function fmt(b) {
-    if (b < 1024) return b + ' B';
-    var u = ['KB', 'MB', 'GB', 'TB'], i = -1;
-    do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
-    return (b >= 100 ? b.toFixed(0) : b.toFixed(1)) + ' ' + u[i];
-  }
+  function toast(text, bad) { var t = $('toast'); t.textContent = text; t.className = 'toast show'; t.style.background = bad ? 'var(--danger)' : ''; clearTimeout(toast.h); toast.h = setTimeout(function () { t.className = 'toast'; }, 2600); }
+  function fmt(b) { if (b < 1024) return b + ' B'; var u = ['KB','MB','GB','TB'], i = -1; do { b /= 1024; i++; } while (b >= 1024 && i < 3); return (b >= 100 ? b.toFixed(0) : b.toFixed(1)) + ' ' + u[i]; }
+  function q(s) { return encodeURIComponent(s); }
   function api(url, opts) {
     return fetch(url, opts).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.statusText); });
       return r.json();
     });
   }
-  function q(path) { return encodeURIComponent(path); }
+  function post(url, data) { return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}) }); }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
+  // ---- Tabs ---------------------------------------------------------------------------
+  function show(tab) {
+    if (!titles[tab]) tab = 'files';
+    document.querySelectorAll('section').forEach(function (s) { s.className = s.id === tab ? 'on' : ''; });
+    document.querySelectorAll('nav button').forEach(function (b) { b.className = b.dataset.tab === tab ? 'on' : ''; });
+    $('title').textContent = titles[tab][0]; $('subtitle').textContent = titles[tab][1];
+    if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
+    if (tab === 'settings' || tab === 'send') loadSettings();
+  }
+  document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { show(b.dataset.tab); }; });
+
+  // ---- Files --------------------------------------------------------------------------
   function load(path) {
     api('/api/list?path=' + q(path)).then(function (d) {
       cwd = d.path; parent = d.parent;
-      el('path').textContent = cwd;
-      el('up').disabled = !parent;
-      var list = el('list'); list.innerHTML = '';
-      if (!d.files.length) { list.innerHTML = '<li class="meta">This folder is empty</li>'; }
+      $('path').textContent = cwd; $('up').disabled = !parent;
+      var list = $('list'); list.innerHTML = '';
+      if (!d.files.length) list.appendChild(el('div', 'row meta', 'This folder is empty'));
       d.files.forEach(function (f) {
-        var li = document.createElement('li');
-        var name = document.createElement('span'); name.className = 'name';
-        var a = document.createElement('a');
-        a.textContent = (f.dir ? '📁 ' : '📄 ') + f.name;
-        if (f.dir) { a.href = '#'; a.onclick = function (e) { e.preventDefault(); load(f.path); }; }
+        var row = el('div', 'row');
+        var name = el('span', 'grow');
+        var a = el('a', null, (f.dir ? '📁 ' : '') + f.name);
+        if (f.dir) { a.href = '#files'; a.onclick = function (e) { e.preventDefault(); load(f.path); }; }
         else { a.href = '/api/download?path=' + q(f.path); a.setAttribute('download', f.name); }
-        name.appendChild(a);
-        var meta = document.createElement('span'); meta.className = 'meta';
-        meta.textContent = (f.dir ? '' : fmt(f.size) + ' · ') + new Date(f.modified).toLocaleString();
-        var acts = document.createElement('span'); acts.className = 'acts';
-        var del = document.createElement('button'); del.className = 'danger'; del.textContent = 'Delete';
+        name.appendChild(a); row.appendChild(name);
+        if (!f.dir) row.appendChild(el('span', 'meta', fmt(f.size)));
+        if (!f.dir && /\.(mp4|mkv|webm|avi|mov|m4v|ts|mp3|flac|m4a|aac|ogg|wav)$/i.test(f.name)) {
+          var play = el('button', 'small', 'Play on TV');
+          play.onclick = function () { post('/api/play', { path: f.path }).then(function () { toast('Playing on the TV'); }, err); };
+          row.appendChild(play);
+        }
+        var del = el('button', 'small danger', 'Delete');
         del.onclick = function () {
           if (!confirm('Delete "' + f.name + '" from the TV?' + (f.dir ? ' Everything inside it will be deleted too.' : ''))) return;
-          api('/api/delete?path=' + q(f.path), { method: 'POST' }).then(function () { load(cwd); }, alertErr);
+          api('/api/delete?path=' + q(f.path), { method: 'POST' }).then(function () { load(cwd); }, err);
         };
-        acts.appendChild(del);
-        li.appendChild(name); li.appendChild(meta); li.appendChild(acts);
-        list.appendChild(li);
+        row.appendChild(del);
+        list.appendChild(row);
       });
-    }, alertErr);
+    }, err);
   }
-  function alertErr(e) { alert(e.message || e); }
-
+  function err(e) { toast(e.message || String(e), true); }
   function upload(files) {
-    var queue = Array.prototype.slice.call(files);
-    var target = cwd;
-    function next() {
-      var f = queue.shift();
-      if (!f) { load(cwd); return; }
-      var row = document.createElement('div'); row.className = 'up';
-      var label = document.createElement('span'); label.textContent = f.name;
-      var bar = document.createElement('div'); bar.className = 'bar'; var fill = document.createElement('i'); bar.appendChild(fill);
-      var pct = document.createElement('span'); pct.textContent = '0%';
-      row.appendChild(label); row.appendChild(bar); row.appendChild(pct);
-      el('uploads').appendChild(row);
+    var queue = Array.prototype.slice.call(files), target = cwd;
+    (function next() {
+      var f = queue.shift(); if (!f) { load(cwd); return; }
+      var box = el('div', 'group'); box.style.margin = '10px 16px 0';
+      var row = el('div', 'row'); var name = el('span', 'grow', f.name); var pct = el('span', 'meta', '0%');
+      row.appendChild(name); row.appendChild(pct); box.appendChild(row);
+      var bar = el('div', 'bar'); var fill = el('i'); bar.appendChild(fill); bar.style.margin = '0 16px 10px'; box.appendChild(bar);
+      $('uploads').appendChild(box);
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload?path=' + q(target) + '&name=' + q(f.name));
-      xhr.upload.onprogress = function (e) {
-        if (!e.lengthComputable) return;
-        var p = Math.round(e.loaded * 100 / e.total);
-        fill.style.width = p + '%'; pct.textContent = p + '%';
-      };
-      xhr.onload = function () {
-        if (xhr.status === 200) { pct.textContent = 'Done'; setTimeout(function () { row.remove(); }, 3000); }
-        else { pct.textContent = 'Failed: ' + xhr.responseText; pct.className = 'err'; }
-        next();
-      };
-      xhr.onerror = function () { pct.textContent = 'Connection lost'; pct.className = 'err'; next(); };
+      xhr.upload.onprogress = function (e) { if (e.lengthComputable) { var p = Math.round(e.loaded * 100 / e.total); fill.style.width = p + '%'; pct.textContent = p + '%'; } };
+      xhr.onload = function () { if (xhr.status === 200) { pct.textContent = 'Done'; pct.className = 'meta ok'; setTimeout(function () { box.remove(); }, 2500); } else { pct.textContent = 'Failed'; pct.className = 'meta err'; } next(); };
+      xhr.onerror = function () { pct.textContent = 'Connection lost'; pct.className = 'meta err'; next(); };
       xhr.send(f);
-    }
-    next();
+    })();
   }
-
-  el('up').onclick = function () { if (parent) load(parent); };
-  el('mkdir').onclick = function () {
-    var name = prompt('Folder name');
-    if (name) api('/api/mkdir?path=' + q(cwd) + '&name=' + q(name), { method: 'POST' }).then(function () { load(cwd); }, alertErr);
-  };
-  el('pick').onclick = function () { el('file').click(); };
-  el('file').onchange = function () { upload(this.files); this.value = ''; };
-  el('roots').onchange = function () { load(this.value); };
-  var drop = el('drop');
-  ['dragenter', 'dragover'].forEach(function (t) { document.addEventListener(t, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
-  ['dragleave', 'drop'].forEach(function (t) { document.addEventListener(t, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  $('up').onclick = function () { if (parent) load(parent); };
+  $('mkdir').onclick = function () { var n = prompt('Folder name'); if (n) api('/api/mkdir?path=' + q(cwd) + '&name=' + q(n), { method: 'POST' }).then(function () { load(cwd); }, err); };
+  $('pick').onclick = function () { $('file').click(); };
+  $('file').onchange = function () { upload(this.files); this.value = ''; };
+  $('roots').onchange = function () { load(this.value); };
+  ['dragenter', 'dragover'].forEach(function (t) { document.addEventListener(t, function (e) { e.preventDefault(); $('drop').classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (t) { document.addEventListener(t, function (e) { e.preventDefault(); $('drop').classList.remove('over'); }); });
   document.addEventListener('drop', function (e) { if (e.dataTransfer.files.length) upload(e.dataTransfer.files); });
 
+  // ---- Send ---------------------------------------------------------------------------
+  $('n-send').onclick = function () {
+    var t = $('n-title').value.trim(); if (!t) return toast('Write a title first', true);
+    post('/api/notify', { title: t, body: $('n-body').value.trim() }).then(function () { toast('Shown on the TV'); $('n-title').value = ''; $('n-body').value = ''; }, err);
+  };
+  $('o-send').onclick = function () {
+    post('/api/open', { url: $('o-url').value.trim() }).then(function () { toast('Sent to the TV'); }, err);
+  };
+
+  // ---- Settings -----------------------------------------------------------------------
+  function loadSettings() { api('/api/settings').then(renderSettings, err); }
+  function renderSettings(s) {
+    settings = s;
+    $('shortcut-url').textContent = s.notifyUrl;
+    var g = s.google;
+    $('g-status').textContent = g.connected ? 'Signed in' : g.hasSecret ? 'Keys saved, sign in on the TV' : 'Not set up';
+    $('g-status').className = 'meta ' + (g.connected ? 'ok' : '');
+    if (!$('g-id').value) $('g-id').value = g.clientId || '';
+    $('g-redirect').textContent = g.redirectUri;
+    var ml = $('m-list'); ml.innerHTML = '';
+    if (!s.mail.length) ml.appendChild(el('div', 'row meta', 'No mail accounts yet'));
+    s.mail.forEach(function (m) {
+      var row = el('div', 'row'); row.appendChild(el('span', 'grow', m.email)); row.appendChild(el('span', 'meta', m.provider));
+      var del = el('button', 'small danger', 'Remove');
+      del.onclick = function () { if (confirm('Remove ' + m.email + ' from the TV?')) post('/api/mail/delete', { id: m.id }).then(renderSettings, err); };
+      row.appendChild(del); ml.appendChild(row);
+    });
+    var sel = $('m-provider');
+    if (!sel.options.length) {
+      s.providers.forEach(function (p) { var o = el('option', null, p.label); o.value = p.id; sel.appendChild(o); });
+      sel.onchange = providerHelp; providerHelp();
+    }
+  }
+  function providerHelp() {
+    var p = settings.providers.filter(function (x) { return x.id === $('m-provider').value; })[0];
+    $('m-help').textContent = p ? p.help : '';
+    $('m-hostrow').hidden = !(p && p.custom);
+  }
+  $('g-save').onclick = function () {
+    var id = $('g-id').value.trim(), secret = $('g-secret').value.trim();
+    if (!secret && settings && settings.google.hasSecret && id === settings.google.clientId) return toast('Nothing changed');
+    post('/api/settings/google', { client_id: id, client_secret: secret }).then(function (s) { $('g-secret').value = ''; renderSettings(s); toast('Saved. Look at the TV to sign in'); }, err);
+  };
+  $('m-add').onclick = function () {
+    var b = $('m-add'); b.disabled = true; b.textContent = 'Checking…';
+    post('/api/mail', { provider: $('m-provider').value, email: $('m-email').value, password: $('m-pass').value, host: $('m-host').value })
+      .then(function (s) { $('m-email').value = ''; $('m-pass').value = ''; renderSettings(s); toast('Mail account added'); }, err)
+      .then(function () { b.disabled = false; b.textContent = 'Add account'; });
+  };
+
+  // ---- Start --------------------------------------------------------------------------
   api('/api/roots').then(function (roots) {
-    var sel = el('roots');
-    roots.forEach(function (r) { var o = document.createElement('option'); o.value = r.path; o.textContent = r.name; sel.appendChild(o); });
+    var sel = $('roots');
+    roots.forEach(function (r) { var o = el('option', null, r.name); o.value = r.path; sel.appendChild(o); });
     if (roots.length) load(roots[0].path);
-  }, alertErr);
+  }, err);
+  show((location.hash || '#files').slice(1));
 })();
 </script>
 </body>

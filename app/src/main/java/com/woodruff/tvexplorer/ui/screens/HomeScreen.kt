@@ -29,7 +29,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Usb
-import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.PhoneIphone
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,7 +102,8 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
 
     val cloud = listOf(
         Tile("Google Drive", "Stream & download", Icons.Filled.AddToDrive, Palette.drive) { vm.show(Screen.DRIVE) },
-        Tile("iCloud", "Send from iPhone", Icons.Filled.Cloud, Palette.icloud) { showICloud = true },
+        Tile("iCloud", "Mail & files from iPhone", Icons.Filled.Cloud, Palette.icloud) { showICloud = true },
+        Tile("Mail", "iCloud, Gmail & more", Icons.Filled.Email, Palette.accent) { vm.show(Screen.MAIL) },
     )
     val library = listOf(
         FileKind.VIDEO to "Videos", FileKind.AUDIO to "Music", FileKind.IMAGE to "Photos",
@@ -108,8 +111,9 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     ).map { (kind, title) -> Tile(title, null, kind.icon(), kind.color()) { vm.open(Location.Category(kind, title)) } } +
         Tile("Downloads", null, Icons.Filled.Download, Palette.accent) { vm.openDownloads() }
     val tools = listOf(
-        Tile("Send files", "From phone or computer", Icons.Filled.Wifi, Palette.accent) { vm.show(Screen.TRANSFER) },
+        Tile("Phone", "Send files, messages, links", Icons.Filled.PhoneIphone, Palette.accent) { vm.show(Screen.TRANSFER) },
         Tile("Apps", "Open, back up, uninstall", Icons.Filled.Apps, Palette.apk) { vm.show(Screen.APPS) },
+        Tile("Settings", "Keys, accounts, theme", Icons.Filled.Settings, Palette.muted) { vm.show(Screen.SETTINGS) },
     )
 
     LazyColumn(
@@ -197,7 +201,7 @@ private fun ContinueCard(r: RecentItem, onClick: () -> Unit, onLongClick: () -> 
     ) {
         Column {
             Box(
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)).background(Palette.background),
+                Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Palette.background),
                 contentAlignment = Alignment.Center,
             ) {
                 TvIcon(if (ref is MediaRef.Drive) Icons.Filled.AddToDrive else FileKind.VIDEO.icon(), size = 48.dp, tint = if (ref is MediaRef.Drive) Palette.drive else Palette.video)
@@ -282,15 +286,16 @@ private fun TileCard(tile: Tile, wide: Boolean = false) {
  */
 @Composable
 private fun ICloudDialog(onDismiss: () -> Unit, onStart: () -> Unit) {
-    DialogFrame("Get files from iCloud", onDismiss, width = 640) {
+    DialogFrame("iCloud on your TV", onDismiss, width = 640) {
         Text(
-            "Apple doesn't let Android apps sign in to iCloud, but your iPhone or iPad can send anything from iCloud straight to this TV:",
+            "iCloud Mail: add it in Settings → Mail with an app-specific password from account.apple.com.\n\n" +
+                "iCloud Drive and Photos: Apple doesn't offer Android apps a way to sign in to iCloud Drive, so send files from your iPhone or iPad:",
             color = Palette.muted,
         )
         listOf(
-            "1.  Choose Start below, then turn on Send files.",
-            "2.  On your iPhone, scan the QR code with the Camera app to open the page in Safari.",
-            "3.  Tap Upload files, then Browse to pick from iCloud Drive, or Photo Library for your photos and videos.",
+            "1.  Choose Start below to show the Phone QR code.",
+            "2.  Scan it with the iPhone Camera app (once: it stays paired).",
+            "3.  In Files, tap Upload files, then Browse for iCloud Drive or Photo Library for your photos and videos.",
             "4.  Files land in the folder you picked, ready to play here.",
         ).forEach { Text(it) }
         ButtonRow {

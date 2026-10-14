@@ -113,7 +113,7 @@ fun FileTile(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+                    .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
                     .background(Palette.background),
                 contentAlignment = Alignment.Center,
             ) {

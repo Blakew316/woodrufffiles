@@ -12,8 +12,8 @@ android {
         applicationId = "com.woodruff.shows"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.4.0"
+        versionCode = 7
+        versionName = "1.5.0"
     }
 
     // One fixed key for every build, so updates install over the previous version and the
@@ -52,7 +52,7 @@ android {
         buildConfig = true
     }
     packaging {
-        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/LICENSE.md", "META-INF/NOTICE.md", "META-INF/LICENSE.txt", "META-INF/NOTICE.txt")
     }
     lint {
         abortOnError = false
@@ -76,6 +76,8 @@ dependencies {
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
     implementation(libs.media3.datasource)
+    implementation(libs.android.mail)
+    implementation(libs.android.activation)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.core)

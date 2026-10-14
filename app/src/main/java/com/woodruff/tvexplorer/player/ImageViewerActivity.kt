@@ -91,7 +91,7 @@ class ImageViewerActivity : ComponentActivity() {
                         .data(
                             when {
                                 ref is MediaRef.Local -> File(ref.path)
-                                driveToken == null -> null // wait for the token rather than fire a request that 401s
+                                ref.needsDriveAuth && driveToken == null -> null // wait for the token rather than fire a request that 401s
                                 else -> ref.uri.toString()
                             },
                         )

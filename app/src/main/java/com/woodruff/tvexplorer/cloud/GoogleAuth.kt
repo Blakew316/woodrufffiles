@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.cloud
 
 import android.content.Context
 import android.util.Base64
+import com.woodruff.tvexplorer.settings.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -19,7 +20,8 @@ import java.security.SecureRandom
  * "Error 400: invalid_request"), and the TV "device code" flow doesn't allow reading existing
  * Drive files. So the TV shows a QR code; the phone signs in with Google; Google redirects to a
  * tiny static page on GitHub Pages ([REDIRECT_URI], from docs/oauth.html), which forwards the
- * one-time code over the LAN to [SignInServer] on the TV. The TV then swaps it for tokens.
+ * one-time code over the LAN to the phone-connection server on the TV (see CompanionRoutes),
+ * which swaps it for tokens.
  *
  * Uses the owner's own "Web application" OAuth client. The client ID/secret are entered once
  * from the phone and stored with the tokens in this app's private storage.
@@ -28,17 +30,42 @@ object GoogleAuth {
     const val REDIRECT_URI = "https://blakew316.github.io/woodrufffiles/oauth.html"
     private const val SCOPE = "https://www.googleapis.com/auth/drive.readonly"
     private const val TOKEN_URL = "https://oauth2.googleapis.com/token"
-    private const val PREFS = "google_oauth"
+    // Everything lives encrypted in SecretStore (see Settings). Key names:
+    const val K_CLIENT_ID = "google.client_id"
+    const val K_CLIENT_SECRET = "google.client_secret"
+    private const val K_REFRESH = "google.refresh"
+    private const val K_ACCESS = "google.access"
+    private const val K_EXPIRES = "google.expires"
 
-    private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun s(c: Context) = SecretStore.get(c)
 
-    fun isConfigured(c: Context) = prefs(c).getString("client_id", null) != null && prefs(c).getString("client_secret", null) != null
-    fun isConnected(c: Context) = prefs(c).getString("refresh", null) != null
-    fun clientId(c: Context): String? = prefs(c).getString("client_id", null)
+    /** One-time move from the 1.2–1.4 plain prefs into encrypted storage, so nobody re-enters keys. */
+    fun migrate(c: Context) {
+        val old = c.getSharedPreferences("google_oauth", Context.MODE_PRIVATE)
+        if (old.all.isEmpty()) return
+        val st = s(c)
+        old.getString("client_id", null)?.let { st.put(K_CLIENT_ID, it) }
+        old.getString("client_secret", null)?.let { st.put(K_CLIENT_SECRET, it) }
+        old.getString("refresh", null)?.let { st.put(K_REFRESH, it) }
+        old.edit().clear().apply()
+    }
+
+    fun isConfigured(c: Context) = !clientId(c).isNullOrBlank() && !s(c).get(K_CLIENT_SECRET).isNullOrBlank()
+    fun isConnected(c: Context) = s(c).get(K_REFRESH) != null
+    fun clientId(c: Context): String? = s(c).get(K_CLIENT_ID)
 
     fun saveClient(c: Context, id: String, secret: String) {
-        prefs(c).edit().putString("client_id", id.trim()).putString("client_secret", secret.trim()).remove("refresh").remove("access").apply()
+        val st = s(c)
+        val changed = st.get(K_CLIENT_ID) != id.trim() || st.get(K_CLIENT_SECRET) != secret.trim()
+        st.put(K_CLIENT_ID, id.trim())
+        st.put(K_CLIENT_SECRET, secret.trim())
+        // Tokens belong to a client; a different client means signing in again.
+        if (changed) st.remove(K_REFRESH, K_ACCESS, K_EXPIRES)
     }
+
+    /** Separate setters for editing one value at a time on the TV. */
+    fun saveClientId(c: Context, id: String) = saveClient(c, id, s(c).get(K_CLIENT_SECRET).orEmpty())
+    fun saveClientSecret(c: Context, secret: String) = saveClient(c, clientId(c).orEmpty(), secret)
 
     /** A sign-in attempt: [state] ties the phone's callback to this TV; [verifier] is the PKCE secret. */
     data class Attempt(val state: String, val verifier: String, val authUrl: String)
@@ -68,18 +95,18 @@ object GoogleAuth {
 
     /** Swaps the one-time code for tokens and stores them. */
     suspend fun exchange(c: Context, code: String, attempt: Attempt) = withContext(Dispatchers.IO) {
-        val p = prefs(c)
+        val st = s(c)
         val json = post(
             "code" to code,
-            "client_id" to (p.getString("client_id", null) ?: throw IOException("Google Drive isn't set up")),
-            "client_secret" to (p.getString("client_secret", null) ?: ""),
+            "client_id" to (st.get(K_CLIENT_ID) ?: throw IOException("Google Drive isn't set up")),
+            "client_secret" to (st.get(K_CLIENT_SECRET) ?: ""),
             "redirect_uri" to REDIRECT_URI,
             "grant_type" to "authorization_code",
             "code_verifier" to attempt.verifier,
         )
         val refresh = json.optString("refresh_token").ifEmpty { throw IOException("Google didn't return a refresh token. Try signing in again.") }
         storeAccess(c, json)
-        p.edit().putString("refresh", refresh).apply()
+        st.put(K_REFRESH, refresh)
     }
 
     /** A valid access token, refreshing it when it's about to expire. Null when signed out. */
@@ -88,14 +115,15 @@ object GoogleAuth {
     /** Same as [token] for background threads (the video player's data source). */
     @Synchronized
     fun blockingToken(c: Context): String? {
-        val p = prefs(c)
-        val refresh = p.getString("refresh", null) ?: return null
-        val access = p.getString("access", null)
-        if (access != null && System.currentTimeMillis() < p.getLong("expires", 0) - 60_000) return access
+        val st = s(c)
+        val refresh = st.get(K_REFRESH) ?: return null
+        val access = st.get(K_ACCESS)
+        val expires = st.get(K_EXPIRES)?.toLongOrNull() ?: 0L
+        if (access != null && System.currentTimeMillis() < expires - 60_000) return access
         return try {
             val json = post(
-                "client_id" to (p.getString("client_id", null) ?: return null),
-                "client_secret" to (p.getString("client_secret", null) ?: ""),
+                "client_id" to (st.get(K_CLIENT_ID) ?: return null),
+                "client_secret" to (st.get(K_CLIENT_SECRET) ?: ""),
                 "refresh_token" to refresh,
                 "grant_type" to "refresh_token",
             )
@@ -103,7 +131,7 @@ object GoogleAuth {
             json.getString("access_token")
         } catch (e: RevokedException) {
             // Approval expired (7-day limit in Testing mode) or was revoked: sign in again.
-            p.edit().remove("refresh").remove("access").apply()
+            st.remove(K_REFRESH, K_ACCESS, K_EXPIRES)
             null
         } catch (e: IOException) {
             null
@@ -112,8 +140,8 @@ object GoogleAuth {
 
     /** Forgets tokens on this TV and asks Google to revoke them. Keeps the client ID/secret. */
     suspend fun signOut(c: Context) = withContext(Dispatchers.IO) {
-        val refresh = prefs(c).getString("refresh", null)
-        prefs(c).edit().remove("refresh").remove("access").apply()
+        val refresh = s(c).get(K_REFRESH)
+        s(c).remove(K_REFRESH, K_ACCESS, K_EXPIRES)
         if (refresh != null) runCatching {
             (URL("https://oauth2.googleapis.com/revoke?token=${enc(refresh)}").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"; doOutput = true; outputStream.close(); responseCode; disconnect()
@@ -121,13 +149,11 @@ object GoogleAuth {
         }
     }
 
-    fun resetClient(c: Context) = prefs(c).edit().clear().apply()
+    fun resetClient(c: Context) = s(c).remove(K_CLIENT_ID, K_CLIENT_SECRET, K_REFRESH, K_ACCESS, K_EXPIRES)
 
     private fun storeAccess(c: Context, json: JSONObject) {
-        prefs(c).edit()
-            .putString("access", json.getString("access_token"))
-            .putLong("expires", System.currentTimeMillis() + json.optLong("expires_in", 3600) * 1000)
-            .apply()
+        s(c).put(K_ACCESS, json.getString("access_token"))
+        s(c).put(K_EXPIRES, (System.currentTimeMillis() + json.optLong("expires_in", 3600) * 1000).toString())
     }
 
     private class RevokedException(msg: String) : IOException(msg)
