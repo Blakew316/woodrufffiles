@@ -37,13 +37,15 @@ jobs:
           # Older names too, so links (and short links) made for earlier versions keep working.
           for old in WoodruffFilms WoodruffPictures WoodruffShows TVExplorer; do cp WoodruffFamily.apk "$old.apk"; done
       # Builds can finish out of order; only the build of the branch's newest commit becomes
-      # "latest", so the stable link never goes back to an older APK.
+      # "latest", so the stable link never goes back to an older APK. The gallery job's own
+      # "Update UI gallery" commits land on top of this one and don't count.
       - name: Is this the newest commit?
         id: head
         if: github.event_name != 'pull_request'
         run: |
-          head=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)
-          if [ "$head" = "$GITHUB_SHA" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
+          git fetch -q --depth=50 origin "$GITHUB_REF_NAME"
+          newer=$(git log --format=%s "$GITHUB_SHA..FETCH_HEAD" | grep -v '^Update UI gallery' || true)
+          if [ -z "$newer" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
       # Gives a stable download link: /releases/latest/download/WoodruffFamily.apk
       - uses: softprops/action-gh-release@v2
         if: github.event_name != 'pull_request'
