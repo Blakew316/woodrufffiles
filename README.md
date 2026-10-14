@@ -126,6 +126,16 @@ Notes:
   The sign-out button on the Drive screen revokes access, or you can revoke it at https://myaccount.google.com/permissions.
 - **Fire TV works:** Google Play services is no longer needed, so Google Drive also works on Fire TV and other boxes.
 
+## Connect Google Photos (slideshow)
+
+1. In Google Cloud (the Drive project), **APIs & Services → Library**: enable **Google Photos Picker API**.
+2. On the TV: **Settings → Google Photos** (or the Home tile). Scan the QR code and sign in, then scan the next
+   QR code, pick photos or albums in Google's picker on your phone and tap **Done**.
+3. The TV downloads them to `Pictures/Google Photos` and the slideshow switches to that folder. Use **Pick more** to add more.
+
+Google only lets apps see the photos you pick each time (no browsing the whole library since 2025),
+which is why it's a pick-and-download flow.
+
 ## Connect Google Home cameras
 
 Google only lets apps reach Nest cameras through its Device Access program (one-time US$5 fee, paid to Google).

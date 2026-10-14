@@ -119,6 +119,7 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     val store = remember { RecentStore(context) }
     var recent by remember { mutableStateOf(store.continueWatching()) }
     var showICloud by remember { mutableStateOf(false) }
+    var showPhotos by remember { mutableStateOf(false) }
     var removeFor by remember { mutableStateOf<RecentItem?>(null) }
     // Coming back from the player: pick up the position it just saved.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching() }
@@ -126,6 +127,7 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     val cloud = listOf(
         Tile("Cameras", null, Icons.Rounded.Videocam, Palette.accent, R.drawable.brand_google_home) { vm.show(Screen.CAMERAS) },
         Tile("Google Drive", null, Icons.Rounded.AddToDrive, Palette.drive, R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) },
+        Tile("Google Photos", null, Icons.Rounded.Cloud, Palette.drive, R.drawable.brand_google_photos) { showPhotos = true },
         Tile("iCloud", null, Icons.Rounded.Cloud, Palette.icloud, R.drawable.brand_icloud) { showICloud = true },
         Tile("Mail", null, Icons.Rounded.Email, Palette.accent) { vm.show(Screen.MAIL) },
     )
@@ -174,6 +176,7 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
         item { Shelf("Tools") { items(tools, key = { it.title }) { TileCard(it, wide = true) } } }
     }
 
+    if (showPhotos) GooglePhotosDialog(onDismiss = { showPhotos = false }, onSetUpGoogle = { vm.show(Screen.DRIVE) })
     if (showICloud) ICloudDialog(onDismiss = { showICloud = false }, onStart = { showICloud = false; vm.show(Screen.TRANSFER) })
     removeFor?.let { r ->
         ActionMenu(

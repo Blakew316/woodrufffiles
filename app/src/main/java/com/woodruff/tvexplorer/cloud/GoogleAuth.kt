@@ -41,7 +41,9 @@ object GoogleAuth {
     enum class Grant(prefix: String, val scope: String) {
         DRIVE("google", "https://www.googleapis.com/auth/drive.readonly"),
         /** Google Home / Nest cameras through Device Access (Smart Device Management API). */
-        NEST("nest", "https://www.googleapis.com/auth/sdm.service");
+        NEST("nest", "https://www.googleapis.com/auth/sdm.service"),
+        /** Google Photos Picker: only the photos the owner picks, one selection at a time. */
+        PHOTOS("photos", "https://www.googleapis.com/auth/photospicker.mediaitems.readonly");
 
         val refreshKey = "$prefix.refresh"
         val accessKey = "$prefix.access"

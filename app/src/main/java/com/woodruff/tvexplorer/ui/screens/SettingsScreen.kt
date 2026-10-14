@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
+import com.woodruff.tvexplorer.photos.GooglePhotos
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Slideshow
 import androidx.compose.material.icons.rounded.Smartphone
@@ -119,6 +120,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
+    var showPhotos by remember { mutableStateOf(false) }
     // Bumped whenever something changes (here, from the phone, or after returning from Android settings).
     var version by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { CompanionHub.changes.collect { version++ } }
@@ -131,6 +133,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val connected = remember(v) { GoogleAuth.isConnected(context) }
     val nestProject = remember(v) { GoogleAuth.nestProject(context) }
     val nestConnected = remember(v) { GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST) }
+    val photosConnected = remember(v, showPhotos) { GoogleAuth.isConnected(context, GoogleAuth.Grant.PHOTOS) }
     val accounts = remember(v) { MailAccounts.list(context) }
     val overlay = remember(v) { Settings.canDrawOverlays(context) }
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
@@ -168,6 +171,14 @@ fun SettingsScreen(vm: MainViewModel) {
         item { SettingRow(Icons.Rounded.Apps, "Apps", null) { vm.openApps(Screen.SETTINGS) } }
 
         section("Screensaver & background")
+        item {
+            SettingRow(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Add photos" else "Connect", brand = R.drawable.brand_google_photos) {
+                showPhotos = true
+            }
+        }
+        if (photosConnected) item {
+            SettingRow(Icons.Rounded.Logout, "Disconnect Google Photos", null) { GooglePhotos.signOut { changed() } }
+        }
         item {
             SettingRow(Icons.Rounded.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None") {
                 if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
@@ -263,6 +274,8 @@ fun SettingsScreen(vm: MainViewModel) {
         section("About")
         item { SettingRow(Icons.Rounded.Info, "Woodruff Films", BuildConfig.VERSION_NAME) {} }
     }
+
+    if (showPhotos) GooglePhotosDialog(onDismiss = { showPhotos = false }, onSetUpGoogle = { vm.show(Screen.DRIVE) })
 
     when (val d = dialog) {
         null -> Unit
