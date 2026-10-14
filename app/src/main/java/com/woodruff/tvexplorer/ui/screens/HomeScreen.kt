@@ -51,7 +51,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -67,6 +66,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
@@ -423,15 +424,20 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     val samples = DashboardSamples.cameras
     val cams = state.cameras
     val count = samples?.size ?: cams.size
+    // Live only while Woodruff is on screen: a video playing on top, another app or the TV
+    // sleeping stops the streams (each one counts against Google's limits).
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val onScreen = lifecycle.isAtLeast(Lifecycle.State.STARTED)
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
             // Four at a glance in a 2×2 grid; more cameras scroll inside the panel.
             samples != null -> CameraGrid4 {
-                gridItemsIndexed(samples) { _, name -> CameraTile(name, null, onClick = {}) }
+                gridItemsIndexed(samples) { _, name -> CameraTile(name, null, live = false, onClick = {}) }
             }
             state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4 {
                 gridItemsIndexed(cams, key = { _, c -> c.name }) { i, cam ->
-                    CameraTile(cam.label, cam, onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) })
+                    // The first four play live on their own, like the Command center.
+                    CameraTile(cam.label, cam, live = onScreen && i < HOME_LIVE && cam.webRtc, onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) })
                 }
             }
             state.step == NestStep.CONNECTED -> Text(if (state.loading) "Loading cameras…" else "No cameras found", color = Palette.muted)
@@ -443,6 +449,9 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
         }
     }
 }
+
+/** Live tiles on Home; more would strain the TV's video decoders on top of the Command center's. */
+private const val HOME_LIVE = 4
 
 @Composable
 private fun CameraGrid4(content: LazyGridScope.() -> Unit) {
@@ -456,20 +465,20 @@ private fun CameraGrid4(content: LazyGridScope.() -> Unit) {
 }
 
 @Composable
-private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    var live by remember { mutableStateOf(false) }
-    // Go live only after the tile has kept focus for a moment, so scrolling past doesn't start streams.
-    LaunchedEffect(focused) { live = false; if (focused && cam?.webRtc == true) { delay(700); live = true } }
+private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(80.dp).onFocusChanged { focused = it.isFocused },
+        modifier = Modifier.fillMaxWidth().height(80.dp),
         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {
         Box(Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF0B0E13))) {
             if (live && cam != null) LiveVideo(cam, audio = false)
-            else TvIcon(Icons.Rounded.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f), modifier = Modifier.align(Alignment.Center))
+            else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                TvIcon(Icons.Rounded.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))
+                // Older Nest models only stream over RTSP, which Google's API doesn't offer to apps.
+                if (cam != null && !cam.webRtc) Text("No live view for this model", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall)
+            }
             Text(
                 label, color = Color.White, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(6.dp))
