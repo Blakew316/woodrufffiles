@@ -25,7 +25,7 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: WoodruffShows-apk
+          name: WoodruffPictures-apk
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/apk/debug/*.apk
@@ -33,20 +33,22 @@ jobs:
       - name: Prepare release APK
         if: github.event_name != 'pull_request'
         run: |
-          cp app/build/outputs/apk/release/*.apk WoodruffShows.apk
-          # Keep the old file name too, so links shared for 1.0 still work.
-          cp WoodruffShows.apk TVExplorer.apk
-      # Gives a stable download link: /releases/latest/download/WoodruffShows.apk
+          cp app/build/outputs/apk/release/*.apk WoodruffPictures.apk
+          # Older names too, so links (and short links) made for earlier versions keep working.
+          cp WoodruffPictures.apk WoodruffShows.apk
+          cp WoodruffPictures.apk TVExplorer.apk
+      # Gives a stable download link: /releases/latest/download/WoodruffPictures.apk
       - uses: softprops/action-gh-release@v2
         if: github.event_name != 'pull_request'
         with:
-          tag_name: v1.3.${{ github.run_number }}
-          name: Woodruff Shows 1.3 (build ${{ github.run_number }})
+          tag_name: v1.4.${{ github.run_number }}
+          name: Woodruff Pictures 1.3 (build ${{ github.run_number }})
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: |
+            WoodruffPictures.apk
             WoodruffShows.apk
             TVExplorer.apk
           body: |
-            Install on Android TV: download WoodruffShows.apk, or type this into the Downloader app on the TV:
-            https://github.com/${{ github.repository }}/releases/latest/download/WoodruffShows.apk
+            Install on Android TV: download WoodruffPictures.apk, or type this into the Downloader app on the TV:
+            https://github.com/${{ github.repository }}/releases/latest/download/WoodruffPictures.apk

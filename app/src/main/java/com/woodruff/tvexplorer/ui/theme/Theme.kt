@@ -34,10 +34,10 @@ object Palette {
     val outline get() = pick(0xFF2A3544, 0xFFD8D0C0)
     val text get() = pick(0xFFF2F4F7, 0xFF1B1F24)
     val muted get() = pick(0xFF93A1B4, 0xFF5B6570)
-    // Darker amber on light backgrounds so it still reads; text on it flips to white.
-    val accent get() = pick(0xFFFFB547, 0xFFB86E00)
-    val accentSoft get() = pick(0x33FFB547, 0x26B86E00)
-    val onAccent get() = pick(0xFF1F1300, 0xFFFFFFFF)
+    // Woodruff Pictures red, from the logo. A brighter tint on dark backgrounds so it reads.
+    val accent get() = pick(0xFFE5484D, 0xFFA51D24)
+    val accentSoft get() = pick(0x33E5484D, 0x22A51D24)
+    val onAccent get() = pick(0xFFFFFFFF, 0xFFFFFFFF)
     val danger get() = pick(0xFFFF7B72, 0xFFD1242F)
     val success get() = pick(0xFF5DD39E, 0xFF1E9E63)
     val folder get() = pick(0xFFFFC857, 0xFFD99A00)

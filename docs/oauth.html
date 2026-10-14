@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Woodruff Shows · Google sign-in</title>
+<title>Woodruff Pictures · Google sign-in</title>
 <style>
   body { margin:0; padding:24px; font:16px/1.5 system-ui,sans-serif; background:#080b10; color:#f2f4f7; }
-  h1 { font-size:22px; margin:0 0 12px; } h1:before { content:"▶ "; color:#ffb547; }
-  p { color:#93a1b4; } a { color:#ffb547; } .err { color:#ff7b72; }
+  h1 { font-size:22px; margin:0 0 12px; } h1:before { content:"▶ "; color:#e5484d; }
+  p { color:#93a1b4; } a { color:#e5484d; } .err { color:#ff7b72; }
 </style>
 </head>
 <body>
@@ -16,7 +16,7 @@
 <p id="msg">Sending your Google approval to the TV.</p>
 <script>
 // Google redirects here after the phone signs in. This page never sees tokens: it only passes the
-// one-time code to the Woodruff Shows TV on your home network, which exchanges it itself.
+// one-time code to the Woodruff Pictures TV on your home network, which exchanges it itself.
 (function () {
   var q = new URLSearchParams(location.search);
   var msg = document.getElementById('msg');

@@ -63,7 +63,7 @@ class SignInServer(
         }
         val code = s.parameters["code"]?.firstOrNull() ?: return page(Response.Status.BAD_REQUEST, "Missing code", "Try again from the TV.")
         onCode(code)
-        return page(Response.Status.OK, "You're signed in ✓", "Look at your TV: Woodruff Shows is loading your Google Drive.")
+        return page(Response.Status.OK, "You're signed in ✓", "Look at your TV: Woodruff Pictures is loading your Google Drive.")
     }
 
     private fun form(error: String?): Response = html(
@@ -87,12 +87,12 @@ class SignInServer(
     private fun html(status: Response.Status, inner: String) = newFixedLengthResponse(
         status, "text/html; charset=utf-8",
         """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Woodruff Shows</title><style>
+        <title>Woodruff Pictures</title><style>
         body{margin:0;padding:24px;font:16px/1.5 system-ui,sans-serif;background:#080b10;color:#f2f4f7}
-        h1{font-size:22px;margin:0 0 12px}h1:before{content:"▶ ";color:#ffb547}p{color:#93a1b4}
+        h1{font-size:22px;margin:0 0 12px}h1:before{content:"▶ ";color:#e5484d}p{color:#93a1b4}
         label{display:block;margin:14px 0;color:#93a1b4;font-size:14px}
         input{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:12px;font:inherit;color:#f2f4f7;background:#121822;border:1px solid #2a3544;border-radius:10px}
-        button{margin-top:8px;padding:12px 22px;font:inherit;font-weight:600;color:#1f1300;background:#ffb547;border:0;border-radius:10px}
+        button{margin-top:8px;padding:12px 22px;font:inherit;font-weight:600;color:#ffffff;background:#e5484d;border:0;border-radius:10px}
         .err{color:#ff7b72}</style></head><body>$inner</body></html>""",
     )
 

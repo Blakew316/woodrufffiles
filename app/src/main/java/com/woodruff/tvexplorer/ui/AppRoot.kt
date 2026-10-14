@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +28,6 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Wifi
@@ -40,7 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
+import com.woodruff.tvexplorer.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -133,17 +136,20 @@ fun AppRoot(vm: MainViewModel) {
     LaunchedEffect(Unit) { runCatching { homeFocus.requestFocus() } }
 }
 
+/** Top-left brand: the clapperboard logo on a white tile (it's black, so it needs a light backing). */
 @Composable
 private fun Brand(modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(Palette.accent),
+            Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(5.dp),
             contentAlignment = Alignment.Center,
-        ) { TvIcon(Icons.Filled.PlayArrow, size = 30.dp, tint = Palette.onAccent) }
+        ) {
+            Image(painterResource(R.drawable.brand_logo), contentDescription = "Woodruff Pictures logo", modifier = Modifier.fillMaxSize())
+        }
         Spacer(Modifier.width(12.dp))
         Column {
-            Text("Woodruff", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Palette.text)
-            Text("SHOWS", style = MaterialTheme.typography.labelMedium, color = Palette.accent, letterSpacing = 3.sp)
+            Text("WOODRUFF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Palette.text, letterSpacing = 1.sp)
+            Text("PICTURES", style = MaterialTheme.typography.labelMedium, color = Palette.accent, letterSpacing = 3.sp)
         }
     }
 }
