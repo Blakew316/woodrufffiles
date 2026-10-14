@@ -52,10 +52,27 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private var opJob: Job? = null
     private var prepJob: Job? = null
 
+    /**
+     * Last listing per place. Opening a place shows this instantly while a fresh copy loads
+     * (stale-while-revalidate), so Movies / TV Shows / folders you've been to open with no wait.
+     */
+    private val cache = java.util.concurrent.ConcurrentHashMap<DrivePlace, List<DriveFile>>()
+
     init {
         viewModelScope.launch { CompanionHub.googleCodes.collect { (code, attempt) -> if (attempt.grant == GoogleAuth.Grant.DRIVE) finishSignIn(code, attempt) } }
         // Keys saved from the phone or the Settings screen: move on to the sign-in step.
         viewModelScope.launch { CompanionHub.changes.collect { if (!_state.value.connected) { _state.update { it.copy(step = initialStep()) }; prepareSignIn() } } }
+        prefetchLibraries()
+    }
+
+    /** Warm Movies and TV Shows in the background at launch, so the sidebar opens them instantly. */
+    private fun prefetchLibraries() {
+        viewModelScope.launch {
+            val token = GoogleAuth.token(ctx) ?: return@launch
+            for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
+                runCatching { DriveApi.list(token, place) }.onSuccess { cache[place] = it }
+            }
+        }
     }
 
     private fun initialStep() = when {
@@ -147,7 +164,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun load() {
         loadJob?.cancel()
-        _state.update { it.copy(busy = true, error = null, files = emptyList()) }
+        val place = _state.value.place
+        val cached = cache[place]
+        _state.update { it.copy(busy = cached == null, error = null, files = cached ?: emptyList()) }
         loadJob = viewModelScope.launch {
             try {
                 val token = GoogleAuth.token(ctx)
@@ -157,12 +176,15 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     prepareSignIn()
                     return@launch
                 }
-                val files = DriveApi.list(token, _state.value.place)
-                _state.update { it.copy(token = token, files = files, busy = false) }
+                val files = DriveApi.list(token, place)
+                cache[place] = files
+                // Only apply if the viewer is still on this place.
+                _state.update { if (it.place == place) it.copy(token = token, files = files, busy = false) else it }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(busy = false, error = explain(e)) }
+                // With a cached list on screen, keep showing it rather than an error.
+                _state.update { if (cached != null) it.copy(busy = false) else it.copy(busy = false, error = explain(e)) }
             }
         }
     }

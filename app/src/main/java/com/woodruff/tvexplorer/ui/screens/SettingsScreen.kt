@@ -171,14 +171,7 @@ fun SettingsScreen(vm: MainViewModel) {
         item { SettingRow(Icons.Rounded.Apps, "Apps", null) { vm.openApps(Screen.SETTINGS) } }
 
         section("Screensaver & background")
-        item {
-            SettingRow(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Add photos" else "Connect", brand = R.drawable.brand_google_photos) {
-                showPhotos = true
-            }
-        }
-        if (photosConnected) item {
-            SettingRow(Icons.Rounded.Logout, "Disconnect Google Photos", null) { GooglePhotos.signOut { changed() } }
-        }
+
         item {
             SettingRow(Icons.Rounded.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None") {
                 if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
@@ -223,7 +216,20 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingRow(Icons.Rounded.Logout, "Disconnect cameras", null) { Nest.signOut { changed() } }
         }
 
+        section("Google Photos")
+        item {
+            SettingRow(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Add photos & videos" else "Connect", brand = R.drawable.brand_google_photos) {
+                showPhotos = true
+            }
+        }
+        item { SettingRow(Icons.Rounded.PhotoLibrary, "Photos", null) { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }, from = Screen.SETTINGS) } }
+        item { SettingRow(Icons.Rounded.Slideshow, "Videos", null) { vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() }, from = Screen.SETTINGS) } }
+        if (photosConnected) item {
+            SettingRow(Icons.Rounded.Logout, "Disconnect Google Photos", null) { GooglePhotos.signOut { changed() } }
+        }
+
         section("Google Drive")
+        item { SettingRow(Icons.Rounded.AddToDrive, "Browse Google Drive", null, brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
         item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up", brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
         item { SettingRow(Icons.Rounded.Key, "Client ID", clientId?.let { mask(it, 18) } ?: "Not set") { dialog = SettingsDialog.ClientId } }
         item { SettingRow(Icons.Rounded.Lock, "Client secret", if (configured) "•••••••• saved" else "Not set") { dialog = SettingsDialog.ClientSecret } }

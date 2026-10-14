@@ -73,7 +73,10 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
                         UsageBar(if (state.total > 0) state.done.toFloat() / state.total else 0f)
                     }
                     GooglePhotos.Step.DONE -> Text(
-                        if (state.added == 0) "No photos were added." else "Added ${state.added} photo${if (state.added == 1) "" else "s"}. The slideshow now uses them.",
+                        listOfNotNull(
+                            state.added.takeIf { it > 0 }?.let { "$it photo${if (it == 1) "" else "s"}" },
+                            state.videos.takeIf { it > 0 }?.let { "$it video${if (it == 1) "" else "s"}" },
+                        ).joinToString(" and ").ifEmpty { "Nothing" } + " added.",
                     )
                 }
                 state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium) }
@@ -84,11 +87,11 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
                 GooglePhotos.Step.NEED_GOOGLE -> Button(onClick = { onDismiss(); onSetUpGoogle() }, modifier = Modifier.focusRequester(focus)) { Text("Set up Google") }
                 GooglePhotos.Step.DONE -> {
                     OutlinedButton(onClick = { GooglePhotos.startPicking() }) { Text("Pick more") }
-                    Button(onClick = { onDismiss(); SlideshowActivity.start(context) }, modifier = Modifier.focusRequester(focus)) { Text("Start slideshow") }
+                    if (state.added > 0) Button(onClick = { onDismiss(); SlideshowActivity.start(context) }) { Text("Start slideshow") }
                 }
                 else -> Unit
             }
-            OutlinedButton(onClick = close, modifier = if (state.step == GooglePhotos.Step.NEED_GOOGLE || state.step == GooglePhotos.Step.DONE) Modifier else Modifier.focusRequester(focus)) {
+            OutlinedButton(onClick = close, modifier = if (state.step == GooglePhotos.Step.NEED_GOOGLE) Modifier else Modifier.focusRequester(focus)) {
                 Text(if (state.step == GooglePhotos.Step.DOWNLOADING) "Hide" else "Close")
             }
         }

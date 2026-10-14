@@ -23,6 +23,10 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   - **Notes**: the same notes as the TV's Notes screen.
   - **Send to TV**: announcements to the TV and/or chosen phones, links (YouTube and Apple Music links open in those apps), slideshow.
   - **Settings**: name this phone, lock-screen alerts, Google keys and mail accounts.
+- **Library in the side menu**: **Movies** and **TV Shows** open the Drive folders of those names (created by you,
+  anywhere in My Drive, top level preferred) and stream from them. **Photos** and **Videos** show what you've added from
+  Google Photos (saved on the TV), each with an **Add from Google Photos** button. Google Drive and Google Photos
+  settings live in Settings.
 - **Notes** (side menu): pinned and recent notes, editable from the TV or any paired phone.
 - **Announcements to phones**: each phone gets a name ("Mom's iPhone"). From the TV (Notifications → Announce) or a phone,
   pick who gets it. Phones that turned on *Lock-screen alerts* get a real notification through the free

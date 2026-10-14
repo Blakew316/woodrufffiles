@@ -47,8 +47,14 @@ sealed interface DrivePlace {
     data class Folder(val id: String, override val title: String) : DrivePlace
     data object SharedWithMe : DrivePlace { override val title = "Shared with me" }
     data class Videos(override val title: String = "All videos") : DrivePlace
+    /** A top-level library folder found by name, e.g. "Movies" (the first of [names] that exists). */
+    data class Named(val names: List<String>, override val title: String) : DrivePlace
 
-    companion object { val MyDrive = Folder("root", "My Drive") }
+    companion object {
+        val MyDrive = Folder("root", "My Drive")
+        val Movies = Named(listOf("Movies", "Movie", "Films"), "Movies")
+        val TvShows = Named(listOf("TV Shows", "TV shows", "TV", "Shows", "Series"), "TV Shows")
+    }
 }
 
 /**
@@ -58,12 +64,21 @@ sealed interface DrivePlace {
  */
 object DriveApi {
     private const val BASE = "https://www.googleapis.com/drive/v3/files"
+    private const val FOLDER = "application/vnd.google-apps.folder"
     private const val FIELDS = "nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink)"
 
     fun mediaUrl(id: String) = "$BASE/${enc(id)}?alt=media&supportsAllDrives=true"
 
+    /** Folder ids already found for [DrivePlace.Named], so each library opens with one request. */
+    private val namedIds = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     suspend fun list(token: String, place: DrivePlace): List<DriveFile> = withContext(Dispatchers.IO) {
         val (q, order) = when (place) {
+            is DrivePlace.Named -> {
+                val id = namedIds[place.title] ?: findFolder(token, place.names)?.also { namedIds[place.title] = it }
+                    ?: throw IOException("There's no \"${place.names.first()}\" folder in your Google Drive yet. Create one and put your ${place.title.lowercase()} in it.")
+                "'${id.replace("'", "\\'")}' in parents and trashed = false" to "folder,name_natural"
+            }
             is DrivePlace.Folder -> "'${place.id.replace("'", "\\'")}' in parents and trashed = false" to "folder,name_natural"
             DrivePlace.SharedWithMe -> "sharedWithMe = true and trashed = false" to "folder,name_natural"
             is DrivePlace.Videos -> "mimeType contains 'video/' and trashed = false" to "modifiedTime desc"
@@ -91,6 +106,20 @@ object DriveApi {
             pageToken = json.optString("nextPageToken").ifEmpty { null }
         } while (pageToken != null && out.size < 2000)
         out
+    }
+
+    /** The first folder named one of [names]: at the top of My Drive if there is one, else anywhere. */
+    private fun findFolder(token: String, names: List<String>): String? {
+        for (topLevel in listOf(true, false)) {
+            for (name in names) {
+                val q = "mimeType = '$FOLDER' and name = '${name.replace("'", "\\'")}' and trashed = false" +
+                    if (topLevel) " and 'root' in parents" else ""
+                val url = "$BASE?q=${enc(q)}&pageSize=1&fields=${enc("files(id)")}&includeItemsFromAllDrives=true&supportsAllDrives=true"
+                val files = JSONObject(get(token, url)).optJSONArray("files")
+                if (files != null && files.length() > 0) return files.getJSONObject(0).getString("id")
+            }
+        }
+        return null
     }
 
     /** Copies a Drive file to [dest], deleting the partial file on failure or cancel. */

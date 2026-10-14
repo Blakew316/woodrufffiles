@@ -34,6 +34,12 @@ import androidx.compose.material.icons.rounded.SdStorage
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.VideoLibrary
+import com.woodruff.tvexplorer.cloud.DrivePlace
+import com.woodruff.tvexplorer.photos.GooglePhotos
 import com.woodruff.tvexplorer.ui.screens.CommandCenterScreen
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
@@ -117,7 +123,22 @@ fun AppRoot(vm: MainViewModel) {
                 Brand(Modifier.padding(start = 8.dp, bottom = 24.dp))
                 RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
                 RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS) { vm.show(Screen.CAMERAS) }
-                RailItem("Google Drive", Icons.Rounded.AddToDrive, screen == Screen.DRIVE, brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) }
+                // Library: Movies and TV Shows stream from those Drive folders; Photos and Videos are
+                // what was picked from Google Photos, saved on the TV.
+                val driveTop = driveState.stack.firstOrNull()
+                RailItem("Movies", Icons.Rounded.Movie, screen == Screen.DRIVE && driveTop == DrivePlace.Movies) {
+                    drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE)
+                }
+                RailItem("TV Shows", Icons.Rounded.Tv, screen == Screen.DRIVE && driveTop == DrivePlace.TvShows) {
+                    drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE)
+                }
+                val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browser.folder?.path?.startsWith(dir.path) == true }
+                RailItem("Photos", Icons.Rounded.PhotoLibrary, inFolder(GooglePhotos.folder)) {
+                    vm.openRoot(GooglePhotos.folder.apply { mkdirs() })
+                }
+                RailItem("Videos", Icons.Rounded.VideoLibrary, inFolder(GooglePhotos.videoFolder)) {
+                    vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() })
+                }
                 RailItem("Mail", Icons.Rounded.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
                 RailItem(
                     if (unread > 0) "Notifications · $unread" else "Notifications",

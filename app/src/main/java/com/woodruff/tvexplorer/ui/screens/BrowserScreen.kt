@@ -58,6 +58,9 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.OpenResult
 import com.woodruff.tvexplorer.util.Opener
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import com.woodruff.tvexplorer.photos.GooglePhotos
+import com.woodruff.tvexplorer.ui.Screen
 
 @Composable
 fun BrowserScreen(vm: MainViewModel) {
@@ -66,7 +69,15 @@ fun BrowserScreen(vm: MainViewModel) {
     val clipboard by vm.clipboard.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var dialog by remember { mutableStateOf<BrowserDialog?>(null) }
+    var showPhotos by remember { mutableStateOf(false) }
     val location = state.location ?: return
+    // Photos / Videos tabs: these folders fill up from Google Photos.
+    val photosFolder = state.folder?.path?.let { p ->
+        p.startsWith(GooglePhotos.folder.path) || p.startsWith(GooglePhotos.videoFolder.path)
+    } == true
+    val photos by GooglePhotos.state.collectAsStateWithLifecycle()
+    LaunchedEffect(photos.step) { if (photos.step == GooglePhotos.Step.DONE) vm.reload() }
+    if (showPhotos) GooglePhotosDialog(onDismiss = { showPhotos = false }, onSetUpGoogle = { vm.show(Screen.DRIVE) })
 
     BackHandler { vm.back() }
 
@@ -110,6 +121,7 @@ fun BrowserScreen(vm: MainViewModel) {
                 ToolButton(Icons.Rounded.Close, null, vm::clearSelection)
             } else {
                 val folder = state.folder
+                if (photosFolder) ToolButton(Icons.Rounded.AddPhotoAlternate, "Add from Google Photos", { showPhotos = true })
                 if (folder != null) {
                     ToolButton(Icons.Rounded.ArrowUpward, null, vm::up)
                     ToolButton(Icons.Rounded.CreateNewFolder, null, { dialog = BrowserDialog.NewFolder })

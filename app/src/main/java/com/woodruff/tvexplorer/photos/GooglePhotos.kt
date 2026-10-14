@@ -14,7 +14,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -43,6 +45,7 @@ object GooglePhotos {
         val done: Int = 0,
         val total: Int = 0,
         val added: Int = 0,
+        val videos: Int = 0,
         val error: String? = null,
     )
 
@@ -54,7 +57,9 @@ object GooglePhotos {
     private var job: Job? = null
     @Volatile private var sessionId: String? = null
 
+    /** Picked photos (also the slideshow folder) and picked videos, on the TV's shared storage. */
     val folder: File get() = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Google Photos")
+    val videoFolder: File get() = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Google Photos")
 
     fun init(c: Context) {
         app = c.applicationContext
@@ -75,6 +80,7 @@ object GooglePhotos {
 
     /** Called when the Google Photos window opens: sign in if needed, else start a new pick. */
     fun open() {
+        if (_state.value.step == Step.DOWNLOADING) return // reopening the window just shows progress
         _state.value = State()
         when {
             !GoogleAuth.isConfigured(app) -> _state.value = State(Step.NEED_GOOGLE)
@@ -127,7 +133,8 @@ object GooglePhotos {
     }
 
     private suspend fun download(session: String) {
-        val items = mutableListOf<Pair<String, String>>() // baseUrl to file name
+        data class Item(val url: String, val name: String, val video: Boolean)
+        val items = mutableListOf<Item>()
         var page: String? = null
         do {
             val q = "mediaItems?sessionId=${enc(session)}&pageSize=100" + (page?.let { "&pageToken=${enc(it)}" } ?: "")
@@ -135,38 +142,54 @@ object GooglePhotos {
             val arr = r.optJSONArray("mediaItems")
             if (arr != null) for (i in 0 until arr.length()) {
                 val m = arr.getJSONObject(i)
-                if (m.optString("type") == "VIDEO") continue // the slideshow shows photos
                 val f = m.optJSONObject("mediaFile") ?: continue
-                val name = f.optString("filename").ifBlank { m.optString("id") + ".jpg" }
-                items += f.getString("baseUrl") to name
+                val video = m.optString("type") == "VIDEO"
+                val name = f.optString("filename").ifBlank { m.optString("id") + if (video) ".mp4" else ".jpg" }
+                items += Item(f.getString("baseUrl"), name, video)
             }
             page = r.optString("nextPageToken").ifBlank { null }
         } while (page != null)
 
         _state.value = State(Step.DOWNLOADING, done = 0, total = items.size)
-        val dir = folder.apply { mkdirs() }
-        var added = 0
-        items.forEachIndexed { i, (url, name) ->
-            withContext(Dispatchers.IO) {
-                val target = FileOperations.uniqueTarget(dir, jpegName(name))
-                val tmp = File(dir, ".${target.name}.part")
-                try {
-                    // Sized for a TV: sharp at 4K, small enough to keep storage and decoding light.
-                    val conn = open("$url=w3840-h2160", "GET")
-                    if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
-                    conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
-                    conn.disconnect()
-                    if (tmp.renameTo(target)) added++
-                } catch (e: Exception) {
-                    Log.w("GooglePhotos", "download failed: $name", e)
-                } finally {
-                    tmp.delete()
+        // Four downloads at a time: much faster than one by one, without starving video playback.
+        val added = java.util.concurrent.atomic.AtomicInteger()
+        val videos = java.util.concurrent.atomic.AtomicInteger()
+        val finished = java.util.concurrent.atomic.AtomicInteger()
+        val gate = kotlinx.coroutines.sync.Semaphore(4)
+        coroutineScope {
+            for (item in items) launch(Dispatchers.IO) {
+                gate.withPermit {
+                    val dir = (if (item.video) videoFolder else folder).apply { mkdirs() }
+                    val target = synchronized(this@GooglePhotos) {
+                        // Reserve the name so two parallel downloads can't pick the same one.
+                        FileOperations.uniqueTarget(dir, if (item.video) cleanName(item.name) else jpegName(item.name))
+                            .also { it.createNewFile() }
+                    }
+                    val tmp = File(dir, ".${target.name}.part")
+                    try {
+                        // Photos sized for a TV (sharp at 4K, light to store and decode); videos as-is ("=dv").
+                        val conn = open(if (item.video) "${item.url}=dv" else "${item.url}=w3840-h2160", "GET")
+                        if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
+                        conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 256 * 1024) } }
+                        conn.disconnect()
+                        // rename() replaces the empty placeholder atomically, keeping the name reserved.
+                        if (tmp.renameTo(target)) { if (item.video) videos.incrementAndGet() else added.incrementAndGet() }
+                    } catch (e: CancellationException) {
+                        target.delete()
+                        throw e
+                    } catch (e: Exception) {
+                        target.delete()
+                        Log.w("GooglePhotos", "download failed: ${item.name}", e)
+                    } finally {
+                        tmp.delete()
+                    }
                 }
+                val n = finished.incrementAndGet()
+                _state.update { it.copy(done = n, added = added.get(), videos = videos.get()) }
             }
-            _state.update { it.copy(done = i + 1, added = added) }
         }
-        Appearance.setSlideshowFolder(app, dir.path)
-        _state.value = State(Step.DONE, done = items.size, total = items.size, added = added)
+        if (added.get() > 0) Appearance.setSlideshowFolder(app, folder.path)
+        _state.value = State(Step.DONE, done = items.size, total = items.size, added = added.get(), videos = videos.get())
     }
 
     /** Leaves the window: stops waiting for a pick and tells Google to drop the session. */
@@ -191,6 +214,8 @@ object GooglePhotos {
 
     /** Durations come as "5s" or "1800s". */
     private fun seconds(s: String?, default: Double) = s?.removeSuffix("s")?.toDoubleOrNull() ?: default
+
+    private fun cleanName(name: String) = name.substringAfterLast('/').replace(Regex("[\\\\:*?\"<>|]"), "_").take(120).ifBlank { "video.mp4" }
 
     /** The download is always a JPEG at the requested size, whatever the original was (HEIC, PNG…). */
     private fun jpegName(name: String): String {
