@@ -71,7 +71,7 @@
         <service
             android:name=".screensaver.SlideshowDream"
             android:exported="true"
-            android:label="Woodruff Pictures slideshow"
+            android:label="Woodruff Films slideshow"
             android:permission="android.permission.BIND_DREAM_SERVICE">
             <intent-filter>
                 <action android:name="android.service.dreams.DreamService" />

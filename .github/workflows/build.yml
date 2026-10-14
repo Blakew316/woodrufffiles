@@ -25,7 +25,7 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: WoodruffPictures-apk
+          name: WoodruffFilms-apk
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/apk/debug/*.apk
@@ -33,22 +33,24 @@ jobs:
       - name: Prepare release APK
         if: github.event_name != 'pull_request'
         run: |
-          cp app/build/outputs/apk/release/*.apk WoodruffPictures.apk
+          cp app/build/outputs/apk/release/*.apk WoodruffFilms.apk
           # Older names too, so links (and short links) made for earlier versions keep working.
-          cp WoodruffPictures.apk WoodruffShows.apk
-          cp WoodruffPictures.apk TVExplorer.apk
-      # Gives a stable download link: /releases/latest/download/WoodruffPictures.apk
+          cp WoodruffFilms.apk WoodruffPictures.apk
+          cp WoodruffFilms.apk WoodruffShows.apk
+          cp WoodruffFilms.apk TVExplorer.apk
+      # Gives a stable download link: /releases/latest/download/WoodruffFilms.apk
       - uses: softprops/action-gh-release@v2
         if: github.event_name != 'pull_request'
         with:
-          tag_name: v1.7.${{ github.run_number }}
-          name: Woodruff Pictures 1.7 (build ${{ github.run_number }})
+          tag_name: v1.8.${{ github.run_number }}
+          name: Woodruff Films 1.8 (build ${{ github.run_number }})
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: |
+            WoodruffFilms.apk
             WoodruffPictures.apk
             WoodruffShows.apk
             TVExplorer.apk
           body: |
-            Install on Android TV: download WoodruffPictures.apk, or type this into the Downloader app on the TV:
-            https://github.com/${{ github.repository }}/releases/latest/download/WoodruffPictures.apk
+            Install on Android TV: download WoodruffFilms.apk, or type this into the Downloader app on the TV:
+            https://github.com/${{ github.repository }}/releases/latest/download/WoodruffFilms.apk

@@ -37,12 +37,12 @@ object NoticeOverlay {
             setPadding(dp(18), dp(14), dp(18), dp(14))
             background = GradientDrawable().apply {
                 cornerRadius = dp(18).toFloat()
-                setColor(0xF2161B22.toInt())
+                setColor(0xF20E1726.toInt())
                 setStroke(dp(1), 0x33FFFFFF)
             }
             addView(TextView(app).apply {
-                text = when (n.source) { NoticeSource.PHONE -> "From your phone"; NoticeSource.MAIL -> "New mail"; NoticeSource.SYSTEM -> "Woodruff Pictures" }
-                setTextColor(0xFFE5484D.toInt()); textSize = 12f; typeface = font ?: Typeface.DEFAULT_BOLD
+                text = when (n.source) { NoticeSource.PHONE -> "From your phone"; NoticeSource.MAIL -> "New mail"; NoticeSource.SYSTEM -> "Woodruff Films" }
+                setTextColor(0xFF6FB3E6.toInt()); textSize = 12f; typeface = font ?: Typeface.DEFAULT_BOLD
             })
             addView(TextView(app).apply {
                 text = n.title; setTextColor(0xFFF2F4F7.toInt()); textSize = 17f; maxLines = 2

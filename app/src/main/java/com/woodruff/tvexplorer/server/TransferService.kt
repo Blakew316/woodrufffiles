@@ -130,7 +130,7 @@ class TransferService : Service() {
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(this)
         return builder
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("Woodruff Pictures: phone connection is on")
+            .setContentTitle("Woodruff Films: phone connection is on")
             .setContentText(address)
             .setContentIntent(open)
             .setOngoing(true)

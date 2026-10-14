@@ -115,7 +115,7 @@ object Notices {
     }
 }
 
-/** Whether a Woodruff Pictures screen is showing, so popups don't double up with the in-app banner. */
+/** Whether a Woodruff Films screen is showing, so popups don't double up with the in-app banner. */
 object AppVisibility {
     @Volatile var foreground = false
 }

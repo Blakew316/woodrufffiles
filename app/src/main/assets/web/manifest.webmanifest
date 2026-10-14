@@ -1,10 +1,10 @@
 {
-  "name": "Woodruff Pictures",
-  "short_name": "Woodruff",
-  "description": "Remote, keyboard, notes and file transfer for Woodruff Pictures on your TV",
+  "name": "Woodruff Films",
+  "short_name": "Woodruff Films",
+  "description": "Remote, keyboard, notes and file transfer for Woodruff Films on your TV",
   "display": "standalone",
-  "background_color": "#f2f2f7",
-  "theme_color": "#c4232b",
+  "background_color": "#ffffff",
+  "theme_color": "#5592bf",
   "icons": [
     { "src": "/icon-180.png", "sizes": "180x180", "type": "image/png" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

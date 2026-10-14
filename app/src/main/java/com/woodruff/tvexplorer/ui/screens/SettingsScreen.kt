@@ -166,7 +166,7 @@ fun SettingsScreen(vm: MainViewModel) {
         }
         item { SettingRow(Icons.Filled.Slideshow, "Start slideshow now", null) { SlideshowActivity.start(context) } }
         item {
-            SettingRow(Icons.Filled.Tv, "Use as the TV's screensaver", "Choose Woodruff Pictures slideshow") {
+            SettingRow(Icons.Filled.Tv, "Use as the TV's screensaver", "Choose Woodruff Films slideshow") {
                 val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
             }
@@ -240,7 +240,7 @@ fun SettingsScreen(vm: MainViewModel) {
         item { SettingRow(Icons.Filled.Refresh, "Reset pairing", "Disconnects every paired phone and shortcut", danger = true) { dialog = SettingsDialog.ResetPairing } }
 
         section("About")
-        item { SettingRow(Icons.Filled.Info, "Woodruff Pictures ${BuildConfig.VERSION_NAME}", "Type: Inter (SIL Open Font License) · Video: Media3") {} }
+        item { SettingRow(Icons.Filled.Info, "Woodruff Films ${BuildConfig.VERSION_NAME}", "Type: Inter (SIL Open Font License) · Video: Media3") {} }
     }
 
     when (val d = dialog) {
