@@ -59,7 +59,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -74,11 +73,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.woodruff.tvexplorer.R
 import com.woodruff.tvexplorer.calendar.TodayCalendar
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveViewModel
-import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.notes.Notes
@@ -300,7 +297,7 @@ private fun ResumeTile(r: RecentItem, play: (RecentItem) -> Unit, onMenu: (Recen
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
     ) {
         Box(Modifier.fillMaxSize()) {
-            ResumeArt(r, playButton = main)
+            ResumeArt(r, main)
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
                 Text(r.title, style = if (main) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge, color = Color.White, maxLines = if (main) 1 else 2, overflow = TextOverflow.Ellipsis)
                 if (main) Text(timeLeft(r), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f), maxLines = 1)
@@ -313,27 +310,21 @@ private fun ResumeTile(r: RecentItem, play: (RecentItem) -> Unit, onMenu: (Recen
 private fun timeLeft(r: RecentItem): String =
     if (r.durationMs > 0) "${Format.duration(r.durationMs - r.positionMs)} left" else "Resume"
 
-/** Artwork for a resume tile: the video's own frame when it's on the TV, else a tinted card. */
+/** Artwork for a resume tile: the video's own frame when it's on the TV, else a tinted card; always the same blue play button. */
 @Composable
-private fun ResumeArt(r: RecentItem, playButton: Boolean) {
+private fun ResumeArt(r: RecentItem, main: Boolean) {
     val ref = MediaRef.parse(r.key)
     Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Palette.accent.copy(alpha = 0.35f), Palette.background)))) {
         if (ref is MediaRef.Local) {
             AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        } else if (!playButton) {
-            TvIcon(FileKind.VIDEO.icon(), size = 30.dp, tint = Palette.video, modifier = Modifier.align(Alignment.Center).offset(y = (-14).dp))
         }
         // Darken only the bottom, under the title; the play button sits above it, fully lit.
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f))))
-        if (ref is MediaRef.Drive) {
-            Image(painterResource(R.drawable.brand_google_drive), contentDescription = "Google Drive", modifier = Modifier.align(Alignment.TopStart).padding(8.dp).size(18.dp))
-        }
-        if (playButton) {
-            Box(
-                Modifier.align(Alignment.Center).offset(y = (-16).dp).size(44.dp).clip(RoundedCornerShape(50)).background(Palette.accent),
-                contentAlignment = Alignment.Center,
-            ) { TvIcon(Icons.Rounded.PlayArrow, size = 28.dp, tint = Palette.onAccent) }
-        }
+        val size = if (main) 44.dp else 36.dp
+        Box(
+            Modifier.align(Alignment.Center).offset(y = (-16).dp).size(size).clip(RoundedCornerShape(50)).background(Palette.accent),
+            contentAlignment = Alignment.Center,
+        ) { TvIcon(Icons.Rounded.PlayArrow, size = size * 0.64f, tint = Palette.onAccent) }
     }
 }
 

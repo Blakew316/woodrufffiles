@@ -61,7 +61,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   cameras only or "all on one" next to the clock, notifications and notes. Select a camera for full screen with sound,
   Left/Right flips between cameras. It can open automatically when the app starts. Setup is [below](#connect-google-home-cameras).
 - **Home dashboard**: one screen that shows everything at a glance. *Continue watching* shows the latest video
-  large with a play button and the rest as square tiles, each one click to resume; *TVs* switches between the family's linked TVs to show what's on each, with a live picture; *Cameras*
+  large and the rest as square tiles, each with a play button, one click to resume; *TVs* switches between the family's linked TVs to show what's on each, with a live picture; *Cameras*
   shows each camera live when you move onto it, and opens it full screen; *At a glance* has the next calendar
   event, the latest notifications and a pinned note. Setup (iCloud, storage, apps, browse by type) lives in Settings.
 
