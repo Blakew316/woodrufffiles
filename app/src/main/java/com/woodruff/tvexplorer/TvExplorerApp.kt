@@ -13,6 +13,7 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         GoogleAuth.migrate(this)
         com.woodruff.tvexplorer.nest.Nest.init(this)
         com.woodruff.tvexplorer.photos.GooglePhotos.init(this)
+        com.woodruff.tvexplorer.calendar.TodayCalendar.init(this)
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

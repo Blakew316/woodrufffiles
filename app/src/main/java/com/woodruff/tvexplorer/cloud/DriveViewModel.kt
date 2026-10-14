@@ -38,6 +38,8 @@ data class DriveState(
 ) {
     val place: DrivePlace get() = stack.last()
     val connected: Boolean get() = step == SignInStep.CONNECTED
+    /** Inside Movies or TV Shows: poster tiles instead of file tiles. */
+    val library: Boolean get() = stack.firstOrNull() is DrivePlace.Named
 }
 
 /**
@@ -70,7 +72,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val token = GoogleAuth.token(ctx) ?: return@launch
             for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
-                runCatching { DriveApi.list(token, place) }.onSuccess { cache[place] = it }
+                runCatching { DriveApi.withPosters(token, DriveApi.list(token, place)) }.onSuccess { cache[place] = it }
             }
         }
     }
@@ -165,6 +167,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private fun load() {
         loadJob?.cancel()
         val place = _state.value.place
+        val library = _state.value.library
         val cached = cache[place]
         _state.update { it.copy(busy = cached == null, error = null, files = cached ?: emptyList()) }
         loadJob = viewModelScope.launch {
@@ -176,7 +179,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     prepareSignIn()
                     return@launch
                 }
-                val files = DriveApi.list(token, place)
+                val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
                 cache[place] = files
                 // Only apply if the viewer is still on this place.
                 _state.update { if (it.place == place) it.copy(token = token, files = files, busy = false) else it }

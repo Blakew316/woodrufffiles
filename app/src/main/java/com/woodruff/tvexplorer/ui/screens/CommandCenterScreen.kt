@@ -67,6 +67,7 @@ import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestState
 import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.nest.Rtc
+import com.woodruff.tvexplorer.calendar.TodayCalendar
 import com.woodruff.tvexplorer.notes.Notes
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.screensaver.Appearance
@@ -320,6 +321,17 @@ private fun SidePanel(modifier: Modifier) {
     ) {
         Text(SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now)), style = MaterialTheme.typography.displayMedium)
         Text(SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(now)), color = Palette.muted)
+        val cal by TodayCalendar.state.collectAsStateWithLifecycle()
+        if (cal.connected) {
+            PanelTitle("Today")
+            if (cal.events.isEmpty()) Text(if (cal.loaded) "Nothing scheduled" else "Loading…", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+            cal.events.take(4).forEach { e ->
+                Column {
+                    Text(e.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    Text(eventTime(e), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         PanelTitle("Notifications")
         if (notices.isEmpty()) Text("Nothing new", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
         notices.take(3).forEach { n ->

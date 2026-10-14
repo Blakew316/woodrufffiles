@@ -154,6 +154,7 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
         verticalArrangement = Arrangement.spacedBy(34.dp),
     ) {
         item { Header() }
+        item { TodayActivities() }
         if (recent.isNotEmpty()) {
             item {
                 Shelf("Continue watching") {

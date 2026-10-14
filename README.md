@@ -130,6 +130,21 @@ Notes:
   The sign-out button on the Drive screen revokes access, or you can revoke it at https://myaccount.google.com/permissions.
 - **Fire TV works:** Google Play services is no longer needed, so Google Drive also works on Fire TV and other boxes.
 
+## Movie and show posters
+
+Movies and TV Shows use poster tiles. Artwork follows the Plex/Kodi convention, no API key needed:
+- A movie or show **folder**: put `poster.jpg` (or `folder.jpg` / `cover.jpg`) inside it.
+- A **loose movie file**: put an image with the same name next to it, e.g. `Inception.mp4` + `Inception.jpg`.
+Those images are used as posters and hidden from the grid. Without one, the video's Drive preview frame
+(or a title card for folders) is shown.
+
+## Connect Google Calendar (Today's Activities)
+
+1. In Google Cloud (the Drive project), **APIs & Services → Library**: enable **Google Calendar API**.
+2. On the TV: **Settings → Google Calendar → Today's Activities**, scan the QR code and sign in.
+Today's events from every calendar that's switched on in Google Calendar appear on Home under the greeting and in the
+Command center, refreshed every 10 minutes and at midnight. Read-only.
+
 ## Connect Google Photos (slideshow)
 
 1. In Google Cloud (the Drive project), **APIs & Services → Library**: enable **Google Photos Picker API**.

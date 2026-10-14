@@ -43,7 +43,9 @@ object GoogleAuth {
         /** Google Home / Nest cameras through Device Access (Smart Device Management API). */
         NEST("nest", "https://www.googleapis.com/auth/sdm.service"),
         /** Google Photos Picker: only the photos the owner picks, one selection at a time. */
-        PHOTOS("photos", "https://www.googleapis.com/auth/photospicker.mediaitems.readonly");
+        PHOTOS("photos", "https://www.googleapis.com/auth/photospicker.mediaitems.readonly"),
+        /** Read-only Google Calendar, for Today's Activities. */
+        CALENDAR("calendar", "https://www.googleapis.com/auth/calendar.readonly");
 
         val refreshKey = "$prefix.refresh"
         val accessKey = "$prefix.access"

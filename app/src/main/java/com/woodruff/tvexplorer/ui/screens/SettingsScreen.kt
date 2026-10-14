@@ -31,6 +31,8 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
+import com.woodruff.tvexplorer.calendar.TodayCalendar
+import androidx.compose.material.icons.rounded.Event
 import com.woodruff.tvexplorer.photos.GooglePhotos
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Slideshow
@@ -121,6 +123,8 @@ fun SettingsScreen(vm: MainViewModel) {
     val scope = rememberCoroutineScope()
     var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
     var showPhotos by remember { mutableStateOf(false) }
+    var showCalendar by remember { mutableStateOf(false) }
+    val calendar by TodayCalendar.state.collectAsStateWithLifecycle()
     // Bumped whenever something changes (here, from the phone, or after returning from Android settings).
     var version by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { CompanionHub.changes.collect { version++ } }
@@ -216,6 +220,16 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingRow(Icons.Rounded.Logout, "Disconnect cameras", null) { Nest.signOut { changed() } }
         }
 
+        section("Google Calendar")
+        item {
+            SettingRow(Icons.Rounded.Event, "Today's Activities", if (calendar.connected) "Connected" else "Connect", brand = R.drawable.brand_google_calendar) {
+                if (!calendar.connected) showCalendar = true
+            }
+        }
+        if (calendar.connected) item {
+            SettingRow(Icons.Rounded.Logout, "Disconnect Google Calendar", null) { TodayCalendar.signOut { changed() } }
+        }
+
         section("Google Photos")
         item {
             SettingRow(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Add photos & videos" else "Connect", brand = R.drawable.brand_google_photos) {
@@ -281,6 +295,7 @@ fun SettingsScreen(vm: MainViewModel) {
         item { SettingRow(Icons.Rounded.Info, "Woodruff Films", BuildConfig.VERSION_NAME) {} }
     }
 
+    if (showCalendar) CalendarConnectDialog(onDismiss = { showCalendar = false })
     if (showPhotos) GooglePhotosDialog(onDismiss = { showPhotos = false }, onSetUpGoogle = { vm.show(Screen.DRIVE) })
 
     when (val d = dialog) {

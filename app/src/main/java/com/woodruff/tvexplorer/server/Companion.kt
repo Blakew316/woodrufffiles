@@ -55,6 +55,9 @@ class CompanionRoutes(private val ctx: Context) {
         val code = s.parameters["code"]?.firstOrNull() ?: return page("Missing code", "Try again from the TV.")
         CompanionHub.googleAttempts.remove(attempt.state) // one use only
         CompanionHub.googleCodes.tryEmit(code to attempt)
+        if (attempt.grant == GoogleAuth.Grant.CALENDAR) {
+            return page("Google Calendar connected ✓", "Today's events will appear on your TV in a moment.")
+        }
         if (attempt.grant == GoogleAuth.Grant.PHOTOS) {
             return page("Google Photos connected ✓", "Look at your TV: scan the next QR code to pick photos.")
         }

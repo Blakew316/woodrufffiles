@@ -24,6 +24,8 @@ data class DriveFile(
     val size: Long,
     val modified: Long,
     val thumbnailLink: String?,
+    /** Poster art for Movies / TV Shows tiles (a poster image's thumbnail), when one was found. */
+    val posterUrl: String? = null,
 ) {
     val isFolder: Boolean get() = mimeType == FOLDER_MIME
     /** Google Docs/Sheets/Slides have no file bytes to stream or download. */
@@ -107,6 +109,51 @@ object DriveApi {
         } while (pageToken != null && out.size < 2000)
         out
     }
+
+    private val POSTER_NAMES = setOf("poster", "folder", "cover")
+
+    /**
+     * Poster art, Plex/Kodi style: a folder's poster is a poster/folder/cover image inside it; a
+     * loose video's poster is an image with the same name next to it (Inception.mp4 + Inception.jpg).
+     * Those images are then hidden from the grid. Costs one extra request per 25 folders.
+     */
+    suspend fun withPosters(token: String, files: List<DriveFile>): List<DriveFile> = withContext(Dispatchers.IO) {
+        val images = files.filter { it.kind == FileKind.IMAGE }
+        val byStem = images.associateBy { it.name.substringBeforeLast('.').lowercase() }
+        val used = HashSet<String>()
+        val folderPosters = HashMap<String, String>()
+        files.filter { it.isFolder }.chunked(25).forEach { chunk ->
+            ensureActive()
+            val parents = chunk.joinToString(" or ") { "'${it.id.replace("'", "\\'")}' in parents" }
+            val q = "mimeType contains 'image/' and trashed = false and " +
+                "(name contains 'poster' or name contains 'folder' or name contains 'cover') and ($parents)"
+            val url = "$BASE?q=${enc(q)}&pageSize=200&fields=${enc("files(name,parents,thumbnailLink)")}" +
+                "&includeItemsFromAllDrives=true&supportsAllDrives=true"
+            val found = runCatching { JSONObject(get(token, url)).optJSONArray("files") }.getOrNull() ?: return@forEach
+            for (i in 0 until found.length()) {
+                val f = found.getJSONObject(i)
+                val stem = f.optString("name").substringBeforeLast('.').lowercase()
+                val link = f.optString("thumbnailLink").ifEmpty { null } ?: continue
+                if (stem !in POSTER_NAMES) continue
+                val parentsArr = f.optJSONArray("parents") ?: continue
+                for (j in 0 until parentsArr.length()) folderPosters.putIfAbsent(parentsArr.getString(j), big(link))
+            }
+        }
+        files.mapNotNull { f ->
+            when {
+                f.isFolder -> f.copy(posterUrl = folderPosters[f.id])
+                f.kind == FileKind.VIDEO -> {
+                    val img = byStem[f.name.substringBeforeLast('.').lowercase()]
+                    if (img != null) used += img.id
+                    f.copy(posterUrl = img?.thumbnailLink?.let(::big) ?: f.thumbnailLink?.let(::big))
+                }
+                else -> f
+            }
+        }.filter { it.id !in used && !(it.kind == FileKind.IMAGE && it.name.substringBeforeLast('.').lowercase() in POSTER_NAMES) }
+    }
+
+    /** Drive thumbnails come at 220px ("=s220"); ask for a size that's sharp on a TV poster. */
+    private fun big(link: String) = link.replace(Regex("=s\\d+(-c)?$"), "") + "=s720"
 
     /** The first folder named one of [names]: at the top of My Drive if there is one, else anywhere. */
     private fun findFolder(token: String, names: List<String>): String? {

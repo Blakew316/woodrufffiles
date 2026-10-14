@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -129,18 +130,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 else -> {
                     val first = remember(state.place) { FocusRequester() }
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(230.dp),
+                        // Movies / TV Shows: tall poster tiles, more per row.
+                        columns = GridCells.Adaptive(if (state.library) 150.dp else 230.dp),
                         contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp, start = 6.dp, end = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(22.dp),
                         verticalArrangement = Arrangement.spacedBy(22.dp),
                     ) {
                         items(state.files, key = { it.id }) { f ->
-                            DriveTile(
-                                f, state.token,
-                                onClick = { onOpen(f) },
-                                onLongClick = { menuFor = f },
-                                modifier = if (f == state.files.first()) Modifier.focusRequester(first) else Modifier,
-                            )
+                            val mod = if (f == state.files.first()) Modifier.focusRequester(first) else Modifier
+                            if (state.library) PosterTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
+                            else DriveTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
                         }
                     }
                     LaunchedEffect(state.place) { runCatching { first.requestFocus() } }
@@ -178,6 +177,50 @@ private fun openDriveFile(context: Context, f: DriveFile, all: List<DriveFile>, 
             context.startActivity(ImageViewerActivity.intent(context, images.map { MediaRef.Drive(it.id).key }, MediaRef.Drive(f.id).key, images.map { it.name }))
         }
         else -> onOther(f)
+    }
+}
+
+/**
+ * Movie / show poster: 2:3 artwork filling the tile, title over a dark fade at the bottom.
+ * Without artwork, a title card in the brand colors.
+ */
+@Composable
+private fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
+    val context = LocalContext.current
+    val title = f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
+    Surface(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        modifier = modifier.onMenuKey(onLongClick).aspectRatio(2f / 3f),
+        shape = CardStyle.shape(),
+        colors = CardStyle.colors(),
+        border = CardStyle.border(),
+        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+    ) {
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))) {
+            if (f.posterUrl == null || token == null) {
+                // Title card: large initial and the name, so tiles stay readable without art.
+                Text(
+                    title.trim().take(1).uppercase(), style = MaterialTheme.typography.displayLarge,
+                    color = Palette.accent.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center),
+                )
+            } else {
+                AsyncImage(
+                    model = ImageRequest.Builder(context).data(f.posterUrl).addHeader("Authorization", "Bearer $token")
+                        .size(450, 675).crossfade(true).build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))))
+                    .padding(start = 12.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
+            ) {
+                Text(title, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 
