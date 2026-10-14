@@ -1,13 +1,25 @@
 {
- "build": "26",
- "commit": "5b016df",
- "updated": "2026-10-14 14:38 UTC",
+ "build": "28",
+ "commit": "a552c2b",
+ "updated": "2026-10-14 14:45 UTC",
  "tv": [
   {
    "name": "home",
    "title": "Home",
    "dark": "img/tv-home-dark.webp",
    "light": "img/tv-home-light.webp"
+  },
+  {
+   "name": "movies",
+   "title": "Movies (sample posters)",
+   "dark": "img/tv-movies-dark.webp",
+   "light": "img/tv-movies-light.webp"
+  },
+  {
+   "name": "tv-shows",
+   "title": "TV Shows (sample posters)",
+   "dark": "img/tv-tv-shows-dark.webp",
+   "light": "img/tv-tv-shows-light.webp"
   },
   {
    "name": "command-center",
