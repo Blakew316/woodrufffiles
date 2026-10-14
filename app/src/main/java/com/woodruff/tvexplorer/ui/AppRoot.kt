@@ -24,7 +24,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddToDrive
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Storage
@@ -39,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +63,7 @@ import com.woodruff.tvexplorer.ui.screens.DriveScreen
 import com.woodruff.tvexplorer.ui.screens.HomeScreen
 import com.woodruff.tvexplorer.ui.screens.TransferScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import kotlinx.coroutines.delay
 
 /** Main window: branded side rail, the active screen, and global overlays. */
@@ -101,6 +105,13 @@ fun AppRoot(vm: MainViewModel) {
             RailItem(if (server.running) "Send files · On" else "Send files", Icons.Filled.Wifi, screen == Screen.TRANSFER) {
                 vm.show(Screen.TRANSFER)
             }
+            RailLabel("Display")
+            val context = LocalContext.current
+            RailItem(
+                if (Palette.light) "Dark mode" else "Light mode",
+                if (Palette.light) Icons.Filled.DarkMode else Icons.Filled.LightMode,
+                active = false,
+            ) { ThemeSetting.toggle(context) }
         }
         Box(Modifier.fillMaxSize()) {
             Crossfade(targetState = screen, label = "screen") { s ->

@@ -20,6 +20,7 @@ import com.woodruff.tvexplorer.ui.AppRoot
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.screens.PermissionScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
 import com.woodruff.tvexplorer.util.Permissions
 
@@ -35,6 +36,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hasAccess = Permissions.hasStorageAccess(this)
+        ThemeSetting.load(this)
         setContent {
             TvExplorerTheme {
                 Box(Modifier.fillMaxSize().background(Palette.background)) {

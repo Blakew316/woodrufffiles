@@ -23,6 +23,7 @@ None of its code is reused: the original no longer builds, because it depends on
 - **App manager**: launch apps, back up an APK to `Download/TVExplorer/Apps`, open App info, or uninstall.
 - **Send files**: start a small web server on the TV, then scan the QR code with your phone or open the URL on a computer.
   You can drag and drop uploads (streamed straight to disk, so they can go to a USB drive), download, create folders and delete.
+- **Light or dark mode**: switch it at the bottom of the side menu (Display → Light mode); the choice is remembered.
 - **TV-first navigation**: a side rail, large focus targets, and Back always does the expected thing.
   Coming back to a folder puts you on the item you left. Long-press OK or the Menu key opens the action menu.
 
