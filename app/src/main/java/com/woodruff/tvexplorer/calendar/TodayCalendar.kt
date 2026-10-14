@@ -54,6 +54,7 @@ object TodayCalendar {
     private lateinit var app: Context
     private var signInJob: Job? = null
     private var loopJob: Job? = null
+    @Volatile private var lastRefresh = 0L
 
     fun init(c: Context) {
         app = c.applicationContext
@@ -88,9 +89,13 @@ object TodayCalendar {
     }
 
     /** Reloads now (e.g. when Home opens), keeping the current list on screen meanwhile. */
-    fun refreshSoon() { if (_state.value.connected) scope.launch { refresh() } }
+    fun refreshSoon() {
+        // Home opens often; the 10-minute loop keeps things current, so don't refetch on every visit.
+        if (_state.value.connected && System.currentTimeMillis() - lastRefresh > 2 * 60_000L) scope.launch { refresh() }
+    }
 
     private suspend fun refresh() {
+        lastRefresh = System.currentTimeMillis()
         try {
             val events = withContext(Dispatchers.IO) { fetchToday() }
             _state.update { it.copy(events = events, loaded = true, error = null) }

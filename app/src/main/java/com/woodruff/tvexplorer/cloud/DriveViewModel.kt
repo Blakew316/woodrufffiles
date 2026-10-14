@@ -175,15 +175,33 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      * Poster art for a Movies / TV Shows listing: the owner's own images first, then TMDB.
      * Movies: the movies themselves. TV Shows: shows at the top, seasons one level down.
      */
-    private suspend fun posters(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> {
-        val own = DriveApi.withPosters(token, files)
-        val mode = when {
-            stack.first() == DrivePlace.Movies && stack.size == 1 -> Tmdb.Mode.MOVIES
-            stack.first() == DrivePlace.TvShows && stack.size == 1 -> Tmdb.Mode.SHOWS
-            stack.first() == DrivePlace.TvShows && stack.size == 2 -> Tmdb.Mode.SEASONS
-            else -> Tmdb.Mode.NONE
+    private suspend fun posters(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> =
+        tmdb(token, stack, DriveApi.withPosters(token, files))
+
+    private fun tmdbMode(stack: List<DrivePlace>) = when {
+        stack.first() == DrivePlace.Movies && stack.size == 1 -> Tmdb.Mode.MOVIES
+        stack.first() == DrivePlace.TvShows && stack.size == 1 -> Tmdb.Mode.SHOWS
+        stack.first() == DrivePlace.TvShows && stack.size == 2 -> Tmdb.Mode.SEASONS
+        else -> Tmdb.Mode.NONE
+    }
+
+    private suspend fun tmdb(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> =
+        Tmdb.fill(ctx, files, tmdbMode(stack), show = stack.getOrNull(1)?.title).also { warmPosters(token, it) }
+
+    /**
+     * Downloads the first screenfuls of poster images into Coil's caches ahead of time, so tiles
+     * appear with art instead of popping in. Google-hosted art gets the Drive token; TMDB never does.
+     */
+    private fun warmPosters(token: String, files: List<DriveFile>) {
+        val loader = coil.Coil.imageLoader(ctx)
+        files.asSequence().mapNotNull { it.posterUrl }.take(36).forEach { url ->
+            val google = android.net.Uri.parse(url).host.orEmpty().let { it.endsWith("googleusercontent.com") || it.endsWith("google.com") }
+            loader.enqueue(
+                coil.request.ImageRequest.Builder(ctx).data(url).size(450, 675)
+                    .apply { if (google) addHeader("Authorization", "Bearer $token") }
+                    .build(),
+            )
         }
-        return Tmdb.fill(ctx, own, mode, show = stack.getOrNull(1)?.title)
     }
 
     private fun load() {
@@ -202,10 +220,16 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     prepareSignIn()
                     return@launch
                 }
-                val files = DriveApi.list(token, place).let { if (library) posters(token, stack, it) else it }
+                // Show the listing (with the owner's own art) right away; TMDB posters follow.
+                val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
                 cache[place] = files
                 // Only apply if the viewer is still on this place.
                 _state.update { if (it.place == place) it.copy(token = token, files = files, busy = false) else it }
+                if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
+                    val withTmdb = tmdb(token, stack, files)
+                    cache[place] = withTmdb
+                    _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

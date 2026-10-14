@@ -10,7 +10,7 @@ for old in glob.glob(os.path.join(img_dir, '*.webp')):
     os.remove(old)
 
 TITLES = {
-    'home': 'Home', 'command-center': 'Command center', 'google-drive': 'Google Drive', 'mail': 'Mail',
+    'home': 'Home', 'movies': 'Movies (sample posters)', 'tv-shows': 'TV Shows (sample posters)', 'command-center': 'Command center', 'google-drive': 'Google Drive', 'mail': 'Mail',
     'notifications': 'Notifications', 'notes': 'Notes', 'apps': 'Apps', 'phone': 'Phone connection',
     'settings': 'Settings', 'files': 'Files', 'keyboard': 'Keyboard', 'send': 'Send to TV',
 }
@@ -26,7 +26,7 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     im.save(os.path.join(img_dir, out), 'WEBP', quality=82, method=6)
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
-ORDER = ['home', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
+ORDER = ['home', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
          'files', 'keyboard', 'send']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {

@@ -186,7 +186,7 @@ private fun openDriveFile(context: Context, f: DriveFile, all: List<DriveFile>, 
  * Without artwork, a title card in the brand colors.
  */
 @Composable
-private fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
+internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     val title = f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
     Surface(

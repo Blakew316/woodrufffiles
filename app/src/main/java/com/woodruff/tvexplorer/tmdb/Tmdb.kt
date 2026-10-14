@@ -32,7 +32,8 @@ object Tmdb {
 
     private const val KEY = "tmdb.key"
     private const val API = "https://api.themoviedb.org/3/"
-    private const val IMG = "https://image.tmdb.org/t/p/w500"
+    // w342 is plenty for a ~150dp poster tile and about 40% smaller to download than w500.
+    private const val IMG = "https://image.tmdb.org/t/p/w342"
     private val cache = ConcurrentHashMap<String, String>() // query -> poster URL ("" = none)
     @Volatile private var loaded = false
     private val gate = Semaphore(6)
