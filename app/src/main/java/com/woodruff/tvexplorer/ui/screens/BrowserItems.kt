@@ -34,6 +34,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.woodruff.tvexplorer.data.FileItem
 import com.woodruff.tvexplorer.data.FileKind
+import com.woodruff.tvexplorer.ui.components.FileGlyph
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.color
 import com.woodruff.tvexplorer.ui.components.icon
@@ -78,7 +79,7 @@ fun FileRow(
         scale = ListItemDefaults.scale(focusedScale = 1.01f),
         leadingContent = {
             if (selecting) TvIcon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, tint = Palette.accent)
-            else TvIcon(item.kind.icon(), tint = item.kind.color())
+            else FileGlyph(item.name, item.kind, size = 34.dp)
         },
         headlineContent = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = { Text(item.subtitle(), maxLines = 1, color = Palette.muted) },
@@ -117,7 +118,7 @@ fun FileTile(
                     .background(Palette.background),
                 contentAlignment = Alignment.Center,
             ) {
-                TvIcon(item.kind.icon(), size = 48.dp, tint = item.kind.color())
+                FileGlyph(item.name, item.kind, size = 64.dp)
                 if (item.kind == FileKind.IMAGE || item.kind == FileKind.VIDEO) {
                     AsyncImage(
                         model = item.file,

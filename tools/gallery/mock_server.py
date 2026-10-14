@@ -9,9 +9,11 @@ PAGE = open(os.path.join(WEB, 'index.html'), encoding='utf-8').read().replace('_
 ROOT = '/storage/emulated/0'
 FILES = [
     {'name': n, 'path': ROOT + '/' + n, 'dir': d, 'size': s} for n, d, s in [
-        ('Movies', True, 0), ('Pictures', True, 0), ('Download', True, 0),
-        ('Family vacation.mp4', False, 2_340_000_000), ('Birthday party.mov', False, 860_000_000),
-        ('Beach sunset.jpg', False, 4_200_000), ('Road trip playlist.m4a', False, 9_800_000),
+        ('DCIM', True, 0), ('Movies', True, 0), ('Pictures', True, 0), ('Music', True, 0), ('Download', True, 0),
+        ('Documents', True, 0), ('Projects', True, 0),
+        ('Family vacation.mp4', False, 2_340_000_000), ('Beach sunset.jpg', False, 4_200_000),
+        ('Road trip playlist.m4a', False, 9_800_000), ('Recipes.pdf', False, 1_200_000),
+        ('Backup.zip', False, 640_000_000), ('Woodruff Films.apk', False, 22_000_000), ('notes.dat', False, 4_096),
     ]
 ]
 NOTES = [

@@ -73,6 +73,7 @@ import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ActionMenu
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.ToolButton
+import com.woodruff.tvexplorer.ui.components.FileGlyph
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.color
 import com.woodruff.tvexplorer.ui.components.icon
@@ -195,7 +196,7 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Palette.background),
                 contentAlignment = Alignment.Center,
             ) {
-                TvIcon(f.kind.icon(), size = 48.dp, tint = f.kind.color())
+                FileGlyph(f.name, f.kind, size = 64.dp)
                 if (f.thumbnailLink != null && token != null) {
                     AsyncImage(
                         model = ImageRequest.Builder(context).data(f.thumbnailLink).addHeader("Authorization", "Bearer $token").build(),
