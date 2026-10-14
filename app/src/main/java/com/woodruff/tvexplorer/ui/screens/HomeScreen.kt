@@ -59,6 +59,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -194,9 +197,21 @@ private fun Header() {
     LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
     val hour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
     val greeting = when (hour) { in 5..11 -> "Good morning"; in 12..16 -> "Good afternoon"; else -> "Good evening" }
+    val accent = Palette.accent
+    val title = remember(greeting, accent) {
+        buildAnnotatedString {
+            append("$greeting, ")
+            withStyle(SpanStyle(color = accent)) { append("Woodruff Family") }
+        }
+    }
+    // A new line each hour, the same one all hour (no flicker when the clock ticks).
+    val lines = when (hour) { in 5..11 -> MORNING; in 12..16 -> AFTERNOON; in 17..23 -> EVENING; else -> LATE }
+    val day = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.DAY_OF_YEAR)
+    val line = lines[(day * 24 + hour) % lines.size]
     Row(Modifier.fillMaxWidth().padding(horizontal = 48.dp), verticalAlignment = Alignment.Bottom) {
         Column(Modifier.weight(1f)) {
-            Text(greeting, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
+            Text(title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold, maxLines = 2)
+            Text(line, style = MaterialTheme.typography.titleMedium, color = Palette.muted, modifier = Modifier.padding(top = 4.dp))
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)), style = MaterialTheme.typography.headlineMedium)
@@ -204,6 +219,35 @@ private fun Header() {
         }
     }
 }
+
+private val MORNING = listOf(
+    "Coffee first, credits later.",
+    "Rise and stream.",
+    "Cartoons and cereal o'clock.",
+    "Early show, best seats in the house.",
+    "Morning matinee, anyone?",
+)
+private val AFTERNOON = listOf(
+    "Perfect time for a matinee.",
+    "Popcorn pairs well with lunch.",
+    "An intermission from the day.",
+    "One more episode won't hurt.",
+    "Snack break, then the next episode.",
+)
+private val EVENING = listOf(
+    "What are we watching tonight?",
+    "Lights down, phones away.",
+    "Prime time at the Woodruffs'.",
+    "Grab the blankets and the popcorn.",
+    "Just one more episode… probably.",
+    "The remote is the real MVP.",
+)
+private val LATE = listOf(
+    "Lights down, volume low.",
+    "Still up? Same.",
+    "Midnight movie club is in session.",
+    "Shh, the house is sleeping.",
+)
 
 @Composable
 private fun Shelf(title: String, content: LazyListScope.() -> Unit) {
