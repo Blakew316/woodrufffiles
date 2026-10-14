@@ -260,6 +260,8 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
+private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
 /** One WebRTC live view. The renderer and stream live exactly as long as this composable. */
 @Composable
 internal fun LiveVideo(cam: Camera, audio: Boolean) {
@@ -277,8 +279,8 @@ internal fun LiveVideo(cam: Camera, audio: Boolean) {
     DisposableEffect(Unit) {
         stream.start()
         onDispose {
-            stream.close()
-            renderer.release()
+            // Release the renderer only after the stream has let go of it.
+            stream.close { mainHandler.post { renderer.release() } }
         }
     }
     LaunchedEffect(audio) { stream.setAudio(audio) }

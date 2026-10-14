@@ -5,8 +5,10 @@ import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,49 +71,68 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
     @Volatile private var audio: AudioTrack? = null
     @Volatile private var audioOn = false
     @Volatile private var dropped: CompletableDeferred<Unit>? = null
+    @Volatile private var job: Job? = null
+    @Volatile private var onClosed: (() -> Unit)? = null
 
     fun start() {
-        scope.launch {
-            var failures = 0
-            while (true) {
-                try {
-                    connect()
-                    failures = 0
-                    // Keep the stream going; reconnect if the network drops it.
-                    val drop = CompletableDeferred<Unit>().also { dropped = it }
-                    while (true) {
-                        val lost = withTimeoutOrNull(EXTEND_EVERY_MS) { drop.await() } != null
-                        if (lost) throw IllegalStateException("Connection lost")
-                        sessionId = NestApi.extendStream(context, camera, sessionId ?: break)
-                    }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.w("CameraStream", "${camera.label}: ${e.message}")
-                    failures++
-                    _status.value = Status.Failed(e.message ?: "Couldn't connect")
+        job = scope.launch {
+            try { run() } finally {
+                // Only this coroutine ever touches the connection, so tearing down here (after any
+                // connect step in progress has returned) can't race it. Closing from another thread
+                // while connect() was still using the connection crashed the app natively.
+                withContext(NonCancellable) {
+                    val id = sessionId
+                    sessionId = null
+                    teardown()
+                    if (id != null) runCatching { NestApi.stopStream(context, camera, id) }
+                    onClosed?.invoke()
                 }
-                teardown()
-                // Back off: 3 s, 6 s, … up to a minute, so a camera that's offline doesn't spam Google.
-                delay(minOf(60_000L, 3_000L * failures.coerceAtLeast(1)))
-                _status.value = Status.Connecting
             }
         }
     }
 
+    private suspend fun run() {
+        var failures = 0
+        while (true) {
+            try {
+                connect()
+                failures = 0
+                // Keep the stream going; reconnect if the network drops it.
+                val drop = CompletableDeferred<Unit>().also { dropped = it }
+                while (true) {
+                    val lost = withTimeoutOrNull(EXTEND_EVERY_MS) { drop.await() } != null
+                    if (lost) throw IllegalStateException("Connection lost")
+                    sessionId = NestApi.extendStream(context, camera, sessionId ?: break)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("CameraStream", "${camera.label}: ${e.message}")
+                failures++
+                _status.value = Status.Failed(e.message ?: "Couldn't connect")
+            }
+            teardown()
+            // Back off: 3 s, 6 s, … up to a minute, so a camera that's offline doesn't spam Google.
+            delay(minOf(60_000L, 3_000L * failures.coerceAtLeast(1)))
+            _status.value = Status.Connecting
+        }
+    }
+
+    /** Synchronized with [teardown], so it never touches a track that's being disposed. */
+    @Synchronized
     fun setAudio(on: Boolean) {
         audioOn = on
         audio?.setEnabled(on)
     }
 
-    fun close() {
-        scope.cancel()
-        // Tell Google we're done and free the connection, off the main thread.
-        val id = sessionId
-        CoroutineScope(Dispatchers.IO).launch {
-            if (id != null) NestApi.stopStream(context, camera, id)
-            teardown()
-        }
+    /**
+     * Stops the stream; [then] runs (on a background thread) once the connection is fully torn
+     * down, so the video renderer is only released after nothing can draw into it.
+     */
+    fun close(then: () -> Unit = {}) {
+        onClosed = then
+        val j = job
+        if (j == null) then() else j.cancel()
     }
 
     private suspend fun connect() {

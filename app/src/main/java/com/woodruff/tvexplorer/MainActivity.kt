@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
         hasAccess = Permissions.hasStorageAccess(this)
         ThemeSetting.load(this)
         Notices.load(this)
+        com.woodruff.tvexplorer.util.CrashLog.report(this)
         Appearance.load(this)
         handleOpen(intent)
         setContent {

@@ -427,7 +427,11 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     // Live only while Woodruff is on screen: a video playing on top, another app or the TV
     // sleeping stops the streams (each one counts against Google's limits).
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    val onScreen = lifecycle.isAtLeast(Lifecycle.State.STARTED)
+    val visible = lifecycle.isAtLeast(Lifecycle.State.STARTED)
+    // Wait a moment before connecting, so passing through Home (opening straight to the Command
+    // center, or a quick switch) doesn't start four streams only to close them again.
+    var onScreen by remember { mutableStateOf(false) }
+    LaunchedEffect(visible) { onScreen = false; if (visible) { delay(1_500); onScreen = true } }
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
             // Four at a glance in a 2×2 grid; more cameras scroll inside the panel.

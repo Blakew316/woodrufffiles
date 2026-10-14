@@ -10,6 +10,7 @@ import com.woodruff.tvexplorer.cloud.GoogleAuth
 class TvExplorerApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
+        com.woodruff.tvexplorer.util.CrashLog.install(this)
         GoogleAuth.migrate(this)
         com.woodruff.tvexplorer.nest.Nest.init(this)
         com.woodruff.tvexplorer.photos.GooglePhotos.init(this)
