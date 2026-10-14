@@ -31,24 +31,34 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.woodruff.tvexplorer.cloud.GoogleAuth
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import java.io.File
 
 /**
- * Full-screen photo viewer. Left/Right: previous/next. Up: rotate. OK: start/stop slideshow.
+ * Full-screen photo viewer for local and Google Drive photos. Left/Right: previous/next. Up: rotate. OK: start/stop slideshow.
  */
 class ImageViewerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val paths = intent.getStringArrayListExtra(EXTRA_PATHS).orEmpty()
+        val titles = intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
         val start = paths.indexOf(intent.getStringExtra(EXTRA_START)).coerceAtLeast(0)
         if (paths.isEmpty()) { finish(); return }
+        val needsDrive = paths.any { MediaRef.parse(it).needsDriveAuth }
 
         setContent {
             var index by remember { mutableIntStateOf(start) }
             var rotation by remember { mutableFloatStateOf(0f) }
             var slideshow by remember { mutableIntStateOf(0) } // 0 = off, otherwise a run token
             val focus = remember { FocusRequester() }
+            val context = LocalContext.current
+            val driveToken by produceState<String?>(null) { if (needsDrive) value = GoogleAuth.token(context) }
+            val ref = MediaRef.parse(paths[index])
+            val title = titles.getOrNull(index) ?: File(paths[index]).name
             fun go(delta: Int) { index = (index + delta + paths.size) % paths.size; rotation = 0f }
 
             LaunchedEffect(slideshow) {
@@ -77,13 +87,22 @@ class ImageViewerActivity : ComponentActivity() {
                 contentAlignment = Alignment.Center,
             ) {
                 AsyncImage(
-                    model = File(paths[index]),
-                    contentDescription = File(paths[index]).name,
+                    model = ImageRequest.Builder(context)
+                        .data(
+                            when {
+                                ref is MediaRef.Local -> File(ref.path)
+                                driveToken == null -> null // wait for the token rather than fire a request that 401s
+                                else -> ref.uri.toString()
+                            },
+                        )
+                        .apply { if (ref.needsDriveAuth && driveToken != null) addHeader("Authorization", "Bearer $driveToken") }
+                        .build(),
+                    contentDescription = title,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().rotate(rotation),
                 )
                 Text(
-                    "${File(paths[index]).name}   ${index + 1} / ${paths.size}" + if (slideshow != 0) "   ▶ Slideshow" else "",
+                    "$title   ${index + 1} / ${paths.size}" + if (slideshow != 0) "   ▶ Slideshow" else "",
                     color = Color.White.copy(alpha = 0.8f),
                     modifier = Modifier.align(Alignment.BottomStart).background(Color.Black.copy(alpha = 0.5f)).padding(16.dp),
                 )
@@ -95,10 +114,13 @@ class ImageViewerActivity : ComponentActivity() {
     companion object {
         private const val EXTRA_PATHS = "paths"
         private const val EXTRA_START = "start"
+        private const val EXTRA_TITLES = "titles"
 
-        fun intent(context: Context, paths: List<String>, start: String): Intent =
+        /** [paths] are [MediaRef] keys (local paths or "drive:<id>"); [titles] line up with them. */
+        fun intent(context: Context, paths: List<String>, start: String, titles: List<String> = emptyList()): Intent =
             Intent(context, ImageViewerActivity::class.java)
                 .putStringArrayListExtra(EXTRA_PATHS, ArrayList(paths.ifEmpty { listOf(start) }))
+                .putStringArrayListExtra(EXTRA_TITLES, ArrayList(titles))
                 .putExtra(EXTRA_START, start)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }

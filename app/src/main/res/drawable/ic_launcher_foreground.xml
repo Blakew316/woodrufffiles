@@ -1,8 +1,8 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#0F1216"
-        android:pathData="M32,38h16l5,6h23a4,4 0 0 1 4,4v22a4,4 0 0 1 -4,4H32a4,4 0 0 1 -4,-4V42a4,4 0 0 1 4,-4z" />
-    <path android:fillColor="#4FC3F7"
-        android:pathData="M44,58h20v4H44z" />
+    <!-- Amber tile with a play mark, matching the in-app logo. -->
+    <path android:fillColor="#FFB547"
+        android:pathData="M40,32h28a8,8 0 0 1 8,8v28a8,8 0 0 1 -8,8H40a8,8 0 0 1 -8,-8V40a8,8 0 0 1 8,-8z" />
+    <path android:fillColor="#1F1300" android:pathData="M48,43L48,65L66,54Z" />
 </vector>

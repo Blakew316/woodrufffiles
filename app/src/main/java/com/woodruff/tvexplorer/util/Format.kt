@@ -14,6 +14,18 @@ object Format {
         return String.format(Locale.getDefault(), if (v >= 100) "%.0f %s" else "%.1f %s", v, units[i])
     }
 
+    /** "1h 05m" / "12m" / "45s" for Continue watching. */
+    fun duration(ms: Long): String {
+        val s = (ms / 1000).coerceAtLeast(0)
+        val h = s / 3600
+        val m = (s % 3600) / 60
+        return when {
+            h > 0 -> String.format(Locale.getDefault(), "%dh %02dm", h, m)
+            m > 0 -> "${m}m"
+            else -> "${s}s"
+        }
+    }
+
     fun date(millis: Long): String =
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(millis))
 }

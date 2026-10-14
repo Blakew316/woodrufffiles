@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TV Explorer</title>
+<title>Woodruff Shows</title>
 <style>
-  :root { --bg:#f6f8fa; --card:#fff; --text:#1f2328; --muted:#656d76; --line:#d0d7de; --accent:#0969da; --danger:#cf222e; }
+  :root { --bg:#f7f5f0; --card:#fff; --text:#1f2328; --muted:#656d76; --line:#e2ddd2; --accent:#c77c00; --on-accent:#fff; --danger:#cf222e; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#0f1216; --card:#161b22; --text:#e6edf3; --muted:#8b98a5; --line:#30363d; --accent:#4fc3f7; --danger:#f85149; }
+    :root { --bg:#080b10; --card:#121822; --text:#f2f4f7; --muted:#93a1b4; --line:#2a3544; --accent:#ffb547; --on-accent:#1f1300; --danger:#ff7b72; }
   }
   * { box-sizing:border-box; }
   body { margin:0; font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
   header { padding:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:2; }
   h1 { font-size:18px; margin:0 auto 0 0; }
   select, button { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 12px; cursor:pointer; }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); font-weight:600; }
   button.danger { color:var(--danger); }
   main { max-width:960px; margin:0 auto; padding:16px; }
   #path { color:var(--muted); word-break:break-all; margin:0 0 12px; }
@@ -40,7 +40,7 @@
 </head>
 <body>
 <header>
-  <h1>TV Explorer</h1>
+  <h1><span style="color:var(--accent)">&#9654;</span> Woodruff Shows</h1>
   <select id="roots" aria-label="Storage"></select>
   <button id="up">Up</button>
   <button id="mkdir">New folder</button>
@@ -49,7 +49,7 @@
 </header>
 <main>
   <p id="path"></p>
-  <div id="drop">Drop files here to send them to the TV</div>
+  <div id="drop">Drop files here to send them to the TV.<br><small>On iPhone: tap <b>Upload files</b>, then <b>Browse</b> for iCloud Drive or <b>Photo Library</b>.</small></div>
   <div class="uploads" id="uploads"></div>
   <ul id="list"></ul>
 </main>

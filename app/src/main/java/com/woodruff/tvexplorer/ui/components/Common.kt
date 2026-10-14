@@ -75,11 +75,42 @@ fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier:
         modifier = modifier,
         enabled = enabled,
         contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-        scale = ButtonDefaults.scale(focusedScale = 1.05f),
+        scale = ButtonDefaults.scale(focusedScale = 1.06f),
+        colors = ButtonDefaults.colors(
+            containerColor = Palette.surfaceHigh,
+            contentColor = Palette.text,
+            focusedContainerColor = Palette.accent,
+            focusedContentColor = Palette.onAccent,
+        ),
     ) {
         TvIcon(icon, size = 20.dp)
         if (label != null) Text(label, modifier = Modifier.padding(start = 8.dp))
     }
+}
+
+/** Small rounded label, e.g. "4K" or "USB". */
+@Composable
+fun Chip(text: String, color: Color = Palette.accent, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        color = color,
+        style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.16f))
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+    )
+}
+
+/** Section heading used on Home and the cloud screens. */
+@Composable
+fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = androidx.tv.material3.MaterialTheme.typography.titleLarge,
+        color = Palette.text,
+        modifier = modifier,
+    )
 }
 
 /** Thin usage bar for storage cards. */

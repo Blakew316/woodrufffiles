@@ -37,6 +37,7 @@ import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.color
 import com.woodruff.tvexplorer.ui.components.icon
+import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 
@@ -67,9 +68,12 @@ fun FileRow(
         onLongClick = onLongClick,
         modifier = modifier.onMenuKey(onLongClick),
         colors = ListItemDefaults.colors(
-            selectedContainerColor = Palette.accent.copy(alpha = 0.25f),
+            selectedContainerColor = Palette.accentSoft,
             focusedContainerColor = Palette.surfaceHigh,
             focusedContentColor = Palette.text,
+        ),
+        border = ListItemDefaults.border(
+            focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Palette.accent)),
         ),
         scale = ListItemDefaults.scale(focusedScale = 1.01f),
         leadingContent = {
@@ -94,13 +98,14 @@ fun FileTile(
         onClick = onClick,
         onLongClick = onLongClick,
         modifier = modifier.onMenuKey(onLongClick),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        shape = CardStyle.shape(),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) Palette.accent.copy(alpha = 0.25f) else Palette.surface,
+            containerColor = if (selected) Palette.accentSoft else Palette.surface,
             focusedContainerColor = Palette.surfaceHigh,
             contentColor = Palette.text,
             focusedContentColor = Palette.text,
         ),
+        border = CardStyle.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {
         Column {
@@ -108,7 +113,7 @@ fun FileTile(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
                     .background(Palette.background),
                 contentAlignment = Alignment.Center,
             ) {

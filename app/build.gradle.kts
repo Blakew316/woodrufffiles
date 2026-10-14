@@ -9,21 +9,34 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.woodruff.tvexplorer"
+        applicationId = "com.woodruff.shows"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
+    }
+
+    // One fixed key for every build, so updates install over the previous version and the
+    // SHA-1 registered with Google (for Drive sign-in) never changes. Sideload use only:
+    // the key is in the repo, so swap it for a private one before any store release.
+    signingConfigs {
+        create("shared") {
+            storeFile = file("woodruff-shows.keystore")
+            storePassword = "woodruffshows"
+            keyAlias = "woodruff"
+            keyPassword = "woodruffshows"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("shared")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key so the APK built by CI can be sideloaded directly.
-            // Swap in a real signing config before publishing to a store.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("shared")
         }
     }
 
@@ -62,6 +75,8 @@ dependencies {
     implementation(libs.coil.video)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
+    implementation(libs.play.services.auth)
+    implementation(libs.media3.datasource)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.core)

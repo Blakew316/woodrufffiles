@@ -33,7 +33,7 @@ object Opener {
     fun open(context: Context, item: FileItem, siblings: List<FileItem>): OpenResult = when (item.kind) {
         FileKind.VIDEO, FileKind.AUDIO -> {
             val playlist = window(siblings.filter { it.kind == FileKind.VIDEO || it.kind == FileKind.AUDIO }, item)
-            context.startActivity(PlayerActivity.intent(context, playlist, item.path))
+            context.startActivity(PlayerActivity.intent(context, playlist, playlist.map { java.io.File(it).name }, item.path))
             OpenResult.Opened
         }
         FileKind.IMAGE -> {
@@ -84,7 +84,7 @@ object Opener {
             Intent(Settings.ACTION_SECURITY_SETTINGS),
         )
         return firstThatStarts(context, attempts,
-            "Open Settings > Apps > Security & restrictions > Unknown sources and allow TV Explorer")
+            "Open Settings > Apps > Security & restrictions > Unknown sources and allow Woodruff Shows")
     }
 
     fun appDetails(context: Context, packageName: String): OpenResult =

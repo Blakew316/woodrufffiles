@@ -54,10 +54,10 @@ fun TransferScreen(vm: MainViewModel) {
 
     Row(Modifier.fillMaxSize().padding(48.dp), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
         Column(Modifier.width(560.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Wireless transfer", style = MaterialTheme.typography.headlineMedium)
+            Text("Send files to this TV", style = MaterialTheme.typography.headlineMedium)
             Text(
-                "Send files to this TV from a phone or computer on the same network, or download files from it. " +
-                    "Uploads go straight to the folder you pick, including USB drives.",
+                "Use any phone or computer on the same Wi-Fi. On an iPhone, the upload button can pick straight from " +
+                    "iCloud Drive and your Photo Library. Uploads go to the folder you choose, including USB drives.",
                 color = Palette.muted,
             )
             if (state.running) {

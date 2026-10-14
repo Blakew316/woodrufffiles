@@ -177,7 +177,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun loadSettings() = ViewSettings(
         showHidden = prefs.getBoolean("hidden", false),
-        grid = prefs.getBoolean("grid", false),
+        grid = prefs.getBoolean("grid", true),
         sort = SortOrder(
             runCatching { SortField.valueOf(prefs.getString("sort", null) ?: "") }.getOrDefault(SortField.NAME),
             prefs.getBoolean("asc", true),

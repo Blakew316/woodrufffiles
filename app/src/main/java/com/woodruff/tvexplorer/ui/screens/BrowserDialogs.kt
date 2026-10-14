@@ -143,7 +143,7 @@ fun BrowserDialogs(dialog: BrowserDialog, vm: MainViewModel, onDismiss: () -> Un
 
         is BrowserDialog.InstallPermission -> DialogFrame("Allow app installs", onDismiss) {
             Text(
-                "To install APK files, Android needs you to allow TV Explorer to install unknown apps. " +
+                "To install APK files, Android needs you to allow Woodruff Shows to install unknown apps. " +
                     "Turn it on in the next screen, then press Back and choose the APK again.",
                 color = Palette.muted,
             )
