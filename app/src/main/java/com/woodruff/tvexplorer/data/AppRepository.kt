@@ -58,13 +58,13 @@ class AppRepository(private val context: Context) {
     private fun launchIntentAvailable(packageName: String) = launchIntent(packageName) != null
 
     /**
-     * Copies the base APK to Download/Woodruff Films/Apps. Split APKs (app bundles) are only partially
+     * Copies the base APK to Download/Woodruff Family/Apps. Split APKs (app bundles) are only partially
      * captured, which is why the result names the file so the user can check it.
      */
     suspend fun backup(app: AppEntry): File = withContext(Dispatchers.IO) {
         val dir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "Woodruff Films/Apps",
+            "Woodruff Family/Apps",
         ).apply { mkdirs() }
         val safeLabel = app.label.replace(Regex("[^A-Za-z0-9 ._-]"), "_")
         val target = FileOperations.uniqueTarget(dir, "$safeLabel ${app.versionName}.apk".trim())

@@ -13,7 +13,7 @@ FILES = [
         ('Documents', True, 0), ('Projects', True, 0),
         ('Family vacation.mp4', False, 2_340_000_000), ('Beach sunset.jpg', False, 4_200_000),
         ('Road trip playlist.m4a', False, 9_800_000), ('Recipes.pdf', False, 1_200_000),
-        ('Backup.zip', False, 640_000_000), ('Woodruff Films.apk', False, 22_000_000), ('notes.dat', False, 4_096),
+        ('Backup.zip', False, 640_000_000), ('Woodruff Family.apk', False, 22_000_000), ('notes.dat', False, 4_096),
     ]
 ]
 NOTES = [

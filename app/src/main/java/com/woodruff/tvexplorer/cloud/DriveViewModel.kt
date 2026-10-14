@@ -194,7 +194,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     fun download(file: DriveFile) {
         if (opJob?.isActive == true) return say("A download is already running")
-        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Woodruff Films").apply { mkdirs() }
+        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Woodruff Family").apply { mkdirs() }
         val dest = FileOperations.uniqueTarget(dir, file.name.replace('/', '_'))
         _state.update { it.copy(operation = Operation("Downloading")) }
         var last = 0L
@@ -205,7 +205,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     val now = System.currentTimeMillis()
                     if (now - last > 150) { last = now; _state.update { it.copy(operation = Operation("Downloading", p)) } }
                 }
-                say("Saved to Downloads/Woodruff Films/${dest.name}")
+                say("Saved to Downloads/Woodruff Family/${dest.name}")
             } catch (e: CancellationException) {
                 say("Download cancelled")
             } catch (e: Exception) {

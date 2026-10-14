@@ -180,15 +180,15 @@ fun AppRoot(vm: MainViewModel) {
     }
 }
 
-/** Top-left brand: the Woodruff Films reel emblem (transparent outside the ring) and the wordmark. */
+/** Top-left brand: the Woodruff Family reel emblem (transparent outside the ring) and the wordmark. */
 @Composable
 private fun Brand(modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(R.drawable.brand_logo), contentDescription = "Woodruff Films logo", modifier = Modifier.size(52.dp))
+        Image(painterResource(R.drawable.brand_logo), contentDescription = "Woodruff Family logo", modifier = Modifier.size(52.dp))
         Spacer(Modifier.width(12.dp))
         Column {
             Text("WOODRUFF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Palette.text, letterSpacing = 1.sp)
-            Text("FILMS", style = MaterialTheme.typography.labelMedium, color = Palette.accent, letterSpacing = 6.sp)
+            Text("FAMILY", style = MaterialTheme.typography.labelMedium, color = Palette.accent, letterSpacing = 6.sp)
         }
     }
 }
@@ -246,7 +246,7 @@ private fun NoticeBanner(notice: Notice?, modifier: Modifier, onOpen: () -> Unit
         ) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
                 Text(
-                    when (n.source) { NoticeSource.PHONE -> "FROM YOUR PHONE"; NoticeSource.MAIL -> "NEW MAIL"; NoticeSource.SYSTEM -> "WOODRUFF FILMS" },
+                    when (n.source) { NoticeSource.PHONE -> "FROM YOUR PHONE"; NoticeSource.MAIL -> "NEW MAIL"; NoticeSource.SYSTEM -> "WOODRUFF FAMILY" },
                     style = MaterialTheme.typography.labelSmall, color = Palette.accent,
                 )
                 Text(n.title, style = MaterialTheme.typography.titleMedium, maxLines = 2)

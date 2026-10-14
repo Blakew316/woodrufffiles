@@ -41,7 +41,7 @@ object NoticeOverlay {
                 setStroke(dp(1), 0x33FFFFFF)
             }
             addView(TextView(app).apply {
-                text = when (n.source) { NoticeSource.PHONE -> "From your phone"; NoticeSource.MAIL -> "New mail"; NoticeSource.SYSTEM -> "Woodruff Films" }
+                text = when (n.source) { NoticeSource.PHONE -> "From your phone"; NoticeSource.MAIL -> "New mail"; NoticeSource.SYSTEM -> "Woodruff Family" }
                 setTextColor(0xFF6FB3E6.toInt()); textSize = 12f; typeface = font ?: Typeface.DEFAULT_BOLD
             })
             addView(TextView(app).apply {

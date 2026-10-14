@@ -62,9 +62,9 @@ class CompanionRoutes(private val ctx: Context) {
             return page("Google Photos connected ✓", "Look at your TV: scan the next QR code to pick photos.")
         }
         if (attempt.grant == GoogleAuth.Grant.NEST) {
-            return page("Cameras connected ✓", "Look at your TV: Woodruff Films is loading your cameras.")
+            return page("Cameras connected ✓", "Look at your TV: Woodruff Family is loading your cameras.")
         }
-        return page("You're signed in ✓", "Look at your TV: Woodruff Films is loading your Google Drive.")
+        return page("You're signed in ✓", "Look at your TV: Woodruff Family is loading your Google Drive.")
     }
 
     fun handle(s: IHTTPSession): Response? = when {
@@ -241,7 +241,7 @@ class CompanionRoutes(private val ctx: Context) {
         if (com.woodruff.tvexplorer.notify.AppVisibility.foreground || android.provider.Settings.canDrawOverlays(ctx)) {
             ctx.startActivity(intent)
         } else {
-            Notices.post(ctx, NoticeSource.PHONE, "Ready to play", "Open Woodruff Films to start it, or allow \"Display over other apps\" in Settings.")
+            Notices.post(ctx, NoticeSource.PHONE, "Ready to play", "Open Woodruff Family to start it, or allow \"Display over other apps\" in Settings.")
         }
     }
 
@@ -280,7 +280,7 @@ class CompanionRoutes(private val ctx: Context) {
     private fun page(title: String, body: String) = NanoHTTPD.newFixedLengthResponse(
         Response.Status.OK, "text/html; charset=utf-8",
         """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Woodruff Films</title><body style="margin:0;padding:28px;font:17px/1.5 -apple-system,system-ui,sans-serif;background:#0b0d12;color:#f2f4f7">
+        <title>Woodruff Family</title><body style="margin:0;padding:28px;font:17px/1.5 -apple-system,system-ui,sans-serif;background:#0b0d12;color:#f2f4f7">
         <h1 style="font-size:24px;margin:0 0 10px">$title</h1><p style="color:#9aa4b2">$body</p></body>""",
     )
 }

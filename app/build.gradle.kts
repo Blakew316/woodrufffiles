@@ -12,8 +12,8 @@ android {
         applicationId = "com.woodruff.shows"
         minSdk = 24
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.9.0"
+        versionCode = 12
+        versionName = "2.0.0"
         // TVs are ARM. Leaving out the x86 builds of WebRTC (cameras) keeps the APK ~10 MB smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }

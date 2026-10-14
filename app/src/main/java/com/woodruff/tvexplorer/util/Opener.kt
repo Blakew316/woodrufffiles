@@ -84,7 +84,7 @@ object Opener {
             Intent(Settings.ACTION_SECURITY_SETTINGS),
         )
         return firstThatStarts(context, attempts,
-            "Open Settings > Apps > Security & restrictions > Unknown sources and allow Woodruff Films")
+            "Open Settings > Apps > Security & restrictions > Unknown sources and allow Woodruff Family")
     }
 
     fun appDetails(context: Context, packageName: String): OpenResult =

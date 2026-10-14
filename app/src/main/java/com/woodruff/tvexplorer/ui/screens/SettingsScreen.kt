@@ -298,7 +298,7 @@ fun SettingsScreen(vm: MainViewModel) {
         item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", null, danger = true) { dialog = SettingsDialog.ResetPairing } }
 
         section("About")
-        item { SettingRow(Icons.Rounded.Info, "Woodruff Films", BuildConfig.VERSION_NAME) {} }
+        item { SettingRow(Icons.Rounded.Info, "Woodruff Family", BuildConfig.VERSION_NAME) {} }
     }
 
     if (showCalendar) CalendarConnectDialog(onDismiss = { showCalendar = false })

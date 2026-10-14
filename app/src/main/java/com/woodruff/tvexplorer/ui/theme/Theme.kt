@@ -27,7 +27,7 @@ object Palette {
 
     private fun pick(dark: Long, lightValue: Long) = Color(if (light) lightValue else dark)
 
-    // Cool navy (dark) and blue-white (light) to sit under the Woodruff Films blues.
+    // Cool navy (dark) and blue-white (light) to sit under the Woodruff Family blues.
     val background get() = pick(0xFF060A12, 0xFFF2F6FA)
     val backgroundTop get() = pick(0xFF10213A, 0xFFFFFFFF)
     val surface get() = pick(0xFF0E1726, 0xFFFFFFFF)
@@ -35,7 +35,7 @@ object Palette {
     val outline get() = pick(0xFF253852, 0xFFCCDAE8)
     val text get() = pick(0xFFF2F6FA, 0xFF14202E)
     val muted get() = pick(0xFF93A6BC, 0xFF56677A)
-    // Woodruff Films blue (logo #5592BF): lighter on dark backgrounds, deeper on light ones,
+    // Woodruff Family blue (logo #5592BF): lighter on dark backgrounds, deeper on light ones,
     // so text on and next to it stays readable. Dark mode puts navy text on the light blue.
     val accent get() = pick(0xFF6FB3E6, 0xFF3A7AB0)
     val accentSoft get() = pick(0x336FB3E6, 0x223A7AB0)

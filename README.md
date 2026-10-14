@@ -1,4 +1,4 @@
-# Woodruff Films
+# Woodruff Family
 
 A media hub and file manager built for Android TV and Google TV, made to be driven entirely with a remote.
 It plays videos, music and photos from the TV, USB drives and Google Drive.
@@ -76,9 +76,9 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 
 ## Install on your TV
 
-1. Download **WoodruffFilms.apk** from the latest release:
-   https://github.com/Blakew316/woodrufffiles/releases/latest/download/WoodruffFilms.apk
-   (The older WoodruffPictures.apk / WoodruffShows.apk links still work.)
+1. Download **WoodruffFamily.apk** from the latest release:
+   https://github.com/Blakew316/woodrufffiles/releases/latest/download/WoodruffFamily.apk
+   (The older WoodruffFilms.apk / WoodruffPictures.apk / WoodruffShows.apk links still work.)
    (The older `WoodruffShows.apk` link still works and always gets the same latest build.)
    It's signed with a debug key so it can be sideloaded.
 2. Get it onto the TV with any of these:
@@ -116,7 +116,7 @@ That's expected: it means the page is live.
    - Create it, and keep the **Client ID** and **Client secret** handy (open the client again to copy them).
    - If you made an *Android* client earlier, you can delete it. It's no longer used.
 
-**3. On the TV**, open **Google Drive** in Woodruff Films:
+**3. On the TV**, open **Google Drive** in Woodruff Family:
 1. Scan the first QR code with your phone (on the same Wi-Fi as the TV). Paste the Client ID and Client secret, then tap **Save**.
 2. The TV shows a second QR code. Scan it, pick your Google account and allow access.
    Google warns that the app isn't verified: tap **Continue**. That's expected for your own private project.

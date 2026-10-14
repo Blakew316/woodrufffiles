@@ -25,7 +25,7 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: WoodruffFilms-apk
+          name: WoodruffFamily-apk
           path: |
             app/build/outputs/apk/release/*.apk
             app/build/outputs/apk/debug/*.apk
@@ -33,27 +33,26 @@ jobs:
       - name: Prepare release APK
         if: github.event_name != 'pull_request'
         run: |
-          cp app/build/outputs/apk/release/*.apk WoodruffFilms.apk
+          cp app/build/outputs/apk/release/*.apk WoodruffFamily.apk
           # Older names too, so links (and short links) made for earlier versions keep working.
-          cp WoodruffFilms.apk WoodruffPictures.apk
-          cp WoodruffFilms.apk WoodruffShows.apk
-          cp WoodruffFilms.apk TVExplorer.apk
-      # Gives a stable download link: /releases/latest/download/WoodruffFilms.apk
+          for old in WoodruffFilms WoodruffPictures WoodruffShows TVExplorer; do cp WoodruffFamily.apk "$old.apk"; done
+      # Gives a stable download link: /releases/latest/download/WoodruffFamily.apk
       - uses: softprops/action-gh-release@v2
         if: github.event_name != 'pull_request'
         with:
-          tag_name: v1.9.${{ github.run_number }}
-          name: Woodruff Films 1.9 (build ${{ github.run_number }})
+          tag_name: v2.0.${{ github.run_number }}
+          name: Woodruff Family 2.0 (build ${{ github.run_number }})
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: |
+            WoodruffFamily.apk
             WoodruffFilms.apk
             WoodruffPictures.apk
             WoodruffShows.apk
             TVExplorer.apk
           body: |
-            Install on Android TV: download WoodruffFilms.apk, or type this into the Downloader app on the TV:
-            https://github.com/${{ github.repository }}/releases/latest/download/WoodruffFilms.apk
+            Install on Android TV: download WoodruffFamily.apk, or type this into the Downloader app on the TV:
+            https://github.com/${{ github.repository }}/releases/latest/download/WoodruffFamily.apk
 
   # UI gallery: draws every TV screen (Robolectric, no device needed) and every phone-app tab
   # (headless Chromium), light and dark, and publishes them to GitHub Pages at /ui/.

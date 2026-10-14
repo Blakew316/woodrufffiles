@@ -48,9 +48,9 @@ fun PermissionScreen(onRecheck: () -> Unit) {
             Text("Allow access to your files", style = MaterialTheme.typography.headlineMedium)
             Text(
                 if (Build.VERSION.SDK_INT >= 30)
-                    "Woodruff Films needs \"All files access\" to browse, copy and manage files on this TV and on USB drives. " +
+                    "Woodruff Family needs \"All files access\" to browse, copy and manage files on this TV and on USB drives. " +
                         "Turn it on in the next screen, then press Back."
-                else "Woodruff Films needs storage permission to browse and manage your files.",
+                else "Woodruff Family needs storage permission to browse and manage your files.",
                 color = Palette.muted,
             )
             Button(
