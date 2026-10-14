@@ -117,6 +117,8 @@ class TransferService : Service() {
     /** New-mail notifications: check right away, then every few minutes while the TV app runs. */
     private fun startMailChecks() {
         scope.launch {
+            // Not during launch: the first screen gets the network and CPU first.
+            delay(20_000)
             while (isActive) {
                 runCatching { MailPoller.check(applicationContext) }
                 runCatching { com.woodruff.tvexplorer.update.Updater.maybeAuto(applicationContext) }

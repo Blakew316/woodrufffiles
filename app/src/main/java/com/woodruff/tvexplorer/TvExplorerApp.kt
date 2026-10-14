@@ -17,8 +17,12 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         com.woodruff.tvexplorer.calendar.TodayCalendar.init(this)
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .components { add(VideoFrameDecoder.Factory()) }
+        // At most two decodes at once: a folder of videos otherwise opens a decoder per tile and
+        // the TV's few hardware decoders (and the CPU) choke while scrolling.
+        .decoderDispatcher(kotlinx.coroutines.Dispatchers.IO.limitedParallelism(2))
         .crossfade(true)
         .build()
 }

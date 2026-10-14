@@ -16,7 +16,6 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
-import coil.ImageLoader
 import coil.request.Disposable
 import coil.request.ImageRequest
 import java.io.File
@@ -32,9 +31,11 @@ import java.util.concurrent.Executors
  */
 @SuppressLint("ViewConstructor")
 class SlideshowView(context: Context) : FrameLayout(context) {
-    private val loader = ImageLoader(context)
+    // The app's image loader and one shared thread: a new loader (with its own memory cache) and
+    // a new thread on every slideshow start added up on a TV that's left on for days.
+    private val loader = coil.Coil.imageLoader(context)
     private val main = Handler(Looper.getMainLooper())
-    private val io = Executors.newSingleThreadExecutor()
+    private val io = sharedIo
     private var front = image()
     private var back = image()
     private val clock = TextView(context).apply {
@@ -179,3 +180,6 @@ class SlideshowActivity : Activity() {
         )
     }
 }
+
+/** Folder scans for every slideshow run on this one background thread. */
+private val sharedIo = Executors.newSingleThreadExecutor()

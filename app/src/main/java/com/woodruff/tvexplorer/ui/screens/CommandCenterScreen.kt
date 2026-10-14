@@ -1,6 +1,12 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
+import com.woodruff.tvexplorer.notify.AppVisibility
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 import android.view.View
 import androidx.activity.compose.BackHandler
@@ -263,9 +269,20 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
-/** One WebRTC live view. The renderer and stream live exactly as long as this composable. */
+/**
+ * One live camera view, streaming only while Woodruff is on screen: with the slideshow, a video
+ * or another app on top, the stream stops (it was decoding underneath) and resumes on return.
+ */
 @Composable
 internal fun LiveVideo(cam: Camera, audio: Boolean) {
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio)
+    else Placeholder("Paused")
+}
+
+/** One WebRTC live view. The renderer and stream live exactly as long as this composable. */
+@Composable
+private fun LiveStream(cam: Camera, audio: Boolean) {
     val context = LocalContext.current
     val renderer = remember {
         SurfaceViewRenderer(context).apply {
@@ -344,8 +361,11 @@ private fun SidePanel(modifier: Modifier) {
         val linked by TvLinks.linked.collectAsStateWithLifecycle()
         var tvs by remember { mutableStateOf<List<com.woodruff.tvexplorer.tvs.TvStatus>>(emptyList()) }
         LaunchedEffect(linked.size) {
-            TvLinks.load(context)
-            while (linked.isNotEmpty()) { tvs = runCatching { TvLinks.statuses(context) }.getOrDefault(tvs); delay(10_000) }
+            withContext(Dispatchers.IO) { TvLinks.load(context) }
+            while (linked.isNotEmpty()) {
+                if (AppVisibility.foreground) tvs = runCatching { TvLinks.statuses(context) }.getOrDefault(tvs)
+                delay(10_000)
+            }
         }
         if (tvs.size > 1) {
             PanelTitle("TVs")

@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -84,6 +85,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     /** Warm Movies and TV Shows in the background at launch, so the sidebar opens them instantly. */
     private fun prefetchLibraries() {
         viewModelScope.launch {
+            // Let the first screen settle (focus, cameras, dashboard) before the Drive and TMDB work.
+            delay(4_000)
             val token = GoogleAuth.token(ctx) ?: return@launch
             for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
                 runCatching { posters(token, listOf(place), parse(DriveApi.list(token, place))) }.onSuccess { cache[place] = it }
@@ -203,7 +206,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun warmPosters(token: String, files: List<DriveFile>) {
         val loader = coil.Coil.imageLoader(ctx)
-        files.asSequence().mapNotNull { it.posterUrl }.take(36).forEach { url ->
+        files.asSequence().mapNotNull { it.posterUrl }.take(12).forEach { url ->
             val google = android.net.Uri.parse(url).host.orEmpty().let { it.endsWith("googleusercontent.com") || it.endsWith("google.com") }
             loader.enqueue(
                 coil.request.ImageRequest.Builder(ctx).data(url).size(450, 675)

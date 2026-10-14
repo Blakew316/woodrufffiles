@@ -103,6 +103,10 @@ import com.woodruff.tvexplorer.notify.Notice
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.layout.layout
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /** Main window: branded side rail, the active screen, and global overlays. */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -114,7 +118,10 @@ fun AppRoot(vm: MainViewModel) {
     val browser by vm.browser.collectAsStateWithLifecycle()
     val operation by vm.operation.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
-    val driveState by drive.state.collectAsStateWithLifecycle()
+    // Only the library the Drive screen is in: the full Drive state changes on every download
+    // progress tick and would redraw the whole window with it.
+    val driveTop by remember(drive) { drive.state.map { it.stack.firstOrNull() }.distinctUntilChanged() }
+        .collectAsStateWithLifecycle(drive.state.value.stack.firstOrNull())
     val server by TransferService.state.collectAsStateWithLifecycle()
     val notices by Notices.items.collectAsStateWithLifecycle()
     val latestNotice by Notices.latest.collectAsStateWithLifecycle()
@@ -151,17 +158,23 @@ fun AppRoot(vm: MainViewModel) {
                     }
                 }
                 MessageBanner(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
-                MessageBanner(driveState.message, drive::dismissMessage, Modifier.align(Alignment.BottomCenter))
+                DriveMessage(drive, Modifier.align(Alignment.BottomCenter))
                 NoticeBanner(latestNotice, Modifier.align(Alignment.TopEnd)) { vm.show(Screen.NOTIFICATIONS) }
         }
         // Dim the dashboard while the menu is open over it.
-        val scrim by animateFloatAsState(if (open) 1f else 0f, tween(220), label = "scrim")
-        if (scrim > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
+        // Animated values are read only while drawing / laying out, so the 220 ms open and close
+        // animations don't recompose the whole window on every frame.
+        val scrim = animateFloatAsState(if (open) 1f else 0f, tween(220), label = "scrim")
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim.value }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
         // Side menu: icons only until it has focus, then it opens to full labels over the content.
-        val railWidth by animateDpAsState(if (open) RAIL_OPEN else RAIL_CLOSED, tween(220), label = "rail")
+        val railWidth = animateDpAsState(if (open) RAIL_OPEN else RAIL_CLOSED, tween(220), label = "rail")
         Column(
             Modifier
-                .width(railWidth)
+                .layout { measurable, constraints ->
+                    val w = railWidth.value.roundToPx()
+                    val p = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+                    layout(w, p.height) { p.place(0, 0) }
+                }
                 .fillMaxHeight()
                 .background(if (open) Palette.surface else Palette.background.copy(alpha = 0.6f))
                 .onFocusChanged { railFocused = it.hasFocus }
@@ -183,7 +196,6 @@ fun AppRoot(vm: MainViewModel) {
                 RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS, open) { vm.show(Screen.CAMERAS) }
                 // Library: Movies and TV Shows stream from those Drive folders; Photos and Videos are
                 // what was picked from Google Photos, saved on the TV.
-                val driveTop = driveState.stack.firstOrNull()
                 RailItem("Movies", Icons.Rounded.Movie, screen == Screen.DRIVE && driveTop == DrivePlace.Movies, open) {
                     drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE)
                 }
@@ -212,8 +224,15 @@ fun AppRoot(vm: MainViewModel) {
     }
 
     operation?.let { ProgressDialog(it.title, it.progress, vm::cancelOperation) }
-    driveState.operation?.let { ProgressDialog(it.title, it.progress, drive::cancelOperation) }
+    DriveProgress(drive)
     com.woodruff.tvexplorer.ui.screens.UpdatePrompt(vm)
+    // A screen changed from inside the content (Back to Home, a dashboard shortcut): the focused
+    // item went away with the old screen, so put focus in the new one unless it took it itself.
+    LaunchedEffect(screen) {
+        withFrameNanos {}
+        withFrameNanos {}
+        if (!railFocused && !contentFocused) runCatching { contentFocus.requestFocus() }
+    }
     LaunchedEffect(Unit) {
         // Start in the content with the menu closed; fall back to the menu if nothing there takes focus.
         delay(300)
@@ -228,6 +247,19 @@ private val RAIL_OPEN = 260.dp
 
 /** Gallery hook: draws the menu open without giving it focus. */
 internal object RailPreview { var open by mutableStateOf(false) }
+
+/** Drive's progress dialog, collected here so download ticks redraw only the dialog. */
+@Composable
+private fun DriveProgress(drive: DriveViewModel) {
+    val s by drive.state.collectAsStateWithLifecycle()
+    s.operation?.let { ProgressDialog(it.title, it.progress, drive::cancelOperation) }
+}
+
+@Composable
+private fun DriveMessage(drive: DriveViewModel, modifier: Modifier) {
+    val message by remember(drive) { drive.state.map { it.message }.distinctUntilChanged() }.collectAsStateWithLifecycle(null)
+    MessageBanner(message, drive::dismissMessage, modifier)
+}
 
 /** Top-left brand: the Woodruff Family reel emblem (transparent outside the ring) and the wordmark. */
 @Composable

@@ -54,9 +54,10 @@ object Tmdb {
      * Fills [DriveFile.posterUrl] where it's empty and [DriveFile.info] (year, genres, rating).
      * [show] is the show's name when listing its seasons.
      */
-    suspend fun fill(c: Context, files: List<DriveFile>, mode: Mode, show: String? = null): List<DriveFile> {
-        if (mode == Mode.NONE) return files
-        val key = key(c) ?: return files
+    suspend fun fill(c: Context, files: List<DriveFile>, mode: Mode, show: String? = null): List<DriveFile> = withContext(Dispatchers.IO) {
+        // All of it off the main thread: the key is a Keystore read and the cache a large JSON file.
+        if (mode == Mode.NONE) return@withContext files
+        val key = key(c) ?: return@withContext files
         load(c)
         val before = cache.size
         val out = coroutineScope {
@@ -86,7 +87,7 @@ object Tmdb {
             }.awaitAll()
         }
         if (cache.size != before) save(c)
-        return out
+        out
     }
 
     /** One TMDB match, as cached: poster URL, release year, genre names, rating out of 10. */

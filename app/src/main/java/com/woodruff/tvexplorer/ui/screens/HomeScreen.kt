@@ -337,7 +337,7 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
     var selected by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (DashboardSamples.tvs != null) return@LaunchedEffect
-        TvLinks.load(context)
+        withContext(Dispatchers.IO) { TvLinks.load(context) }
         while (true) {
             if (AppVisibility.foreground || tvs.isEmpty()) tvs = runCatching { TvLinks.statuses(context) }.getOrDefault(tvs)
             delay(10_000)
@@ -360,10 +360,13 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
             while (true) {
                 if (AppVisibility.foreground) {
                     shot = withContext(Dispatchers.IO) {
-                        runCatching { TvLinks.screen(linked)?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() } }.getOrNull()
+                        // A 112dp thumbnail: decode at a quarter size, not the full 960px frame.
+                        val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                        runCatching { TvLinks.screen(linked)?.let { BitmapFactory.decodeByteArray(it, 0, it.size, opts)?.asImageBitmap() } }.getOrNull()
                     }
                 }
-                delay(5_000)
+                // Each picture makes the other TV capture its screen, so not too often.
+                delay(10_000)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -502,7 +505,7 @@ private data class GlanceItem(val icon: ImageVector, val color: Color, val title
 @Composable
 private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
     val context = LocalContext.current
-    remember { Notes.load(context) }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Notes.load(context) } }
     val notices by Notices.items.collectAsStateWithLifecycle()
     val notes by Notes.items.collectAsStateWithLifecycle()
     val cal by TodayCalendar.state.collectAsStateWithLifecycle()
