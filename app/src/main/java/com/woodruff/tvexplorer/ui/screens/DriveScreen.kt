@@ -2,9 +2,6 @@ package com.woodruff.tvexplorer.ui.screens
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +29,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +45,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -55,7 +56,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
+import com.woodruff.tvexplorer.cloud.DriveState
 import com.woodruff.tvexplorer.cloud.DriveViewModel
+import com.woodruff.tvexplorer.cloud.SignInStep
+import com.woodruff.tvexplorer.util.Qr
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.ImageViewerActivity
 import com.woodruff.tvexplorer.player.MediaRef
@@ -77,18 +81,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val state by drive.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var menuFor by remember { mutableStateOf<DriveFile?>(null) }
-    val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
-        drive.onConsentResult(it.data)
-    }
-    val connect = { drive.connect { pending -> consent.launch(IntentSenderRequest.Builder(pending.intentSender).build()) } }
-
     BackHandler { if (!drive.back()) vm.show(Screen.HOME) }
 
-    // Already connected earlier: fetch a token silently and show the files.
-    LaunchedEffect(state.connected) { if (state.connected && state.token == null) connect() }
+    // Load files, or start the phone sign-in server; stop that server when leaving the screen.
+    DisposableEffect(Unit) {
+        drive.start()
+        onDispose { drive.stop() }
+    }
 
     if (!state.connected) {
-        ConnectPanel(state.busy, state.error, connect)
+        ConnectPanel(state, onReset = drive::resetSetup)
         return
     }
 
@@ -110,7 +112,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             ToolButton(Icons.Filled.Movie, "All videos", { drive.openRoot(DrivePlace.Videos()) })
             ToolButton(Icons.Filled.FolderShared, "Shared with me", { drive.openRoot(DrivePlace.SharedWithMe) })
             ToolButton(Icons.Filled.Refresh, null, drive::refresh)
-            ToolButton(Icons.Filled.Logout, null, drive::disconnect)
+            ToolButton(Icons.Filled.Logout, null, drive::signOut)
         }
         Box(Modifier.fillMaxSize()) {
             when {
@@ -217,24 +219,46 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
 }
 
 @Composable
-private fun ConnectPanel(busy: Boolean, error: String?, connect: () -> Unit) {
-    val button = remember { FocusRequester() }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(Modifier.width(620.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Box(Modifier.size(96.dp).clip(RoundedCornerShape(28.dp)).background(Palette.drive.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                TvIcon(Icons.Filled.AddToDrive, size = 56.dp, tint = Palette.drive)
+private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
+    val setup = state.step == SignInStep.SETUP
+    Row(
+        Modifier.fillMaxSize().padding(48.dp),
+        horizontalArrangement = Arrangement.spacedBy(56.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.width(600.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(64.dp).clip(RoundedCornerShape(20.dp)).background(Palette.drive.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                    TvIcon(Icons.Filled.AddToDrive, size = 38.dp, tint = Palette.drive)
+                }
+                Text(
+                    if (setup) "Set up Google Drive" else "Sign in with your phone",
+                    style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 18.dp),
+                )
             }
-            Text("Watch from Google Drive", style = MaterialTheme.typography.headlineMedium)
             Text(
-                "Stream your videos, music and photos straight from Google Drive, or download them to this TV. " +
-                    "Woodruff Shows only asks to read your files and never changes or deletes anything.",
+                if (setup) "Step 1 of 2. Scan the QR code with your phone (on the same Wi-Fi as this TV) and paste the " +
+                    "Client ID and Client secret of your Google Cloud \"Web application\" OAuth client."
+                else "Step 2 of 2. Scan the QR code with your phone and sign in to Google. Your phone must be on the same Wi-Fi as this TV. " +
+                    "Woodruff Shows can only read your files, never change or delete them.",
                 color = Palette.muted,
             )
-            Button(onClick = connect, enabled = !busy, modifier = Modifier.focusRequester(button)) {
-                Text(if (busy) "Connecting…" else "Connect Google Drive")
+            if (setup) state.setupAddress?.let {
+                Text("No phone camera? Open this on a computer:", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                Text(it, color = Palette.accent, style = MaterialTheme.typography.titleMedium)
             }
-            error?.let { Text(it, color = Palette.danger) }
+            if (state.busy) Text("Finishing sign-in…", color = Palette.accent)
+            state.error?.let { Text(it, color = Palette.danger) }
+            if (!setup) {
+                OutlinedButton(onClick = onReset) { Text("Use a different Google Cloud client") }
+            }
+        }
+        state.qrUrl?.let { url ->
+            val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
+            Image(
+                qr, contentDescription = "QR code",
+                modifier = Modifier.size(340.dp).clip(RoundedCornerShape(18.dp)).background(Color.White),
+            )
         }
     }
-    LaunchedEffect(Unit) { runCatching { button.requestFocus() } }
 }

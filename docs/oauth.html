@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Woodruff Shows · Google sign-in</title>
+<style>
+  body { margin:0; padding:24px; font:16px/1.5 system-ui,sans-serif; background:#080b10; color:#f2f4f7; }
+  h1 { font-size:22px; margin:0 0 12px; } h1:before { content:"▶ "; color:#ffb547; }
+  p { color:#93a1b4; } a { color:#ffb547; } .err { color:#ff7b72; }
+</style>
+</head>
+<body>
+<h1>Finishing sign-in…</h1>
+<p id="msg">Sending your Google approval to the TV.</p>
+<script>
+// Google redirects here after the phone signs in. This page never sees tokens: it only passes the
+// one-time code to the Woodruff Shows TV on your home network, which exchanges it itself.
+(function () {
+  var q = new URLSearchParams(location.search);
+  var msg = document.getElementById('msg');
+  function fail(text) { msg.textContent = text; msg.className = 'err'; document.querySelector('h1').textContent = 'Sign-in problem'; }
+  var stateRaw = q.get('state');
+  if (!stateRaw) return fail('This page is opened by Google after you sign in. Start from the TV.');
+  var tv;
+  try {
+    var b = stateRaw.replace(/-/g, '+').replace(/_/g, '/');
+    tv = JSON.parse(atob(b + '==='.slice((b.length + 3) % 4))).r;
+  } catch (e) { return fail('The sign-in link was damaged. Start again from the TV.'); }
+  // Only ever forward to a private-network address (the TV), never to an arbitrary site.
+  var ok = /^http:\/\/(10\.\d{1,3}|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}:\d{2,5}$/.test(tv || '');
+  if (!ok) return fail('The sign-in link pointed somewhere unexpected, so it was stopped. Start again from the TV.');
+  var params = new URLSearchParams();
+  ['code', 'state', 'error'].forEach(function (k) { if (q.get(k)) params.set(k, q.get(k)); });
+  var target = tv + '/oauth/callback?' + params.toString();
+  msg.innerHTML = 'Sending your approval to the TV. If nothing happens, make sure this phone is on the same Wi-Fi as the TV, then <a id="go">tap here</a>.';
+  document.getElementById('go').href = target;
+  location.replace(target);
+})();
+</script>
+</body>
+</html>

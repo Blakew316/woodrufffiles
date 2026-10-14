@@ -12,8 +12,8 @@ android {
         applicationId = "com.woodruff.shows"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
     }
 
     // One fixed key for every build, so updates install over the previous version and the
@@ -75,7 +75,6 @@ dependencies {
     implementation(libs.coil.video)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
-    implementation(libs.play.services.auth)
     implementation(libs.media3.datasource)
 
     testImplementation(libs.junit)

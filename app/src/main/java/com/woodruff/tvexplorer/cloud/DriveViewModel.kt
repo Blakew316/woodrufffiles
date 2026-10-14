@@ -1,17 +1,18 @@
 package com.woodruff.tvexplorer.cloud
 
 import android.app.Application
-import android.app.PendingIntent
-import android.content.Intent
 import android.os.Environment
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.common.api.ApiException
-import com.google.android.gms.common.api.CommonStatusCodes
 import com.woodruff.tvexplorer.data.FileOperations
+import com.woodruff.tvexplorer.server.TransferServer
+import com.woodruff.tvexplorer.server.TransferService
+import fi.iki.elonen.NanoHTTPD
+import java.io.IOException
 import com.woodruff.tvexplorer.ui.Operation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,66 +20,130 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
+/** Where the Connect flow is: paste the client from a phone, sign in on a phone, or done. */
+enum class SignInStep { SETUP, SIGN_IN, CONNECTED }
+
 data class DriveState(
-    val connected: Boolean = false,
+    val step: SignInStep = SignInStep.SETUP,
     val busy: Boolean = false,
-    val token: String? = null,
+    /** QR target for the current step: the setup form, or Google's sign-in page. */
+    val qrUrl: String? = null,
+    /** Short address shown under the setup QR for typing on a computer instead. */
+    val setupAddress: String? = null,
     /** Navigation stack; the last entry is what's on screen. */
     val stack: List<DrivePlace> = listOf(DrivePlace.MyDrive),
     val files: List<DriveFile> = emptyList(),
+    val token: String? = null,
     val error: String? = null,
     val operation: Operation? = null,
     val message: String? = null,
 ) {
     val place: DrivePlace get() = stack.last()
+    val connected: Boolean get() = step == SignInStep.CONNECTED
 }
 
-/** Google Drive browsing state, kept apart from the local-file ViewModel. */
+/**
+ * Google Drive state, kept apart from the local-file ViewModel. Owns the short-lived
+ * [SignInServer] while the user is connecting from their phone.
+ */
 class DriveViewModel(app: Application) : AndroidViewModel(app) {
-    private val _state = MutableStateFlow(DriveState(connected = GoogleAuth.isConnected(app)))
+    private val ctx get() = getApplication<Application>()
+    private val _state = MutableStateFlow(DriveState(step = initialStep()))
     val state: StateFlow<DriveState> = _state.asStateFlow()
     private var loadJob: Job? = null
     private var opJob: Job? = null
+    private var server: SignInServer? = null
+    @Volatile private var attempt: GoogleAuth.Attempt? = null
 
-    /** Called when the Drive screen opens and when the user picks Connect. */
-    fun connect(launchConsent: (PendingIntent) -> Unit) {
-        _state.update { it.copy(busy = true, error = null) }
-        viewModelScope.launch {
+    private fun initialStep() = when {
+        GoogleAuth.isConnected(ctx) -> SignInStep.CONNECTED
+        GoogleAuth.isConfigured(ctx) -> SignInStep.SIGN_IN
+        else -> SignInStep.SETUP
+    }
+
+    /** Called when the Drive screen opens: load files, or get the phone sign-in ready. */
+    fun start() {
+        when (_state.value.step) {
+            SignInStep.CONNECTED -> if (_state.value.files.isEmpty() && !_state.value.busy) load()
+            else -> prepareSignIn()
+        }
+    }
+
+    /** Called when the Drive screen closes, so the LAN sign-in server doesn't linger. */
+    fun stop() {
+        server?.stop()
+        server = null
+    }
+
+    private fun prepareSignIn() {
+        val ip = TransferService.lanAddress()
+            ?: return _state.update { it.copy(error = "Connect the TV to Wi-Fi or Ethernet first. Your phone signs in over the home network.", qrUrl = null) }
+        val srv = server ?: startServer() ?: return _state.update { it.copy(error = "Couldn't open a network port for sign-in.") }
+        val base = "http://$ip:${srv.listeningPort}"
+        if (_state.value.step == SignInStep.SETUP || !GoogleAuth.isConfigured(ctx)) {
+            _state.update { it.copy(step = SignInStep.SETUP, qrUrl = "$base/setup?k=${srv.key}", setupAddress = "$base/setup?k=${srv.key}", error = null) }
+        } else {
+            val a = GoogleAuth.newAttempt(ctx, base)
+            attempt = a
+            _state.update { it.copy(step = SignInStep.SIGN_IN, qrUrl = a.authUrl, error = null) }
+        }
+    }
+
+    private fun startServer(): SignInServer? {
+        val key = TransferServer.randomToken()
+        for (port in listOf(8091, 8092, 8093, 0)) {
+            val s = SignInServer(
+                port, key,
+                expectedState = { attempt?.state },
+                onClient = { id, secret ->
+                    GoogleAuth.saveClient(ctx, id, secret)
+                    viewModelScope.launch { _state.update { it.copy(step = SignInStep.SIGN_IN) }; prepareSignIn() }
+                },
+                onCode = { code -> viewModelScope.launch { finishSignIn(code) } },
+                onError = { msg -> _state.update { it.copy(error = msg) } },
+            )
             try {
-                when (val o = GoogleAuth.authorize(getApplication())) {
-                    is GoogleAuth.Outcome.Token -> onToken(o.accessToken)
-                    is GoogleAuth.Outcome.NeedsConsent -> launchConsent(o.intent)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _state.update { it.copy(busy = false, error = explain(e)) }
-            }
+                s.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true)
+                server = s
+                return s
+            } catch (e: IOException) { /* try the next port */ }
         }
+        return null
     }
 
-    fun onConsentResult(data: Intent?) {
+    private suspend fun finishSignIn(code: String) {
+        val a = attempt ?: return
+        attempt = null // one use only
+        _state.update { it.copy(busy = true, error = null) }
         try {
-            when (val o = GoogleAuth.fromResultIntent(getApplication(), data)) {
-                is GoogleAuth.Outcome.Token -> onToken(o.accessToken)
-                is GoogleAuth.Outcome.NeedsConsent -> _state.update { it.copy(busy = false, error = "Google sign-in wasn't completed.") }
-            }
+            GoogleAuth.exchange(ctx, code, a)
+            // Let the phone receive its "You're signed in" page before closing the server.
+            viewModelScope.launch { delay(3000); if (_state.value.connected) stop() }
+            _state.update { it.copy(step = SignInStep.CONNECTED, busy = false, qrUrl = null) }
+            load()
         } catch (e: Exception) {
-            _state.update { it.copy(busy = false, error = explain(e)) }
+            _state.update { it.copy(busy = false, error = e.message ?: "Sign-in failed") }
+            prepareSignIn()
         }
     }
 
-    private fun onToken(token: String) {
-        GoogleAuth.setConnected(getApplication(), true)
-        _state.update { it.copy(connected = true, token = token, busy = false) }
-        load()
+    /** Signs out of Google on this TV; the saved client stays so signing in again is one QR scan. */
+    fun signOut() {
+        viewModelScope.launch {
+            GoogleAuth.signOut(ctx)
+            _state.value = DriveState(step = SignInStep.SIGN_IN)
+            prepareSignIn()
+        }
     }
 
-    /** Forgets the connection in this app. Access can be fully revoked at myaccount.google.com. */
-    fun disconnect() {
-        GoogleAuth.setConnected(getApplication(), false)
-        _state.value = DriveState(connected = false)
+    /** Starts over from pasting the client ID/secret (e.g. after creating a new OAuth client). */
+    fun resetSetup() {
+        GoogleAuth.resetClient(ctx)
+        _state.value = DriveState(step = SignInStep.SETUP)
+        prepareSignIn()
     }
+
+    override fun onCleared() { stop() }
 
     fun open(place: DrivePlace) {
         _state.update { it.copy(stack = it.stack + place) }
@@ -102,15 +167,19 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     fun refresh() = load()
 
     private fun load() {
-        val token = _state.value.token ?: return
         loadJob?.cancel()
         _state.update { it.copy(busy = true, error = null, files = emptyList()) }
         loadJob = viewModelScope.launch {
             try {
-                // Tokens expire after an hour; Play services hands back a fresh one silently.
-                val fresh = GoogleAuth.token(getApplication()) ?: token
-                val files = DriveApi.list(fresh, _state.value.place)
-                _state.update { it.copy(token = fresh, files = files, busy = false) }
+                val token = GoogleAuth.token(ctx)
+                if (token == null) {
+                    // Approval expired or was revoked in the Google account: sign in again.
+                    _state.update { it.copy(step = SignInStep.SIGN_IN, busy = false) }
+                    prepareSignIn()
+                    return@launch
+                }
+                val files = DriveApi.list(token, _state.value.place)
+                _state.update { it.copy(token = token, files = files, busy = false) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -127,7 +196,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         var last = 0L
         opJob = viewModelScope.launch {
             try {
-                val token = GoogleAuth.token(getApplication()) ?: _state.value.token ?: error("Not signed in")
+                val token = GoogleAuth.token(ctx) ?: error("Signed out of Google Drive")
                 DriveApi.download(token, file, dest) { p ->
                     val now = System.currentTimeMillis()
                     if (now - last > 150) { last = now; _state.update { it.copy(operation = Operation("Downloading", p)) } }
@@ -148,12 +217,6 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
     private fun explain(e: Exception): String = when {
-        e is ApiException && e.statusCode == CommonStatusCodes.DEVELOPER_ERROR ->
-            "Google Drive isn't set up for this app yet. Follow the \"Connect Google Drive\" steps in the README."
-        e is ApiException && e.statusCode == CommonStatusCodes.NETWORK_ERROR -> "No internet connection."
-        e is ApiException && e.statusCode == CommonStatusCodes.CANCELED -> "Google sign-in was cancelled."
-        e is ApiException && e.statusCode == CommonStatusCodes.API_NOT_CONNECTED ->
-            "This TV doesn't have Google Play services, which Google Drive sign-in needs."
         e is java.net.UnknownHostException -> "No internet connection."
         else -> e.message ?: "Something went wrong talking to Google Drive."
     }
