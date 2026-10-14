@@ -22,10 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -44,6 +40,7 @@ import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -434,14 +431,12 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     LaunchedEffect(visible) { onScreen = false; if (visible) { delay(1_500); onScreen = true } }
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
-            // Four at a glance in a 2×2 grid; more cameras scroll inside the panel.
-            samples != null -> CameraGrid4 {
-                gridItemsIndexed(samples) { _, name -> CameraTile(name, null, live = false, onClick = {}) }
-            }
-            state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4 {
-                gridItemsIndexed(cams, key = { _, c -> c.name }) { i, cam ->
-                    // The first four play live on their own, like the Command center.
-                    CameraTile(cam.label, cam, live = onScreen && i < HOME_LIVE && cam.webRtc, onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) })
+            // Four at a glance in a 2×2 grid; the rest are in the Command center.
+            samples != null -> CameraGrid4(samples.take(4)) { _, name -> CameraTile(name, null, live = false, onClick = {}) }
+            state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4(cams.take(4)) { i, cam ->
+                // Play live on their own, like the Command center.
+                key(cam.name) {
+                    CameraTile(cam.label, cam, live = onScreen && cam.webRtc, onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) })
                 }
             }
             state.step == NestStep.CONNECTED -> Text(if (state.loading) "Loading cameras…" else "No cameras found", color = Palette.muted)
@@ -454,18 +449,21 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     }
 }
 
-/** Live tiles on Home; more would strain the TV's video decoders on top of the Command center's. */
-private const val HOME_LIVE = 4
-
+/**
+ * Up to four tiles, two per row. A plain layout on purpose, not a lazy grid: live video is an
+ * Android view, and an Android view inside a lazy layout crashed ("release should only be called
+ * once") when a tile stopped streaming or Home closed.
+ */
 @Composable
-private fun CameraGrid4(content: LazyGridScope.() -> Unit) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        content = content,
-    )
+private fun <T> CameraGrid4(items: List<T>, tile: @Composable (Int, T) -> Unit) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.chunked(2).forEachIndexed { row, pair ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEachIndexed { col, item -> Box(Modifier.weight(1f)) { tile(row * 2 + col, item) } }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
 }
 
 @Composable
