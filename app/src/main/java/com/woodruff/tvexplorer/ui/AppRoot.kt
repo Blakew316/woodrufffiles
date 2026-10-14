@@ -216,7 +216,6 @@ fun AppRoot(vm: MainViewModel) {
     com.woodruff.tvexplorer.ui.screens.UpdatePrompt(vm)
     LaunchedEffect(Unit) {
         // Start in the content with the menu closed; fall back to the menu if nothing there takes focus.
-        if (Appearance.startOnCameras) vm.show(Screen.CAMERAS)
         delay(300)
         runCatching { contentFocus.requestFocus() }
         delay(100)

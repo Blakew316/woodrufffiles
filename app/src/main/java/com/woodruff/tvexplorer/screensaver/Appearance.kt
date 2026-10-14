@@ -25,8 +25,6 @@ object Appearance {
     var idleMinutes by mutableStateOf(0); private set
     /** Command center: cameras next to clock, notifications and notes (true) or cameras only. */
     var allInOne by mutableStateOf(true); private set
-    /** Open the Command center instead of Home when the app starts. */
-    var startOnCameras by mutableStateOf(false); private set
     /** Home's camera tiles stream live by themselves. Per TV: each live view counts against Google's limits. */
     var homeLive by mutableStateOf(true); private set
 
@@ -37,7 +35,8 @@ object Appearance {
         seconds = p.getInt("seconds", 10)
         idleMinutes = p.getInt("idle", 0)
         allInOne = p.getBoolean("all_in_one", true)
-        startOnCameras = p.getBoolean("start_cameras", false)
+        // The "open the Command center at start" option was removed; drop its saved value.
+        if (p.contains("start_cameras")) p.edit().remove("start_cameras").apply()
         homeLive = p.getBoolean("home_live", true)
     }
 
@@ -49,11 +48,6 @@ object Appearance {
     fun toggleAllInOne(c: Context) {
         allInOne = !allInOne
         prefs(c).edit().putBoolean("all_in_one", allInOne).apply()
-    }
-
-    fun toggleStartOnCameras(c: Context) {
-        startOnCameras = !startOnCameras
-        prefs(c).edit().putBoolean("start_cameras", startOnCameras).apply()
     }
 
     fun setBackground(c: Context, path: String?) {

@@ -256,11 +256,6 @@ fun SettingsScreen(vm: MainViewModel) {
             }
         }
         item {
-            SettingRow(Icons.Rounded.Dashboard, "Open at start", if (Appearance.startOnCameras) "On" else "Off") {
-                Appearance.toggleStartOnCameras(context)
-            }
-        }
-        item {
             // Turn off on extra TVs if Google starts limiting camera requests.
             SettingRow(Icons.Rounded.Videocam, "Live cameras on Home", if (Appearance.homeLive) "On" else "Off · select a camera to watch") {
                 Appearance.toggleHomeLive(context)

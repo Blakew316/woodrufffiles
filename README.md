@@ -61,7 +61,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   Home, after a few idle minutes, or as the TV's own screensaver (Settings → Screensaver & background).
 - **Command center**: live Google Home / Nest cameras and doorbells (WebRTC, so the newest models work). Either
   cameras only or "all on one" next to the clock, notifications and notes. Select a camera for full screen with sound,
-  Left/Right flips between cameras. It can open automatically when the app starts. Setup is [below](#connect-google-home-cameras).
+  Left/Right flips between cameras. Setup is [below](#connect-google-home-cameras).
 - **Home dashboard**: one screen that shows everything at a glance. *Continue watching* shows the latest video
   large and the rest as square tiles, each with a play button, one click to resume; *TVs* switches between the family's linked TVs to show what's on each, with a live picture; *Cameras*
   plays the first four cameras live on their own (only while Woodruff is on screen; Settings → *Live cameras on Home*
