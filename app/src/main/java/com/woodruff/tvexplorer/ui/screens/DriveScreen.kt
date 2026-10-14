@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -212,10 +213,13 @@ private fun openDriveFile(context: Context, f: DriveFile, all: List<DriveFile>, 
 internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier, label: String? = null) {
     val context = LocalContext.current
     val title = label ?: f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
+    // Posters already show their title, so the label only appears on focus; frames and title cards always have it.
+    val poster = f.posterUrl != null && (token != null || !isGoogle(f.posterUrl))
+    var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.onMenuKey(onLongClick).aspectRatio(2f / 3f),
+        modifier = modifier.onMenuKey(onLongClick).aspectRatio(2f / 3f).onFocusChanged { focused = it.isFocused },
         shape = CardStyle.shape(),
         colors = CardStyle.colors(),
         border = CardStyle.border(),
@@ -245,7 +249,7 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            Box(
+            if (!poster || focused) Box(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))))
                     .padding(start = 12.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
