@@ -6,10 +6,10 @@ import { mkdirSync } from 'node:fs';
 
 const out = process.argv[2] || 'gallery';
 mkdirSync(out, { recursive: true });
-const tabs = ['tv', 'files', 'notes', 'send', 'settings'];
+const tabs = ['remote', 'tv', 'files', 'notes', 'send', 'settings'];
 // Extra states: [name, tab, element to tap].
 const extras = [
-  ['keyboard', 'tv', '#kb-open2'],
+  ['keyboard', 'remote', '#kb-open2'],
   ['files-actions', 'files', '#list [data-i="7"]'],
   ['note', 'notes', '#note-list .row'],
   ['settings-drive', 'settings', '[data-page=set-drive]'],

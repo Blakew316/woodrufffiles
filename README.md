@@ -17,10 +17,12 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   and new mail shows up as a notification.
 - **Phone connection**: scan the QR code once (the pairing key persists). On iPhone, tap **Share → Add to Home Screen**
   and it opens like an app that stays paired. It follows iOS conventions (large titles, inset lists, switches, action
-  sheets, light and dark) and has five tabs:
-  - **Remote**: an Apple TV–style round clickpad (tap or swipe), Back, Home, Play/Pause and the keyboard, with what's
-    playing and a live picture of the TV (tap it to enlarge). When a text box is selected on the TV, a *Type into…*
-    row appears; letters appear on the TV as you type and Enter presses Done.
+  sheets, light and dark) and has six tabs:
+  - **TV**: what's playing and a live picture of the TV (tap it to enlarge), switching between linked TVs, and the
+    *Away from home* link.
+  - **Remote**: a dedicated remote: an Apple TV–style round clickpad (tap or swipe), Back, Home, Play/Pause and the
+    keyboard, with the TV picker on top when several TVs are linked. It's the tab the app opens on. When a text box is
+    selected on the TV, the keyboard button lights up; letters appear on the TV as you type and Enter presses Done.
   - **Files**: browse the TV's storage; tap a file for *Play on TV*, *Set as TV Background*, *Save to iPhone* or *Delete*;
     press and hold a folder to use it for the slideshow. **+** uploads photos or files and makes folders.
   - **Notes**: the same notes as the TV's Notes screen; tap the pencil to write one.
@@ -36,11 +38,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   1080p.mkv" shows as *The Matrix (1999)*); genres and ratings come from TMDB when a key is set. Photos and Videos
   sort newest or oldest first and filter by year and month, using when each was taken: Google's capture time for
   Google Photos items, otherwise the photo's own data or a date in its name.
-- **Live TV picture on the phone** (Remote tab): about once a second, only while the tab is open. Only Woodruff
+- **Live TV picture on the phone** (TV tab): about once a second, only while the tab is open. Only Woodruff
   Family's own screens can be shown (video itself appears black); other apps would need a permission prompt on the
   TV every time.
 - **Away from home with Tailscale**: install Tailscale on the TV and the iPhone (same account). The TV's Phone
-  screen then shows an *Away from home* link and QR code (also in the phone's Remote tab); open it once on the phone
+  screen then shows an *Away from home* link and QR code (also in the phone's TV tab); open it once on the phone
   and add it to the Home Screen. Everything in the phone app then works from anywhere, encrypted by Tailscale.
   The phone connection starts by itself when the TV turns on and after Woodruff updates (it waits for Wi-Fi first),
   so nobody needs to open Woodruff on the TV after a restart. Settings → Phone connection → *Start when the TV turns on*.

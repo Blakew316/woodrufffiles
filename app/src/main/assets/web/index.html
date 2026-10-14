@@ -131,18 +131,19 @@
   .now .v { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
   .now .v.ok { color:var(--ok); }
   .typing { margin:10px 16px 0; }
-  .remote { display:flex; flex-direction:column; align-items:center; margin-top:20px; }
-  .pad { position:relative; width:clamp(170px, min(62vw, calc(100dvh - 470px)), 236px); aspect-ratio:1; border-radius:50%; background:var(--pad); box-shadow:var(--shadow), inset 0 0 0 .5px var(--line); touch-action:none; user-select:none; -webkit-user-select:none; }
+  .remote { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:calc(100dvh - 210px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+  .pad { position:relative; width:clamp(190px, min(74vw, calc(100dvh - 360px)), 300px); aspect-ratio:1; border-radius:50%; background:var(--pad); box-shadow:var(--shadow), inset 0 0 0 .5px var(--line); touch-action:none; user-select:none; -webkit-user-select:none; }
   .pad button { position:absolute; display:flex; align-items:center; justify-content:center; color:var(--muted); }
   .pad .dir { width:33%; height:33%; } .pad .dir svg { width:14px; height:14px; }
   .pad [data-key=up] { top:0; left:33.5%; } .pad [data-key=down] { bottom:0; left:33.5%; }
   .pad [data-key=left] { left:0; top:33.5%; } .pad [data-key=right] { right:0; top:33.5%; }
   .pad .okb { top:31%; left:31%; width:38%; height:38%; border-radius:50%; background:var(--fill); color:var(--text); font-weight:600; font-size:15px; }
   .pad button.hit { color:var(--accent); } .pad .okb.hit { background:var(--accent); color:var(--on-accent); }
-  .keys { display:flex; gap:22px; justify-content:center; margin:18px 0 4px; }
+  .keys { display:flex; gap:22px; justify-content:center; margin:28px 0 4px; }
   .keys button { width:58px; height:58px; border-radius:50%; background:var(--pad); box-shadow:var(--shadow), inset 0 0 0 .5px var(--line); display:flex; align-items:center; justify-content:center; }
   .keys button:active, .keys button.hit { background:var(--accent); color:var(--on-accent); }
   .keys svg { width:24px; height:24px; }
+  .keys button.ready { background:var(--accent); color:var(--on-accent); } /* a text box is waiting on the TV */
 
   /* Bottom sheets, alerts, full-screen editors. */
   .scrim { position:fixed; z-index:40; inset:0; background:rgba(0,0,0,.4); opacity:0; transition:opacity .25s; pointer-events:none; }
@@ -197,15 +198,23 @@
   <div class="actions" id="actions"></div>
 </header>
 
-<!-- REMOTE -->
+<!-- TV: what's on, which TV, away-from-home link -->
 <section id="tv">
-  <div class="card" id="install" hidden><div class="grow">Add Woodruff to your Home Screen: tap <b>Share</b>, then <b>Add to Home Screen</b>. It stays paired with this TV.</div><button class="x" id="install-x" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
   <div class="tvs" id="tv-list" hidden></div>
   <div class="nowcard" id="live">
     <button class="screen" id="screen" aria-label="Make the TV picture bigger or smaller"><img id="tv-img" alt="What's on the TV"><p id="tv-msg">Connecting…</p></button>
     <div class="now"><small>Now Playing</small><span class="np" id="now-title">Nothing playing</span><span class="v" id="now-time"></span></div>
   </div>
   <div class="group typing" id="kb-hint" hidden><button class="row ic-row"><span class="badge" style="background:#5e5ce6"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-9 2h2v2h-2zm0 3h2v2h-2zM8 8h2v2H8zm0 3h2v2H8zM5 8h2v2H5zm0 3h2v2H5zm11 5H8v-1.5h8zm0-3h-2v-2h2zm0-3h-2V8h2zm3 3h-2v-2h2zm0-3h-2V8h2z"/></svg></span><span class="grow"><span class="t" id="kb-hint-t">Type on the TV</span><span class="s">Tap to use your keyboard</span></span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+  <div class="head" id="away-head" hidden>Away from home</div>
+  <div class="group" id="away" hidden><button class="row ic-row" id="away-copy"><span class="badge" style="background:#0a84ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span><span class="grow"><span class="t">Copy Tailscale link</span><span class="s" id="away-url"></span></span></button></div>
+  <p class="foot" id="away-foot" hidden>Open it on this phone with Tailscale on, then add it to your Home Screen too.</p>
+</section>
+
+<!-- REMOTE: nothing but the remote -->
+<section id="remote">
+  <div class="card" id="install" hidden><div class="grow">Add Woodruff to your Home Screen: tap <b>Share</b>, then <b>Add to Home Screen</b>. It stays paired with this TV.</div><button class="x" id="install-x" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
+  <div class="tvs" id="rm-list" hidden></div>
   <div class="remote">
     <div class="pad" id="pad" role="group" aria-label="Arrows and OK">
       <button class="dir" data-key="up" aria-label="Up"><svg viewBox="0 0 14 14"><path d="M2 9.5 7 4.5l5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -221,9 +230,6 @@
       <button id="kb-open2" aria-label="Keyboard"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm0 10H4V8h16zM6 9h2v2H6zm3 0h2v2H9zm3 0h2v2h-2zm3 0h3v2h-3zM6 12h3v2H6zm4 0h2v2h-2zm3 0h2v2h-2zm3 0h2v2h-2zm-8 2.8h8v1.4H8z"/></svg></button>
     </div>
   </div>
-  <div class="head" id="away-head" hidden>Away from home</div>
-  <div class="group" id="away" hidden><button class="row ic-row" id="away-copy"><span class="badge" style="background:#0a84ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span><span class="grow"><span class="t">Copy Tailscale link</span><span class="s" id="away-url"></span></span></button></div>
-  <p class="foot" id="away-foot" hidden>Open it on this phone with Tailscale on, then add it to your Home Screen too.</p>
 </section>
 
 <!-- FILES -->
@@ -329,7 +335,8 @@
 </section>
 
 <nav>
-  <button data-tab="tv"><svg viewBox="0 0 28 26"><rect x="8.5" y="1.5" width="11" height="23" rx="5.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="14" cy="8" r="3" fill="currentColor"/><circle cx="14" cy="15" r="1.4" fill="currentColor"/><circle cx="14" cy="19.5" r="1.4" fill="currentColor"/></svg>Remote</button>
+  <button data-tab="tv"><svg viewBox="0 0 28 26"><rect x="3" y="3.5" width="22" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.5 22.5h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>TV</button>
+  <button data-tab="remote"><svg viewBox="0 0 28 26"><rect x="8.5" y="1.5" width="11" height="23" rx="5.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="14" cy="8" r="3" fill="currentColor"/><circle cx="14" cy="15" r="1.4" fill="currentColor"/><circle cx="14" cy="19.5" r="1.4" fill="currentColor"/></svg>Remote</button>
   <button data-tab="files"><svg viewBox="0 0 28 26" fill="currentColor"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h5.2l2.6 2.6h9.2A2.5 2.5 0 0 1 25 9.1v10.4a2.5 2.5 0 0 1-2.5 2.5h-17A2.5 2.5 0 0 1 3 19.5z"/></svg>Files</button>
   <button data-tab="notes"><svg viewBox="0 0 28 26"><rect x="5" y="2.5" width="18" height="21" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.5 9h9M9.5 13h9M9.5 17h5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Notes</button>
   <button data-tab="send"><svg viewBox="0 0 28 26" fill="currentColor"><path d="M24.6 3.2 3.9 11.6c-.9.4-.8 1.6.1 1.9l6.6 2 2 6.6c.3.9 1.5 1 1.9.1L22.9 5zM11.4 14.4l9.4-8.2-7.3 10.4z"/></svg>Send</button>
@@ -369,7 +376,7 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var cwd = null, parent = null, settings = null, current = null, roots = [];
-  var TABS = { tv: 'Remote', files: 'Files', notes: 'Notes', send: 'Send to TV', settings: 'Settings' };
+  var TABS = { tv: 'TV', remote: 'Remote', files: 'Files', notes: 'Notes', send: 'Send to TV', settings: 'Settings' };
   var CHEV = '<svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   // Keep the pairing key in the address so "Add to Home Screen" saves a link that stays paired
@@ -434,14 +441,15 @@
 
   // ---- Tabs ---------------------------------------------------------------------------
   function show(tab) {
-    if (tab === 'keyboard') { show('tv'); openKb(false); return; }
-    if (!TABS[tab]) tab = 'tv';
+    if (tab === 'keyboard') { show('remote'); openKb(false); return; }
+    if (!TABS[tab]) tab = 'remote';
     document.querySelectorAll('section').forEach(function (s) { s.className = s.id === tab ? 'on' : ''; });
     document.querySelectorAll('nav button').forEach(function (b) { b.className = b.dataset.tab === tab ? 'on' : ''; });
     if (location.hash !== '#' + tab) history.replaceState(null, '', location.search + '#' + tab);
     current = tab;
     window.scrollTo(0, 0);
-    if (tab === 'tv') { setBar({ title: 'Remote', actions: [{ icon: 'keyboard', label: 'Keyboard', fn: function () { openKb(true); } }] }); loadSettings(); loadTvs(); frame(); pollField(); }
+    if (tab === 'tv') { setBar({ title: 'TV' }); loadSettings(); loadTvs(); frame(); pollField(); }
+    if (tab === 'remote') { setBar({ title: 'Remote', actions: [{ icon: 'keyboard', label: 'Keyboard', fn: function () { openKb(true); } }] }); loadTvs(); pollField(); }
     if (tab === 'files') filesBar();
     if (tab === 'notes') { setBar({ title: 'Notes', actions: [{ icon: 'compose', label: 'New note', fn: function () { openNote(null); } }] }); loadNotes(); }
     if (tab === 'send') { setBar({ title: 'Send to TV' }); loadSettings(); loadPhones(); }
@@ -702,16 +710,18 @@
   function fmtTime(ms) { var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + ('0' + m).slice(-2) : m) + ':' + ('0' + (s % 60)).slice(-2); }
   function loadTvs() {
     clearTimeout(tvTimer);
-    if (current !== 'tv' || document.hidden) return;
+    if ((current !== 'tv' && current !== 'remote') || document.hidden) return;
     api('/api/tvs').then(function (d) {
-      var list = $('tv-list'); list.hidden = d.tvs.length < 2; list.textContent = '';
-      d.tvs.forEach(function (t) {
-        var c = el('button', 'tvc' + (t.id === tvId ? ' on' : '')), p = t.playing;
-        c.appendChild(el('i', t.online && p && p.playing ? 'live' : null)); c.appendChild(document.createTextNode(t.name));
-        c.onclick = function () { tvId = t.id; loadTvs(); frame(); };
-        list.appendChild(c);
-        if (t.id === tvId) renderNow(t);
+      ['tv-list', 'rm-list'].forEach(function (id) {
+        var list = $(id); list.hidden = d.tvs.length < 2; list.textContent = '';
+        d.tvs.forEach(function (t) {
+          var c = el('button', 'tvc' + (t.id === tvId ? ' on' : '')), p = t.playing;
+          c.appendChild(el('i', t.online && p && p.playing ? 'live' : null)); c.appendChild(document.createTextNode(t.name));
+          c.onclick = function () { tvId = t.id; loadTvs(); frame(); };
+          list.appendChild(c);
+        });
       });
+      d.tvs.forEach(function (t) { if (t.id === tvId) renderNow(t); });
     }, function () {}).then(function () { tvTimer = setTimeout(loadTvs, 5000); });
   }
   function renderNow(t) {
@@ -723,9 +733,9 @@
     time.textContent = (p.playing ? '' : 'Paused · ') + (p.app || '') + (p.duration ? ' · ' + fmtTime(p.position) + ' / ' + fmtTime(p.duration) : '');
     if (p.playing) time.className = 'v ok';
   }
-  // Small picture beside Now Playing keeps the remote on screen; tap it for a big one.
-  function sizeScreen() { $('live').className = 'nowcard' + (stored('woodruff.bigScreen') ? ' big' : ''); }
-  $('screen').onclick = function () { store('woodruff.bigScreen', stored('woodruff.bigScreen') ? '' : '1'); sizeScreen(); };
+  // The TV tab has the room for a big picture; tap it for a small one beside Now Playing.
+  function sizeScreen() { $('live').className = 'nowcard' + (stored('woodruff.smallScreen') ? '' : ' big'); }
+  $('screen').onclick = function () { store('woodruff.smallScreen', stored('woodruff.smallScreen') ? '' : '1'); sizeScreen(); };
   sizeScreen();
 
   // ---- Keyboard -----------------------------------------------------------------------
@@ -738,10 +748,11 @@
   function closeKb() { kbOpen = false; $('kb').className = 'modal'; $('kb-text').blur(); frame(); }
   function pollField() {
     clearTimeout(pollTimer);
-    if (document.hidden || (current !== 'tv' && !kbOpen)) return;
+    if (document.hidden || (current !== 'tv' && current !== 'remote' && !kbOpen)) return;
     api('/api/type').then(function (d) {
       var f = d.field;
       $('kb-hint').hidden = !f || kbOpen;
+      $('kb-open2').classList.toggle('ready', !!f && !kbOpen);
       if (!f) { field = null; $('kb-dot').className = 'dot'; $('kb-status').textContent = 'No text box selected on the TV'; }
       else {
         if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
@@ -931,7 +942,7 @@
     roots = r;
     if (roots.length) load(roots[0].path);
   }, err);
-  show((location.hash || '#tv').slice(1));
+  show((location.hash || '#remote').slice(1));
 })();
 </script>
 </body>
