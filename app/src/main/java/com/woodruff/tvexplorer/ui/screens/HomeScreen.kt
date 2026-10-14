@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,7 +39,6 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PhoneIphone
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Slideshow
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.runtime.Composable
@@ -89,7 +89,6 @@ import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
-import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.tvs.TvStatus
 import com.woodruff.tvexplorer.ui.MainViewModel
@@ -103,7 +102,6 @@ import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
-import com.woodruff.tvexplorer.util.Handoff
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -167,11 +165,10 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 }
 
-// ---- Header: greeting, quick launch, clock --------------------------------------------------
+// ---- Header: greeting and clock --------------------------------------------------
 
 @Composable
 private fun Header() {
-    val context = LocalContext.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
     val hour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
@@ -192,31 +189,9 @@ private fun Header() {
             Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(line, style = MaterialTheme.typography.bodyMedium, color = Palette.muted, maxLines = 1)
         }
-        // Quick launch: the apps people open from here most.
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
-            QuickButton("YouTube", brand = R.drawable.brand_youtube) { Handoff.launch(context, Handoff.YOUTUBE) }
-            QuickButton("Apple Music", brand = R.drawable.brand_apple_music) { Handoff.launch(context, Handoff.APPLE_MUSIC) }
-            QuickButton("Photo slideshow", icon = Icons.Rounded.Slideshow) { SlideshowActivity.start(context) }
-        }
         Column(horizontalAlignment = Alignment.End) {
             Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)), style = MaterialTheme.typography.headlineSmall)
             Text(DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(now)), style = MaterialTheme.typography.bodySmall, color = Palette.muted)
-        }
-    }
-}
-
-@Composable
-private fun QuickButton(label: String, brand: Int? = null, icon: ImageVector? = null, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.size(46.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
-        colors = CardStyle.colors(), border = CardStyle.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (brand != null) Image(painterResource(brand), contentDescription = label, modifier = Modifier.size(30.dp))
-            else if (icon != null) TvIcon(icon, size = 24.dp, tint = Palette.accent)
         }
     }
 }
@@ -301,54 +276,63 @@ private fun ContinuePanel(
             }
             return@Panel
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                onClick = { play(r) }, onLongClick = { onMenu(r) },
-                modifier = Modifier.width(160.dp).aspectRatio(16f / 9f).onMenuKey { onMenu(r) },
-                shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-            ) { ResumeArt(r) }
-            Column(Modifier.weight(1f)) {
-                Text(r.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(timeLeft(r), color = Palette.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
-                UsageBar(r.progress)
+        // The latest one large with a play button; the rest as square tiles beside it.
+        LazyRow(
+            Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(4.dp),
+        ) {
+            item(key = r.key) {
+                ResumeTile(r, play, onMenu, Modifier.width(196.dp).fillMaxHeight(), main = true)
+            }
+            items(recent.drop(1).take(8), key = { it.key }) { m ->
+                ResumeTile(m, play, onMenu, Modifier.fillMaxHeight().aspectRatio(1f), main = false)
             }
         }
-        if (recent.size > 1) {
-            LazyRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(recent.drop(1).take(8), key = { it.key }) { m ->
-                    Surface(
-                        onClick = { play(m) }, onLongClick = { onMenu(m) },
-                        modifier = Modifier.width(150.dp).onMenuKey { onMenu(m) },
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
-                        colors = CardStyle.colors(), border = CardStyle.border(),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-                    ) {
-                        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                            Text(m.title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            UsageBar(m.progress, Modifier.padding(top = 4.dp))
-                        }
-                    }
-                }
+    }
+}
+
+@Composable
+private fun ResumeTile(r: RecentItem, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit, modifier: Modifier, main: Boolean) {
+    Surface(
+        onClick = { play(r) }, onLongClick = { onMenu(r) },
+        modifier = modifier.onMenuKey { onMenu(r) },
+        shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            ResumeArt(r, playButton = main)
+            Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Text(r.title, style = if (main) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge, color = Color.White, maxLines = if (main) 1 else 2, overflow = TextOverflow.Ellipsis)
+                if (main) Text(timeLeft(r), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f), maxLines = 1)
+                UsageBar(r.progress, Modifier.padding(top = 5.dp))
             }
         }
     }
 }
 
 private fun timeLeft(r: RecentItem): String =
-    (if (r.durationMs > 0) "${Format.duration(r.durationMs - r.positionMs)} left" else "Resume") +
-        if (MediaRef.parse(r.key) is MediaRef.Drive) " · Google Drive" else ""
+    if (r.durationMs > 0) "${Format.duration(r.durationMs - r.positionMs)} left" else "Resume"
 
+/** Artwork for a resume tile: the video's own frame when it's on the TV, else a tinted card. */
 @Composable
-private fun ResumeArt(r: RecentItem) {
+private fun ResumeArt(r: RecentItem, playButton: Boolean) {
     val ref = MediaRef.parse(r.key)
-    Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Palette.accent.copy(alpha = 0.35f), Palette.background))), contentAlignment = Alignment.Center) {
-        if (ref is MediaRef.Drive) Image(painterResource(R.drawable.brand_google_drive), contentDescription = null, modifier = Modifier.size(40.dp))
-        else TvIcon(FileKind.VIDEO.icon(), size = 40.dp, tint = Palette.video)
-        if (ref is MediaRef.Local) AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)))))
-        Box(Modifier.size(40.dp).clip(RoundedCornerShape(50)).background(Palette.accent), contentAlignment = Alignment.Center) {
-            TvIcon(Icons.Rounded.PlayArrow, size = 26.dp, tint = Palette.onAccent)
+    Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Palette.accent.copy(alpha = 0.35f), Palette.background)))) {
+        if (ref is MediaRef.Local) {
+            AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else if (!playButton) {
+            TvIcon(FileKind.VIDEO.icon(), size = 30.dp, tint = Palette.video, modifier = Modifier.align(Alignment.Center).offset(y = (-14).dp))
+        }
+        // Darken only the bottom, under the title; the play button sits above it, fully lit.
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f))))
+        if (ref is MediaRef.Drive) {
+            Image(painterResource(R.drawable.brand_google_drive), contentDescription = "Google Drive", modifier = Modifier.align(Alignment.TopStart).padding(8.dp).size(18.dp))
+        }
+        if (playButton) {
+            Box(
+                Modifier.align(Alignment.Center).offset(y = (-16).dp).size(44.dp).clip(RoundedCornerShape(50)).background(Palette.accent),
+                contentAlignment = Alignment.Center,
+            ) { TvIcon(Icons.Rounded.PlayArrow, size = 28.dp, tint = Palette.onAccent) }
         }
     }
 }
