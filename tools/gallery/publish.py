@@ -12,7 +12,8 @@ for old in glob.glob(os.path.join(img_dir, '*.webp')):
 TITLES = {
     'home': 'Home', 'movies': 'Movies (sample posters)', 'tv-shows': 'TV Shows (sample posters)', 'command-center': 'Command center', 'google-drive': 'Google Drive', 'mail': 'Mail',
     'notifications': 'Notifications', 'notes': 'Notes', 'apps': 'Apps', 'phone': 'Phone connection',
-    'settings': 'Settings', 'files': 'Files', 'tv': 'TV remote', 'keyboard': 'Keyboard', 'send': 'Send to TV',
+    'settings': 'Settings', 'files': 'Files', 'tv': 'Remote', 'keyboard': 'Keyboard', 'send': 'Send to TV',
+    'files-actions': 'File actions', 'note': 'Note editor', 'settings-drive': 'Settings › Google Drive',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -28,13 +29,14 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
 
 ORDER = ['home', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
          'files', 'tv', 'keyboard', 'send']
+PHONE_ORDER = ['tv', 'keyboard', 'files', 'files-actions', 'notes', 'note', 'send', 'settings', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {
     'build': build,
     'commit': commit,
     'updated': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
     'tv': sorted(groups['tv'].values(), key=rank),
-    'phone': sorted(groups['phone'].values(), key=lambda g: (['files', 'tv', 'keyboard', 'notes', 'send', 'settings'] + ORDER).index(g['name']) if g['name'] in ORDER else 99),
+    'phone': sorted(groups['phone'].values(), key=lambda g: PHONE_ORDER.index(g['name']) if g['name'] in PHONE_ORDER else 99),
 }
 with open(os.path.join(dest, 'gallery.json'), 'w') as f:
     json.dump(data, f, indent=1)

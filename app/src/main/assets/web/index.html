@@ -7,233 +7,370 @@
 <meta name="apple-mobile-web-app-title" content="Woodruff Family">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#5592bf">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f2f7">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
+<meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" href="/icon-180.png">
 <title>Woodruff Family</title>
 <style>
-  :root { --bg:#f2f6fa; --card:#fff; --text:#1c1c1e; --muted:#6e6e73; --line:#e5e5ea; --accent:#3a7ab0; --on-accent:#fff; --danger:#d1242f; --ok:#1e9e63; }
+  /* iOS system colors with the Woodruff blue as the tint. */
+  :root {
+    --bg:#f2f2f7; --card:#fff; --pressed:#e5e5ea; --text:#000; --muted:#8a8a8e; --line:rgba(60,60,67,.29);
+    --fill:rgba(120,120,128,.16); --off:#e9e9eb; --accent:#3a7ab0; --on-accent:#fff; --danger:#ff3b30; --ok:#34c759;
+    --bar:rgba(249,249,249,.82); --sheet:rgba(246,246,248,.97); --pad:#fff; --shadow:0 1px 3px rgba(0,0,0,.08);
+    --top:env(safe-area-inset-top); --bottom:env(safe-area-inset-bottom);
+    color-scheme:light dark;
+  }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#060a12; --card:#0e1726; --text:#f2f2f7; --muted:#98989f; --line:#253852; --accent:#6fb3e6; --on-accent:#06203a; --danger:#ff6961; --ok:#30d158; }
+    :root {
+      --bg:#000; --card:#1c1c1e; --pressed:#2c2c2e; --text:#fff; --muted:#8d8d93; --line:rgba(84,84,88,.65);
+      --fill:rgba(120,120,128,.24); --off:#39393d; --accent:#6fb3e6; --on-accent:#06203a; --danger:#ff453a; --ok:#30d158;
+      --bar:rgba(22,22,24,.8); --sheet:rgba(40,40,42,.97); --pad:#1c1c1e; --shadow:none;
+    }
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  body { margin:0; font:17px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif; background:var(--bg); color:var(--text); padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
-  header { padding:calc(18px + env(safe-area-inset-top)) 20px 8px; }
-  h1 { font-size:32px; font-weight:700; letter-spacing:-0.5px; margin:0; }
-  h2 { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:26px 20px 8px; }
-  .sub { color:var(--muted); margin:2px 0 0; font-size:15px; }
-  .group { background:var(--card); border-radius:14px; margin:0 16px; overflow:hidden; }
-  .row { display:flex; align-items:center; gap:12px; padding:13px 16px; border-top:0.5px solid var(--line); min-height:48px; }
-  .row:first-child { border-top:0; }
-  .row .grow { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .row .meta { color:var(--muted); font-size:14px; white-space:nowrap; }
-  .row a { color:inherit; text-decoration:none; }
-  label.field { display:block; padding:10px 16px; border-top:0.5px solid var(--line); }
-  label.field:first-child { border-top:0; }
-  label.field span { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
-  input, select, textarea { width:100%; font:inherit; color:var(--text); background:transparent; border:0; outline:0; padding:2px 0; }
-  textarea { resize:vertical; min-height:70px; }
-  .btn { display:block; width:calc(100% - 32px); margin:12px 16px 0; padding:14px; border:0; border-radius:12px; font:inherit; font-weight:600; background:var(--accent); color:var(--on-accent); }
-  .btn.secondary { background:var(--card); color:var(--accent); }
-  .small { font:inherit; font-size:14px; padding:6px 12px; border-radius:8px; border:0; background:var(--bg); color:var(--accent); font-weight:600; }
-  .small.danger { color:var(--danger); }
-  .note { color:var(--muted); font-size:13px; margin:8px 20px 0; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; font:17px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; letter-spacing:-.41px;
+    background:var(--bg); color:var(--text); padding:calc(44px + var(--top)) 0 calc(66px + var(--bottom)); overscroll-behavior-y:none; }
+  button { font:inherit; letter-spacing:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer; touch-action:manipulation; }
+  input, textarea, select { font:inherit; letter-spacing:inherit; color:var(--text); background:transparent; border:0; outline:0; width:100%; padding:0; border-radius:0; }
+  input::placeholder, textarea::placeholder { color:var(--muted); opacity:.75; }
+  textarea { resize:none; }
+  svg { display:block; }
+  [hidden] { display:none !important; }
+
+  /* Navigation bar: transparent over the large title, blurred once content scrolls under it. */
+  .bar { position:fixed; z-index:20; top:0; left:0; right:0; height:calc(44px + var(--top)); padding:var(--top) 8px 0;
+    display:grid; grid-template-columns:1fr auto 1fr; align-items:center; transition:background .2s, border-color .2s; border-bottom:.5px solid transparent; }
+  .bar.solid { background:var(--bar); -webkit-backdrop-filter:saturate(180%) blur(20px); backdrop-filter:saturate(180%) blur(20px); border-bottom-color:var(--line); }
+  .bar-title { grid-column:2; font-weight:600; font-size:17px; opacity:0; transition:opacity .15s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60vw; text-align:center; }
+  .bar-title.show { opacity:1; }
+  .back { grid-column:1; justify-self:start; display:flex; align-items:center; gap:2px; color:var(--accent); height:44px; padding-right:8px; max-width:38vw; }
+  .back span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .back svg { width:13px; height:21px; flex:none; margin:0 4px 0 6px; }
+  .actions { grid-column:3; justify-self:end; display:flex; }
+  .actions button { width:44px; height:44px; display:flex; align-items:center; justify-content:center; color:var(--accent); }
+  .actions svg { width:24px; height:24px; }
+  h1.large { font-size:34px; line-height:41px; font-weight:700; letter-spacing:.37px; margin:4px 16px 8px; }
+
+  section, .page { display:none; } section.on, .page.on { display:block; }
+
+  /* Inset grouped lists. */
+  .head { font-size:13px; line-height:18px; letter-spacing:-.08px; text-transform:uppercase; color:var(--muted); margin:22px 32px 7px; }
+  .foot { font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--muted); margin:7px 32px 0; }
+  .foot code, .card code { font:12px ui-monospace, SFMono-Regular, Menlo, monospace; word-break:break-all; }
+  .group { background:var(--card); border-radius:10px; margin:0 16px; overflow:hidden; }
+  .group + .group, .btn + .group { margin-top:20px; }
+  .row { position:relative; display:flex; align-items:center; gap:12px; min-height:44px; padding:6px 16px; width:100%; text-align:left; }
+  .row + .row::before, .row + label.row::before, label.row + .row::before { content:''; position:absolute; top:0; right:0; left:16px; border-top:.5px solid var(--line); }
+  .row.ic-row + .row::before, .row.ic-row + .row.ic-row::before { left:60px; }
+  button.row:active, a.row:active, .row.tap:active { background:var(--pressed); }
+  .row .grow { flex:1; min-width:0; }
+  .row .t { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .s { display:block; font-size:13px; line-height:18px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:-.08px; }
+  .row .v { color:var(--muted); white-space:nowrap; flex:none; max-width:45%; overflow:hidden; text-overflow:ellipsis; }
+  .row .v.ok { color:var(--ok); }
+  .chev { width:8px; height:13px; flex:none; color:var(--muted); opacity:.6; }
+  .row.accent { color:var(--accent); } .row.danger { color:var(--danger); }
+  .row.center { justify-content:center; }
+  a.row { color:inherit; text-decoration:none; }
+  .badge { width:29px; height:29px; border-radius:7px; flex:none; display:flex; align-items:center; justify-content:center; color:#fff; }
+  .badge svg { width:18px; height:18px; }
+  .ic { width:34px; height:34px; flex:none; }
+  .more { width:30px; height:30px; flex:none; display:flex; align-items:center; justify-content:center; color:var(--accent); margin-right:-6px; }
+  .more svg { width:22px; height:22px; }
+
+  /* Text fields in a group: small label over the field. */
+  .field { display:block; padding:9px 16px 10px; position:relative; }
+  .field + .field::before, .row + .field::before, .field + .row::before { content:''; position:absolute; top:0; right:0; left:16px; border-top:.5px solid var(--line); }
+  .field span { display:block; font-size:13px; color:var(--muted); margin-bottom:3px; letter-spacing:-.08px; }
+  .field textarea { min-height:66px; }
+
+  /* Buttons. */
+  .btn { display:flex; align-items:center; justify-content:center; gap:8px; width:calc(100% - 32px); margin:16px 16px 0; height:50px; border-radius:12px;
+    font-weight:600; background:var(--accent); color:var(--on-accent); transition:opacity .15s; }
+  .btn:active { opacity:.7; } .btn:disabled { opacity:.45; }
+  .btn.plain { background:var(--card); color:var(--accent); }
+
+  /* iOS switch. */
+  .switch { -webkit-appearance:none; appearance:none; width:51px; height:31px; border-radius:16px; background:var(--off); position:relative; flex:none; margin:0; transition:background .25s; cursor:pointer; }
+  .switch::after { content:''; position:absolute; top:2px; left:2px; width:27px; height:27px; border-radius:50%; background:#fff; box-shadow:0 3px 8px rgba(0,0,0,.15), 0 1px 1px rgba(0,0,0,.16); transition:transform .25s; }
+  .switch:checked { background:var(--ok); } .switch:checked::after { transform:translateX(20px); }
+
+  .card { background:var(--card); border-radius:10px; margin:12px 16px 0; padding:12px 14px 12px 16px; font-size:15px; line-height:20px; display:flex; gap:12px; align-items:flex-start; }
+  .card .grow { flex:1; } .card b { color:var(--accent); font-weight:600; }
+  .card .x { color:var(--muted); width:24px; height:24px; flex:none; margin:-2px -4px 0 0; }
+  .empty { padding:40px 32px; text-align:center; color:var(--muted); }
   .ok { color:var(--ok); } .err { color:var(--danger); }
-  nav { position:fixed; left:0; right:0; bottom:0; display:flex; background:color-mix(in srgb, var(--card) 85%, transparent); backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px); border-top:0.5px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
-  nav button { flex:1; border:0; background:none; font:inherit; font-size:11px; color:var(--muted); padding:8px 0 6px; display:flex; flex-direction:column; align-items:center; gap:3px; }
-  nav button svg { width:26px; height:26px; }
+
+  /* Tab bar. */
+  nav { position:fixed; z-index:20; left:0; right:0; bottom:0; display:flex; background:var(--bar); -webkit-backdrop-filter:saturate(180%) blur(20px); backdrop-filter:saturate(180%) blur(20px);
+    border-top:.5px solid var(--line); padding-bottom:var(--bottom); }
+  nav button { flex:1; height:50px; font-size:10px; font-weight:500; letter-spacing:.1px; color:var(--muted); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding-top:2px; }
+  nav svg { width:28px; height:26px; }
   nav button.on { color:var(--accent); }
-  section { display:none; } section.on { display:block; }
-  #drop.over { outline:2px dashed var(--accent); }
-  .bar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; margin-top:6px; } .bar i { display:block; height:100%; width:0; background:var(--accent); }
-  .toast { position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:20px; font-size:15px; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; }
-  .toast.show { opacity:1; }
-  code { font-size:13px; word-break:break-all; }
-  .group .more { width:calc(100% - 24px); margin:8px 12px 12px; }
-  .screen { margin:0 16px; border-radius:14px; overflow:hidden; background:#000; aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; position:relative; }
-  .screen img { width:100%; height:100%; object-fit:contain; display:block; }
-  .screen p { position:absolute; color:#fff; text-align:center; padding:0 24px; font-size:15px; margin:0; }
-  .pad { display:grid; grid-template-columns:repeat(3, 72px); grid-template-rows:repeat(3, 60px); gap:8px; justify-content:center; margin:18px 0 6px; }
-  .pad button, .keys button { border:0; border-radius:16px; background:var(--card); color:var(--text); font:inherit; font-size:20px; font-weight:600; touch-action:manipulation; }
-  .pad button:active, .keys button:active { background:var(--accent); color:var(--on-accent); }
-  .pad .ok { background:var(--accent); color:var(--on-accent); font-size:16px; }
-  .keys { display:flex; gap:8px; justify-content:center; margin:6px 16px 0; }
-  .keys button { flex:1; height:46px; font-size:15px; }
-  .tvs { display:flex; gap:10px; overflow-x:auto; padding:0 16px 12px; scrollbar-width:none; }
+
+  /* Remote. */
+  .tvs { display:flex; gap:8px; overflow-x:auto; padding:0 16px 12px; scrollbar-width:none; }
   .tvs::-webkit-scrollbar { display:none; }
-  .tvc { flex:none; width:200px; background:var(--card); border:2px solid transparent; border-radius:14px; padding:10px 12px; text-align:left; font:inherit; color:var(--text); }
-  .tvc.on { border-color:var(--accent); }
-  .tvc b { display:block; font-size:15px; } .tvc span { display:block; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .tvc .live { color:var(--ok); }
-  .ic { width:34px; height:34px; flex:none; display:block; }
-  #list .row .grow { white-space:normal; line-height:1.25; }
-  #list .row .grow a { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
-  #list .row .size { display:block; color:var(--muted); font-size:13px; margin-top:2px; }
-  .brand { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:13px; font-weight:700; letter-spacing:1.5px; color:var(--text); }
-  .brand b { color:var(--accent); font-weight:600; letter-spacing:3px; }
-  #kb-text { min-height:160px; font-size:20px; }
-  .status { display:flex; align-items:center; gap:8px; }
+  .tvc { flex:none; padding:7px 14px; border-radius:18px; background:var(--card); font-size:15px; font-weight:500; display:flex; align-items:center; gap:6px; }
+  .tvc.on { background:var(--accent); color:var(--on-accent); }
+  .tvc i { width:7px; height:7px; border-radius:50%; background:var(--muted); } .tvc i.live { background:var(--ok); } .tvc.on i { background:currentColor; }
+  .nowcard { display:flex; gap:12px; align-items:center; margin:8px 16px 0; padding:10px; background:var(--card); border-radius:14px; }
+  .nowcard .screen { width:46%; flex:none; margin:0; }
+  .nowcard.big { display:block; } .nowcard.big .screen { width:100%; } .nowcard.big .now { margin-top:10px; }
+  .screen { margin:0 16px; border-radius:12px; overflow:hidden; background:#000; aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; position:relative; }
+  .screen img { width:100%; height:100%; object-fit:contain; transition:opacity .2s; }
+  .screen p { position:absolute; inset:auto 0; color:#fff; text-align:center; padding:0 8px; font-size:12px; margin:0; text-shadow:0 1px 2px #000; }
+  .nowcard.big .screen p { font-size:15px; }
+  .now { min-width:0; display:flex; flex-direction:column; gap:1px; }
+  .now small { font-size:12px; font-weight:600; text-transform:uppercase; color:var(--muted); letter-spacing:.2px; }
+  .now .np { font-size:15px; font-weight:600; line-height:19px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .now .v { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
+  .now .v.ok { color:var(--ok); }
+  .typing { margin:10px 16px 0; }
+  .remote { display:flex; flex-direction:column; align-items:center; margin-top:20px; }
+  .pad { position:relative; width:clamp(170px, min(62vw, calc(100dvh - 470px)), 236px); aspect-ratio:1; border-radius:50%; background:var(--pad); box-shadow:var(--shadow), inset 0 0 0 .5px var(--line); touch-action:none; user-select:none; -webkit-user-select:none; }
+  .pad button { position:absolute; display:flex; align-items:center; justify-content:center; color:var(--muted); }
+  .pad .dir { width:33%; height:33%; } .pad .dir svg { width:14px; height:14px; }
+  .pad [data-key=up] { top:0; left:33.5%; } .pad [data-key=down] { bottom:0; left:33.5%; }
+  .pad [data-key=left] { left:0; top:33.5%; } .pad [data-key=right] { right:0; top:33.5%; }
+  .pad .okb { top:31%; left:31%; width:38%; height:38%; border-radius:50%; background:var(--fill); color:var(--text); font-weight:600; font-size:15px; }
+  .pad button.hit { color:var(--accent); } .pad .okb.hit { background:var(--accent); color:var(--on-accent); }
+  .keys { display:flex; gap:22px; justify-content:center; margin:18px 0 4px; }
+  .keys button { width:58px; height:58px; border-radius:50%; background:var(--pad); box-shadow:var(--shadow), inset 0 0 0 .5px var(--line); display:flex; align-items:center; justify-content:center; }
+  .keys button:active, .keys button.hit { background:var(--accent); color:var(--on-accent); }
+  .keys svg { width:24px; height:24px; }
+
+  /* Bottom sheets, alerts, full-screen editors. */
+  .scrim { position:fixed; z-index:40; inset:0; background:rgba(0,0,0,.4); opacity:0; transition:opacity .25s; pointer-events:none; }
+  .scrim.show { opacity:1; pointer-events:auto; }
+  .sheet { position:fixed; z-index:41; left:8px; right:8px; bottom:calc(8px + var(--bottom)); transform:translateY(120%); transition:transform .3s cubic-bezier(.2,.8,.2,1); }
+  .sheet.show { transform:none; }
+  .sheet .grp { background:var(--sheet); -webkit-backdrop-filter:blur(30px); backdrop-filter:blur(30px); border-radius:14px; overflow:hidden; }
+  .sheet .info { padding:14px 16px; text-align:center; font-size:13px; color:var(--muted); border-bottom:.5px solid var(--line); }
+  .sheet .info b { display:block; font-weight:600; color:var(--muted); margin-bottom:2px; overflow-wrap:anywhere; }
+  .sheet .grp button { display:block; width:100%; height:57px; font-size:20px; color:var(--accent); letter-spacing:.38px; }
+  .sheet .grp button + button { border-top:.5px solid var(--line); }
+  .sheet .grp button:active { background:var(--pressed); }
+  .sheet .grp button.danger { color:var(--danger); }
+  .sheet .cancel { margin-top:8px; background:var(--card); font-weight:600; }
+  .dialog { position:fixed; z-index:41; left:50%; top:38%; width:270px; transform:translate(-50%,-50%) scale(1.1); opacity:0; pointer-events:none; transition:transform .2s, opacity .2s;
+    background:var(--sheet); -webkit-backdrop-filter:blur(30px); backdrop-filter:blur(30px); border-radius:14px; text-align:center; overflow:hidden; }
+  .dialog.show { transform:translate(-50%,-50%); opacity:1; pointer-events:auto; }
+  .dialog h3 { margin:19px 16px 2px; font-size:17px; font-weight:600; } .dialog p { margin:0 16px; font-size:13px; }
+  .dialog input { margin:14px 16px 16px; width:calc(100% - 32px); background:var(--card); border:.5px solid var(--line); border-radius:7px; padding:6px 8px; font-size:16px; }
+  .dialog .btns { display:flex; border-top:.5px solid var(--line); }
+  .dialog .btns button { flex:1; height:44px; color:var(--accent); } .dialog .btns button + button { border-left:.5px solid var(--line); font-weight:600; }
+  .modal { position:fixed; z-index:42; inset:0; background:var(--bg); transform:translateY(100%); transition:transform .32s cubic-bezier(.2,.8,.2,1); display:flex; flex-direction:column; padding-top:var(--top); visibility:hidden; }
+  .modal.show { transform:none; visibility:visible; }
+  .modal .mbar { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; height:52px; padding:0 16px; }
+  .modal .mbar b { font-weight:600; }
+  .modal .mbar button { color:var(--accent); justify-self:start; height:44px; } .modal .mbar button:last-child { justify-self:end; font-weight:600; }
+  .modal .body { flex:1; overflow-y:auto; padding-bottom:20px; }
+  #note-title { font-size:22px; font-weight:700; padding:6px 20px; }
+  #note-body { padding:8px 20px; min-height:50vh; line-height:1.35; }
+  .note-del { color:var(--danger); margin:8px 20px; height:44px; }
+  #kb-text { font-size:20px; min-height:150px; padding:12px 16px; }
+  .status { display:flex; align-items:center; gap:10px; }
   .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex:none; } .dot.live { background:var(--ok); }
-  .check { width:auto; margin:0; accent-color:var(--accent); transform:scale(1.25); }
-  .card { background:var(--card); border-radius:14px; margin:12px 16px 0; padding:14px 16px; font-size:15px; }
-  .card b { color:var(--accent); }
-  .note-row .grow { white-space:normal; } .note-row .meta { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
-  .alert { position:fixed; left:12px; right:12px; top:calc(10px + env(safe-area-inset-top)); background:var(--card); color:var(--text); border-radius:16px; padding:14px 16px; box-shadow:0 8px 30px rgba(0,0,0,.25); transform:translateY(-140%); transition:transform .3s, visibility .3s; z-index:9; visibility:hidden; }
-  .alert.show { transform:none; visibility:visible; } .alert small { color:var(--accent); font-weight:600; letter-spacing:.3px; }
+
+  .toast { position:fixed; z-index:50; left:50%; bottom:calc(74px + var(--bottom)); transform:translate(-50%, 10px); background:var(--text); color:var(--bg); padding:11px 18px; border-radius:22px;
+    font-size:15px; font-weight:500; opacity:0; transition:opacity .2s, transform .2s; pointer-events:none; max-width:88%; text-align:center; }
+  .toast.show { opacity:1; transform:translate(-50%, 0); } .toast.bad { background:var(--danger); color:#fff; }
+  .alert { position:fixed; z-index:60; left:8px; right:8px; top:calc(8px + var(--top)); background:var(--bar); -webkit-backdrop-filter:blur(30px); backdrop-filter:blur(30px);
+    border-radius:20px; padding:12px 14px; box-shadow:0 10px 30px rgba(0,0,0,.2); transform:translateY(-150%); transition:transform .35s cubic-bezier(.2,.8,.2,1); display:flex; gap:10px; }
+  .alert.show { transform:none; } .alert img { width:38px; height:38px; border-radius:9px; flex:none; }
+  .alert small { display:block; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:-.08px; } .alert b { display:block; font-weight:600; }
+  .alert .s { font-size:15px; }
+  .upl .bar2 { height:4px; background:var(--fill); border-radius:2px; overflow:hidden; margin-top:5px; } .upl .bar2 i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
+  .storage { display:inline-flex; align-items:center; gap:4px; margin:-4px 16px 6px; color:var(--accent); font-size:15px; }
+  .storage svg { width:11px; height:11px; }
 </style>
 </head>
 <body>
-<header><div class="brand"><img src="/emblem.png" alt="" width="30" height="30"><span>WOODRUFF <b>FAMILY</b></span></div><h1 id="title">Files</h1></header>
+<header class="bar" id="bar">
+  <button class="back" id="back" hidden><svg viewBox="0 0 13 21"><path d="M11 1.5 2 10.5l9 9" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="back-label"></span></button>
+  <div class="bar-title" id="bar-title"></div>
+  <div class="actions" id="actions"></div>
+</header>
+
+<!-- REMOTE -->
+<section id="tv">
+  <div class="card" id="install" hidden><div class="grow">Add Woodruff to your Home Screen: tap <b>Share</b>, then <b>Add to Home Screen</b>. It stays paired with this TV.</div><button class="x" id="install-x" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
+  <div class="tvs" id="tv-list" hidden></div>
+  <div class="nowcard" id="live">
+    <button class="screen" id="screen" aria-label="Make the TV picture bigger or smaller"><img id="tv-img" alt="What's on the TV"><p id="tv-msg">Connecting…</p></button>
+    <div class="now"><small>Now Playing</small><span class="np" id="now-title">Nothing playing</span><span class="v" id="now-time"></span></div>
+  </div>
+  <div class="group typing" id="kb-hint" hidden><button class="row ic-row"><span class="badge" style="background:#5e5ce6"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-9 2h2v2h-2zm0 3h2v2h-2zM8 8h2v2H8zm0 3h2v2H8zM5 8h2v2H5zm0 3h2v2H5zm11 5H8v-1.5h8zm0-3h-2v-2h2zm0-3h-2V8h2zm3 3h-2v-2h2zm0-3h-2V8h2z"/></svg></span><span class="grow"><span class="t" id="kb-hint-t">Type on the TV</span><span class="s">Tap to use your keyboard</span></span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+  <div class="remote">
+    <div class="pad" id="pad" role="group" aria-label="Arrows and OK">
+      <button class="dir" data-key="up" aria-label="Up"><svg viewBox="0 0 14 14"><path d="M2 9.5 7 4.5l5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="dir" data-key="left" aria-label="Left"><svg viewBox="0 0 14 14"><path d="M9.5 2 4.5 7l5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="okb" data-key="ok">OK</button>
+      <button class="dir" data-key="right" aria-label="Right"><svg viewBox="0 0 14 14"><path d="M4.5 2l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="dir" data-key="down" aria-label="Down"><svg viewBox="0 0 14 14"><path d="M2 4.5 7 9.5l5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <div class="keys">
+      <button data-key="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button data-key="home" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M4 11.2 12 4l8 7.2V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></button>
+      <button data-key="playpause" aria-label="Play or pause"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 6v12l8.5-6zM14 6h2.6v12H14zM18.6 6h2.6v12h-2.6z"/></svg></button>
+      <button id="kb-open2" aria-label="Keyboard"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm0 10H4V8h16zM6 9h2v2H6zm3 0h2v2H9zm3 0h2v2h-2zm3 0h3v2h-3zM6 12h3v2H6zm4 0h2v2h-2zm3 0h2v2h-2zm3 0h2v2h-2zm-8 2.8h8v1.4H8z"/></svg></button>
+    </div>
+  </div>
+  <div class="head" id="away-head" hidden>Away from home</div>
+  <div class="group" id="away" hidden><button class="row ic-row" id="away-copy"><span class="badge" style="background:#0a84ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span><span class="grow"><span class="t">Copy Tailscale link</span><span class="s" id="away-url"></span></span></button></div>
+  <p class="foot" id="away-foot" hidden>Open it on this phone with Tailscale on, then add it to your Home Screen too.</p>
+</section>
 
 <!-- FILES -->
 <section id="files">
-  <div class="card" id="install" hidden>Open Woodruff like an app: tap <b>Share</b> then <b>Add to Home Screen</b>. It stays paired with this TV.</div>
-  <div class="card" id="name-me" hidden>Give this phone a name in <b>Settings</b> so the TV can send it announcements.</div>
-  <div class="group">
-    <div class="row"><select id="roots" aria-label="Storage"></select></div>
-    <div class="row"><span class="grow meta" id="path"></span><button class="small" id="up">Up</button><button class="small" id="mkdir">New folder</button></div>
-  </div>
-  <button class="btn" id="pick">Upload files</button>
+  <h1 class="large" id="files-title">Files</h1>
+  <button class="storage" id="storage" hidden><span id="storage-name"></span><svg viewBox="0 0 11 11"><path d="m1.5 3.5 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <div class="group upl" id="uploads" hidden></div>
+  <div class="group" id="list" style="margin-top:8px"></div>
   <input id="file" type="file" multiple hidden>
-  <p id="drop" hidden></p>
-  <div id="uploads"></div>
-  <h2>Contents</h2>
-  <div class="group" id="list"></div>
-</section>
-
-<!-- TV SCREEN -->
-<section id="tv">
-  <div class="tvs" id="tv-list" hidden></div>
-  <div class="screen"><img id="tv-img" alt="TV screen"><p id="tv-msg">Connecting to the TV…</p></div>
-  <div class="pad">
-    <span></span><button data-key="up" aria-label="Up">▲</button><span></span>
-    <button data-key="left" aria-label="Left">◀</button><button data-key="ok" class="ok">OK</button><button data-key="right" aria-label="Right">▶</button>
-    <span></span><button data-key="down" aria-label="Down">▼</button><span></span>
-  </div>
-  <div class="keys"><button data-key="back">Back</button><button data-key="home">Home</button><button data-key="playpause">⏯</button></div>
-  <div class="card" id="tv-away" hidden>Away from home: open <b>this link</b> on this phone (with Tailscale on) and add it to your Home Screen too:<br><code id="tv-away-url"></code></div>
-</section>
-
-<!-- KEYBOARD -->
-<section id="keyboard">
-  <div class="group">
-    <div class="row status"><span class="dot" id="kb-dot"></span><span class="grow" id="kb-status">Looking for a text box on the TV…</span></div>
-    <label class="field"><textarea id="kb-text" autocomplete="off" placeholder="Open a text box on the TV, then type here"></textarea></label>
-  </div>
-  <button class="btn" id="kb-enter">Done (press Enter on the TV)</button>
-  <button class="btn secondary" id="kb-clear">Clear</button>
 </section>
 
 <!-- NOTES -->
 <section id="notes">
-  <div class="group">
-    <label class="field"><span>Title</span><input id="note-title" placeholder="Groceries"></label>
-    <label class="field"><span>Note</span><textarea id="note-body" placeholder="Milk, eggs…"></textarea></label>
-  </div>
-  <button class="btn" id="note-save">Save note</button>
-  <button class="btn secondary" id="note-new" hidden>New note</button>
-  <h2>All notes</h2>
-  <div class="group" id="note-list"></div>
+  <h1 class="large">Notes</h1>
+  <div id="note-list"></div>
 </section>
 
 <!-- SEND -->
 <section id="send">
-  <h2>Announcement</h2>
+  <h1 class="large">Send to TV</h1>
+  <div class="card" id="name-me" hidden><div class="grow">Name this phone in <b>Settings</b> so it can get announcements too.</div></div>
+  <div class="head">Announcement</div>
   <div class="group">
-    <label class="field"><span>Title</span><input id="n-title" placeholder="Dinner's ready"></label>
-    <label class="field"><span>Message</span><textarea id="n-body" placeholder="Optional"></textarea></label>
+    <label class="field"><span>Title</span><input id="n-title" placeholder="Dinner's ready" enterkeyhint="next"></label>
+    <label class="field"><span>Message</span><textarea id="n-body" rows="2" placeholder="Optional"></textarea></label>
   </div>
-  <h2>Send to</h2>
+  <div class="head">Show on</div>
   <div class="group" id="n-targets"></div>
   <button class="btn" id="n-send">Send</button>
-  <h2>Play or open a link on the TV</h2>
-  <div class="group">
-    <label class="field"><span>Web address</span><input id="o-url" type="url" inputmode="url" autocapitalize="off" placeholder="https://…/movie.mp4"></label>
+  <div class="head">Open on the TV</div>
+  <div class="group"><label class="field"><span>Web address</span><input id="o-url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="YouTube, Apple Music or a video link" enterkeyhint="go"></label></div>
+  <button class="btn plain" id="o-send">Open on TV</button>
+  <div class="group" style="margin-top:20px">
+    <button class="row ic-row" id="slideshow"><span class="badge" style="background:#ff9f0a"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 12h14l-4.5-6-3.5 4.5-2.5-3z"/></svg></span><span class="grow t">Start photo slideshow</span></button>
+    <button class="row ic-row" id="shortcut"><span class="badge" style="background:#ff375f"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" stroke-linecap="round"/></svg></span><span class="grow"><span class="t">Copy Shortcuts link</span><span class="s">For iPhone Shortcuts automations</span></span></button>
   </div>
-  <button class="btn" id="o-send">Open on TV</button>
-  <h2>Photos on the TV</h2>
-  <button class="btn secondary" id="slideshow">Start photo slideshow on the TV</button>
-  <h2>iPhone Shortcut</h2>
-  <div class="group"><div class="row"><span class="grow meta">POST JSON <code>{title, body}</code> to</span></div><div class="row"><code id="shortcut-url"></code></div></div>
 </section>
 
 <!-- SETTINGS -->
 <section id="settings">
-  <h2>This phone</h2>
-  <div class="group">
-    <label class="field"><span>Name</span><input id="p-name" placeholder="Blake's iPhone" autocomplete="off"></label>
-    <div class="row"><span class="grow" style="white-space:normal">Lock-screen alerts</span><input type="checkbox" class="check" id="p-alerts"></div>
-  </div>
-  <button class="btn" id="p-save">Save</button>
-  <div class="card" id="p-ntfy" hidden>
-    1. Install <b>ntfy</b> from the App Store and allow notifications.<br>
-    2. In ntfy tap <b>+</b>, then paste this topic and tap Subscribe:<br>
-    <code id="p-topic"></code><br>
-    <button class="small" id="p-copy" style="margin-top:8px">Copy topic</button><br>
-    <span class="meta">Keep the topic private: anyone with it can read these announcements.</span>
+  <div class="page on" id="set-main" data-title="Settings">
+    <h1 class="large">Settings</h1>
+    <div class="head">This phone</div>
+    <div class="group">
+      <label class="field"><span>Name</span><input id="p-name" placeholder="Blake's iPhone" autocomplete="off" enterkeyhint="done"></label>
+      <label class="row"><span class="grow">Lock-screen alerts</span><input type="checkbox" class="switch" id="p-alerts"></label>
+    </div>
+    <div class="card" id="p-ntfy" hidden><div class="grow">
+      1. Install <b>ntfy</b> from the App Store and allow notifications.<br>
+      2. In ntfy tap <b>+</b>, paste this topic and tap Subscribe:<br><code id="p-topic"></code>
+    </div></div>
+    <button class="btn plain" id="p-copy" hidden>Copy topic</button>
+    <p class="foot" id="p-ntfy-foot" hidden>Keep the topic private: anyone with it can read these announcements.</p>
+
+    <div class="head">Connections</div>
+    <div class="group">
+      <button class="row ic-row" data-page="set-drive"><span class="badge" style="background:#1a73e8"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.6 3h6.8l6.2 10.6-3.4 5.9H5.8l-3.4-5.9zm1 1.9L4.6 13.6l2.3 4h.1l5-8.6zm4.4 7.5-2.8 4.9h7.2l2.5-4.3z"/></svg></span><span class="grow t">Google Drive</span><span class="v" id="g-status">…</span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="row ic-row" data-page="set-tmdb"><span class="badge" style="background:#01b4e4"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 2v2h2V6zm0 4v4h2v-4zm0 6v2h2v-2zM17 6v2h2V6zm0 4v4h2v-4zm0 6v2h2v-2zM9 6v12h6V6z"/></svg></span><span class="grow t">Movie &amp; show posters</span><span class="v" id="t-status">…</span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="row ic-row" data-page="set-cams"><span class="badge" style="background:#34c759"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 7h11a1 1 0 0 1 1 1v2.5l4.3-2.9a.5.5 0 0 1 .7.4v8a.5.5 0 0 1-.7.4L16 13.5V16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/></svg></span><span class="grow t">Cameras</span><span class="v" id="c-status">…</span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="row ic-row" data-page="set-mail"><span class="badge" style="background:#0a84ff"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16a2 2 0 0 1 2 2v.4l-10 6.2L2 7.4V7a2 2 0 0 1 2-2zm-2 4.7 10 6.2 10-6.2V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/></svg></span><span class="grow t">Mail</span><span class="v" id="m-status">…</span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
   </div>
 
-  <h2>Google Drive</h2>
-  <div class="group">
-    <div class="row"><span class="grow">Status</span><span class="meta" id="g-status">…</span></div>
-    <label class="field"><span>Client ID</span><input id="g-id" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1234…apps.googleusercontent.com"></label>
-    <label class="field"><span>Client secret</span><input id="g-secret" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="GOCSPX-… (leave blank to keep the saved one)"></label>
+  <div class="page" id="set-drive" data-title="Google Drive">
+    <div class="group" style="margin-top:20px"><div class="row"><span class="grow">Status</span><span class="v" id="g-status2">…</span></div></div>
+    <div class="head">Google Cloud keys</div>
+    <div class="group">
+      <label class="field"><span>Client ID</span><input id="g-id" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="1234…apps.googleusercontent.com"></label>
+      <label class="field"><span>Client secret</span><input id="g-secret" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="GOCSPX-… (blank keeps the saved one)"></label>
+    </div>
+    <p class="foot">Redirect URI: <code id="g-redirect"></code></p>
+    <button class="btn" id="g-save">Save</button>
   </div>
-  <button class="btn" id="g-save">Save Google keys</button>
-  <p class="note">Redirect URI: <code id="g-redirect"></code></p>
 
-  <h2>Movie &amp; show posters</h2>
-  <div class="group">
-    <div class="row"><span class="grow">TMDB API key</span><span class="meta" id="t-status">…</span></div>
-    <label class="field"><span>API key or Read Access Token</span><input id="t-key" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="From themoviedb.org → Settings → API"></label>
+  <div class="page" id="set-tmdb" data-title="Posters">
+    <div class="group" style="margin-top:20px"><div class="row"><span class="grow">TMDB key</span><span class="v" id="t-status2">…</span></div></div>
+    <div class="head">API key or Read Access Token</div>
+    <div class="group"><label class="field"><span>Key</span><input id="t-key" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="themoviedb.org → Settings → API"></label></div>
+    <p class="foot">Adds posters, genres and ratings to Movies and TV Shows.</p>
+    <button class="btn" id="t-save">Save</button>
   </div>
-  <button class="btn" id="t-save">Save TMDB key</button>
 
-  <h2>Cameras (Command center)</h2>
-  <div class="group">
-    <div class="row"><span class="grow">Status</span><span class="meta" id="c-status">…</span></div>
-    <label class="field"><span>Device Access Project ID</span><input id="c-project" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1a2b3c4d-5e6f-…"></label>
+  <div class="page" id="set-cams" data-title="Cameras">
+    <div class="group" style="margin-top:20px"><div class="row"><span class="grow">Status</span><span class="v" id="c-status2">…</span></div></div>
+    <div class="head">Google Home Device Access</div>
+    <div class="group"><label class="field"><span>Project ID</span><input id="c-project" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1a2b3c4d-5e6f-…"></label></div>
+    <button class="btn" id="c-save">Save</button>
   </div>
-  <button class="btn" id="c-save">Save Project ID</button>
 
-  <h2>Mail accounts</h2>
-  <div class="group" id="m-list"></div>
-  <h2>Add a mail account</h2>
-  <div class="group">
-    <label class="field"><span>Provider</span><select id="m-provider"></select></label>
-    <label class="field"><span>Email address</span><input id="m-email" type="email" autocapitalize="off" autocomplete="off"></label>
-    <label class="field"><span>App-specific password</span><input id="m-pass" type="password" autocapitalize="off" autocomplete="off"></label>
-    <label class="field" id="m-hostrow" hidden><span>IMAP server</span><input id="m-host" autocapitalize="off" placeholder="imap.example.com"></label>
+  <div class="page" id="set-mail" data-title="Mail">
+    <div class="head">Accounts</div>
+    <div class="group" id="m-list"></div>
+    <div class="head">Add an account</div>
+    <div class="group">
+      <label class="field"><span>Provider</span><select id="m-provider"></select></label>
+      <label class="field"><span>Email address</span><input id="m-email" type="email" autocapitalize="off" autocomplete="off"></label>
+      <label class="field"><span>App-specific password</span><input id="m-pass" type="password" autocapitalize="off" autocomplete="off"></label>
+      <label class="field" id="m-hostrow" hidden><span>IMAP server</span><input id="m-host" autocapitalize="off" placeholder="imap.example.com"></label>
+    </div>
+    <p class="foot" id="m-help"></p>
+    <button class="btn" id="m-add">Add account</button>
   </div>
-  <p class="note" id="m-help"></p>
-  <button class="btn" id="m-add">Add account</button>
 </section>
 
 <nav>
-  <button data-tab="files"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>Files</button>
-  <button data-tab="tv"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 4H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7v2H8v2h8v-2h-2v-2h7a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 12H3V6h18v10z"/></svg>TV</button>
-  <button data-tab="keyboard"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM11 8h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zM5 8h2v2H5V8zm0 3h2v2H5v-2zm11 5H8v-2h8v2zm0-3h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/></svg>Keyboard</button>
-  <button data-tab="notes"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10l6-6V5a2 2 0 0 0-2-2zM7 8h10v2H7V8zm0 4h10v2H7v-2zm7 7.5V15h4.5L14 19.5z"/></svg>Notes</button>
-  <button data-tab="send"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 3 10.5l7 2.5 2.5 7L21 3z"/></svg>Send to TV</button>
-  <button data-tab="settings"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.5 7.5 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.5 7.5 0 0 0 1.7-1l2.5 1 2-3.4L19.4 13zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>Settings</button>
+  <button data-tab="tv"><svg viewBox="0 0 28 26"><rect x="8.5" y="1.5" width="11" height="23" rx="5.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="14" cy="8" r="3" fill="currentColor"/><circle cx="14" cy="15" r="1.4" fill="currentColor"/><circle cx="14" cy="19.5" r="1.4" fill="currentColor"/></svg>Remote</button>
+  <button data-tab="files"><svg viewBox="0 0 28 26" fill="currentColor"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h5.2l2.6 2.6h9.2A2.5 2.5 0 0 1 25 9.1v10.4a2.5 2.5 0 0 1-2.5 2.5h-17A2.5 2.5 0 0 1 3 19.5z"/></svg>Files</button>
+  <button data-tab="notes"><svg viewBox="0 0 28 26"><rect x="5" y="2.5" width="18" height="21" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.5 9h9M9.5 13h9M9.5 17h5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Notes</button>
+  <button data-tab="send"><svg viewBox="0 0 28 26" fill="currentColor"><path d="M24.6 3.2 3.9 11.6c-.9.4-.8 1.6.1 1.9l6.6 2 2 6.6c.3.9 1.5 1 1.9.1L22.9 5zM11.4 14.4l9.4-8.2-7.3 10.4z"/></svg>Send</button>
+  <button data-tab="settings"><svg viewBox="0 0 28 26" fill="currentColor"><path d="M15.6 2h-3.2l-.6 3a8.5 8.5 0 0 0-2.1 1.2L6.8 5.3 5.2 8.1l2.3 2a8.6 8.6 0 0 0 0 2.4l-2.3 2 1.6 2.8 2.9-1a8.5 8.5 0 0 0 2.1 1.3l.6 3h3.2l.6-3a8.5 8.5 0 0 0 2.1-1.3l2.9 1 1.6-2.8-2.3-2a8.6 8.6 0 0 0 0-2.4l2.3-2-1.6-2.8-2.9.9A8.5 8.5 0 0 0 16.2 5zM14 15.3a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/></svg>Settings</button>
 </nav>
+
+<!-- Overlays -->
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet"></div>
+<div class="dialog" id="dialog"><h3 id="d-title"></h3><p id="d-msg"></p><input id="d-input"><div class="btns"><button id="d-cancel">Cancel</button><button id="d-ok">OK</button></div></div>
+
+<div class="modal" id="note-modal" role="dialog" aria-label="Note">
+  <div class="mbar"><button id="note-cancel">Cancel</button><b id="note-heading">New Note</b><button id="note-save">Done</button></div>
+  <div class="body">
+    <input id="note-title" placeholder="Title" enterkeyhint="next">
+    <textarea id="note-body" placeholder="Note"></textarea>
+    <button class="note-del" id="note-del" hidden>Delete Note</button>
+  </div>
+</div>
+
+<div class="modal" id="kb" role="dialog" aria-label="Keyboard">
+  <div class="mbar"><button id="kb-close">Close</button><b>Keyboard</b><button id="kb-enter">Enter</button></div>
+  <div class="body">
+    <div class="group">
+      <div class="row status"><span class="dot" id="kb-dot"></span><span class="grow t" id="kb-status">Looking for a text box on the TV…</span><button class="v" id="kb-clear" style="color:var(--accent)">Clear</button></div>
+      <textarea id="kb-text" autocomplete="off" autocorrect="off" placeholder="Select a text box on the TV, then type here"></textarea>
+    </div>
+    <p class="foot">Letters appear on the TV as you type. Enter presses Done on the TV.</p>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
-<div class="alert" id="alert"><small id="alert-from">ANNOUNCEMENT</small><div id="alert-title" style="font-weight:600"></div><div id="alert-body" class="meta"></div></div>
+<div class="alert" id="alert"><img src="/icon-180.png" alt=""><div style="min-width:0"><small id="alert-from">Announcement</small><b id="alert-title"></b><div class="s" id="alert-body"></div></div></div>
 
 <script>var TVX_KEY = '__TVX_KEY__';</script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var cwd = null, parent = null, settings = null, tab = null;
-  var titles = {
-    files: ['Files', 'Browse and send files to your TV'],
-    tv: ['TV', ''],
-    keyboard: ['Keyboard', 'Type into the TV from here'],
-    notes: ['Notes', 'Shared with the TV'],
-    send: ['Send to TV', 'Announcements, links and photos'],
-    settings: ['Settings', 'Saved on the TV, encrypted']
-  };
+  var cwd = null, parent = null, settings = null, current = null, roots = [];
+  var TABS = { tv: 'Remote', files: 'Files', notes: 'Notes', send: 'Send to TV', settings: 'Settings' };
+  var CHEV = '<svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   // Keep the pairing key in the address so "Add to Home Screen" saves a link that stays paired
   // (Home Screen apps on iPhone don't share Safari's cookies).
@@ -241,18 +378,18 @@
     history.replaceState(null, '', '/?k=' + TVX_KEY + location.hash);
   }
   var standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !standalone) $('install').hidden = false;
+  function stored(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !standalone && !stored('woodruff.installHint')) $('install').hidden = false;
+  $('install-x').onclick = function () { $('install').hidden = true; store('woodruff.installHint', '1'); };
 
   // This phone's identity, kept on the phone. Registered with the TV only once it has a name.
   var device = {};
-  try { device = JSON.parse(localStorage.getItem('woodruff.device') || '{}'); } catch (e) {}
-  if (!device.id) {
-    device.id = 'p-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-    try { localStorage.setItem('woodruff.device', JSON.stringify(device)); } catch (e) {}
-  }
-  function saveDevice() { try { localStorage.setItem('woodruff.device', JSON.stringify(device)); } catch (e) {} }
+  try { device = JSON.parse(stored('woodruff.device') || '{}'); } catch (e) {}
+  if (!device.id) { device.id = 'p-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); saveDevice(); }
+  function saveDevice() { store('woodruff.device', JSON.stringify(device)); }
 
-  function toast(text, bad) { var t = $('toast'); t.textContent = text; t.className = 'toast show'; t.style.background = bad ? 'var(--danger)' : ''; clearTimeout(toast.h); toast.h = setTimeout(function () { t.className = 'toast'; }, 2600); }
+  function toast(text, bad) { var t = $('toast'); t.textContent = text; t.className = 'toast show' + (bad ? ' bad' : ''); clearTimeout(toast.h); toast.h = setTimeout(function () { t.className = 'toast'; }, 2400); }
   function fmt(b) { if (b < 1024) return b + ' B'; var u = ['KB','MB','GB','TB'], i = -1; do { b /= 1024; i++; } while (b >= 1024 && i < 3); return (b >= 100 ? b.toFixed(0) : b.toFixed(1)) + ' ' + u[i]; }
   function q(s) { return encodeURIComponent(s); }
   function api(url, opts) {
@@ -263,32 +400,84 @@
   }
   function post(url, data) { return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}) }); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function err(e) { toast(e.message || String(e), true); }
+  function copy(text, done) {
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { toast(done || 'Copied'); }, function () { window.prompt('Copy this', text); });
+  }
+  var ICONS = {
+    plus: '<svg viewBox="0 0 24 24"><path d="M12 4.5v15M4.5 12h15" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    compose: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M17.5 3.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
+    keyboard: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm0 10H4V8h16zM6 9h2v2H6zm3 0h2v2H9zm3 0h2v2h-2zm3 0h3v2h-3zM6 12h3v2H6zm4 0h2v2h-2zm3 0h2v2h-2zm3 0h2v2h-2zm-8 2.8h8v1.4H8z"/></svg>',
+    more: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="7.5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="16.5" cy="12" r="1.4" fill="currentColor"/></svg>'
+  };
+
+  // ---- Navigation bar ------------------------------------------------------------------
+  // Large title in the page; the bar's small title fades in once it scrolls away (iOS style).
+  var barState = { title: '', back: null, onBack: null, actions: [] };
+  function setBar(s) {
+    barState = s;
+    $('bar-title').textContent = s.title || '';
+    $('back').hidden = !s.back; $('back-label').textContent = s.back || '';
+    var a = $('actions'); a.textContent = '';
+    (s.actions || []).forEach(function (x) { var b = el('button'); b.innerHTML = ICONS[x.icon]; b.setAttribute('aria-label', x.label); b.onclick = x.fn; a.appendChild(b); });
+    onScroll();
+  }
+  $('back').onclick = function () { if (barState.onBack) barState.onBack(); };
+  function largeTitle() { var s = $(current); if (!s) return null; var p = s.querySelector('.page.on') || s; return p.querySelector('h1.large'); }
+  function onScroll() {
+    var h = largeTitle(), barH = $('bar').offsetHeight;
+    var hidden = !h || h.getBoundingClientRect().bottom < barH + 4;
+    $('bar-title').className = 'bar-title' + (hidden ? ' show' : '');
+    $('bar').className = 'bar' + (window.scrollY > 2 || !h ? ' solid' : '');
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
 
   // ---- Tabs ---------------------------------------------------------------------------
   function show(tab) {
-    if (!titles[tab]) tab = 'files';
+    if (tab === 'keyboard') { show('tv'); openKb(false); return; }
+    if (!TABS[tab]) tab = 'tv';
     document.querySelectorAll('section').forEach(function (s) { s.className = s.id === tab ? 'on' : ''; });
     document.querySelectorAll('nav button').forEach(function (b) { b.className = b.dataset.tab === tab ? 'on' : ''; });
-    $('title').textContent = titles[tab][0];
     if (location.hash !== '#' + tab) history.replaceState(null, '', location.search + '#' + tab);
-    window.scrollTo(0, 0);
     current = tab;
-    if (tab === 'settings' || tab === 'send') loadSettings();
-    if (tab === 'send') loadPhones();
-    if (tab === 'notes') loadNotes();
-    if (tab === 'keyboard') pollField();
-    if (tab === 'tv') { loadSettings(); loadTvs(); frame(); }
+    window.scrollTo(0, 0);
+    if (tab === 'tv') { setBar({ title: 'Remote', actions: [{ icon: 'keyboard', label: 'Keyboard', fn: function () { openKb(true); } }] }); loadSettings(); loadTvs(); frame(); pollField(); }
+    if (tab === 'files') filesBar();
+    if (tab === 'notes') { setBar({ title: 'Notes', actions: [{ icon: 'compose', label: 'New note', fn: function () { openNote(null); } }] }); loadNotes(); }
+    if (tab === 'send') { setBar({ title: 'Send to TV' }); loadSettings(); loadPhones(); }
+    if (tab === 'settings') { page('set-main'); loadSettings(); }
   }
-  var current = null;
-  document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { show(b.dataset.tab); }; });
+  document.querySelectorAll('nav button').forEach(function (b) {
+    // Tapping the current tab again goes back to its top level, like iOS.
+    b.onclick = function () { if (b.dataset.tab === current) { if (current === 'settings') page('set-main'); else if (current === 'files' && roots.length) load(rootOf(cwd).path); window.scrollTo({ top: 0, behavior: 'smooth' }); } else show(b.dataset.tab); };
+  });
+
+  // ---- Sheets & dialogs ---------------------------------------------------------------
+  function closeOverlays() { $('scrim').className = 'scrim'; $('sheet').className = 'sheet'; $('dialog').className = 'dialog'; }
+  $('scrim').onclick = closeOverlays;
+  // Action sheet: [{label, danger, fn}], plus Cancel.
+  function sheet(title, message, actions) {
+    var s = $('sheet'); s.textContent = '';
+    var g = el('div', 'grp');
+    if (title || message) { var i = el('div', 'info'); if (title) i.appendChild(el('b', null, title)); if (message) i.appendChild(document.createTextNode(message)); g.appendChild(i); }
+    actions.forEach(function (a) { var b = el('button', a.danger ? 'danger' : null, a.label); b.onclick = function () { closeOverlays(); a.fn(); }; g.appendChild(b); });
+    s.appendChild(g);
+    var c = el('button', 'grp cancel', 'Cancel'); c.style.width = '100%'; c.style.height = '57px'; c.style.fontSize = '20px'; c.style.color = 'var(--accent)'; c.onclick = closeOverlays; s.appendChild(c);
+    $('scrim').className = 'scrim show'; requestAnimationFrame(function () { s.className = 'sheet show'; });
+  }
+  function confirmSheet(title, message, label, fn) { sheet(title, message, [{ label: label, danger: true, fn: fn }]); }
+  // Alert with a text field (New Folder).
+  function ask(title, placeholder, okLabel, fn) {
+    $('d-title').textContent = title; $('d-msg').textContent = ''; var i = $('d-input'); i.value = ''; i.placeholder = placeholder || '';
+    $('d-ok').textContent = okLabel; $('d-ok').onclick = function () { var v = i.value.trim(); closeOverlays(); if (v) fn(v); };
+    $('d-cancel').onclick = closeOverlays; i.onkeydown = function (e) { if (e.key === 'Enter') $('d-ok').onclick(); };
+    $('scrim').className = 'scrim show'; $('dialog').className = 'dialog show'; i.focus();
+  }
 
   // ---- Files --------------------------------------------------------------------------
   // Big folders (a camera roll can hold thousands of files) render in batches, and one click
   // handler on the list serves every row, so the page stays responsive.
   var files = [], shown = 0, loadSeq = 0, BATCH = 200;
-
-  // iOS Files-style icons: a blue folder (with a symbol for well-known folders) or a colored
-  // rounded badge with a white symbol for files. Static SVG strings; no file data goes into them.
   var GLYPH = {
     film: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M7 10h10M7 14h10M10 7v10M14 7v10" stroke="#fff" stroke-width="1.2"/>',
     play: '<path d="M10 7.5l7 4.5-7 4.5z" fill="#fff"/>',
@@ -304,14 +493,15 @@
   var FOLDER_GLYPH = { movies: 'film', videos: 'film', 'tv shows': 'film', pictures: 'photo', photos: 'photo', screenshots: 'photo',
     dcim: 'camera', camera: 'camera', music: 'music', podcasts: 'music', download: 'down', downloads: 'down', documents: 'doc' };
   var TYPES = [
-    [/\.(mp4|mkv|webm|avi|mov|m4v|ts|3gp|wmv|flv)$/i, 'play', '#5e5ce6'],
-    [/\.(jpe?g|png|webp|gif|heic|heif|bmp|svg)$/i, 'photo', '#30b0c7'],
-    [/\.(mp3|flac|m4a|aac|ogg|wav|opus|wma)$/i, 'music', '#ff2d55'],
-    [/\.(pdf|docx?|xlsx?|pptx?|txt|md|rtf|csv|pages|numbers|key|epub)$/i, 'doc', '#0a84ff'],
-    [/\.(zip|rar|7z|tar|gz|bz2|xz)$/i, 'zip', '#8e8e93'],
-    [/\.(apk|xapk|apks)$/i, 'app', '#34c759']
+    [/\.(mp4|mkv|webm|avi|mov|m4v|ts|3gp|wmv|flv)$/i, 'play', '#5e5ce6', 'Video'],
+    [/\.(jpe?g|png|webp|gif|heic|heif|bmp|svg)$/i, 'photo', '#30b0c7', 'Photo'],
+    [/\.(mp3|flac|m4a|aac|ogg|wav|opus|wma)$/i, 'music', '#ff2d55', 'Audio'],
+    [/\.(pdf|docx?|xlsx?|pptx?|txt|md|rtf|csv|pages|numbers|key|epub)$/i, 'doc', '#0a84ff', 'Document'],
+    [/\.(zip|rar|7z|tar|gz|bz2|xz)$/i, 'zip', '#8e8e93', 'Archive'],
+    [/\.(apk|xapk|apks)$/i, 'app', '#34c759', 'App']
   ];
   var iconSeq = 0;
+  function typeOf(name) { return TYPES.filter(function (x) { return x[0].test(name); })[0] || [null, 'file', '#8e8e93', 'File']; }
   function icon(f) {
     var span = document.createElement('span'), g, id = 'g' + (++iconSeq);
     if (f.dir) {
@@ -321,7 +511,7 @@
         '<rect x="3" y="9.5" width="28" height="19" rx="3" fill="url(#' + id + ')"/>' +
         (g ? '<g transform="translate(8 10) scale(.75)" opacity=".92">' + GLYPH[g] + '</g>' : '') + '</svg>';
     } else {
-      var t = TYPES.filter(function (x) { return x[0].test(f.name); })[0] || [null, 'file', '#8e8e93'];
+      var t = typeOf(f.name);
       span.innerHTML = '<svg class="ic" viewBox="0 0 34 34" aria-hidden="true"><defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>' +
         '<rect x="2" y="2" width="30" height="30" rx="7.5" fill="' + t[2] + '"/><rect x="2" y="2" width="30" height="30" rx="7.5" fill="url(#' + id + ')"/>' +
         '<g transform="translate(3 3) scale(1.17)">' + GLYPH[t[1]] + '</g></svg>';
@@ -329,121 +519,155 @@
     return span.firstChild;
   }
   var IMG = /\.(jpe?g|png|webp|gif|heic|bmp)$/i, MEDIA = /\.(mp4|mkv|webm|avi|mov|m4v|ts|mp3|flac|m4a|aac|ogg|wav)$/i;
+  function rootOf(path) { return roots.filter(function (r) { return path && (path === r.path || path.indexOf(r.path + '/') === 0); })[0] || roots[0] || { name: 'Files', path: path }; }
+  function baseName(p) { return p ? p.replace(/\/+$/, '').split('/').pop() : ''; }
+  function atRoot() { return !parent || rootOf(cwd).path === cwd; }
+  function folderTitle() { return atRoot() ? 'Files' : baseName(cwd); }
+  function filesBar() {
+    var up = !atRoot();
+    setBar({
+      title: folderTitle(),
+      back: up ? (rootOf(cwd).path === parent ? 'Files' : baseName(parent)) : null,
+      onBack: function () { if (parent) load(parent); },
+      actions: [{ icon: 'plus', label: 'Add', fn: function () {
+        sheet(null, null, [
+          { label: 'Upload Photos or Files', fn: function () { $('file').click(); } },
+          { label: 'New Folder', fn: function () { ask('New Folder', 'Name', 'Create', function (n) { api('/api/mkdir?path=' + q(cwd) + '&name=' + q(n), { method: 'POST' }).then(function () { load(cwd); }, err); }); } }
+        ]);
+      } }]
+    });
+  }
   function load(path) {
     var seq = ++loadSeq;
     api('/api/list?path=' + q(path)).then(function (d) {
       if (seq !== loadSeq) return; // a newer folder was opened meanwhile
+      var moved = cwd !== d.path;
       cwd = d.path; parent = d.parent; files = d.files; shown = 0;
-      $('path').textContent = cwd; $('up').disabled = !parent;
+      $('files-title').textContent = folderTitle();
+      var r = rootOf(cwd); $('storage').hidden = !(atRoot() && roots.length > 1); $('storage-name').textContent = r.name;
       $('list').textContent = '';
-      if (!files.length) $('list').appendChild(el('div', 'row meta', 'This folder is empty'));
+      if (!files.length) $('list').appendChild(el('div', 'empty', 'This folder is empty'));
       renderMore();
+      if (current === 'files') { filesBar(); if (moved) window.scrollTo(0, 0); }
     }, err);
   }
-  function btn(label, act, i, cls) { var b = el('button', 'small' + (cls ? ' ' + cls : ''), label); b.dataset.act = act; b.dataset.i = i; return b; }
   function renderMore() {
     var list = $('list'), frag = document.createDocumentFragment(), end = Math.min(files.length, shown + BATCH);
-    var more = list.querySelector('.more'); if (more) more.remove();
+    var more = list.querySelector('[data-act=more]'); if (more) more.remove();
     for (var i = shown; i < end; i++) {
-      var f = files[i], row = el('div', 'row'), name = el('span', 'grow');
+      var f = files[i], row = el('div', 'row ic-row tap');
+      row.dataset.act = 'tap'; row.dataset.i = i;
       row.appendChild(icon(f));
-      var a = el('a', null, f.name);
-      if (f.dir) { a.href = '#files'; a.dataset.act = 'open'; a.dataset.i = i; }
-      else { a.href = '/api/download?path=' + q(f.path); a.setAttribute('download', f.name); }
-      name.appendChild(a); if (!f.dir) name.appendChild(el('span', 'size', fmt(f.size)));
-      row.appendChild(name);
-      if (!f.dir && IMG.test(f.name)) row.appendChild(btn('Background', 'bg', i));
-      if (f.dir) row.appendChild(btn('Slideshow', 'slides', i));
-      if (!f.dir && MEDIA.test(f.name)) row.appendChild(btn('Play on TV', 'play', i));
-      row.appendChild(btn('Delete', 'del', i, 'danger'));
+      var text = el('span', 'grow'); text.appendChild(el('span', 't', f.name));
+      text.appendChild(el('span', 's', f.dir ? 'Folder' : typeOf(f.name)[3] + ' · ' + fmt(f.size)));
+      row.appendChild(text);
+      if (f.dir) row.insertAdjacentHTML('beforeend', CHEV);
       frag.appendChild(row);
     }
     shown = end;
     if (shown < files.length) {
-      var m = el('button', 'btn secondary more', 'Show ' + Math.min(BATCH, files.length - shown) + ' more of ' + (files.length - shown));
-      m.dataset.act = 'more'; frag.appendChild(m);
+      var b = el('button', 'row center accent', 'Show ' + Math.min(BATCH, files.length - shown) + ' more');
+      b.dataset.act = 'more'; frag.appendChild(b);
     }
     list.appendChild(frag);
+  }
+  function download(f) { var a = el('a'); a.href = '/api/download?path=' + q(f.path); a.setAttribute('download', f.name); document.body.appendChild(a); a.click(); a.remove(); }
+  function remove(f) {
+    confirmSheet('Delete "' + f.name + '"?', f.dir ? 'Everything inside it is deleted from the TV too.' : 'It is deleted from the TV.', f.dir ? 'Delete Folder' : 'Delete', function () {
+      api('/api/delete?path=' + q(f.path), { method: 'POST' }).then(function () { toast('Deleted'); load(cwd); }, err);
+    });
+  }
+  function fileMenu(f) {
+    var acts = [];
+    if (f.dir) acts.push({ label: 'Use for Slideshow', fn: function () { post('/api/slideshow', { folder: f.path }).then(function () { toast('Slideshow uses ' + f.name); }, err); } });
+    if (!f.dir && MEDIA.test(f.name)) acts.push({ label: 'Play on TV', fn: function () { post('/api/play', { path: f.path }).then(function () { toast('Playing on the TV'); }, err); } });
+    if (!f.dir && IMG.test(f.name)) acts.push({ label: 'Set as TV Background', fn: function () { post('/api/background', { path: f.path }).then(function () { toast('Set as the TV background'); }, err); } });
+    if (!f.dir) acts.push({ label: 'Save to iPhone', fn: function () { download(f); } });
+    acts.push({ label: 'Delete', danger: true, fn: function () { remove(f); } });
+    sheet(f.name, f.dir ? null : fmt(f.size), acts);
   }
   $('list').addEventListener('click', function (e) {
     var t = e.target.closest('[data-act]'); if (!t) return;
     var act = t.dataset.act, f = files[+t.dataset.i];
     if (act === 'more') return renderMore();
-    e.preventDefault();
-    if (act === 'open') load(f.path);
-    else if (act === 'bg') post('/api/background', { path: f.path }).then(function () { toast('Set as the TV background'); }, err);
-    else if (act === 'slides') post('/api/slideshow', { folder: f.path }).then(function () { toast('Slideshow uses ' + f.name); }, err);
-    else if (act === 'play') post('/api/play', { path: f.path }).then(function () { toast('Playing on the TV'); }, err);
-    else if (act === 'del') {
-      if (!confirm('Delete "' + f.name + '" from the TV?' + (f.dir ? ' Everything inside it will be deleted too.' : ''))) return;
-      api('/api/delete?path=' + q(f.path), { method: 'POST' }).then(function () { load(cwd); }, err);
-    }
+    e.stopPropagation();
+    if (act === 'menu') fileMenu(f);
+    else if (act === 'tap') { if (f.dir) load(f.path); else fileMenu(f); }
   });
-  function err(e) { toast(e.message || String(e), true); }
-  function upload(files) {
-    var queue = Array.prototype.slice.call(files), target = cwd;
+  // Press and hold a folder for its menu too.
+  var holdTimer = null;
+  $('list').addEventListener('touchstart', function (e) {
+    var t = e.target.closest('[data-act=tap]'); if (!t) return;
+    holdTimer = setTimeout(function () { holdTimer = 'fired'; fileMenu(files[+t.dataset.i]); }, 550);
+  }, { passive: true });
+  ['touchend', 'touchmove', 'touchcancel'].forEach(function (n) {
+    $('list').addEventListener(n, function (e) { if (holdTimer === 'fired' && n === 'touchend') e.preventDefault(); clearTimeout(holdTimer); holdTimer = null; });
+  });
+  function upload(list) {
+    var queue = Array.prototype.slice.call(list), target = cwd, box = $('uploads');
+    box.hidden = false;
     (function next() {
-      var f = queue.shift(); if (!f) { load(cwd); return; }
-      var box = el('div', 'group'); box.style.margin = '10px 16px 0';
-      var row = el('div', 'row'); var name = el('span', 'grow', f.name); var pct = el('span', 'meta', '0%');
-      row.appendChild(icon({ name: f.name, dir: false })); row.appendChild(name); row.appendChild(pct); box.appendChild(row);
-      var bar = el('div', 'bar'); var fill = el('i'); bar.appendChild(fill); bar.style.margin = '0 16px 10px'; box.appendChild(bar);
-      $('uploads').appendChild(box);
+      var f = queue.shift(); if (!f) { load(cwd); setTimeout(function () { if (!box.querySelector('.busy')) { box.hidden = true; box.textContent = ''; } }, 2500); return; }
+      var row = el('div', 'row ic-row busy'); row.appendChild(icon({ name: f.name, dir: false }));
+      var text = el('span', 'grow'); text.appendChild(el('span', 't', f.name)); var pct = el('span', 's', 'Waiting…'); text.appendChild(pct);
+      var bar = el('div', 'bar2'); var fill = el('i'); bar.appendChild(fill); text.appendChild(bar); row.appendChild(text); box.appendChild(row);
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload?path=' + q(target) + '&name=' + q(f.name));
-      xhr.upload.onprogress = function (e) { if (e.lengthComputable) { var p = Math.round(e.loaded * 100 / e.total); fill.style.width = p + '%'; pct.textContent = p + '%'; } };
-      xhr.onload = function () { if (xhr.status === 200) { pct.textContent = 'Done'; pct.className = 'meta ok'; setTimeout(function () { box.remove(); }, 2500); } else { pct.textContent = 'Failed'; pct.className = 'meta err'; } next(); };
-      xhr.onerror = function () { pct.textContent = 'Connection lost'; pct.className = 'meta err'; next(); };
+      xhr.upload.onprogress = function (e) { if (e.lengthComputable) { var p = Math.round(e.loaded * 100 / e.total); fill.style.width = p + '%'; pct.textContent = fmt(e.loaded) + ' of ' + fmt(e.total); } };
+      xhr.onload = function () { row.classList.remove('busy'); if (xhr.status === 200) { pct.textContent = 'Uploaded'; pct.className = 's ok'; fill.style.width = '100%'; } else { pct.textContent = 'Failed'; pct.className = 's err'; } next(); };
+      xhr.onerror = function () { row.classList.remove('busy'); pct.textContent = 'Connection lost'; pct.className = 's err'; next(); };
       xhr.send(f);
     })();
   }
-  $('up').onclick = function () { if (parent) load(parent); };
-  $('mkdir').onclick = function () { var n = prompt('Folder name'); if (n) api('/api/mkdir?path=' + q(cwd) + '&name=' + q(n), { method: 'POST' }).then(function () { load(cwd); }, err); };
-  $('pick').onclick = function () { $('file').click(); };
-  $('file').onchange = function () { upload(this.files); this.value = ''; };
-  $('roots').onchange = function () { load(this.value); };
-  ['dragenter', 'dragover'].forEach(function (t) { document.addEventListener(t, function (e) { e.preventDefault(); $('drop').classList.add('over'); }); });
-  ['dragleave', 'drop'].forEach(function (t) { document.addEventListener(t, function (e) { e.preventDefault(); $('drop').classList.remove('over'); }); });
-  document.addEventListener('drop', function (e) { if (e.dataTransfer.files.length) upload(e.dataTransfer.files); });
+  $('file').onchange = function () { if (this.files.length) upload(this.files); this.value = ''; };
+  $('storage').onclick = function () { sheet('Storage', null, roots.map(function (r) { return { label: r.name, fn: function () { load(r.path); } }; })); };
+  document.addEventListener('dragover', function (e) { e.preventDefault(); });
+  document.addEventListener('drop', function (e) { e.preventDefault(); if (current === 'files' && e.dataTransfer.files.length) upload(e.dataTransfer.files); });
 
   // ---- Send ---------------------------------------------------------------------------
   var chosen = { tv: true };
   function loadPhones() { api('/api/phones').then(function (d) { renderTargets(d.phones); }, err); }
   function target(key, label, meta) {
-    var row = el('label', 'row'); var box = el('input', 'check'); box.type = 'checkbox'; box.checked = !!chosen[key];
+    var row = el('label', 'row'); var box = el('input', 'switch'); box.type = 'checkbox'; box.checked = !!chosen[key];
     box.onchange = function () { chosen[key] = box.checked; };
-    var name = el('span', 'grow', label); row.appendChild(name);
-    if (meta) row.appendChild(el('span', 'meta', meta));
-    row.appendChild(box); return row;
+    var name = el('span', 'grow'); name.appendChild(el('span', 't', label)); if (meta) name.appendChild(el('span', 's', meta));
+    row.appendChild(name); row.appendChild(box); return row;
   }
   function renderTargets(phones) {
-    var t = $('n-targets'); t.innerHTML = '';
-    t.appendChild(target('tv', 'The TV screen'));
+    var t = $('n-targets'); t.textContent = '';
+    t.appendChild(target('tv', 'TV screen'));
     phones.forEach(function (p) {
       if (!(p.id in chosen)) chosen[p.id] = p.id !== device.id;
-      t.appendChild(target(p.id, p.name + (p.id === device.id ? ' (this phone)' : ''), p.alerts ? 'Lock screen' : 'In app'));
+      t.appendChild(target(p.id, p.name + (p.id === device.id ? ' (this phone)' : ''), p.alerts ? 'Lock screen' : 'When Woodruff is open'));
     });
-    if (!phones.length) t.appendChild(el('div', 'row meta', 'Name your phones in Settings to send them announcements'));
   }
+  $('n-title').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $('n-body').focus(); } };
   $('n-send').onclick = function () {
-    var t = $('n-title').value.trim(); if (!t) return toast('Write a title first', true);
+    var t = $('n-title').value.trim(); if (!t) { $('n-title').focus(); return toast('Write a title first', true); }
     var ids = Object.keys(chosen).filter(function (k) { return k !== 'tv' && chosen[k]; });
     if (!chosen.tv && !ids.length) return toast('Choose the TV or a phone', true);
     post('/api/announce', { title: t, body: $('n-body').value.trim(), tv: !!chosen.tv, phones: ids, from: device.name || '' }).then(function (r) {
-      toast(chosen.tv ? (r.phones ? 'Sent to the TV and ' + r.phones + ' phone(s)' : 'Shown on the TV') : 'Sent to ' + r.phones + ' phone(s)');
-      $('n-title').value = ''; $('n-body').value = '';
+      toast(chosen.tv ? (r.phones ? 'Sent to the TV and ' + r.phones + (r.phones === 1 ? ' phone' : ' phones') : 'Shown on the TV') : 'Sent to ' + r.phones + (r.phones === 1 ? ' phone' : ' phones'));
+      $('n-title').value = ''; $('n-body').value = ''; document.activeElement.blur();
     }, err);
   };
+  function openUrl() {
+    var u = $('o-url').value.trim(); if (!u) { $('o-url').focus(); return toast('Paste a link first', true); }
+    post('/api/open', { url: u }).then(function () { toast('Opening on the TV'); $('o-url').value = ''; document.activeElement.blur(); }, err);
+  }
+  $('o-send').onclick = openUrl;
+  $('o-url').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); openUrl(); } };
   $('slideshow').onclick = function () { post('/api/slideshow', { start: true }).then(function () { toast('Slideshow started'); }, err); };
+  $('shortcut').onclick = function () { if (settings) copy(settings.notifyUrl, 'Link copied. POST {title, body} to it'); };
 
-  // ---- TV screen & remote -------------------------------------------------------------
+  // ---- Remote -------------------------------------------------------------------------
   // One frame at a time: the next request starts when the last image has loaded, so a slow
   // network never queues up frames. Stops whenever the tab or the app isn't visible.
   var frameTimer = null, lastUrl = null, tvId = 'this', tvTimer = null;
   function screenUrl() { return (tvId === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(tvId) + '&t=') + Date.now(); }
   function frame() {
     clearTimeout(frameTimer);
-    if (current !== 'tv' || document.hidden) return;
+    if (current !== 'tv' || document.hidden || kbOpen) return;
     fetch(screenUrl(), { cache: 'no-store' }).then(function (r) {
       if (r.status === 409) return r.json().then(function (d) { $('tv-msg').textContent = d.message; $('tv-img').style.opacity = .25; frameTimer = setTimeout(frame, 3000); });
       if (!r.ok) throw new Error();
@@ -454,87 +678,146 @@
       });
     }).catch(function () { $('tv-msg').textContent = "Can't reach the TV."; frameTimer = setTimeout(frame, 4000); });
   }
-  document.querySelectorAll('[data-key]').forEach(function (b) {
-    b.onclick = function () {
-      var sent = tvId === 'this' ? post('/api/key', { key: b.dataset.key }) : post('/api/tvs/key', { id: tvId, key: b.dataset.key });
-      sent.then(function () { clearTimeout(frameTimer); frameTimer = setTimeout(frame, 250); }, err);
-    };
+  function press(key, btn) {
+    if (btn) { btn.classList.add('hit'); setTimeout(function () { btn.classList.remove('hit'); }, 160); }
+    var sent = tvId === 'this' ? post('/api/key', { key: key }) : post('/api/tvs/key', { id: tvId, key: key });
+    sent.then(function () { clearTimeout(frameTimer); frameTimer = setTimeout(frame, 250); if (key === 'ok') setTimeout(pollField, 400); }, err);
+  }
+  document.querySelectorAll('[data-key]').forEach(function (b) { b.onclick = function () { press(b.dataset.key, b); }; });
+  // Swipe anywhere on the round pad to move, like the Apple TV remote; a tap still hits a button.
+  var swipe = null;
+  $('pad').addEventListener('touchstart', function (e) { var t = e.touches[0]; swipe = { x: t.clientX, y: t.clientY }; }, { passive: true });
+  $('pad').addEventListener('touchend', function (e) {
+    if (!swipe) return; var t = e.changedTouches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y; swipe = null;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 26) return; // a tap: let the button's click handle it
+    e.preventDefault();
+    var key = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+    press(key, $('pad').querySelector('[data-key=' + key + ']'));
   });
+  $('kb-open2').onclick = function () { openKb(true); };
+  $('kb-hint').onclick = function () { openKb(true); };
+  $('away-copy').onclick = function () { if (settings && settings.awayUrl) copy(settings.awayUrl, 'Link copied'); };
 
-  // Several TVs: this TV is the hub and relays the others. Shown only once another TV is linked.
-  function fmtTime(ms) { var s = Math.floor(ms / 1000), m = Math.floor(s / 60); return m + ':' + ('0' + (s % 60)).slice(-2); }
+  // Several TVs: this TV is the hub and relays the others. The picker shows once another TV is linked.
+  function fmtTime(ms) { var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + ('0' + m).slice(-2) : m) + ':' + ('0' + (s % 60)).slice(-2); }
   function loadTvs() {
     clearTimeout(tvTimer);
     if (current !== 'tv' || document.hidden) return;
     api('/api/tvs').then(function (d) {
       var list = $('tv-list'); list.hidden = d.tvs.length < 2; list.textContent = '';
       d.tvs.forEach(function (t) {
-        var c = el('button', 'tvc' + (t.id === tvId ? ' on' : ''));
-        c.appendChild(el('b', null, t.name));
-        var p = t.playing, line = !t.online ? 'Off or unreachable' : p ? (p.playing ? '▶ ' : '❚❚ ') + p.title : 'Nothing playing';
-        var l1 = el('span', p && p.playing ? 'live' : null, line); c.appendChild(l1);
-        if (t.online && p) c.appendChild(el('span', null, p.app + (p.duration ? ' · ' + fmtTime(p.position) + ' / ' + fmtTime(p.duration) : '')));
+        var c = el('button', 'tvc' + (t.id === tvId ? ' on' : '')), p = t.playing;
+        c.appendChild(el('i', t.online && p && p.playing ? 'live' : null)); c.appendChild(document.createTextNode(t.name));
         c.onclick = function () { tvId = t.id; loadTvs(); frame(); };
         list.appendChild(c);
+        if (t.id === tvId) renderNow(t);
       });
     }, function () {}).then(function () { tvTimer = setTimeout(loadTvs, 5000); });
   }
+  function renderNow(t) {
+    var p = t.playing, time = $('now-time');
+    time.className = 'v';
+    if (!t.online) { $('now-title').textContent = t.name + ' is off'; time.textContent = 'Or not reachable'; return; }
+    if (!p) { $('now-title').textContent = 'Nothing playing'; time.textContent = t.name; return; }
+    $('now-title').textContent = p.title;
+    time.textContent = (p.playing ? '' : 'Paused · ') + (p.app || '') + (p.duration ? ' · ' + fmtTime(p.position) + ' / ' + fmtTime(p.duration) : '');
+    if (p.playing) time.className = 'v ok';
+  }
+  // Small picture beside Now Playing keeps the remote on screen; tap it for a big one.
+  function sizeScreen() { $('live').className = 'nowcard' + (stored('woodruff.bigScreen') ? ' big' : ''); }
+  $('screen').onclick = function () { store('woodruff.bigScreen', stored('woodruff.bigScreen') ? '' : '1'); sizeScreen(); };
+  sizeScreen();
 
   // ---- Keyboard -----------------------------------------------------------------------
-  var field = null, typeTimer = null, pollTimer = null;
+  var field = null, typeTimer = null, pollTimer = null, kbOpen = false;
+  function openKb(focus) {
+    kbOpen = true; $('kb').className = 'modal show';
+    if (focus) $('kb-text').focus(); // within the tap, so iOS shows the keyboard
+    pollField();
+  }
+  function closeKb() { kbOpen = false; $('kb').className = 'modal'; $('kb-text').blur(); frame(); }
   function pollField() {
     clearTimeout(pollTimer);
-    if (current !== 'keyboard' || document.hidden) return;
+    if (document.hidden || (current !== 'tv' && !kbOpen)) return;
     api('/api/type').then(function (d) {
       var f = d.field;
-      if (!f) { field = null; $('kb-dot').className = 'dot'; $('kb-status').textContent = 'No text box open on the TV. Select one with the remote.'; }
+      $('kb-hint').hidden = !f || kbOpen;
+      if (!f) { field = null; $('kb-dot').className = 'dot'; $('kb-status').textContent = 'No text box selected on the TV'; }
       else {
         if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
         field = f;
+        $('kb-hint-t').textContent = 'Type into ' + f.label;
         $('kb-dot').className = 'dot live';
-        $('kb-status').textContent = 'Typing into: ' + f.label + (f.secret ? ' (hidden)' : '');
+        $('kb-status').textContent = f.label + (f.secret ? ' (hidden)' : '');
         $('kb-text').style.webkitTextSecurity = f.secret ? 'disc' : 'none';
       }
-    }, function () {}).then(function () { pollTimer = setTimeout(pollField, 1500); });
+    }, function () {}).then(function () { pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
   }
   function sendText(submit) {
-    if (!field) return toast('Open a text box on the TV first', true);
+    if (!field) return toast('Select a text box on the TV first', true);
     var text = $('kb-text').value;
-    if (field && !field.multiline) text = text.replace(/\n/g, ' ');
+    if (!field.multiline) text = text.replace(/\n/g, ' ');
     return post('/api/type', { id: field.id, text: text, submit: !!submit }).then(function () {
-      if (submit) { toast('Sent'); $('kb-text').value = ''; field = null; }
+      if (submit) { toast('Sent to the TV'); $('kb-text').value = ''; field = null; closeKb(); }
     }, err);
   }
   $('kb-text').addEventListener('input', function () { clearTimeout(typeTimer); typeTimer = setTimeout(function () { sendText(false); }, 120); });
   $('kb-text').addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && field && !field.multiline) { e.preventDefault(); clearTimeout(typeTimer); sendText(true); }
   });
-  $('kb-enter').onclick = function () { clearTimeout(typeTimer); sendText(true); };
-  $('kb-clear').onclick = function () { $('kb-text').value = ''; sendText(false); };
+  $('kb-enter').onclick = function () { clearTimeout(typeTimer); if (field) sendText(true); else closeKb(); };
+  $('kb-clear').onclick = function () { $('kb-text').value = ''; if (field) sendText(false); $('kb-text').focus(); };
+  $('kb-close').onclick = closeKb;
 
   // ---- Notes --------------------------------------------------------------------------
   var editing = null;
   function loadNotes() { api('/api/notes').then(function (d) { renderNotes(d.notes); }, err); }
+  function when(ms) {
+    if (!ms || ms < 1e11) return '';
+    var d = new Date(ms), now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' });
+  }
   function renderNotes(notes) {
-    var list = $('note-list'); list.innerHTML = '';
-    if (!notes.length) list.appendChild(el('div', 'row meta', 'No notes yet'));
-    notes.forEach(function (n) {
-      var row = el('div', 'row note-row'); var text = el('span', 'grow');
-      text.appendChild(el('div', null, (n.pinned ? '📌 ' : '') + (n.title || n.body.split('\n')[0] || 'Untitled')));
-      if (n.body) text.appendChild(el('span', 'meta', n.body));
-      text.onclick = function () { editing = n.id; $('note-title').value = n.title; $('note-body').value = n.body; $('note-new').hidden = false; $('note-save').textContent = 'Save changes'; window.scrollTo(0, 0); };
-      row.appendChild(text);
-      var del = el('button', 'small danger', 'Delete');
-      del.onclick = function () { if (confirm('Delete this note?')) post('/api/notes/delete', { id: n.id }).then(function () { if (editing === n.id) resetNote(); loadNotes(); }, err); };
-      row.appendChild(del); list.appendChild(row);
+    var box = $('note-list'); box.textContent = '';
+    if (!notes.length) { box.appendChild(el('div', 'empty', 'No notes yet. Tap the pencil to write one.')); return; }
+    [['Pinned', notes.filter(function (n) { return n.pinned; })], [notes.some(function (n) { return n.pinned; }) ? 'Notes' : null, notes.filter(function (n) { return !n.pinned; })]].forEach(function (part) {
+      if (!part[1].length) return;
+      if (part[0]) box.appendChild(el('div', 'head', part[0])); else box.appendChild(el('div', null)).style.height = '8px';
+      var g = el('div', 'group');
+      part[1].forEach(function (n) {
+        var row = el('button', 'row'), text = el('span', 'grow');
+        var lines = n.body.split('\n').filter(function (l) { return l.trim(); });
+        var title = n.title || lines.shift() || 'New Note';
+        text.appendChild(el('span', 't', title)); text.lastChild.style.fontWeight = '600';
+        var sub = [when(n.updated), lines.join(' ')].filter(Boolean).join('  ');
+        text.appendChild(el('span', 's', sub || 'No additional text'));
+        row.appendChild(text); row.onclick = function () { openNote(n); }; g.appendChild(row);
+      });
+      box.appendChild(g);
     });
   }
-  function resetNote() { editing = null; $('note-title').value = ''; $('note-body').value = ''; $('note-new').hidden = true; $('note-save').textContent = 'Save note'; }
-  $('note-new').onclick = resetNote;
+  function openNote(n) {
+    editing = n ? n.id : null;
+    $('note-heading').textContent = n ? 'Note' : 'New Note';
+    $('note-title').value = n ? n.title : ''; $('note-body').value = n ? n.body : '';
+    $('note-del').hidden = !n;
+    $('note-modal').className = 'modal show';
+    if (!n) $('note-title').focus();
+  }
+  function closeNote() { $('note-modal').className = 'modal'; document.activeElement.blur(); }
+  $('note-cancel').onclick = closeNote;
+  $('note-title').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $('note-body').focus(); } };
   $('note-save').onclick = function () {
     var t = $('note-title').value, b = $('note-body').value;
-    if (!t.trim() && !b.trim()) return toast('Write something first', true);
-    post('/api/notes', { id: editing || '', title: t, body: b }).then(function () { toast('Saved on the TV'); resetNote(); loadNotes(); }, err);
+    if (!t.trim() && !b.trim()) return closeNote();
+    post('/api/notes', { id: editing || '', title: t, body: b }).then(function () { closeNote(); toast('Saved on the TV'); loadNotes(); }, err);
+  };
+  $('note-del').onclick = function () {
+    var id = editing;
+    confirmSheet(null, 'This note is deleted from the TV and every phone.', 'Delete Note', function () {
+      post('/api/notes/delete', { id: id }).then(function () { closeNote(); loadNotes(); }, err);
+    });
   };
 
   // ---- This phone & announcements to it -------------------------------------------------
@@ -544,23 +827,30 @@
     return post('/api/phone/hello', body).then(function (r) { device.alerts = r.phone.alerts; device.topic = r.phone.topic || ''; saveDevice(); renderDevice(); return r; });
   }
   function renderDevice() {
-    $('p-name').value = device.name || '';
+    if (document.activeElement !== $('p-name')) $('p-name').value = device.name || '';
     $('p-alerts').checked = !!device.alerts;
-    $('p-ntfy').hidden = !device.topic;
+    var ntfy = !!(device.topic && device.alerts);
+    $('p-ntfy').hidden = $('p-copy').hidden = $('p-ntfy-foot').hidden = !ntfy;
     $('p-topic').textContent = device.topic || '';
     $('name-me').hidden = !!device.name;
   }
-  $('p-save').onclick = function () {
-    var n = $('p-name').value.trim(); if (!n) return toast('Give this phone a name', true);
+  // Saved as soon as it changes, like iOS Settings.
+  function saveName() {
+    var n = $('p-name').value.trim();
+    if (!n || n === device.name) { if (!n) $('p-name').value = device.name || ''; return; }
     device.name = n; saveDevice();
-    hello($('p-alerts').checked).then(function () { toast(device.topic ? 'Saved. Now subscribe in ntfy' : 'Saved'); }, err);
+    hello(null).then(function () { toast('Saved'); renderDevice(); }, err);
+  }
+  $('p-name').onblur = saveName;
+  $('p-name').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); this.blur(); } };
+  $('p-alerts').onchange = function () {
+    var on = this.checked;
+    if (!device.name) { this.checked = false; $('p-name').focus(); return toast('Name this phone first', true); }
+    hello(on).then(function () { toast(on && device.topic ? 'On. Now subscribe in ntfy' : on ? 'On' : 'Off'); }, err);
   };
-  $('p-copy').onclick = function () {
-    var t = device.topic; if (!t) return;
-    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copied'); }, function () { prompt('Copy this topic', t); });
-  };
+  $('p-copy').onclick = function () { if (device.topic) copy(device.topic, 'Topic copied'); };
   function showAlert(m) {
-    $('alert-from').textContent = 'FROM ' + String(m.from || 'TV').toUpperCase();
+    $('alert-from').textContent = 'From ' + (m.from || 'the TV');
     $('alert-title').textContent = m.title; $('alert-body').textContent = m.body || '';
     $('alert').className = 'alert show';
     clearTimeout(showAlert.h); showAlert.h = setTimeout(function () { $('alert').className = 'alert'; }, 8000);
@@ -574,35 +864,37 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); } });
   renderDevice();
   hello(null).catch(function () {});
-  $('o-send').onclick = function () {
-    post('/api/open', { url: $('o-url').value.trim() }).then(function () { toast('Sent to the TV'); }, err);
-  };
 
   // ---- Settings -----------------------------------------------------------------------
+  function page(id) {
+    document.querySelectorAll('#settings .page').forEach(function (p) { p.className = p.id === id ? 'page on' : 'page'; });
+    var title = $(id).dataset.title;
+    setBar(id === 'set-main' ? { title: 'Settings' } : { title: title, back: 'Settings', onBack: function () { page('set-main'); } });
+    window.scrollTo(0, 0);
+  }
+  document.querySelectorAll('[data-page]').forEach(function (b) { b.onclick = function () { page(b.dataset.page); }; });
   function loadSettings() { api('/api/settings').then(renderSettings, err); }
+  function status(ids, text, ok) { ids.forEach(function (id) { $(id).textContent = text; $(id).className = 'v' + (ok ? ' ok' : ''); }); }
   function renderSettings(s) {
     settings = s;
-    $('shortcut-url').textContent = s.notifyUrl;
     var g = s.google;
-    $('g-status').textContent = g.connected ? 'Signed in' : g.hasSecret ? 'Keys saved, sign in on the TV' : 'Not set up';
-    $('g-status').className = 'meta ' + (g.connected ? 'ok' : '');
+    status(['g-status', 'g-status2'], g.connected ? 'Connected' : g.hasSecret ? 'Sign in on TV' : 'Not set up', g.connected);
     if (!$('g-id').value) $('g-id').value = g.clientId || '';
     $('g-redirect').textContent = g.redirectUri;
-    $('tv-away').hidden = !s.awayUrl; $('tv-away-url').textContent = s.awayUrl || '';
-    $('t-status').textContent = s.tmdb ? 'Saved' : 'Not set';
-    $('t-status').className = 'meta ' + (s.tmdb ? 'ok' : '');
+    ['away-head', 'away', 'away-foot'].forEach(function (id) { $(id).hidden = !s.awayUrl; });
+    $('away-url').textContent = s.awayUrl || '';
+    status(['t-status', 't-status2'], s.tmdb ? 'On' : 'Off', s.tmdb);
     if (s.nest) {
-      $('c-status').textContent = s.nest.connected ? 'Connected' : s.nest.project ? 'Sign in on the TV' : 'Not set up';
-      $('c-status').className = 'meta ' + (s.nest.connected ? 'ok' : '');
+      status(['c-status', 'c-status2'], s.nest.connected ? 'Connected' : s.nest.project ? 'Sign in on TV' : 'Not set up', s.nest.connected);
       if (!$('c-project').value) $('c-project').value = s.nest.project || '';
     }
-    var ml = $('m-list'); ml.innerHTML = '';
-    if (!s.mail.length) ml.appendChild(el('div', 'row meta', 'No mail accounts yet'));
+    status(['m-status'], s.mail.length ? String(s.mail.length) : 'None', false);
+    var ml = $('m-list'); ml.textContent = '';
+    if (!s.mail.length) ml.appendChild(el('div', 'row', 'No accounts yet')).style.color = 'var(--muted)';
     s.mail.forEach(function (m) {
-      var row = el('div', 'row'); row.appendChild(el('span', 'grow', m.email)); row.appendChild(el('span', 'meta', m.provider));
-      var del = el('button', 'small danger', 'Remove');
-      del.onclick = function () { if (confirm('Remove ' + m.email + ' from the TV?')) post('/api/mail/delete', { id: m.id }).then(renderSettings, err); };
-      row.appendChild(del); ml.appendChild(row);
+      var row = el('button', 'row'), t = el('span', 'grow'); t.appendChild(el('span', 't', m.email)); t.appendChild(el('span', 's', m.provider)); row.appendChild(t);
+      row.onclick = function () { confirmSheet(m.email, 'Remove this account and its password from the TV?', 'Remove Account', function () { post('/api/mail/delete', { id: m.id }).then(renderSettings, err); }); };
+      ml.appendChild(row);
     });
     var sel = $('m-provider');
     if (!sel.options.length) {
@@ -635,12 +927,11 @@
   };
 
   // ---- Start --------------------------------------------------------------------------
-  api('/api/roots').then(function (roots) {
-    var sel = $('roots');
-    roots.forEach(function (r) { var o = el('option', null, r.name); o.value = r.path; sel.appendChild(o); });
+  api('/api/roots').then(function (r) {
+    roots = r;
     if (roots.length) load(roots[0].path);
   }, err);
-  show((location.hash || '#files').slice(1));
+  show((location.hash || '#tv').slice(1));
 })();
 </script>
 </body>

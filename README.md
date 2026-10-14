@@ -16,13 +16,17 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Mail**: iCloud Mail, Gmail, Yahoo or any IMAP account, using an app-specific password. There's an inbox and a reader,
   and new mail shows up as a notification.
 - **Phone connection**: scan the QR code once (the pairing key persists). On iPhone, tap **Share → Add to Home Screen**
-  and it opens like an app that stays paired. It has five tabs:
-  - **Files**: upload, download, delete, *Play on TV*, *Background* (photos) and *Slideshow* (folders).
-  - **Keyboard**: type on the phone and the text appears in whatever text box is open on the TV (search, rename,
-    notes, passwords, Google keys). Enter on the phone presses Done on the TV.
-  - **Notes**: the same notes as the TV's Notes screen.
-  - **Send to TV**: announcements to the TV and/or chosen phones, links (YouTube and Apple Music links open in those apps), slideshow.
-  - **Settings**: name this phone, lock-screen alerts, Google keys and mail accounts.
+  and it opens like an app that stays paired. It follows iOS conventions (large titles, inset lists, switches, action
+  sheets, light and dark) and has five tabs:
+  - **Remote**: an Apple TV–style round clickpad (tap or swipe), Back, Home, Play/Pause and the keyboard, with what's
+    playing and a live picture of the TV (tap it to enlarge). When a text box is selected on the TV, a *Type into…*
+    row appears; letters appear on the TV as you type and Enter presses Done.
+  - **Files**: browse the TV's storage; tap a file for *Play on TV*, *Set as TV Background*, *Save to iPhone* or *Delete*;
+    press and hold a folder to use it for the slideshow. **+** uploads photos or files and makes folders.
+  - **Notes**: the same notes as the TV's Notes screen; tap the pencil to write one.
+  - **Send**: announcements to the TV and/or chosen phones, links (YouTube and Apple Music links open in those apps),
+    the photo slideshow, and a link for iPhone Shortcuts.
+  - **Settings**: name this phone, lock-screen alerts, then Google Drive, posters (TMDB), cameras and mail.
 - **Library in the side menu**: **Movies** and **TV Shows** open the Drive folders of those names (created by you,
   anywhere in My Drive, top level preferred) and stream from them. **Photos** and **Videos** show what you've added from
   Google Photos (saved on the TV), each with an **Add from Google Photos** button. Google Drive and Google Photos
@@ -32,11 +36,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   1080p.mkv" shows as *The Matrix (1999)*); genres and ratings come from TMDB when a key is set. Photos and Videos
   sort newest or oldest first and filter by year and month, using when each was taken: Google's capture time for
   Google Photos items, otherwise the photo's own data or a date in its name.
-- **TV tab on the phone**: a live picture of what Woodruff Family shows on the TV (about once a second, only
-  while the tab is open), with arrows, OK, Back, Home and play/pause. Only Woodruff Family's own screens can be
-  shown (video itself appears black); other apps would need a permission prompt on the TV every time.
+- **Live TV picture on the phone** (Remote tab): about once a second, only while the tab is open. Only Woodruff
+  Family's own screens can be shown (video itself appears black); other apps would need a permission prompt on the
+  TV every time.
 - **Away from home with Tailscale**: install Tailscale on the TV and the iPhone (same account). The TV's Phone
-  screen then shows an *Away from home* link and QR code (also in the phone's TV tab); open it once on the phone
+  screen then shows an *Away from home* link and QR code (also in the phone's Remote tab); open it once on the phone
   and add it to the Home Screen. Everything in the phone app then works from anywhere, encrypted by Tailscale.
 - **Several TVs**: install Woodruff Family on each TV and give each a name (Settings → TVs → This TV's name).
   On the TV you'll watch from (the hub), choose **Add another TV**, pick the other TV from the list and type the
