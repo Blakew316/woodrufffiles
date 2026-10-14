@@ -119,6 +119,7 @@ class TransferService : Service() {
         scope.launch {
             while (isActive) {
                 runCatching { MailPoller.check(applicationContext) }
+                runCatching { com.woodruff.tvexplorer.update.Updater.maybeAuto(applicationContext) }
                 delay(MAIL_INTERVAL_MS)
             }
         }

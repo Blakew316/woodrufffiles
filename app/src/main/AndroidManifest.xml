@@ -24,6 +24,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Start the phone connection when the TV turns on (Settings → Phone connection). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Lets Woodruff install its own updates without a prompt (Android 12+, once it installed itself). -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <application
         android:name=".TvExplorerApp"
@@ -68,6 +70,11 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Local-network companion server: receives files and messages from the owner's phone and checks for new mail." />
         </service>
+
+        <!-- The package installer's answer to an update; only our own PendingIntent reaches it. -->
+        <receiver
+            android:name=".update.InstallResultReceiver"
+            android:exported="false" />
 
         <!-- Exported only so the system can deliver boot / app-updated; it ignores every other action. -->
         <receiver

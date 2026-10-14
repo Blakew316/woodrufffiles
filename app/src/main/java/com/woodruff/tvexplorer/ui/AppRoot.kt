@@ -175,6 +175,7 @@ fun AppRoot(vm: MainViewModel) {
 
     operation?.let { ProgressDialog(it.title, it.progress, vm::cancelOperation) }
     driveState.operation?.let { ProgressDialog(it.title, it.progress, drive::cancelOperation) }
+    com.woodruff.tvexplorer.ui.screens.UpdatePrompt(vm)
     LaunchedEffect(Unit) {
         if (Appearance.startOnCameras) vm.show(Screen.CAMERAS) else runCatching { homeFocus.requestFocus() }
     }

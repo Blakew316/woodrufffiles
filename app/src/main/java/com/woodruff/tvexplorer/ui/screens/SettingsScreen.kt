@@ -35,6 +35,9 @@ import com.woodruff.tvexplorer.tmdb.Tmdb
 import com.woodruff.tvexplorer.tvs.LinkedTv
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.server.AutoStart
+import com.woodruff.tvexplorer.update.Updater
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
 import androidx.compose.material.icons.rounded.Add
@@ -159,6 +162,8 @@ fun SettingsScreen(vm: MainViewModel) {
     val tmdbSet = remember(v) { Tmdb.isConfigured(context) }
     val tvName = remember(v) { TvLinks.name(context) }
     val autoStart = remember(v) { AutoStart.enabled(context) }
+    val autoUpdate = remember(v) { Updater.autoEnabled(context) }
+    val update by Updater.state.collectAsStateWithLifecycle()
     val seesOtherApps = remember(v) { NowPlaying.canSeeOtherApps(context) }
     remember { TvLinks.load(context) }
     val linkedTvs by TvLinks.linked.collectAsStateWithLifecycle()
@@ -343,8 +348,20 @@ fun SettingsScreen(vm: MainViewModel) {
         }
         item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", null, danger = true) { dialog = SettingsDialog.ResetPairing } }
 
+        section("Updates")
+        item {
+            SettingRow(Icons.Rounded.SystemUpdate, "Woodruff Family ${BuildConfig.VERSION_NAME}", updateStatus(update)) {
+                if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
+            }
+        }
+        item {
+            SettingRow(Icons.Rounded.Autorenew, "Install updates automatically", if (autoUpdate) "On" else "Off") {
+                Updater.setAuto(context, !autoUpdate); changed()
+            }
+        }
+
         section("About")
-        item { SettingRow(Icons.Rounded.Info, "Woodruff Family ${BuildConfig.VERSION_NAME}", "Posters: TMDB (not endorsed by TMDB)") {} }
+        item { SettingRow(Icons.Rounded.Info, "Posters", "TMDB (not endorsed by TMDB)") {} }
     }
 
     if (showCalendar) CalendarConnectDialog(onDismiss = { showCalendar = false })

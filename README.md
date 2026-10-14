@@ -98,6 +98,21 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 | Photo viewer | Up / Down | Rotate |
 | Photo viewer | OK / Play | Start or stop the slideshow |
 
+## Automatic updates
+
+Woodruff checks this project's releases every few hours and when it opens, downloads a newer version
+and installs it with Android's package installer (which only accepts an update signed with the same key).
+
+- Android 12 and newer: the first update after installing from Downloader asks once ("Update"); after that,
+  updates install by themselves while Woodruff isn't on screen and nothing is playing in it. It restarts and
+  the phone connection comes back on its own.
+- Older Android: an *Update available* prompt appears when Woodruff opens.
+- The TV asks once to let Woodruff Family *install unknown apps*.
+- Settings → Updates shows the version, checks now, and turns automatic updates off.
+
+Each release is built with its build number as the version (release v2.0.N is version N), which is how the app
+tells a newer release apart.
+
 ## Install on your TV
 
 1. Download **WoodruffFamily.apk** from the latest release:

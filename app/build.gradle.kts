@@ -12,8 +12,11 @@ android {
         applicationId = "com.woodruff.shows"
         minSdk = 24
         targetSdk = 35
-        versionCode = 12
-        versionName = "2.0.0"
+        // CI passes -PbuildNumber=<run number>: release v2.0.N is versionCode N, which is how the
+        // in-app updater knows a release is newer. Local builds stay at 12, below every release.
+        val buildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull()
+        versionCode = buildNumber ?: 12
+        versionName = if (buildNumber != null) "2.0.$buildNumber" else "2.0.0"
         // TVs are ARM. Leaving out the x86 builds of WebRTC (cameras) keeps the APK ~10 MB smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
