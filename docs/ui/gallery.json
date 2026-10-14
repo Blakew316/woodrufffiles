@@ -1,7 +1,7 @@
 {
- "build": "44",
- "commit": "b42eefe",
- "updated": "2026-10-14 20:48 UTC",
+ "build": "45",
+ "commit": "961ed3a",
+ "updated": "2026-10-14 21:14 UTC",
  "tv": [
   {
    "name": "home",
@@ -72,16 +72,22 @@
  ],
  "phone": [
   {
-   "name": "tv",
+   "name": "remote",
    "title": "Remote",
-   "dark": "img/phone-tv-dark.webp",
-   "light": "img/phone-tv-light.webp"
+   "dark": "img/phone-remote-dark.webp",
+   "light": "img/phone-remote-light.webp"
   },
   {
    "name": "keyboard",
    "title": "Keyboard",
    "dark": "img/phone-keyboard-dark.webp",
    "light": "img/phone-keyboard-light.webp"
+  },
+  {
+   "name": "tv",
+   "title": "TV",
+   "dark": "img/phone-tv-dark.webp",
+   "light": "img/phone-tv-light.webp"
   },
   {
    "name": "files",
