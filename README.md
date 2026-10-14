@@ -111,9 +111,12 @@ Woodruff checks this project's releases every hour (and each time it opens, at m
 and installs it with Android's package installer (which only accepts an update signed with the same key).
 
 - Android 12 and newer: the first update after installing from Downloader asks once ("Update"); after that,
-  updates install by themselves while Woodruff isn't on screen and nothing is playing in it. It restarts and
-  the phone connection comes back on its own.
-- Older Android: an *Update available* prompt appears when Woodruff opens.
+  updates install by themselves as soon as nobody is using Woodruff: nothing playing in it, and either it isn't
+  on screen or no button has been pressed for 2 minutes. If it was on screen, it opens again by itself, and the
+  phone connection comes back on its own. Keep updating this way rather than reinstalling from Downloader, which
+  makes the next update ask once again.
+- Older Android (11 and below) doesn't let apps update themselves silently: Android's *Update* screen opens by
+  itself when Woodruff starts with an update ready, so it's one button press.
 - The TV asks once to let Woodruff Family *install unknown apps*.
 - Settings → Updates shows the version, checks now, and turns automatic updates off.
 

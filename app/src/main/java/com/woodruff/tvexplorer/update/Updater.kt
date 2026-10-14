@@ -34,7 +34,8 @@ import java.net.URL
  *
  * Android 12+ lets an app update itself without a prompt once that app installed the current copy
  * (the very first update, after an install from Downloader, shows one "Update" prompt). Silent
- * installs only happen while Woodruff isn't on screen and isn't playing, since an update restarts it.
+ * installs wait until nobody is using Woodruff (nothing playing, no button pressed for 2 minutes),
+ * since an update restarts it; if it was on screen, it opens again by itself.
  */
 object Updater {
     private const val API = "https://api.github.com/repos/Blakew316/woodrufffiles/releases/latest"
@@ -44,6 +45,7 @@ object Updater {
     private const val CHECK_EVERY_MS = 3_600_000L
     /** When Woodruff is opened: often enough that a fresh release shows up the next time you open it. */
     private const val CHECK_ON_OPEN_MS = 10 * 60_000L
+    private const val IDLE_MS = 2 * 60_000L
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
 
@@ -90,10 +92,25 @@ object Updater {
             if (System.currentTimeMillis() - p.getLong("lastCheck", 0) >= every || _state.value.step == Step.ERROR) {
                 checkAndDownload(app)
             }
-            if (_state.value.step == Step.READY && canInstallSilently(app) && !AppVisibility.foreground && NowPlaying.ownPlayer == null) {
+            if (_state.value.step == Step.READY && canInstallSilently(app) && idle()) {
+                // On screen but untouched: Woodruff restarts, so open it again afterwards.
+                if (AppVisibility.foreground) prefs(app).edit().putBoolean("reopen", true).apply()
                 install(app)
             }
         }
+    }
+
+    /**
+     * Nobody is using Woodruff: nothing playing in it, and it's either not on screen or no button
+     * has been pressed for [IDLE_MS], so a restart for the update interrupts no one.
+     */
+    private fun idle(): Boolean = NowPlaying.ownPlayer == null &&
+        (!AppVisibility.foreground || System.currentTimeMillis() - AppVisibility.lastInput >= IDLE_MS)
+
+    /** After an update that installed while Woodruff was on screen: reopen it (once). */
+    fun takeReopen(c: Context): Boolean {
+        val p = prefs(c)
+        return p.getBoolean("reopen", false).also { if (it) p.edit().remove("reopen").apply() }
     }
 
     /** Settings → Check for updates. */

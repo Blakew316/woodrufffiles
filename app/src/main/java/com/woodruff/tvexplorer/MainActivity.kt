@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserInteraction() {
         super.onUserInteraction()
+        AppVisibility.lastInput = System.currentTimeMillis()
         armIdle()
     }
 

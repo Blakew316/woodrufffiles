@@ -118,4 +118,6 @@ object Notices {
 /** Whether a Woodruff Family screen is showing, so popups don't double up with the in-app banner. */
 object AppVisibility {
     @Volatile var foreground = false
+    /** Last remote button press in Woodruff (ms), for "nobody is using it right now". */
+    @Volatile var lastInput = System.currentTimeMillis()
 }

@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.ui.screens
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +46,11 @@ fun UpdatePrompt(vm: MainViewModel) {
     val s by Updater.state.collectAsStateWithLifecycle()
     var dismissed by remember { mutableStateOf<Int?>(null) }
     if (s.step != Updater.Step.READY || s.latest == null || s.latest == dismissed || Updater.canInstallSilently(context)) return
+    // Allowed to install: go straight to Android's own "Update" screen (one press), no dialog of ours.
+    if (context.packageManager.canRequestPackageInstalls()) {
+        LaunchedEffect(s.latest) { dismissed = s.latest; Updater.install(context) }
+        return
+    }
     ConfirmDialog(
         "Update available",
         "Woodruff Family ${s.latestName} is ready. Installing takes a few seconds, then Woodruff opens again." +
