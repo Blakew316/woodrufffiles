@@ -20,24 +20,24 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddToDrive
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SdStorage
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Usb
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.PhoneIphone
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Slideshow
-import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.rounded.AddToDrive
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SdStorage
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Usb
+import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.PhoneIphone
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Slideshow
+import androidx.compose.material.icons.rounded.SmartDisplay
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.util.Handoff
 import androidx.compose.runtime.Composable
@@ -82,6 +82,7 @@ import com.woodruff.tvexplorer.ui.components.Chip
 import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.SectionTitle
+import com.woodruff.tvexplorer.ui.components.IconBadge
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.color
@@ -109,27 +110,27 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching() }
 
     val cloud = listOf(
-        Tile("Cameras", "Command center", Icons.Filled.Videocam, Palette.accent) { vm.show(Screen.CAMERAS) },
-        Tile("Google Drive", "Stream & download", Icons.Filled.AddToDrive, Palette.drive) { vm.show(Screen.DRIVE) },
-        Tile("iCloud", "Mail & files from iPhone", Icons.Filled.Cloud, Palette.icloud) { showICloud = true },
-        Tile("Mail", "iCloud, Gmail & more", Icons.Filled.Email, Palette.accent) { vm.show(Screen.MAIL) },
+        Tile("Cameras", "Command center", Icons.Rounded.Videocam, Palette.accent) { vm.show(Screen.CAMERAS) },
+        Tile("Google Drive", "Stream & download", Icons.Rounded.AddToDrive, Palette.drive) { vm.show(Screen.DRIVE) },
+        Tile("iCloud", "Mail & files from iPhone", Icons.Rounded.Cloud, Palette.icloud) { showICloud = true },
+        Tile("Mail", "iCloud, Gmail & more", Icons.Rounded.Email, Palette.accent) { vm.show(Screen.MAIL) },
     )
     val library = listOf(
         FileKind.VIDEO to "Videos", FileKind.AUDIO to "Music", FileKind.IMAGE to "Photos",
         FileKind.DOCUMENT to "Documents", FileKind.APK to "APK files", FileKind.ARCHIVE to "Archives",
     ).map { (kind, title) -> Tile(title, null, kind.icon(), kind.color()) { vm.open(Location.Category(kind, title)) } } +
-        Tile("Downloads", null, Icons.Filled.Download, Palette.accent) { vm.openDownloads() }
+        Tile("Downloads", null, Icons.Rounded.Download, Palette.accent) { vm.openDownloads() }
     val watch = listOf(
-        Tile("YouTube", "Opens the YouTube app", Icons.Filled.SmartDisplay, Color(0xFFFF0033)) { Handoff.launch(context, Handoff.YOUTUBE) },
-        Tile("Apple Music", "Opens Apple Music", Icons.Filled.MusicNote, Color(0xFFFA2D48)) { Handoff.launch(context, Handoff.APPLE_MUSIC) },
-        Tile("Spotify", "Opens Spotify", Icons.Filled.LibraryMusic, Color(0xFF1ED760)) { Handoff.launch(context, Handoff.SPOTIFY) },
-        Tile("Photo slideshow", "Your photos, full screen", Icons.Filled.Slideshow, Palette.drive) { SlideshowActivity.start(context) },
+        Tile("YouTube", "Opens the YouTube app", Icons.Rounded.SmartDisplay, Color(0xFFFF0033)) { Handoff.launch(context, Handoff.YOUTUBE) },
+        Tile("Apple Music", "Opens Apple Music", Icons.Rounded.MusicNote, Color(0xFFFA2D48)) { Handoff.launch(context, Handoff.APPLE_MUSIC) },
+        Tile("Spotify", "Opens Spotify", Icons.Rounded.LibraryMusic, Color(0xFF1ED760)) { Handoff.launch(context, Handoff.SPOTIFY) },
+        Tile("Photo slideshow", "Your photos, full screen", Icons.Rounded.Slideshow, Palette.drive) { SlideshowActivity.start(context) },
     )
     val tools = listOf(
-        Tile("Notes", "Lists & reminders", Icons.Filled.EditNote, Palette.accent) { vm.show(Screen.NOTES) },
-        Tile("Phone", "Send files, messages, links", Icons.Filled.PhoneIphone, Palette.accent) { vm.show(Screen.TRANSFER) },
-        Tile("Apps", "Open, back up, uninstall", Icons.Filled.Apps, Palette.apk) { vm.show(Screen.APPS) },
-        Tile("Settings", "Keys, accounts, theme", Icons.Filled.Settings, Palette.muted) { vm.show(Screen.SETTINGS) },
+        Tile("Notes", "Lists & reminders", Icons.Rounded.EditNote, Palette.accent) { vm.show(Screen.NOTES) },
+        Tile("Phone", "Send files, messages, links", Icons.Rounded.PhoneIphone, Palette.accent) { vm.show(Screen.TRANSFER) },
+        Tile("Apps", "Open, back up, uninstall", Icons.Rounded.Apps, Palette.apk) { vm.show(Screen.APPS) },
+        Tile("Settings", "Keys, accounts, theme", Icons.Rounded.Settings, Palette.muted) { vm.show(Screen.SETTINGS) },
     )
 
     LazyColumn(
@@ -165,10 +166,10 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
             title = r.title, subtitle = "${(r.progress * 100).toInt()}% watched",
             onDismiss = { removeFor = null },
             actions = listOf(
-                MenuAction("Play from where you left off", Icons.Filled.PlayArrow) {
+                MenuAction("Play from where you left off", Icons.Rounded.PlayArrow) {
                     context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key))
                 },
-                MenuAction("Remove from Continue watching", Icons.Filled.Delete, destructive = true) {
+                MenuAction("Remove from Continue watching", Icons.Rounded.Delete, destructive = true) {
                     store.remove(r.key); recent = store.continueWatching()
                 },
             ),
@@ -221,7 +222,7 @@ private fun ContinueCard(r: RecentItem, onClick: () -> Unit, onLongClick: () -> 
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Palette.background),
                 contentAlignment = Alignment.Center,
             ) {
-                TvIcon(if (ref is MediaRef.Drive) Icons.Filled.AddToDrive else FileKind.VIDEO.icon(), size = 48.dp, tint = if (ref is MediaRef.Drive) Palette.drive else Palette.video)
+                TvIcon(if (ref is MediaRef.Drive) Icons.Rounded.AddToDrive else FileKind.VIDEO.icon(), size = 48.dp, tint = if (ref is MediaRef.Drive) Palette.drive else Palette.video)
                 if (ref is MediaRef.Local) {
                     AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 }
@@ -230,7 +231,7 @@ private fun ContinueCard(r: RecentItem, onClick: () -> Unit, onLongClick: () -> 
                 Box(
                     Modifier.size(52.dp).clip(RoundedCornerShape(50)).background(Palette.accent),
                     contentAlignment = Alignment.Center,
-                ) { TvIcon(Icons.Filled.PlayArrow, size = 32.dp, tint = Palette.onAccent) }
+                ) { TvIcon(Icons.Rounded.PlayArrow, size = 32.dp, tint = Palette.onAccent) }
                 UsageBar(r.progress, Modifier.align(Alignment.BottomCenter))
             }
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -248,9 +249,9 @@ private fun ContinueCard(r: RecentItem, onClick: () -> Unit, onLongClick: () -> 
 @Composable
 private fun StorageCard(root: StorageRoot, onClick: () -> Unit) {
     val icon = when {
-        !root.removable -> Icons.Filled.Storage
-        root.title.contains("USB", ignoreCase = true) -> Icons.Filled.Usb
-        else -> Icons.Filled.SdStorage
+        !root.removable -> Icons.Rounded.Storage
+        root.title.contains("USB", ignoreCase = true) -> Icons.Rounded.Usb
+        else -> Icons.Rounded.SdStorage
     }
     Surface(
         onClick = onClick,
@@ -262,7 +263,7 @@ private fun StorageCard(root: StorageRoot, onClick: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TvIcon(icon, size = 34.dp, tint = Palette.accent)
                 Spacer(Modifier.weight(1f))
-                if (root.removable) Chip(if (icon == Icons.Filled.Usb) "USB" else "Removable")
+                if (root.removable) Chip(if (icon == Icons.Rounded.Usb) "USB" else "Removable")
             }
             Spacer(Modifier.height(14.dp))
             Text(root.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -287,7 +288,7 @@ private fun TileCard(tile: Tile, wide: Boolean = false) {
     ) {
         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(tile.color.copy(alpha = 0.18f), Color.Transparent)))) {
             Column(Modifier.padding(20.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                TvIcon(tile.icon, size = 40.dp, tint = tile.color)
+                IconBadge(tile.icon, tile.color, size = 46.dp)
                 Column {
                     Text(tile.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     tile.subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Palette.muted, maxLines = 1) }

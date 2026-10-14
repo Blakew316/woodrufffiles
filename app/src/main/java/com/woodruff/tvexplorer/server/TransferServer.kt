@@ -39,6 +39,10 @@ class TransferServer(
     private val public: (IHTTPSession) -> Response? = { null },
 ) : NanoHTTPD(port) {
 
+    private val pageHtml = page.replace("__TVX_KEY__", token)
+    private val pageTag = "\"" + MessageDigest.getInstance("SHA-256").digest(pageHtml.toByteArray())
+        .take(12).joinToString("") { "%02x".format(it) } + "\""
+
     override fun serve(session: IHTTPSession): Response = try {
         route(session)
     } catch (e: SecurityException) {
@@ -66,8 +70,13 @@ class TransferServer(
         }
         return when {
             // The page keeps the key in its address so a Home Screen copy stays paired (see index.html).
-            s.uri == "/" -> newFixedLengthResponse(Response.Status.OK, MIME_HTML, page.replace("__TVX_KEY__", token))
-                .apply { addHeader("Cache-Control", "no-store") }
+            // ETag: the phone revalidates each launch and gets a tiny 304 unless the app was updated.
+            s.uri == "/" -> if (s.headers["if-none-match"] == pageTag) {
+                newFixedLengthResponse(Response.Status.NOT_MODIFIED, MIME_HTML, "").apply { addHeader("ETag", pageTag) }
+            } else {
+                newFixedLengthResponse(Response.Status.OK, MIME_HTML, pageHtml)
+                    .apply { addHeader("Cache-Control", "no-cache"); addHeader("ETag", pageTag) }
+            }
             s.uri == "/api/roots" -> json(JSONArray().apply {
                 roots().forEach { put(JSONObject().put("name", it.title).put("path", it.dir.absolutePath)) }
             })

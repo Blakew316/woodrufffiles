@@ -13,19 +13,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Android
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.TextSnippet
+import androidx.compose.material.icons.rounded.Android
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.TextSnippet
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -44,16 +45,40 @@ fun TvIcon(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 24.dp, t
     Image(icon, contentDescription = null, modifier = modifier.size(size), colorFilter = ColorFilter.tint(tint))
 }
 
+/**
+ * iOS-style app-icon badge: a white glyph on a rounded square ("squircle") filled with a soft
+ * top-to-bottom gradient of [color], like icons on the Home Screen and in iOS Settings.
+ */
+@Composable
+fun IconBadge(icon: ImageVector, color: Color, modifier: Modifier = Modifier, size: Dp = 32.dp) {
+    Box(
+        modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.24f))
+            .background(Brush.verticalGradient(listOf(lighten(color, 0.22f), color))),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(icon, contentDescription = null, modifier = Modifier.size(size * 0.62f), colorFilter = ColorFilter.tint(Color.White))
+    }
+}
+
+private fun lighten(c: Color, amount: Float) = Color(
+    red = c.red + (1f - c.red) * amount,
+    green = c.green + (1f - c.green) * amount,
+    blue = c.blue + (1f - c.blue) * amount,
+    alpha = c.alpha,
+)
+
 fun FileKind.icon(): ImageVector = when (this) {
-    FileKind.FOLDER -> Icons.Filled.Folder
-    FileKind.IMAGE -> Icons.Filled.Image
-    FileKind.VIDEO -> Icons.Filled.Movie
-    FileKind.AUDIO -> Icons.Filled.AudioFile
-    FileKind.DOCUMENT -> Icons.Filled.Description
-    FileKind.TEXT -> Icons.Filled.TextSnippet
-    FileKind.ARCHIVE -> Icons.Filled.Archive
-    FileKind.APK -> Icons.Filled.Android
-    FileKind.OTHER -> Icons.Filled.InsertDriveFile
+    FileKind.FOLDER -> Icons.Rounded.Folder
+    FileKind.IMAGE -> Icons.Rounded.Image
+    FileKind.VIDEO -> Icons.Rounded.Movie
+    FileKind.AUDIO -> Icons.Rounded.AudioFile
+    FileKind.DOCUMENT -> Icons.Rounded.Description
+    FileKind.TEXT -> Icons.Rounded.TextSnippet
+    FileKind.ARCHIVE -> Icons.Rounded.Archive
+    FileKind.APK -> Icons.Rounded.Android
+    FileKind.OTHER -> Icons.Rounded.InsertDriveFile
 }
 
 fun FileKind.color(): Color = when (this) {

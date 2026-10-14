@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,7 +77,7 @@ fun FileRow(
         ),
         scale = ListItemDefaults.scale(focusedScale = 1.01f),
         leadingContent = {
-            if (selecting) TvIcon(if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked, tint = Palette.accent)
+            if (selecting) TvIcon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, tint = Palette.accent)
             else TvIcon(item.kind.icon(), tint = item.kind.color())
         },
         headlineContent = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -128,7 +128,7 @@ fun FileTile(
                 }
                 if (selecting) {
                     TvIcon(
-                        if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                        if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
                         tint = Palette.accent,
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                     )

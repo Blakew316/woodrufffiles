@@ -12,8 +12,8 @@ android {
         applicationId = "com.woodruff.shows"
         minSdk = 24
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.8.0"
+        versionCode = 11
+        versionName = "1.9.0"
         // TVs are ARM. Leaving out the x86 builds of WebRTC (cameras) keeps the APK ~10 MB smaller.
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
@@ -81,6 +81,9 @@ dependencies {
     implementation(libs.android.mail)
     implementation(libs.android.activation)
     implementation(libs.webrtc)
+    // Installs the baseline profiles (ours and Compose's) on sideloaded installs, where the Play
+    // Store would normally do it: code is compiled ahead of time instead of interpreted at first use.
+    implementation(libs.androidx.profileinstaller)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.core)

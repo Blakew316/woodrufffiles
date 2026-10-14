@@ -3,20 +3,20 @@ package com.woodruff.tvexplorer.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DriveFileRenameOutline
-import androidx.compose.material.icons.filled.FolderZip
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.InstallMobile
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.filled.Unarchive
-import androidx.compose.material.icons.filled.Slideshow
-import androidx.compose.material.icons.filled.Wallpaper
+import androidx.compose.material.icons.rounded.CheckBox
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ContentCut
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DriveFileRenameOutline
+import androidx.compose.material.icons.rounded.FolderZip
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.InstallMobile
+import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.Unarchive
+import androidx.compose.material.icons.rounded.Slideshow
+import androidx.compose.material.icons.rounded.Wallpaper
 import com.woodruff.tvexplorer.screensaver.Appearance
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,27 +77,27 @@ fun BrowserDialogs(dialog: BrowserDialog, vm: MainViewModel, onDismiss: () -> Un
             val actions = buildList {
                 if (!many && !item.isDirectory) {
                     when (item.kind) {
-                        FileKind.APK -> add(MenuAction("Install", Icons.Filled.InstallMobile) { report(Opener.installApk(context, item.file)) })
-                        FileKind.ARCHIVE -> if (FileTypes.extension(item.name) == "zip") add(MenuAction("Extract here", Icons.Filled.Unarchive) { vm.extract(item.file) })
-                        FileKind.VIDEO, FileKind.AUDIO -> add(MenuAction("Play", Icons.Filled.PlayArrow) { report(Opener.open(context, item, vm.browser.value.items)) })
-                        FileKind.IMAGE -> add(MenuAction("Set as app background", Icons.Filled.Wallpaper) {
+                        FileKind.APK -> add(MenuAction("Install", Icons.Rounded.InstallMobile) { report(Opener.installApk(context, item.file)) })
+                        FileKind.ARCHIVE -> if (FileTypes.extension(item.name) == "zip") add(MenuAction("Extract here", Icons.Rounded.Unarchive) { vm.extract(item.file) })
+                        FileKind.VIDEO, FileKind.AUDIO -> add(MenuAction("Play", Icons.Rounded.PlayArrow) { report(Opener.open(context, item, vm.browser.value.items)) })
+                        FileKind.IMAGE -> add(MenuAction("Set as app background", Icons.Rounded.Wallpaper) {
                             Appearance.setBackground(context, item.file.absolutePath); vm.say("Background set")
                         })
                         else -> Unit
                     }
-                    add(MenuAction("Open with…", Icons.Filled.OpenInNew) { report(Opener.openExternal(context, item.file)) })
+                    add(MenuAction("Open with…", Icons.Rounded.OpenInNew) { report(Opener.openExternal(context, item.file)) })
                 }
-                if (!many && item.isDirectory) add(MenuAction("Use for photo slideshow", Icons.Filled.Slideshow) {
+                if (!many && item.isDirectory) add(MenuAction("Use for photo slideshow", Icons.Rounded.Slideshow) {
                     Appearance.setSlideshowFolder(context, item.file.absolutePath)
                     vm.say("Slideshow will show photos from ${item.name}")
                 })
-                add(MenuAction("Copy", Icons.Filled.ContentCopy) { vm.copyToClipboard(targets, move = false) })
-                add(MenuAction("Move", Icons.Filled.ContentCut) { vm.copyToClipboard(targets, move = true) })
-                if (!many) add(MenuAction("Rename", Icons.Filled.DriveFileRenameOutline) { show(BrowserDialog.Rename(item)) })
-                add(MenuAction("Compress to zip", Icons.Filled.FolderZip) { show(BrowserDialog.Zip(targets)) })
-                if (!vm.browser.value.selecting) add(MenuAction("Select", Icons.Filled.CheckBox) { vm.toggleSelected(item) })
-                if (!many) add(MenuAction("Details", Icons.Filled.Info) { show(BrowserDialog.Details(item)) })
-                add(MenuAction("Delete", Icons.Filled.Delete, destructive = true) { show(BrowserDialog.ConfirmDelete(targets)) })
+                add(MenuAction("Copy", Icons.Rounded.ContentCopy) { vm.copyToClipboard(targets, move = false) })
+                add(MenuAction("Move", Icons.Rounded.ContentCut) { vm.copyToClipboard(targets, move = true) })
+                if (!many) add(MenuAction("Rename", Icons.Rounded.DriveFileRenameOutline) { show(BrowserDialog.Rename(item)) })
+                add(MenuAction("Compress to zip", Icons.Rounded.FolderZip) { show(BrowserDialog.Zip(targets)) })
+                if (!vm.browser.value.selecting) add(MenuAction("Select", Icons.Rounded.CheckBox) { vm.toggleSelected(item) })
+                if (!many) add(MenuAction("Details", Icons.Rounded.Info) { show(BrowserDialog.Details(item)) })
+                add(MenuAction("Delete", Icons.Rounded.Delete, destructive = true) { show(BrowserDialog.ConfirmDelete(targets)) })
             }
             ActionMenu(
                 title = if (many) "${targets.size} items" else item.name,
@@ -145,7 +145,7 @@ fun BrowserDialogs(dialog: BrowserDialog, vm: MainViewModel, onDismiss: () -> Un
                 actions = listOf(
                     SortField.NAME to "Name", SortField.DATE to "Date modified", SortField.SIZE to "Size", SortField.TYPE to "Type",
                 ).map { (f, label) ->
-                    MenuAction(if (f == sort.field) "$label  $arrow" else label, Icons.Filled.Sort) { pick(f) }
+                    MenuAction(if (f == sort.field) "$label  $arrow" else label, Icons.Rounded.Sort) { pick(f) }
                 },
                 onDismiss = onDismiss,
             )

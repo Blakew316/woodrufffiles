@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class NestStep {
     /** Google client ID/secret aren't saved yet (same keys as Google Drive). */
@@ -45,7 +46,12 @@ object Nest {
 
     fun init(c: Context) {
         app = c.applicationContext
-        _state.value = NestState(step = step())
+        // Reading the encrypted settings goes through the Keystore; keep it off the main thread at
+        // launch. This also warms the settings cache, so Settings and Drive open instantly later.
+        scope.launch {
+            val s = withContext(Dispatchers.IO) { step() }
+            _state.update { if (it.step == NestStep.NEED_GOOGLE) it.copy(step = s) else it }
+        }
         scope.launch {
             CompanionHub.googleCodes.collect { (code, attempt) ->
                 if (attempt.grant != GoogleAuth.Grant.NEST) return@collect

@@ -23,17 +23,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddToDrive
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.PhoneIphone
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SdStorage
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.rounded.AddToDrive
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.PhoneIphone
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SdStorage
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.ui.screens.CommandCenterScreen
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
@@ -115,29 +115,29 @@ fun AppRoot(vm: MainViewModel) {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Brand(Modifier.padding(start = 8.dp, bottom = 24.dp))
-                RailItem("Home", Icons.Filled.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
-                RailItem("Command center", Icons.Filled.Videocam, screen == Screen.CAMERAS) { vm.show(Screen.CAMERAS) }
-                RailItem("Google Drive", Icons.Filled.AddToDrive, screen == Screen.DRIVE) { vm.show(Screen.DRIVE) }
-                RailItem("Mail", Icons.Filled.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
+                RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
+                RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS) { vm.show(Screen.CAMERAS) }
+                RailItem("Google Drive", Icons.Rounded.AddToDrive, screen == Screen.DRIVE) { vm.show(Screen.DRIVE) }
+                RailItem("Mail", Icons.Rounded.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
                 RailItem(
                     if (unread > 0) "Notifications · $unread" else "Notifications",
-                    Icons.Filled.Notifications, screen == Screen.NOTIFICATIONS,
+                    Icons.Rounded.Notifications, screen == Screen.NOTIFICATIONS,
                 ) { vm.show(Screen.NOTIFICATIONS) }
-                RailItem("Notes", Icons.Filled.EditNote, screen == Screen.NOTES) { vm.show(Screen.NOTES) }
+                RailItem("Notes", Icons.Rounded.EditNote, screen == Screen.NOTES) { vm.show(Screen.NOTES) }
                 RailLabel("This TV")
                 roots.forEach { root ->
                     val active = screen == Screen.BROWSER &&
                         browser.folder?.absolutePath?.startsWith(root.dir.absolutePath) == true
-                    RailItem(root.title, if (root.removable) Icons.Filled.SdStorage else Icons.Filled.Storage, active) {
+                    RailItem(root.title, if (root.removable) Icons.Rounded.SdStorage else Icons.Rounded.Storage, active) {
                         vm.openRoot(root.dir)
                     }
                 }
-                RailItem("Apps", Icons.Filled.Apps, screen == Screen.APPS) { vm.show(Screen.APPS) }
+                RailItem("Apps", Icons.Rounded.Apps, screen == Screen.APPS) { vm.show(Screen.APPS) }
                 RailLabel("Connect")
-                RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Filled.PhoneIphone, screen == Screen.TRANSFER) {
+                RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Rounded.PhoneIphone, screen == Screen.TRANSFER) {
                     vm.show(Screen.TRANSFER)
                 }
-                RailItem("Settings", Icons.Filled.Settings, screen == Screen.SETTINGS) { vm.show(Screen.SETTINGS) }
+                RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS) { vm.show(Screen.SETTINGS) }
             }
             Box(Modifier.fillMaxSize()) {
                 Crossfade(targetState = screen, label = "screen") { s ->

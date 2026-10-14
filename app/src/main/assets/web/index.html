@@ -50,6 +50,7 @@
   .toast { position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:20px; font-size:15px; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; }
   .toast.show { opacity:1; }
   code { font-size:13px; word-break:break-all; }
+  .group .more { width:calc(100% - 24px); margin:8px 12px 12px; }
   .brand { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:13px; font-weight:700; letter-spacing:1.5px; color:var(--text); }
   .brand b { color:var(--accent); font-weight:600; letter-spacing:3px; }
   #kb-text { min-height:160px; font-size:20px; }
@@ -247,45 +248,59 @@
   document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { show(b.dataset.tab); }; });
 
   // ---- Files --------------------------------------------------------------------------
+  // Big folders (a camera roll can hold thousands of files) render in batches, and one click
+  // handler on the list serves every row, so the page stays responsive.
+  var files = [], shown = 0, loadSeq = 0, BATCH = 200;
+  var IMG = /\.(jpe?g|png|webp|gif|heic|bmp)$/i, MEDIA = /\.(mp4|mkv|webm|avi|mov|m4v|ts|mp3|flac|m4a|aac|ogg|wav)$/i;
   function load(path) {
+    var seq = ++loadSeq;
     api('/api/list?path=' + q(path)).then(function (d) {
-      cwd = d.path; parent = d.parent;
+      if (seq !== loadSeq) return; // a newer folder was opened meanwhile
+      cwd = d.path; parent = d.parent; files = d.files; shown = 0;
       $('path').textContent = cwd; $('up').disabled = !parent;
-      var list = $('list'); list.innerHTML = '';
-      if (!d.files.length) list.appendChild(el('div', 'row meta', 'This folder is empty'));
-      d.files.forEach(function (f) {
-        var row = el('div', 'row');
-        var name = el('span', 'grow');
-        var a = el('a', null, (f.dir ? '📁 ' : '') + f.name);
-        if (f.dir) { a.href = '#files'; a.onclick = function (e) { e.preventDefault(); load(f.path); }; }
-        else { a.href = '/api/download?path=' + q(f.path); a.setAttribute('download', f.name); }
-        name.appendChild(a); row.appendChild(name);
-        if (!f.dir) row.appendChild(el('span', 'meta', fmt(f.size)));
-        if (!f.dir && /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(f.name)) {
-          var bg = el('button', 'small', 'Background');
-          bg.onclick = function () { post('/api/background', { path: f.path }).then(function () { toast('Set as the TV background'); }, err); };
-          row.appendChild(bg);
-        }
-        if (f.dir) {
-          var ss = el('button', 'small', 'Slideshow');
-          ss.onclick = function () { post('/api/slideshow', { folder: f.path }).then(function () { toast('Slideshow uses ' + f.name); }, err); };
-          row.appendChild(ss);
-        }
-        if (!f.dir && /\.(mp4|mkv|webm|avi|mov|m4v|ts|mp3|flac|m4a|aac|ogg|wav)$/i.test(f.name)) {
-          var play = el('button', 'small', 'Play on TV');
-          play.onclick = function () { post('/api/play', { path: f.path }).then(function () { toast('Playing on the TV'); }, err); };
-          row.appendChild(play);
-        }
-        var del = el('button', 'small danger', 'Delete');
-        del.onclick = function () {
-          if (!confirm('Delete "' + f.name + '" from the TV?' + (f.dir ? ' Everything inside it will be deleted too.' : ''))) return;
-          api('/api/delete?path=' + q(f.path), { method: 'POST' }).then(function () { load(cwd); }, err);
-        };
-        row.appendChild(del);
-        list.appendChild(row);
-      });
+      $('list').textContent = '';
+      if (!files.length) $('list').appendChild(el('div', 'row meta', 'This folder is empty'));
+      renderMore();
     }, err);
   }
+  function btn(label, act, i, cls) { var b = el('button', 'small' + (cls ? ' ' + cls : ''), label); b.dataset.act = act; b.dataset.i = i; return b; }
+  function renderMore() {
+    var list = $('list'), frag = document.createDocumentFragment(), end = Math.min(files.length, shown + BATCH);
+    var more = list.querySelector('.more'); if (more) more.remove();
+    for (var i = shown; i < end; i++) {
+      var f = files[i], row = el('div', 'row'), name = el('span', 'grow');
+      var a = el('a', null, (f.dir ? '📁 ' : '') + f.name);
+      if (f.dir) { a.href = '#files'; a.dataset.act = 'open'; a.dataset.i = i; }
+      else { a.href = '/api/download?path=' + q(f.path); a.setAttribute('download', f.name); }
+      name.appendChild(a); row.appendChild(name);
+      if (!f.dir) row.appendChild(el('span', 'meta', fmt(f.size)));
+      if (!f.dir && IMG.test(f.name)) row.appendChild(btn('Background', 'bg', i));
+      if (f.dir) row.appendChild(btn('Slideshow', 'slides', i));
+      if (!f.dir && MEDIA.test(f.name)) row.appendChild(btn('Play on TV', 'play', i));
+      row.appendChild(btn('Delete', 'del', i, 'danger'));
+      frag.appendChild(row);
+    }
+    shown = end;
+    if (shown < files.length) {
+      var m = el('button', 'btn secondary more', 'Show ' + Math.min(BATCH, files.length - shown) + ' more of ' + (files.length - shown));
+      m.dataset.act = 'more'; frag.appendChild(m);
+    }
+    list.appendChild(frag);
+  }
+  $('list').addEventListener('click', function (e) {
+    var t = e.target.closest('[data-act]'); if (!t) return;
+    var act = t.dataset.act, f = files[+t.dataset.i];
+    if (act === 'more') return renderMore();
+    e.preventDefault();
+    if (act === 'open') load(f.path);
+    else if (act === 'bg') post('/api/background', { path: f.path }).then(function () { toast('Set as the TV background'); }, err);
+    else if (act === 'slides') post('/api/slideshow', { folder: f.path }).then(function () { toast('Slideshow uses ' + f.name); }, err);
+    else if (act === 'play') post('/api/play', { path: f.path }).then(function () { toast('Playing on the TV'); }, err);
+    else if (act === 'del') {
+      if (!confirm('Delete "' + f.name + '" from the TV?' + (f.dir ? ' Everything inside it will be deleted too.' : ''))) return;
+      api('/api/delete?path=' + q(f.path), { method: 'POST' }).then(function () { load(cwd); }, err);
+    }
+  });
   function err(e) { toast(e.message || String(e), true); }
   function upload(files) {
     var queue = Array.prototype.slice.call(files), target = cwd;

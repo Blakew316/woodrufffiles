@@ -11,29 +11,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddToDrive
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.PhoneIphone
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.rounded.AddToDrive
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.PhoneIphone
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Slideshow
-import androidx.compose.material.icons.filled.Smartphone
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material.icons.filled.Wallpaper
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Slideshow
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.woodruff.tvexplorer.phones.Phone
 import com.woodruff.tvexplorer.phones.Phones
@@ -50,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,6 +76,7 @@ import com.woodruff.tvexplorer.ui.components.ActionMenu
 import com.woodruff.tvexplorer.ui.components.ConfirmDialog
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
+import com.woodruff.tvexplorer.ui.components.IconBadge
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.ThemeSetting
@@ -140,33 +142,33 @@ fun SettingsScreen(vm: MainViewModel) {
 
         section("Appearance")
         item {
-            SettingRow(if (Palette.light) Icons.Filled.LightMode else Icons.Filled.DarkMode, "Theme", if (Palette.light) "Light" else "Dark") {
+            SettingRow(if (Palette.light) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, "Theme", if (Palette.light) "Light" else "Dark") {
                 ThemeSetting.toggle(context)
             }
         }
 
         section("Screensaver & background")
         item {
-            SettingRow(Icons.Filled.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None · in Files, open a photo's menu") {
+            SettingRow(Icons.Rounded.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None · in Files, open a photo's menu") {
                 if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
                 else vm.say("In Files, press and hold on a photo and choose Set as app background")
             }
         }
         item {
-            SettingRow(Icons.Filled.PhotoLibrary, "Slideshow photos", Appearance.slideshowFolder?.let { File(it).name + " · select to reset" } ?: "Pictures & Camera · or pick a folder in Files") {
+            SettingRow(Icons.Rounded.PhotoLibrary, "Slideshow photos", Appearance.slideshowFolder?.let { File(it).name + " · select to reset" } ?: "Pictures & Camera · or pick a folder in Files") {
                 if (Appearance.slideshowFolder != null) Appearance.setSlideshowFolder(context, null)
                 else vm.say("In Files, press and hold on a folder and choose Use for photo slideshow")
             }
         }
-        item { SettingRow(Icons.Filled.Timer, "Show each photo for", "${Appearance.seconds} seconds") { Appearance.nextSpeed(context) } }
+        item { SettingRow(Icons.Rounded.Timer, "Show each photo for", "${Appearance.seconds} seconds") { Appearance.nextSpeed(context) } }
         item {
-            SettingRow(Icons.Filled.Bedtime, "Start slideshow when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min in this app") {
+            SettingRow(Icons.Rounded.Bedtime, "Start slideshow when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min in this app") {
                 Appearance.nextIdle(context)
             }
         }
-        item { SettingRow(Icons.Filled.Slideshow, "Start slideshow now", null) { SlideshowActivity.start(context) } }
+        item { SettingRow(Icons.Rounded.Slideshow, "Start slideshow now", null) { SlideshowActivity.start(context) } }
         item {
-            SettingRow(Icons.Filled.Tv, "Use as the TV's screensaver", "Choose Woodruff Films slideshow") {
+            SettingRow(Icons.Rounded.Tv, "Use as the TV's screensaver", "Choose Woodruff Films slideshow") {
                 val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
             }
@@ -174,43 +176,43 @@ fun SettingsScreen(vm: MainViewModel) {
 
         section("Cameras")
         item {
-            SettingRow(Icons.Filled.Videocam, "Command center", if (nestConnected) "Cameras connected" else "Not connected · select to set up") { vm.show(Screen.CAMERAS) }
+            SettingRow(Icons.Rounded.Videocam, "Command center", if (nestConnected) "Cameras connected" else "Not connected · select to set up") { vm.show(Screen.CAMERAS) }
         }
         item {
-            SettingRow(Icons.Filled.Key, "Device Access Project ID", nestProject?.let { mask(it, 13) } ?: "Not set") {
+            SettingRow(Icons.Rounded.Key, "Device Access Project ID", nestProject?.let { mask(it, 13) } ?: "Not set") {
                 dialog = SettingsDialog.NestProject
             }
         }
         item {
-            SettingRow(Icons.Filled.Dashboard, "Open Command center when the app starts", if (Appearance.startOnCameras) "On" else "Off") {
+            SettingRow(Icons.Rounded.Dashboard, "Open Command center when the app starts", if (Appearance.startOnCameras) "On" else "Off") {
                 Appearance.toggleStartOnCameras(context)
             }
         }
         if (nestConnected) item {
-            SettingRow(Icons.Filled.Logout, "Disconnect cameras", "Keeps the Project ID") { Nest.signOut { changed() } }
+            SettingRow(Icons.Rounded.Logout, "Disconnect cameras", "Keeps the Project ID") { Nest.signOut { changed() } }
         }
 
         section("Google Drive")
-        item { SettingRow(Icons.Filled.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Keys saved · sign in from Google Drive" else "Not set up") { vm.show(Screen.DRIVE) } }
-        item { SettingRow(Icons.Filled.Key, "Client ID", clientId?.let { mask(it, 18) } ?: "Not set") { dialog = SettingsDialog.ClientId } }
-        item { SettingRow(Icons.Filled.Lock, "Client secret", if (configured) "•••••••• saved" else "Not set") { dialog = SettingsDialog.ClientSecret } }
-        item { SettingRow(Icons.Filled.PhoneIphone, "Enter keys from your phone", "Easier than typing with the remote") { vm.show(Screen.TRANSFER) } }
+        item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Keys saved · sign in from Google Drive" else "Not set up") { vm.show(Screen.DRIVE) } }
+        item { SettingRow(Icons.Rounded.Key, "Client ID", clientId?.let { mask(it, 18) } ?: "Not set") { dialog = SettingsDialog.ClientId } }
+        item { SettingRow(Icons.Rounded.Lock, "Client secret", if (configured) "•••••••• saved" else "Not set") { dialog = SettingsDialog.ClientSecret } }
+        item { SettingRow(Icons.Rounded.PhoneIphone, "Enter keys from your phone", "Easier than typing with the remote") { vm.show(Screen.TRANSFER) } }
         if (connected) item {
-            SettingRow(Icons.Filled.Logout, "Sign out of Google", "Keeps the keys") {
+            SettingRow(Icons.Rounded.Logout, "Sign out of Google", "Keeps the keys") {
                 scope.launch { GoogleAuth.signOut(context); changed() }
             }
         }
-        if (configured) item { SettingRow(Icons.Filled.Delete, "Remove Google keys", null, danger = true) { dialog = SettingsDialog.RemoveGoogle } }
+        if (configured) item { SettingRow(Icons.Rounded.Delete, "Remove Google keys", null, danger = true) { dialog = SettingsDialog.RemoveGoogle } }
 
         section("Mail")
         accounts.forEach { a ->
-            item(key = a.id) { SettingRow(Icons.Filled.Email, a.email, a.provider.label) { dialog = SettingsDialog.RemoveMail(a) } }
+            item(key = a.id) { SettingRow(Icons.Rounded.Email, a.email, a.provider.label) { dialog = SettingsDialog.RemoveMail(a) } }
         }
-        item { SettingRow(Icons.Filled.PersonAdd, "Add a mail account", "iCloud, Gmail, Yahoo or any IMAP mail") { dialog = SettingsDialog.PickProvider } }
+        item { SettingRow(Icons.Rounded.PersonAdd, "Add a mail account", "iCloud, Gmail, Yahoo or any IMAP mail") { dialog = SettingsDialog.PickProvider } }
 
         section("Notifications")
         item {
-            SettingRow(Icons.Filled.NotificationsActive, "Pop-ups over other apps", if (overlay) "Allowed" else "Off · select to allow") {
+            SettingRow(Icons.Rounded.NotificationsActive, "Pop-ups over other apps", if (overlay) "Allowed" else "Off · select to allow") {
                 if (!overlay) {
                     val r = Opener.firstThatStarts(
                         context,
@@ -226,21 +228,21 @@ fun SettingsScreen(vm: MainViewModel) {
         }
 
         section("Phones")
-        if (phones.isEmpty()) item { SettingRow(Icons.Filled.Smartphone, "No phones yet", "Open Woodruff on a phone and give it a name") { vm.show(Screen.TRANSFER) } }
+        if (phones.isEmpty()) item { SettingRow(Icons.Rounded.Smartphone, "No phones yet", "Open Woodruff on a phone and give it a name") { vm.show(Screen.TRANSFER) } }
         phones.forEach { p ->
             item(key = "phone-" + p.id) {
-                SettingRow(Icons.Filled.Smartphone, p.name, (if (p.topic != null) "Lock-screen alerts on" else "Alerts while the app is open") + " · seen " + Format.date(p.lastSeen)) {
+                SettingRow(Icons.Rounded.Smartphone, p.name, (if (p.topic != null) "Lock-screen alerts on" else "Alerts while the app is open") + " · seen " + Format.date(p.lastSeen)) {
                     dialog = SettingsDialog.RemovePhone(p)
                 }
             }
         }
 
         section("Phone connection")
-        item { SettingRow(Icons.Filled.PhoneIphone, "Connect a phone", TransferService.state.value.base ?: "Show the QR code") { vm.show(Screen.TRANSFER) } }
-        item { SettingRow(Icons.Filled.Refresh, "Reset pairing", "Disconnects every paired phone and shortcut", danger = true) { dialog = SettingsDialog.ResetPairing } }
+        item { SettingRow(Icons.Rounded.PhoneIphone, "Connect a phone", TransferService.state.value.base ?: "Show the QR code") { vm.show(Screen.TRANSFER) } }
+        item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", "Disconnects every paired phone and shortcut", danger = true) { dialog = SettingsDialog.ResetPairing } }
 
         section("About")
-        item { SettingRow(Icons.Filled.Info, "Woodruff Films ${BuildConfig.VERSION_NAME}", "Type: Inter (SIL Open Font License) · Video: Media3") {} }
+        item { SettingRow(Icons.Rounded.Info, "Woodruff Films ${BuildConfig.VERSION_NAME}", "Type: Inter (SIL Open Font License) · Video: Media3") {} }
     }
 
     when (val d = dialog) {
@@ -278,7 +280,7 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsDialog.PickProvider -> ActionMenu(
             "Add a mail account", "You'll need an app-specific password, not your normal one.",
-            MailProvider.entries.map { p -> MenuAction(p.label, Icons.Filled.Email) { dialog = SettingsDialog.MailEmail(p) } },
+            MailProvider.entries.map { p -> MenuAction(p.label, Icons.Rounded.Email) { dialog = SettingsDialog.MailEmail(p) } },
             onDismiss = { dialog = null },
         )
         is SettingsDialog.MailEmail -> TextInputDialog(
@@ -352,6 +354,23 @@ private fun addMail(
     }
 }
 
+/** iOS Settings-style badge colors (Apple's system palette), picked by what the row is about. */
+private fun badgeColor(icon: ImageVector, danger: Boolean): Color {
+    if (danger) return Color(0xFFFF453A)
+    return when (icon) {
+        Icons.Rounded.LightMode, Icons.Rounded.DarkMode, Icons.Rounded.Bedtime -> Color(0xFF5E5CE6)
+        Icons.Rounded.Wallpaper, Icons.Rounded.Slideshow -> Color(0xFFBF5AF2)
+        Icons.Rounded.PhotoLibrary -> Color(0xFFFF375F)
+        Icons.Rounded.Timer, Icons.Rounded.Refresh -> Color(0xFFFF9F0A)
+        Icons.Rounded.Videocam, Icons.Rounded.NotificationsActive -> Color(0xFFFF453A)
+        Icons.Rounded.Dashboard, Icons.Rounded.Tv -> Color(0xFF40C8E0)
+        Icons.Rounded.PhoneIphone, Icons.Rounded.Smartphone -> Color(0xFF30D158)
+        Icons.Rounded.Key, Icons.Rounded.Lock, Icons.Rounded.Logout, Icons.Rounded.Info -> Color(0xFF8E8E93)
+        Icons.Rounded.Email, Icons.Rounded.PersonAdd -> Color(0xFF0A84FF)
+        else -> Palette.accent
+    }
+}
+
 private fun mask(s: String, keep: Int) = if (s.length <= keep) s else s.take(keep) + "…"
 
 private fun LazyListScope.section(title: String) {
@@ -375,7 +394,7 @@ private fun SettingRow(icon: ImageVector, title: String, value: String?, danger:
         ),
         shape = ListItemDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
         scale = ListItemDefaults.scale(focusedScale = 1.01f),
-        leadingContent = { TvIcon(icon, tint = if (danger) Palette.danger else Palette.accent) },
+        leadingContent = { IconBadge(icon, badgeColor(icon, danger), size = 30.dp) },
         headlineContent = { Text(title, color = if (danger) Palette.danger else androidx.compose.ui.graphics.Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         trailingContent = if (value != null) {
             { Text(value, color = Palette.muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }

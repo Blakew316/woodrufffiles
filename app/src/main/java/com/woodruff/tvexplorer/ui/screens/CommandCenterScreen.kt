@@ -23,11 +23,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -125,13 +125,13 @@ fun CommandCenterScreen(vm: MainViewModel) {
             if (state.step == NestStep.CONNECTED) {
                 val ctx = LocalContext.current
                 ToolButton(
-                    if (Appearance.allInOne) Icons.Filled.GridView else Icons.Filled.Dashboard,
+                    if (Appearance.allInOne) Icons.Rounded.GridView else Icons.Rounded.Dashboard,
                     if (Appearance.allInOne) "Cameras only" else "All on one",
                     { Appearance.toggleAllInOne(ctx) },
                 )
-                ToolButton(Icons.Filled.Refresh, null, { Nest.refresh() }, Modifier.padding(start = 10.dp))
+                ToolButton(Icons.Rounded.Refresh, null, { Nest.refresh() }, Modifier.padding(start = 10.dp))
             }
-            ToolButton(Icons.Filled.Home, "Home", { vm.show(Screen.HOME) }, Modifier.padding(start = 10.dp))
+            ToolButton(Icons.Rounded.Home, "Home", { vm.show(Screen.HOME) }, Modifier.padding(start = 10.dp))
         }
         state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
 
@@ -296,7 +296,7 @@ private fun LiveVideo(cam: Camera, audio: Boolean) {
 private fun Placeholder(text: String) {
     Box(Modifier.fillMaxSize().background(Color(0xFF0B0E13)), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            TvIcon(Icons.Filled.Videocam, size = 36.dp, tint = Color.White.copy(alpha = 0.6f))
+            TvIcon(Icons.Rounded.Videocam, size = 36.dp, tint = Color.White.copy(alpha = 0.6f))
             Text(text, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
         }
     }

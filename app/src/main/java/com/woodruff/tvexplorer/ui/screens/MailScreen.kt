@@ -25,9 +25,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -75,10 +75,10 @@ fun MailScreen(vm: MainViewModel) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             state.accounts.forEach { a ->
-                ToolButton(Icons.Filled.Email, if (a.id == state.selected) "• ${a.email}" else a.email, { mail.select(a.id) })
+                ToolButton(Icons.Rounded.Email, if (a.id == state.selected) "• ${a.email}" else a.email, { mail.select(a.id) })
             }
-            if (state.accounts.isNotEmpty()) ToolButton(Icons.Filled.Refresh, null, mail::refresh)
-            ToolButton(Icons.Filled.Settings, if (state.accounts.isEmpty()) "Add an account" else null, { vm.show(Screen.SETTINGS) })
+            if (state.accounts.isNotEmpty()) ToolButton(Icons.Rounded.Refresh, null, mail::refresh)
+            ToolButton(Icons.Rounded.Settings, if (state.accounts.isEmpty()) "Add an account" else null, { vm.show(Screen.SETTINGS) })
         }
         when {
             state.accounts.isEmpty() -> EmptyState(
@@ -153,7 +153,7 @@ private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolea
         when {
             loading -> EmptyState("Opening…")
             body == null -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                TvIcon(Icons.Filled.Email, size = 44.dp, tint = Palette.muted)
+                TvIcon(Icons.Rounded.Email, size = 44.dp, tint = Palette.muted)
                 Spacer(Modifier.height(10.dp))
                 Text("Choose a message", color = Palette.muted)
             }

@@ -15,8 +15,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,7 +71,7 @@ fun NotesScreen(vm: MainViewModel) {
                 Text("Notes", style = MaterialTheme.typography.headlineLarge)
                 Text("Shared with every paired phone (Notes tab on the phone)", color = Palette.muted, style = MaterialTheme.typography.bodyMedium)
             }
-            ToolButton(Icons.Filled.Add, "New note", { editing = NEW })
+            ToolButton(Icons.Rounded.Add, "New note", { editing = NEW })
         }
         if (notes.isEmpty()) {
             EmptyState("No notes yet. Choose New note, or add one from your phone.")
@@ -115,7 +115,7 @@ private fun NoteCard(n: Note, onClick: () -> Unit) {
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (n.pinned) TvIcon(Icons.Filled.PushPin, size = 18.dp, tint = Palette.accent)
+                if (n.pinned) TvIcon(Icons.Rounded.PushPin, size = 18.dp, tint = Palette.accent)
             }
             Spacer(Modifier.height(6.dp))
             Text(

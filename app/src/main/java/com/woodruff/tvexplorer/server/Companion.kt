@@ -41,7 +41,7 @@ class CompanionRoutes(private val ctx: Context) {
         PUBLIC_ASSETS[s.uri]?.let { mime ->
             val bytes = ctx.assets.open("web" + s.uri).use { it.readBytes() }
             return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, mime, bytes.inputStream(), bytes.size.toLong())
-                .apply { addHeader("Cache-Control", "max-age=86400") }
+                .apply { addHeader("Cache-Control", "max-age=604800") }
         }
         if (s.uri != "/oauth/callback") return null
         val state = s.parameters["state"]?.firstOrNull()
@@ -284,6 +284,7 @@ private val PUBLIC_ASSETS = mapOf(
     "/icon-180.png" to "image/png",
     "/icon-512.png" to "image/png",
     "/emblem.png" to "image/png",
+    "/icon-192.png" to "image/png",
 )
 
 /** Process-wide companion state shared by the server and the screens. */

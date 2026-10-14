@@ -18,21 +18,21 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.FolderZip
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.filled.ViewList
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ContentCut
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FolderZip
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.SelectAll
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.ViewList
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -102,28 +102,28 @@ fun BrowserScreen(vm: MainViewModel) {
             if (state.selecting) {
                 Text("${state.selected.size} selected", modifier = Modifier.padding(end = 8.dp))
                 val targets = { vm.targets(null) }
-                ToolButton(Icons.Filled.ContentCopy, "Copy", { vm.copyToClipboard(targets(), move = false) })
-                ToolButton(Icons.Filled.ContentCut, "Move", { vm.copyToClipboard(targets(), move = true) })
-                ToolButton(Icons.Filled.Delete, "Delete", { dialog = BrowserDialog.ConfirmDelete(targets()) })
-                ToolButton(Icons.Filled.FolderZip, "Zip", { dialog = BrowserDialog.Zip(targets()) })
-                ToolButton(Icons.Filled.SelectAll, null, vm::selectAll)
-                ToolButton(Icons.Filled.Close, null, vm::clearSelection)
+                ToolButton(Icons.Rounded.ContentCopy, "Copy", { vm.copyToClipboard(targets(), move = false) })
+                ToolButton(Icons.Rounded.ContentCut, "Move", { vm.copyToClipboard(targets(), move = true) })
+                ToolButton(Icons.Rounded.Delete, "Delete", { dialog = BrowserDialog.ConfirmDelete(targets()) })
+                ToolButton(Icons.Rounded.FolderZip, "Zip", { dialog = BrowserDialog.Zip(targets()) })
+                ToolButton(Icons.Rounded.SelectAll, null, vm::selectAll)
+                ToolButton(Icons.Rounded.Close, null, vm::clearSelection)
             } else {
                 val folder = state.folder
                 if (folder != null) {
-                    ToolButton(Icons.Filled.ArrowUpward, null, vm::up)
-                    ToolButton(Icons.Filled.CreateNewFolder, null, { dialog = BrowserDialog.NewFolder })
+                    ToolButton(Icons.Rounded.ArrowUpward, null, vm::up)
+                    ToolButton(Icons.Rounded.CreateNewFolder, null, { dialog = BrowserDialog.NewFolder })
                     clipboard?.let { clip ->
-                        ToolButton(Icons.Filled.ContentPaste, "Paste ${clip.files.size}", vm::paste)
-                        ToolButton(Icons.Filled.Close, null, vm::clearClipboard)
+                        ToolButton(Icons.Rounded.ContentPaste, "Paste ${clip.files.size}", vm::paste)
+                        ToolButton(Icons.Rounded.Close, null, vm::clearClipboard)
                     }
                 }
-                ToolButton(Icons.Filled.Search, null, { dialog = BrowserDialog.Search })
-                ToolButton(Icons.Filled.Sort, null, { dialog = BrowserDialog.Sort })
-                ToolButton(if (settings.grid) Icons.Filled.ViewList else Icons.Filled.GridView, null, {
+                ToolButton(Icons.Rounded.Search, null, { dialog = BrowserDialog.Search })
+                ToolButton(Icons.Rounded.Sort, null, { dialog = BrowserDialog.Sort })
+                ToolButton(if (settings.grid) Icons.Rounded.ViewList else Icons.Rounded.GridView, null, {
                     vm.updateSettings { it.copy(grid = !it.grid) }
                 })
-                ToolButton(if (settings.showHidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, null, {
+                ToolButton(if (settings.showHidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null, {
                     vm.updateSettings { it.copy(showHidden = !it.showHidden) }
                 })
             }

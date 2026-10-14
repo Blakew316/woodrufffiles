@@ -12,19 +12,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ClearAll
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PhoneIphone
+import androidx.compose.material.icons.rounded.ClearAll
+import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.PhoneIphone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.CheckBox
+import androidx.compose.material.icons.rounded.CheckBoxOutlineBlank
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.TextFieldValue
@@ -70,8 +70,8 @@ fun NotificationsScreen(vm: MainViewModel) {
                 Text("Notifications", style = MaterialTheme.typography.headlineLarge)
                 Text("Messages from your phone and new mail", color = Palette.muted, style = MaterialTheme.typography.bodyMedium)
             }
-            ToolButton(Icons.Filled.Campaign, "Announce", { announcing = true })
-            if (items.isNotEmpty()) ToolButton(Icons.Filled.ClearAll, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp))
+            ToolButton(Icons.Rounded.Campaign, "Announce", { announcing = true })
+            if (items.isNotEmpty()) ToolButton(Icons.Rounded.ClearAll, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp))
         }
         if (items.isEmpty()) {
             EmptyState("Nothing yet. Send a message from your phone (Phone in the menu) or add a mail account.")
@@ -94,7 +94,7 @@ fun NotificationsScreen(vm: MainViewModel) {
                     colors = ListItemDefaults.colors(focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text),
                     leadingContent = {
                         TvIcon(
-                            when (n.source) { NoticeSource.PHONE -> Icons.Filled.PhoneIphone; NoticeSource.MAIL -> Icons.Filled.Email; NoticeSource.SYSTEM -> Icons.Filled.Info },
+                            when (n.source) { NoticeSource.PHONE -> Icons.Rounded.PhoneIphone; NoticeSource.MAIL -> Icons.Rounded.Email; NoticeSource.SYSTEM -> Icons.Rounded.Info },
                             tint = Palette.accent,
                         )
                     },
@@ -145,7 +145,7 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                 ListItem(
                     selected = on,
                     onClick = { chosen = if (on) chosen - p.id else chosen + p.id },
-                    leadingContent = { TvIcon(if (on) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank, tint = Palette.accent) },
+                    leadingContent = { TvIcon(if (on) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank, tint = Palette.accent) },
                     headlineContent = { Text(p.name) },
                     supportingContent = { Text(if (p.topic != null) "Lock-screen alert" else "Shows when Woodruff is open on it", color = Palette.muted) },
                 )
@@ -153,7 +153,7 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
             item {
                 ListItem(
                     selected = onTv, onClick = { onTv = !onTv },
-                    leadingContent = { TvIcon(if (onTv) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank, tint = Palette.accent) },
+                    leadingContent = { TvIcon(if (onTv) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank, tint = Palette.accent) },
                     headlineContent = { Text("Also show it on this TV") },
                 )
             }

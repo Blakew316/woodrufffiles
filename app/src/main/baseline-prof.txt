@@ -1,0 +1,5 @@
+# Baseline profile: ahead-of-time compile the app's own code at install time (via profileinstaller),
+# so the first launch, screen switches and scrolling don't run through the interpreter/JIT.
+# Compose, Media3 and other libraries ship their own profiles, which are merged in automatically.
+HSPLcom/woodruff/tvexplorer/**->**(**)**
+Lcom/woodruff/tvexplorer/**;

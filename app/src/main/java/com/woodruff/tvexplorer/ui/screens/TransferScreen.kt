@@ -18,7 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -96,7 +96,7 @@ fun TransferScreen(vm: MainViewModel) {
                 state.log.take(4).forEach { Text("· $it", color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
             } else {
                 state.error?.let { Text(it, color = Palette.danger) }
-                ToolButton(Icons.Filled.PlayArrow, "Turn on phone connection", start)
+                ToolButton(Icons.Rounded.PlayArrow, "Turn on phone connection", start)
             }
         }
     }
