@@ -54,3 +54,55 @@ jobs:
           body: |
             Install on Android TV: download WoodruffFilms.apk, or type this into the Downloader app on the TV:
             https://github.com/${{ github.repository }}/releases/latest/download/WoodruffFilms.apk
+
+  # UI gallery: draws every TV screen (Robolectric, no device needed) and every phone-app tab
+  # (headless Chromium), light and dark, and publishes them to GitHub Pages at /ui/.
+  # Runs beside the APK build, so a drawing problem never holds up a release.
+  gallery:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Draw TV screens
+        run: ./gradlew --no-daemon testDebugUnitTest -Pgallery --tests '*.gallery.*'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Draw phone app
+        working-directory: tools/gallery
+        run: |
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund playwright@1.49.1
+          npx playwright install --with-deps chromium
+          python3 mock_server.py ../../app/src/main/assets/web &
+          sleep 2
+          node phone.mjs ../../build/gallery
+      - name: Publish to GitHub Pages
+        run: |
+          pip install --quiet pillow
+          python3 tools/gallery/publish.py build/gallery docs/ui "${{ github.run_number }}" "${GITHUB_SHA::7}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898315+github-actions[bot]@users.noreply.github.com"
+          git add docs/ui
+          if git diff --cached --quiet; then echo "Gallery unchanged"; exit 0; fi
+          git commit -m "Update UI gallery (build ${{ github.run_number }}) [skip ci]"
+          # Other pushes may have landed while this ran: rebase onto them (the gallery only touches docs/ui).
+          for i in 1 2 3; do
+            git pull --rebase origin "$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && exit 0
+            sleep 10
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-gallery
+          path: build/gallery
+          if-no-files-found: ignore

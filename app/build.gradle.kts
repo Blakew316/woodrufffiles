@@ -59,6 +59,10 @@ android {
     lint {
         abortOnError = false
     }
+    testOptions {
+        // Robolectric (the UI gallery) needs the app's real resources: fonts, drawables, strings.
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -87,4 +91,24 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.core)
+    // UI gallery: draws the TV screens on the JVM (Robolectric + Roborazzi) for GitHub Pages.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.junit)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// The UI gallery only runs when asked (./gradlew testDebugUnitTest -Pgallery), so ordinary builds
+// stay fast and a drawing problem can never block an APK release.
+tasks.withType<Test>().configureEach {
+    if (project.hasProperty("gallery")) {
+        systemProperty("roborazzi.test.record", "true")
+        systemProperty("gallery.dir", rootProject.layout.buildDirectory.dir("gallery").get().asFile.path)
+        maxHeapSize = "3g"
+    } else {
+        exclude("**/gallery/**")
+    }
 }

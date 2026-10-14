@@ -5,6 +5,9 @@ It plays videos, music and photos from the TV, USB drives and Google Drive.
 It's a ground-up rewrite inspired by [AnExplorer](https://github.com/DWorkS/AnExplorer) (Apache 2.0).
 None of its code is reused: the original no longer builds, because it depends on jcenter, Fabric and a 2018 Android toolchain.
 
+**See the app without a TV:** [UI gallery](https://blakew316.github.io/woodrufffiles/ui/). Every build redraws
+each TV screen and phone-app tab, light and dark (`gallery` job in the build workflow).
+
 ## Features
 
 - **Settings** (side menu): Google Drive keys, mail accounts, theme, pop-ups and phone pairing.

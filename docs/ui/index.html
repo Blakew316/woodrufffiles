@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Woodruff Films · UI gallery</title>
+<meta name="theme-color" content="#5592bf">
+<link rel="icon" href="../ui/favicon.png">
+<style>
+  :root { --bg:#f2f6fa; --card:#fff; --text:#14202e; --muted:#56677a; --line:#d8e2ec; --accent:#3a7ab0; --seg:#e3eaf2; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#060a12; --card:#0e1726; --text:#f2f6fa; --muted:#93a6bc; --line:#253852; --accent:#6fb3e6; --seg:#182740; } }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif; }
+  header { padding:calc(20px + env(safe-area-inset-top)) 16px 8px; max-width:1200px; margin:0 auto; }
+  .brand { font-size:13px; font-weight:700; letter-spacing:1.5px; } .brand b { color:var(--accent); font-weight:600; letter-spacing:3px; }
+  h1 { font-size:32px; letter-spacing:-.5px; margin:6px 0 2px; }
+  .sub { color:var(--muted); font-size:14px; margin:0; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; padding:14px 16px; max-width:1200px; margin:0 auto; position:sticky; top:0; z-index:2; background:var(--bg); }
+  .seg { display:inline-flex; background:var(--seg); border-radius:10px; padding:2px; }
+  .seg button { border:0; background:none; font:inherit; font-size:14px; font-weight:600; color:var(--text); padding:7px 14px; border-radius:8px; }
+  .seg button.on { background:var(--card); box-shadow:0 1px 4px rgba(0,0,0,.15); color:var(--accent); }
+  main { max-width:1200px; margin:0 auto; padding:0 16px 40px; display:grid; gap:18px; }
+  main.tv { grid-template-columns:repeat(auto-fill, minmax(min(100%, 520px), 1fr)); }
+  main.phone { grid-template-columns:repeat(auto-fill, minmax(min(46%, 230px), 1fr)); }
+  main.phone.both { grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+  figure { margin:0; background:var(--card); border-radius:16px; overflow:hidden; border:1px solid var(--line); cursor:zoom-in; }
+  figure img { display:block; width:100%; height:auto; background:#0b0e13; }
+  figcaption { padding:10px 14px; font-weight:600; font-size:15px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  figcaption span { color:var(--muted); font-weight:400; font-size:13px; white-space:nowrap; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:2px; background:var(--line); }
+  .empty { color:var(--muted); padding:30px 0; }
+  #zoom { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center; z-index:9; padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  #zoom.on { display:flex; }
+  #zoom img { max-width:100%; max-height:100%; object-fit:contain; }
+  #zoom p { position:absolute; bottom:calc(14px + env(safe-area-inset-bottom)); left:0; right:0; text-align:center; color:#fff; margin:0; font-size:14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">WOODRUFF <b>FILMS</b></div>
+  <h1>UI gallery</h1>
+  <p class="sub" id="meta">Loading…</p>
+</header>
+<div class="controls">
+  <div class="seg" id="kind"><button data-v="tv" class="on">TV app</button><button data-v="phone">Phone app</button></div>
+  <div class="seg" id="scheme"><button data-v="dark" class="on">Dark</button><button data-v="light">Light</button><button data-v="both">Both</button></div>
+</div>
+<main id="grid" class="tv"></main>
+<div id="zoom"><img alt=""><p></p></div>
+<script>
+(function () {
+  var data = null, kind = 'tv', scheme = 'dark', shots = [], at = 0;
+  var $ = function (id) { return document.getElementById(id); };
+  try { var saved = JSON.parse(localStorage.getItem('gallery') || '{}'); kind = saved.kind || kind; scheme = saved.scheme || scheme; } catch (e) {}
+
+  function seg(id, value, set) {
+    var buttons = $(id).querySelectorAll('button');
+    buttons.forEach(function (b) {
+      b.className = b.dataset.v === value ? 'on' : '';
+      b.onclick = function () { set(b.dataset.v); try { localStorage.setItem('gallery', JSON.stringify({ kind: kind, scheme: scheme })); } catch (e) {} render(); };
+    });
+  }
+  function img(src, alt) { var i = new Image(); i.src = src + '?v=' + data.build; i.alt = alt; i.loading = 'lazy'; i.decoding = 'async'; return i; }
+
+  function render() {
+    seg('kind', kind, function (v) { kind = v; });
+    seg('scheme', scheme, function (v) { scheme = v; });
+    var grid = $('grid'); grid.className = kind + (scheme === 'both' ? ' both' : ''); grid.textContent = ''; shots = [];
+    var list = (data && data[kind]) || [];
+    if (!list.length) { var p = document.createElement('p'); p.className = 'empty'; p.textContent = 'No screenshots yet. They appear after the next build.'; grid.appendChild(p); return; }
+    list.forEach(function (s) {
+      var fig = document.createElement('figure'), schemes = scheme === 'both' ? ['dark', 'light'] : [scheme];
+      var box = schemes.length > 1 ? document.createElement('div') : fig;
+      if (schemes.length > 1) { box.className = 'pair'; fig.appendChild(box); }
+      schemes.forEach(function (sc) {
+        if (!s[sc]) return;
+        var index = shots.length; shots.push({ src: s[sc], title: s.title + ' · ' + sc });
+        var i = img(s[sc], s.title + ' (' + sc + ')'); i.onclick = function () { open(index); }; box.appendChild(i);
+      });
+      var cap = document.createElement('figcaption'); cap.textContent = s.title;
+      var tag = document.createElement('span'); tag.textContent = scheme === 'both' ? 'dark · light' : scheme; cap.appendChild(tag);
+      fig.appendChild(cap); grid.appendChild(fig);
+    });
+  }
+
+  // Full-screen viewer: tap to close, swipe or arrow keys to move between screenshots.
+  function open(i) { at = (i + shots.length) % shots.length; var z = $('zoom'); z.querySelector('img').src = shots[at].src + '?v=' + data.build; z.querySelector('p').textContent = shots[at].title + '  ·  ' + (at + 1) + '/' + shots.length; z.className = 'on'; }
+  $('zoom').onclick = function () { $('zoom').className = ''; };
+  document.addEventListener('keydown', function (e) {
+    if ($('zoom').className !== 'on') return;
+    if (e.key === 'ArrowRight') open(at + 1); else if (e.key === 'ArrowLeft') open(at - 1); else if (e.key === 'Escape') $('zoom').className = '';
+  });
+  var x0 = null;
+  $('zoom').addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  $('zoom').addEventListener('touchend', function (e) {
+    if (x0 === null) return; var dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 50) { e.preventDefault(); open(at + (dx < 0 ? 1 : -1)); }
+  });
+
+  fetch('gallery.json?t=' + Date.now()).then(function (r) { return r.json(); }).then(function (d) {
+    data = d;
+    $('meta').textContent = 'Build ' + d.build + ' · ' + d.updated + ' · commit ' + d.commit;
+    render();
+  }, function () { $('meta').textContent = 'No screenshots yet. They appear after the next build.'; data = { build: 0 }; render(); });
+})();
+</script>
+</body>
+</html>

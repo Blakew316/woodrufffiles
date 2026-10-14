@@ -15,6 +15,12 @@ androidMail = "1.6.7"
 coroutines = "1.9.0"
 
 [libraries]
+robolectric = { group = "org.robolectric", name = "robolectric", version = "4.14.1" }
+roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version = "1.32.2" }
+androidx-test-core = { group = "androidx.test", name = "core-ktx", version = "1.6.1" }
+androidx-test-junit = { group = "androidx.test.ext", name = "junit", version = "1.2.1" }
+androidx-compose-ui-test = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version = "1.3.1" }
 webrtc = { group = "io.getstream", name = "stream-webrtc-android", version = "1.3.8" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
