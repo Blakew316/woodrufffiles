@@ -1,7 +1,7 @@
 {
- "build": "28",
- "commit": "a552c2b",
- "updated": "2026-10-14 14:45 UTC",
+ "build": "30",
+ "commit": "6b2f515",
+ "updated": "2026-10-14 14:51 UTC",
  "tv": [
   {
    "name": "home",
@@ -76,6 +76,12 @@
    "title": "Files",
    "dark": "img/phone-files-dark.webp",
    "light": "img/phone-files-light.webp"
+  },
+  {
+   "name": "tv",
+   "title": "TV remote",
+   "dark": "img/phone-tv-dark.webp",
+   "light": "img/phone-tv-light.webp"
   },
   {
    "name": "keyboard",
