@@ -95,6 +95,7 @@ import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.theme.CardStyle
+import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 import kotlinx.coroutines.Dispatchers
@@ -436,7 +437,7 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
             state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4(cams.take(4)) { i, cam ->
                 // Play live on their own, like the Command center.
                 key(cam.name) {
-                    CameraTile(cam.label, cam, live = onScreen && cam.webRtc, onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) })
+                    CameraTile(cam.label, cam, live = onScreen && cam.webRtc && Appearance.homeLive, onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) })
                 }
             }
             state.step == NestStep.CONNECTED -> Text(if (state.loading) "Loading cameras…" else "No cameras found", color = Palette.muted)

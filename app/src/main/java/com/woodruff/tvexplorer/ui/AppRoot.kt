@@ -17,7 +17,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -65,6 +64,7 @@ import java.io.File
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,8 +134,10 @@ fun AppRoot(vm: MainViewModel) {
         // Content keeps the slim rail's width to its left, so it never reflows when the menu opens:
         // the open menu slides over the dashboard instead.
         Box(Modifier.fillMaxSize().padding(start = RAIL_CLOSED).onFocusChanged { contentFocused = it.hasFocus }.focusRequester(contentFocus).focusRestorer().focusGroup()) {
-                Crossfade(targetState = screen, label = "screen") { s ->
-                    when (s) {
+                // Switch screens in one step, not a cross-fade: during a fade the Command center's
+                // live video views were torn down by the transition, which crashed on some TVs.
+                key(screen) {
+                    when (screen) {
                         Screen.HOME -> HomeScreen(vm, drive)
                         Screen.BROWSER -> BrowserScreen(vm)
                         Screen.DRIVE -> DriveScreen(vm, drive)

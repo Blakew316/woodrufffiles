@@ -96,7 +96,7 @@ object NestApi {
                     401 -> "Google sign-in for cameras expired. Connect again."
                     403 -> "Google refused access ($msg). Check that the Smart Device Management API is enabled and the cameras were shared during sign-in."
                     404 -> "Camera or project not found. Check the Device Access Project ID."
-                    429 -> "Google is limiting camera requests. Wait a minute and try again."
+                    429 -> throw RateLimited()
                     else -> "Camera error $code${if (msg.isNotBlank()) ": $msg" else ""}"
                 },
             )
@@ -105,3 +105,6 @@ object NestApi {
         }
     }
 }
+
+/** Google answered 429: too many camera requests for this account right now. */
+class RateLimited : IOException("Google is limiting camera requests. Waiting, then trying again.")

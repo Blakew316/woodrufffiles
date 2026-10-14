@@ -1,5 +1,7 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import android.util.Log
+
 import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -279,7 +281,7 @@ internal fun LiveVideo(cam: Camera, audio: Boolean) {
         stream.start()
         onDispose {
             stream.close()
-            renderer.release()
+            runCatching { renderer.release() }.onFailure { Log.w("LiveVideo", "release", it) }
         }
     }
     LaunchedEffect(audio) { stream.setAudio(audio) }

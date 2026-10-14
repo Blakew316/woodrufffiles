@@ -27,6 +27,8 @@ object Appearance {
     var allInOne by mutableStateOf(true); private set
     /** Open the Command center instead of Home when the app starts. */
     var startOnCameras by mutableStateOf(false); private set
+    /** Home's camera tiles stream live by themselves. Per TV: each live view counts against Google's limits. */
+    var homeLive by mutableStateOf(true); private set
 
     fun load(c: Context) {
         val p = prefs(c)
@@ -36,6 +38,12 @@ object Appearance {
         idleMinutes = p.getInt("idle", 0)
         allInOne = p.getBoolean("all_in_one", true)
         startOnCameras = p.getBoolean("start_cameras", false)
+        homeLive = p.getBoolean("home_live", true)
+    }
+
+    fun toggleHomeLive(c: Context) {
+        homeLive = !homeLive
+        prefs(c).edit().putBoolean("home_live", homeLive).apply()
     }
 
     fun toggleAllInOne(c: Context) {

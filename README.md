@@ -64,7 +64,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   Left/Right flips between cameras. It can open automatically when the app starts. Setup is [below](#connect-google-home-cameras).
 - **Home dashboard**: one screen that shows everything at a glance. *Continue watching* shows the latest video
   large and the rest as square tiles, each with a play button, one click to resume; *TVs* switches between the family's linked TVs to show what's on each, with a live picture; *Cameras*
-  plays the first four cameras live on their own (only while Woodruff is on screen), and opens one full screen; *At a glance* has the next calendar
+  plays the first four cameras live on their own (only while Woodruff is on screen; Settings → *Live cameras on Home*
+  turns this off per TV), and opens one full screen; *At a glance* has the next calendar
   event, the latest notifications and a pinned note. Setup (iCloud, storage, apps, browse by type) lives in Settings.
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…` (the URL is shown on that tab) for automations like "when I get home".

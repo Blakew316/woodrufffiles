@@ -6,6 +6,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
@@ -95,6 +97,7 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
         var failures = 0
         while (true) {
             try {
+                Gate.awaitTurn()
                 connect()
                 failures = 0
                 // Keep the stream going; reconnect if the network drops it.
@@ -109,11 +112,12 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
             } catch (e: Exception) {
                 Log.w("CameraStream", "${camera.label}: ${e.message}")
                 failures++
+                if (e is RateLimited) Gate.limited()
                 _status.value = Status.Failed(e.message ?: "Couldn't connect")
             }
             teardown()
-            // Back off: 3 s, 6 s, … up to a minute, so a camera that's offline doesn't spam Google.
-            delay(minOf(60_000L, 3_000L * failures.coerceAtLeast(1)))
+            // Back off: 5 s, 10 s, … up to two minutes, so an offline camera doesn't spam Google.
+            delay(minOf(120_000L, 5_000L * failures.coerceAtLeast(1)))
             _status.value = Status.Connecting
         }
     }
@@ -222,5 +226,31 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
 
     companion object {
         private const val EXTEND_EVERY_MS = 4 * 60_000L
+    }
+
+    /**
+     * Shared by every camera on this TV: new streams start one at a time a couple of seconds
+     * apart, and when Google says "too many requests" all of them wait it out together (1 minute,
+     * doubling up to 8) instead of each retrying on its own.
+     */
+    private object Gate {
+        private val lock = Mutex()
+        @Volatile private var nextStart = 0L
+        @Volatile private var cooldownUntil = 0L
+        @Volatile private var strikes = 0
+
+        suspend fun awaitTurn() = lock.withLock {
+            val now = System.currentTimeMillis()
+            val wait = maxOf(nextStart, cooldownUntil) - now
+            if (wait > 0) delay(wait)
+            nextStart = System.currentTimeMillis() + 2_000L
+            // A stream got through after a cooldown: start forgiving.
+            if (cooldownUntil in 1..now) strikes = maxOf(0, strikes - 1)
+        }
+
+        fun limited() {
+            strikes = minOf(strikes + 1, 4)
+            cooldownUntil = System.currentTimeMillis() + 60_000L * (1L shl (strikes - 1))
+        }
     }
 }

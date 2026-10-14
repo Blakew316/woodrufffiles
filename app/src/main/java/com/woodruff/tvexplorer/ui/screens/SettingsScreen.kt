@@ -260,6 +260,12 @@ fun SettingsScreen(vm: MainViewModel) {
                 Appearance.toggleStartOnCameras(context)
             }
         }
+        item {
+            // Turn off on extra TVs if Google starts limiting camera requests.
+            SettingRow(Icons.Rounded.Videocam, "Live cameras on Home", if (Appearance.homeLive) "On" else "Off · select a camera to watch") {
+                Appearance.toggleHomeLive(context)
+            }
+        }
         if (nestConnected) item {
             SettingRow(Icons.Rounded.Logout, "Disconnect cameras", null) { Nest.signOut { changed() } }
         }
