@@ -56,6 +56,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.woodruff.tvexplorer.remote.TvScreen.attach(this)
         val keys = intent.getStringArrayListExtra(EXTRA_KEYS).orEmpty()
         val titles = intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
         if (keys.isEmpty()) { finish(); return }
@@ -95,6 +96,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         player?.let { p ->
             savedIndex = p.currentMediaItemIndex
             savedPosition = p.currentPosition

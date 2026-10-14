@@ -22,6 +22,11 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,6 +86,23 @@ fun TransferScreen(vm: MainViewModel) {
             Text("Connect your phone", style = MaterialTheme.typography.headlineLarge)
             if (state.running) {
                 Text(state.url.orEmpty(), color = Palette.accent, style = MaterialTheme.typography.bodyMedium)
+                // Tailscale on the TV: a second link that works away from home.
+                var away by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(state.url) {
+                    while (true) { away = withContext(Dispatchers.IO) { TransferService.awayUrl() }; delay(10_000) }
+                }
+                away?.let { url ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 8.dp)) {
+                        Box(Modifier.size(110.dp).clip(RoundedCornerShape(12.dp)).background(Color.White), contentAlignment = Alignment.Center) {
+                            val qr = remember(url) { Qr.bitmap(url, 330).asImageBitmap() }
+                            Image(qr, contentDescription = "QR code for away from home", modifier = Modifier.fillMaxSize())
+                        }
+                        Column {
+                            Text("Away from home (Tailscale)", style = MaterialTheme.typography.titleSmall)
+                            Text(url, color = Palette.accent, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
                 state.log.take(4).forEach { Text("· $it", color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
             } else {
                 state.error?.let { Text(it, color = Palette.danger) }

@@ -168,8 +168,8 @@ class SlideshowActivity : Activity() {
         setContentView(view)
     }
 
-    override fun onStart() { super.onStart(); view.start() }
-    override fun onStop() { view.stop(); super.onStop() }
+    override fun onStart() { super.onStart(); view.start(); com.woodruff.tvexplorer.remote.TvScreen.attach(this) }
+    override fun onStop() { com.woodruff.tvexplorer.remote.TvScreen.detach(this); view.stop(); super.onStop() }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean { finish(); return true }
 

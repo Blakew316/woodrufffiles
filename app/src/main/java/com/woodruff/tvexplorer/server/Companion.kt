@@ -13,6 +13,7 @@ import com.woodruff.tvexplorer.notes.Notes
 import com.woodruff.tvexplorer.phones.Phones
 import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.remote.RemoteInput
+import com.woodruff.tvexplorer.remote.TvScreen
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.util.Handoff
@@ -89,6 +90,30 @@ class CompanionRoutes(private val ctx: Context) {
             launch(PlayerActivity.intent(ctx, listOf(f.path), listOf(f.name), f.path))
             ok()
         }
+        // ---- TV screen & remote ------------------------------------------------------------
+        s.uri == "/api/screen" && s.method == Method.GET -> {
+            val jpeg = TvScreen.frame()
+            if (jpeg == null) {
+                NanoHTTPD.newFixedLengthResponse(Response.Status.CONFLICT, "application/json",
+                    JSONObject().put("message", "Woodruff Family isn't on the TV screen right now. Press Home to open it.").toString())
+            } else {
+                NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "image/jpeg", jpeg.inputStream(), jpeg.size.toLong())
+                    .apply { addHeader("Cache-Control", "no-store") }
+            }
+        }
+        s.uri == "/api/key" && s.method == Method.POST -> {
+            val key = body(s).optString("key")
+            if (key == "home") {
+                // Brings Woodruff Family up on its Home screen (from another app too, if allowed).
+                launch(Intent(ctx, com.woodruff.tvexplorer.MainActivity::class.java)
+                    .putExtra(com.woodruff.tvexplorer.MainActivity.EXTRA_OPEN, "home")
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            } else {
+                require(TvScreen.press(key)) { "Woodruff Family isn't on the TV screen. Press Home first." }
+            }
+            ok()
+        }
+
         // ---- Phone keyboard -----------------------------------------------------------------
         s.uri == "/api/type" && s.method == Method.GET -> json(JSONObject().put("field", RemoteInput.target?.let { f ->
             JSONObject().put("id", f.id).put("label", f.label).put("secret", f.secret).put("multiline", f.multiline)
@@ -210,6 +235,7 @@ class CompanionRoutes(private val ctx: Context) {
                 .put("connected", GoogleAuth.isConnected(ctx))
                 .put("redirectUri", GoogleAuth.REDIRECT_URI))
             .put("tmdb", Tmdb.isConfigured(ctx))
+            .put("awayUrl", TransferService.awayUrl() ?: "")
             .put("nest", JSONObject()
                 .put("project", GoogleAuth.nestProject(ctx) ?: "")
                 .put("connected", GoogleAuth.isConnected(ctx, GoogleAuth.Grant.NEST)))

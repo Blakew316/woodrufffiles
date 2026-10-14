@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 
 const out = process.argv[2] || 'gallery';
 mkdirSync(out, { recursive: true });
-const tabs = ['files', 'keyboard', 'notes', 'send', 'settings'];
+const tabs = ['files', 'tv', 'keyboard', 'notes', 'send', 'settings'];
 const browser = await chromium.launch();
 for (const scheme of ['dark', 'light']) {
   const context = await browser.newContext({ ...devices['iPhone 13'], colorScheme: scheme });

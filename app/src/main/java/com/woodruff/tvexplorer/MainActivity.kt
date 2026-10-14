@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import com.woodruff.tvexplorer.screensaver.Appearance
+import com.woodruff.tvexplorer.remote.TvScreen
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        TvScreen.attach(this)
         AppVisibility.foreground = true
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        TvScreen.detach(this)
         AppVisibility.foreground = false
         idle.removeCallbacks(startSlideshow)
         super.onStop()
@@ -102,7 +105,10 @@ class MainActivity : ComponentActivity() {
 
     /** Notification taps land on the matching screen. */
     private fun handleOpen(intent: Intent?) {
-        if (intent?.getStringExtra(EXTRA_OPEN) == "notifications") vm.show(Screen.NOTIFICATIONS)
+        when (intent?.getStringExtra(EXTRA_OPEN)) {
+            "notifications" -> vm.show(Screen.NOTIFICATIONS)
+            "home" -> vm.show(Screen.HOME)
+        }
     }
 
     override fun onResume() {

@@ -42,6 +42,9 @@ import java.io.File
  * Full-screen photo viewer for local and Google Drive photos. Left/Right: previous/next. Up: rotate. OK: start/stop slideshow.
  */
 class ImageViewerActivity : ComponentActivity() {
+    override fun onStart() { super.onStart(); com.woodruff.tvexplorer.remote.TvScreen.attach(this) }
+    override fun onStop() { com.woodruff.tvexplorer.remote.TvScreen.detach(this); super.onStop() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val paths = intent.getStringArrayListExtra(EXTRA_PATHS).orEmpty()

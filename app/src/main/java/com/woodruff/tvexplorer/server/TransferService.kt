@@ -160,6 +160,29 @@ class TransferService : Service() {
         }
 
         /** First private IPv4 address on an up, non-loopback interface (Wi-Fi or Ethernet). */
+        /**
+         * The TV's Tailscale address (100.64.0.0/10), when Tailscale is running on it: the same
+         * phone connection then works from anywhere, encrypted end to end by Tailscale.
+         */
+        fun tailscaleAddress(): String? = try {
+            NetworkInterface.getNetworkInterfaces().toList()
+                .filter { it.isUp && !it.isLoopback }
+                .flatMap { it.inetAddresses.toList() }
+                .filterIsInstance<Inet4Address>()
+                .firstOrNull { a -> val b = a.address; (b[0].toInt() and 0xFF) == 100 && (b[1].toInt() and 0xC0) == 64 }
+                ?.hostAddress
+        } catch (e: Exception) {
+            null
+        }
+
+        /** "http://100.x.y.z:port/?k=…" for use away from home, or null without Tailscale. */
+        fun awayUrl(): String? {
+            val s = state.value
+            val port = s.base?.substringAfterLast(':') ?: return null
+            val key = s.url?.substringAfter("?k=", "")?.ifBlank { null } ?: return null
+            return tailscaleAddress()?.let { "http://$it:$port/?k=$key" }
+        }
+
         fun lanAddress(): String? = try {
             NetworkInterface.getNetworkInterfaces().toList()
                 .filter { it.isUp && !it.isLoopback }

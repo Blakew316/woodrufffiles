@@ -27,6 +27,12 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   anywhere in My Drive, top level preferred) and stream from them. **Photos** and **Videos** show what you've added from
   Google Photos (saved on the TV), each with an **Add from Google Photos** button. Google Drive and Google Photos
   settings live in Settings.
+- **TV tab on the phone**: a live picture of what Woodruff Family shows on the TV (about once a second, only
+  while the tab is open), with arrows, OK, Back, Home and play/pause. Only Woodruff Family's own screens can be
+  shown (video itself appears black); other apps would need a permission prompt on the TV every time.
+- **Away from home with Tailscale**: install Tailscale on the TV and the iPhone (same account). The TV's Phone
+  screen then shows an *Away from home* link and QR code (also in the phone's TV tab); open it once on the phone
+  and add it to the Home Screen. Everything in the phone app then works from anywhere, encrypted by Tailscale.
 - **Notes** (side menu): pinned and recent notes, editable from the TV or any paired phone.
 - **Announcements to phones**: each phone gets a name ("Mom's iPhone"). From the TV (Notifications → Announce) or a phone,
   pick who gets it. Phones that turned on *Lock-screen alerts* get a real notification through the free

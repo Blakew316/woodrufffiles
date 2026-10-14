@@ -31,6 +31,7 @@ SETTINGS = {
                'redirectUri': 'https://blakew316.github.io/woodrufffiles/oauth.html'},
     'nest': {'project': '1a2b3c4d-5e6f-7a8b-9c0d', 'connected': True},
     'tmdb': True,
+    'awayUrl': 'http://100.101.102.103:8080/?k=…',
     'mail': [{'id': 'm1', 'email': 'family@icloud.com', 'provider': 'iCloud Mail'}],
     'providers': [{'id': 'ICLOUD', 'label': 'iCloud Mail', 'help': 'Create an app-specific password at account.apple.com.', 'custom': False}],
 }
@@ -58,6 +59,13 @@ class Handler(BaseHTTPRequestHandler):
         ext = os.path.splitext(path)[1]
         if ext in TYPES and '/' not in path[1:]:
             return self.send(open(os.path.join(WEB, path[1:]), 'rb').read(), TYPES[ext])
+        if path == '/api/screen':
+            # The TV tab shows the gallery's own TV Home screenshot as "what's on the TV".
+            shot = os.path.join(os.environ.get('GALLERY_RAW', '../../build/gallery'), 'tv-home-dark.png')
+            if os.path.exists(shot):
+                return self.send(open(shot, 'rb').read(), 'image/png')
+            self.send_response(409); self.send_header('Content-Type', 'application/json'); self.end_headers()
+            self.wfile.write(json.dumps({'message': 'Woodruff Family isn\'t on the TV screen right now.'}).encode()); return
         api = {
             '/api/roots': [{'name': 'Internal storage', 'path': ROOT}],
             '/api/list': {'path': ROOT, 'parent': None, 'files': FILES},
