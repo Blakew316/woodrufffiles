@@ -32,13 +32,15 @@ None of its code is reused: the original no longer builds, because it depends on
 
 ## Install on your TV
 
-1. Open the **Actions** tab of this repository, click the latest **Build APK** run, and download the `TVExplorer-apk` artifact.
-2. Unzip it and use `TVExplorer-…-release.apk`. The release build is smaller; it's signed with a debug key so it can be sideloaded.
-3. Get it onto the TV with any of these:
+1. Download **TVExplorer.apk** from the latest release:
+   https://github.com/Blakew316/woodrufffiles/releases/latest/download/TVExplorer.apk
+   It's signed with a debug key so it can be sideloaded.
+2. Get it onto the TV with any of these:
+   - type the link above into the **Downloader** app on the TV (easiest, no computer needed)
    - `adb connect <tv-ip>` then `adb install TVExplorer-release.apk`
    - copy it to a USB drive and open it with the TV's file app
    - use an app like "Send files to TV" or "Downloader"
-4. On first launch, grant **All files access**. Some TV builds hide this settings screen. If yours does, the app shows the adb command that grants it:
+3. On first launch, grant **All files access**. Some TV builds hide this settings screen. If yours does, the app shows the adb command that grants it:
    `adb shell appops set --uid com.woodruff.tvexplorer MANAGE_EXTERNAL_STORAGE allow`
 
 ## Build locally

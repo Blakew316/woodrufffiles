@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # needed to publish the APK as a GitHub Release
 
 jobs:
   build:
@@ -30,3 +30,18 @@ jobs:
             app/build/outputs/apk/release/*.apk
             app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+      - name: Prepare release APK
+        if: github.event_name != 'pull_request'
+        run: cp app/build/outputs/apk/release/*.apk TVExplorer.apk
+      # Gives a stable download link: /releases/latest/download/TVExplorer.apk
+      - uses: softprops/action-gh-release@v2
+        if: github.event_name != 'pull_request'
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: TV Explorer 1.0 (build ${{ github.run_number }})
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: TVExplorer.apk
+          body: |
+            Install on Android TV: download TVExplorer.apk, or type this into the Downloader app on the TV:
+            https://github.com/${{ github.repository }}/releases/latest/download/TVExplorer.apk
