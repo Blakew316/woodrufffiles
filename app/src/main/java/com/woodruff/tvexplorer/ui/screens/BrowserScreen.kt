@@ -1,7 +1,9 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -93,7 +95,7 @@ fun BrowserScreen(vm: MainViewModel) {
             style = MaterialTheme.typography.bodySmall,
         )
         Row(
-            Modifier.padding(vertical = 16.dp),
+            Modifier.padding(vertical = 16.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

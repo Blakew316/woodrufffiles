@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,7 +18,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddToDrive
 import androidx.compose.material.icons.filled.ArrowBack
@@ -106,7 +110,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 4.dp),
         )
-        Row(Modifier.padding(vertical = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.padding(vertical = 18.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (state.stack.size > 1) ToolButton(Icons.Filled.ArrowBack, null, { drive.back() })
             ToolButton(Icons.Filled.AddToDrive, "My Drive", { drive.openRoot(DrivePlace.MyDrive) })
             ToolButton(Icons.Filled.Movie, "All videos", { drive.openRoot(DrivePlace.Videos()) })
@@ -218,47 +222,58 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
     }
 }
 
+/**
+ * Phone sign-in screen. TVs give apps only ~960x540dp, so the QR code is laid out first at a
+ * fixed size and the text takes whatever width is left (scrolling if needed). Never the reverse,
+ * or the QR gets squeezed off-screen.
+ */
 @Composable
 private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
     val setup = state.step == SignInStep.SETUP
     Row(
-        Modifier.fillMaxSize().padding(48.dp),
-        horizontalArrangement = Arrangement.spacedBy(56.dp),
+        Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(32.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.width(600.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(64.dp).clip(RoundedCornerShape(20.dp)).background(Palette.drive.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                    TvIcon(Icons.Filled.AddToDrive, size = 38.dp, tint = Palette.drive)
-                }
-                Text(
-                    if (setup) "Set up Google Drive" else "Sign in with your phone",
-                    style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 18.dp),
-                )
-            }
-            Text(
-                if (setup) "Step 1 of 2. Scan the QR code with your phone (on the same Wi-Fi as this TV) and paste the " +
-                    "Client ID and Client secret of your Google Cloud \"Web application\" OAuth client."
-                else "Step 2 of 2. Scan the QR code with your phone and sign in to Google. Your phone must be on the same Wi-Fi as this TV. " +
-                    "Woodruff Shows can only read your files, never change or delete them.",
-                color = Palette.muted,
-            )
-            if (setup) state.setupAddress?.let {
-                Text("No phone camera? Open this on a computer:", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-                Text(it, color = Palette.accent, style = MaterialTheme.typography.titleMedium)
-            }
-            if (state.busy) Text("Finishing sign-in…", color = Palette.accent)
-            state.error?.let { Text(it, color = Palette.danger) }
-            if (!setup) {
-                OutlinedButton(onClick = onReset) { Text("Use a different Google Cloud client") }
+        Box(
+            Modifier.size(QR_SIZE).clip(RoundedCornerShape(16.dp)).background(Color.White),
+            contentAlignment = Alignment.Center,
+        ) {
+            val url = state.qrUrl
+            if (url != null) {
+                val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
+                Image(qr, contentDescription = "QR code", modifier = Modifier.fillMaxSize())
+            } else {
+                Text(if (state.error != null) "No QR code:\nsee the message" else "Preparing…", color = Color.Black)
             }
         }
-        state.qrUrl?.let { url ->
-            val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
-            Image(
-                qr, contentDescription = "QR code",
-                modifier = Modifier.size(340.dp).clip(RoundedCornerShape(18.dp)).background(Color.White),
+        Column(
+            Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TvIcon(Icons.Filled.AddToDrive, size = 32.dp, tint = Palette.drive)
+                Text(
+                    if (setup) "Set up Google Drive" else "Sign in with your phone",
+                    style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 12.dp),
+                )
+            }
+            Text(if (setup) "Step 1 of 2" else "Step 2 of 2", color = Palette.accent, style = MaterialTheme.typography.labelLarge)
+            Text(
+                if (setup) "Scan the QR code with your phone (on the same Wi-Fi as this TV), then paste the Client ID " +
+                    "and Client secret of your Google Cloud \"Web application\" OAuth client."
+                else "Scan the QR code with your phone and sign in to Google. Keep the phone on the same Wi-Fi as this TV.",
+                color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
             )
+            if (setup) state.setupAddress?.let {
+                Text("Or open this on a computer:", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                Text(it, color = Palette.accent, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (state.busy) Text("Finishing sign-in…", color = Palette.accent)
+            state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium) }
+            if (!setup) OutlinedButton(onClick = onReset) { Text("Use a different Google Cloud client") }
         }
     }
 }
+
+private val QR_SIZE = 250.dp
