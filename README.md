@@ -106,7 +106,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 
 ## Automatic updates
 
-Woodruff checks this project's releases every few hours and when it opens, downloads a newer version
+Woodruff checks this project's releases every hour (and each time it opens, at most every 10 minutes), downloads a newer version
 and installs it with Android's package installer (which only accepts an update signed with the same key).
 
 - Android 12 and newer: the first update after installing from Downloader asks once ("Update"); after that,

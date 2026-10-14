@@ -40,7 +40,10 @@ object Updater {
     private const val API = "https://api.github.com/repos/Blakew316/woodrufffiles/releases/latest"
     private const val ASSET = "WoodruffFamily.apk"
     private const val PREFS = "updates"
-    private const val CHECK_EVERY_MS = 6 * 3_600_000L
+    /** In the background (the phone-connection service's loop). */
+    private const val CHECK_EVERY_MS = 3_600_000L
+    /** When Woodruff is opened: often enough that a fresh release shows up the next time you open it. */
+    private const val CHECK_ON_OPEN_MS = 10 * 60_000L
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
 
@@ -73,16 +76,18 @@ object Updater {
     }
 
     /**
-     * The background routine: at most every 6 hours, check and download; then install right
-     * away if that needs no prompt and nobody is using Woodruff. Called by the phone-connection
-     * service's loop and when the app opens. Does nothing when automatic updates are off.
+     * The background routine: check and download (at most hourly, or every 10 minutes when
+     * [opening] the app); then install right away if that needs no prompt and nobody is using
+     * Woodruff. Called by the phone-connection service's loop and when the app opens. Does nothing
+     * when automatic updates are off.
      */
-    fun maybeAuto(c: Context) {
+    fun maybeAuto(c: Context, opening: Boolean = false) {
         val app = c.applicationContext
         if (!autoEnabled(app)) return
         scope.launch {
             val p = prefs(app)
-            if (System.currentTimeMillis() - p.getLong("lastCheck", 0) >= CHECK_EVERY_MS || _state.value.step == Step.ERROR) {
+            val every = if (opening) CHECK_ON_OPEN_MS else CHECK_EVERY_MS
+            if (System.currentTimeMillis() - p.getLong("lastCheck", 0) >= every || _state.value.step == Step.ERROR) {
                 checkAndDownload(app)
             }
             if (_state.value.step == Step.READY && canInstallSilently(app) && !AppVisibility.foreground && NowPlaying.ownPlayer == null) {

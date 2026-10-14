@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
         AppVisibility.foreground = true
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
-        com.woodruff.tvexplorer.update.Updater.maybeAuto(this)
+        com.woodruff.tvexplorer.update.Updater.maybeAuto(this, opening = true)
         armIdle()
     }
 
