@@ -23,6 +23,10 @@ object Appearance {
     var seconds by mutableStateOf(10); private set
     /** Minutes without a button press before the slideshow starts inside the app; 0 = never. */
     var idleMinutes by mutableStateOf(0); private set
+    /** Command center: cameras next to clock, notifications and notes (true) or cameras only. */
+    var allInOne by mutableStateOf(true); private set
+    /** Open the Command center instead of Home when the app starts. */
+    var startOnCameras by mutableStateOf(false); private set
 
     fun load(c: Context) {
         val p = prefs(c)
@@ -30,6 +34,18 @@ object Appearance {
         slideshowFolder = p.getString("folder", null)
         seconds = p.getInt("seconds", 10)
         idleMinutes = p.getInt("idle", 0)
+        allInOne = p.getBoolean("all_in_one", true)
+        startOnCameras = p.getBoolean("start_cameras", false)
+    }
+
+    fun toggleAllInOne(c: Context) {
+        allInOne = !allInOne
+        prefs(c).edit().putBoolean("all_in_one", allInOne).apply()
+    }
+
+    fun toggleStartOnCameras(c: Context) {
+        startOnCameras = !startOnCameras
+        prefs(c).edit().putBoolean("start_cameras", startOnCameras).apply()
     }
 
     fun setBackground(c: Context, path: String?) {

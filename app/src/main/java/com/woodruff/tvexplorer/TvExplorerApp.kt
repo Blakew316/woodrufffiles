@@ -11,6 +11,7 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         GoogleAuth.migrate(this)
+        com.woodruff.tvexplorer.nest.Nest.init(this)
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

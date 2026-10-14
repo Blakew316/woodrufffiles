@@ -26,6 +26,9 @@ None of its code is reused: the original no longer builds, because it depends on
   [ntfy](https://ntfy.sh) app. The others see it whenever Woodruff is open.
 - **Screensaver and background**: any photo can be the app background, and a photo slideshow (with a clock) can run from
   Home, after a few idle minutes, or as the TV's own screensaver (Settings → Screensaver & background).
+- **Command center**: live Google Home / Nest cameras and doorbells (WebRTC, so the newest models work). Either
+  cameras only or "all on one" next to the clock, notifications and notes. Select a camera for full screen with sound,
+  Left/Right flips between cameras. It can open automatically when the app starts. Setup is [below](#connect-google-home-cameras).
 - **Watch & listen**: Home shortcuts to YouTube, Apple Music and Spotify.
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…` (the URL is shown on that tab) for automations like "when I get home".
@@ -118,6 +121,19 @@ Notes:
 - **Where things are stored:** the client secret and sign-in tokens live only in the app's private storage on the TV.
   The sign-out button on the Drive screen revokes access, or you can revoke it at https://myaccount.google.com/permissions.
 - **Fire TV works:** Google Play services is no longer needed, so Google Drive also works on Fire TV and other boxes.
+
+## Connect Google Home cameras
+
+Google only lets apps reach Nest cameras through its Device Access program (one-time US$5 fee, paid to Google).
+
+1. In Google Cloud, in the project you use for Drive, open **APIs & Services → Library** and enable **Smart Device Management API**.
+2. Open [console.nest.google.com/device-access](https://console.nest.google.com/device-access), accept the terms and pay the fee.
+3. **Create project**: any name. For the OAuth client ID, paste the same Web client ID you use for Drive. Skip events.
+4. Copy the **Project ID** into the TV (Command center → Enter Project ID) or the phone (Settings tab → Cameras).
+5. On the TV, open **Command center** and scan the QR code. On Google's page, pick your home and switch on every camera and doorbell.
+
+Limits: Google ends each live view after 5 minutes, and the app renews it every 4. Many TVs can decode only a few
+videos at once, so the grid streams the first 4 cameras and the rest start when selected.
 
 ## Build locally
 

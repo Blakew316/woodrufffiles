@@ -33,6 +33,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.Videocam
+import com.woodruff.tvexplorer.ui.screens.CommandCenterScreen
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import com.woodruff.tvexplorer.screensaver.Appearance
@@ -114,6 +116,7 @@ fun AppRoot(vm: MainViewModel) {
             ) {
                 Brand(Modifier.padding(start = 8.dp, bottom = 24.dp))
                 RailItem("Home", Icons.Filled.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
+                RailItem("Command center", Icons.Filled.Videocam, screen == Screen.CAMERAS) { vm.show(Screen.CAMERAS) }
                 RailItem("Google Drive", Icons.Filled.AddToDrive, screen == Screen.DRIVE) { vm.show(Screen.DRIVE) }
                 RailItem("Mail", Icons.Filled.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
                 RailItem(
@@ -145,6 +148,7 @@ fun AppRoot(vm: MainViewModel) {
                         Screen.MAIL -> MailScreen(vm)
                         Screen.NOTIFICATIONS -> NotificationsScreen(vm)
                         Screen.NOTES -> NotesScreen(vm)
+                    Screen.CAMERAS -> CommandCenterScreen(vm)
                         Screen.APPS -> AppsScreen(vm)
                         Screen.TRANSFER -> TransferScreen(vm)
                         Screen.SETTINGS -> SettingsScreen(vm)
@@ -159,7 +163,9 @@ fun AppRoot(vm: MainViewModel) {
 
     operation?.let { ProgressDialog(it.title, it.progress, vm::cancelOperation) }
     driveState.operation?.let { ProgressDialog(it.title, it.progress, drive::cancelOperation) }
-    LaunchedEffect(Unit) { runCatching { homeFocus.requestFocus() } }
+    LaunchedEffect(Unit) {
+        if (Appearance.startOnCameras) vm.show(Screen.CAMERAS) else runCatching { homeFocus.requestFocus() }
+    }
 }
 
 /** Top-left brand: the clapperboard logo on a white tile (it's black, so it needs a light backing). */

@@ -45,16 +45,19 @@ class CompanionRoutes(private val ctx: Context) {
         }
         if (s.uri != "/oauth/callback") return null
         val state = s.parameters["state"]?.firstOrNull()
-        val attempt = CompanionHub.googleAttempt
-        if (state == null || attempt == null || state != attempt.state) {
-            return page("Sign-in expired", "Open Google Drive on the TV and scan the new QR code.")
+        val attempt = state?.let { CompanionHub.googleAttempts[it] }
+        if (attempt == null) {
+            return page("Sign-in expired", "On the TV, open the screen you were connecting and scan the new QR code.")
         }
         s.parameters["error"]?.firstOrNull()?.let {
             return page("Sign-in cancelled", "You can try again from the TV.")
         }
         val code = s.parameters["code"]?.firstOrNull() ?: return page("Missing code", "Try again from the TV.")
-        CompanionHub.googleAttempt = null // one use only
+        CompanionHub.googleAttempts.remove(attempt.state) // one use only
         CompanionHub.googleCodes.tryEmit(code to attempt)
+        if (attempt.grant == GoogleAuth.Grant.NEST) {
+            return page("Cameras connected ✓", "Look at your TV: Woodruff Pictures is loading your cameras.")
+        }
         return page("You're signed in ✓", "Look at your TV: Woodruff Pictures is loading your Google Drive.")
     }
 
@@ -153,6 +156,11 @@ class CompanionRoutes(private val ctx: Context) {
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
         }
+        s.uri == "/api/settings/nest" && s.method == Method.POST -> {
+            GoogleAuth.saveNestProject(ctx, body(s).optString("project"))
+            CompanionHub.settingsChanged.tryEmit(Unit)
+            json(settingsJson(s))
+        }
         s.uri == "/api/mail" && s.method == Method.POST -> {
             val b = body(s)
             val provider = runCatching { MailProvider.valueOf(b.optString("provider")) }.getOrDefault(MailProvider.CUSTOM)
@@ -189,6 +197,9 @@ class CompanionRoutes(private val ctx: Context) {
                 .put("hasSecret", GoogleAuth.isConfigured(ctx))
                 .put("connected", GoogleAuth.isConnected(ctx))
                 .put("redirectUri", GoogleAuth.REDIRECT_URI))
+            .put("nest", JSONObject()
+                .put("project", GoogleAuth.nestProject(ctx) ?: "")
+                .put("connected", GoogleAuth.isConnected(ctx, GoogleAuth.Grant.NEST)))
             .put("mail", JSONArray().apply {
                 MailAccounts.list(ctx).forEach { put(JSONObject().put("id", it.id).put("email", it.email).put("provider", it.provider.label)) }
             })
@@ -276,8 +287,14 @@ private val PUBLIC_ASSETS = mapOf(
 
 /** Process-wide companion state shared by the server and the screens. */
 object CompanionHub {
-    /** The Google sign-in currently waiting for the phone (see GoogleAuth.newAttempt). */
-    @Volatile var googleAttempt: com.woodruff.tvexplorer.cloud.GoogleAuth.Attempt? = null
+    /** Google sign-ins waiting for the phone, by `state` (Drive and cameras can be pending at once). */
+    val googleAttempts = java.util.concurrent.ConcurrentHashMap<String, com.woodruff.tvexplorer.cloud.GoogleAuth.Attempt>()
+
+    /** Starts waiting for [a]; replaces any older attempt for the same kind of sign-in. */
+    fun expect(a: com.woodruff.tvexplorer.cloud.GoogleAuth.Attempt) {
+        googleAttempts.values.removeAll { it.grant == a.grant }
+        googleAttempts[a.state] = a
+    }
     val googleCodes = MutableSharedFlow<Pair<String, com.woodruff.tvexplorer.cloud.GoogleAuth.Attempt>>(extraBufferCapacity = 4)
     /** Emitted when keys or accounts are changed from the phone, so open screens refresh. */
     val settingsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 8)

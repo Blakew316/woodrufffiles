@@ -53,7 +53,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private var prepJob: Job? = null
 
     init {
-        viewModelScope.launch { CompanionHub.googleCodes.collect { (code, attempt) -> finishSignIn(code, attempt) } }
+        viewModelScope.launch { CompanionHub.googleCodes.collect { (code, attempt) -> if (attempt.grant == GoogleAuth.Grant.DRIVE) finishSignIn(code, attempt) } }
         // Keys saved from the phone or the Settings screen: move on to the sign-in step.
         viewModelScope.launch { CompanionHub.changes.collect { if (!_state.value.connected) { _state.update { it.copy(step = initialStep()) }; prepareSignIn() } } }
     }
@@ -90,7 +90,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(step = SignInStep.SETUP, qrUrl = "${server.url}#settings", setupAddress = "${server.url}#settings", error = null) }
             } else {
                 val a = GoogleAuth.newAttempt(ctx, base)
-                CompanionHub.googleAttempt = a
+                CompanionHub.expect(a)
                 _state.update { it.copy(step = SignInStep.SIGN_IN, qrUrl = a.authUrl, error = null) }
             }
         }

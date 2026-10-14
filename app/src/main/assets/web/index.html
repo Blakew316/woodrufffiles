@@ -154,6 +154,14 @@
   <button class="btn" id="g-save">Save Google keys</button>
   <p class="note">From Google Cloud → Credentials → your <b>Web application</b> OAuth client. Its redirect URI must be <code id="g-redirect"></code>. The keys are stored encrypted on the TV and kept across restarts.</p>
 
+  <h2>Cameras (Command center)</h2>
+  <div class="group">
+    <div class="row"><span class="grow">Status</span><span class="meta" id="c-status">…</span></div>
+    <label class="field"><span>Device Access Project ID</span><input id="c-project" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1a2b3c4d-5e6f-…"></label>
+  </div>
+  <button class="btn" id="c-save">Save Project ID</button>
+  <p class="note">From console.nest.google.com/device-access → your project. Then open Command center on the TV and scan its QR code to sign in.</p>
+
   <h2>Mail accounts</h2>
   <div class="group" id="m-list"></div>
   <h2>Add a mail account</h2>
@@ -441,6 +449,11 @@
     $('g-status').className = 'meta ' + (g.connected ? 'ok' : '');
     if (!$('g-id').value) $('g-id').value = g.clientId || '';
     $('g-redirect').textContent = g.redirectUri;
+    if (s.nest) {
+      $('c-status').textContent = s.nest.connected ? 'Connected' : s.nest.project ? 'Sign in on the TV' : 'Not set up';
+      $('c-status').className = 'meta ' + (s.nest.connected ? 'ok' : '');
+      if (!$('c-project').value) $('c-project').value = s.nest.project || '';
+    }
     var ml = $('m-list'); ml.innerHTML = '';
     if (!s.mail.length) ml.appendChild(el('div', 'row meta', 'No mail accounts yet'));
     s.mail.forEach(function (m) {
@@ -464,6 +477,9 @@
     var id = $('g-id').value.trim(), secret = $('g-secret').value.trim();
     if (!secret && settings && settings.google.hasSecret && id === settings.google.clientId) return toast('Nothing changed');
     post('/api/settings/google', { client_id: id, client_secret: secret }).then(function (s) { $('g-secret').value = ''; renderSettings(s); toast('Saved. Look at the TV to sign in'); }, err);
+  };
+  $('c-save').onclick = function () {
+    post('/api/settings/nest', { project: $('c-project').value.trim() }).then(function (s) { renderSettings(s); toast('Saved. Open Command center on the TV'); }, err);
   };
   $('m-add').onclick = function () {
     var b = $('m-add'); b.disabled = true; b.textContent = 'Checking…';

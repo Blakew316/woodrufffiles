@@ -25,6 +25,9 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Videocam
+import com.woodruff.tvexplorer.nest.Nest
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material.icons.filled.Smartphone
@@ -93,6 +96,7 @@ private sealed interface SettingsDialog {
     data class RemoveMail(val account: MailAccount) : SettingsDialog
     data object OverlayHelp : SettingsDialog
     data object DreamHelp : SettingsDialog
+    data object NestProject : SettingsDialog
     data class RemovePhone(val phone: Phone) : SettingsDialog
 }
 
@@ -116,6 +120,8 @@ fun SettingsScreen(vm: MainViewModel) {
     val clientId = remember(v) { GoogleAuth.clientId(context) }
     val configured = remember(v) { GoogleAuth.isConfigured(context) }
     val connected = remember(v) { GoogleAuth.isConnected(context) }
+    val nestProject = remember(v) { GoogleAuth.nestProject(context) }
+    val nestConnected = remember(v) { GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST) }
     val accounts = remember(v) { MailAccounts.list(context) }
     val overlay = remember(v) { Settings.canDrawOverlays(context) }
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
@@ -164,6 +170,24 @@ fun SettingsScreen(vm: MainViewModel) {
                 val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
             }
+        }
+
+        section("Cameras")
+        item {
+            SettingRow(Icons.Filled.Videocam, "Command center", if (nestConnected) "Cameras connected" else "Not connected · select to set up") { vm.show(Screen.CAMERAS) }
+        }
+        item {
+            SettingRow(Icons.Filled.Key, "Device Access Project ID", nestProject?.let { mask(it, 13) } ?: "Not set") {
+                dialog = SettingsDialog.NestProject
+            }
+        }
+        item {
+            SettingRow(Icons.Filled.Dashboard, "Open Command center when the app starts", if (Appearance.startOnCameras) "On" else "Off") {
+                Appearance.toggleStartOnCameras(context)
+            }
+        }
+        if (nestConnected) item {
+            SettingRow(Icons.Filled.Logout, "Disconnect cameras", "Keeps the Project ID") { Nest.signOut { changed() } }
         }
 
         section("Google Drive")
@@ -277,6 +301,14 @@ fun SettingsScreen(vm: MainViewModel) {
         is SettingsDialog.RemoveMail -> ConfirmDialog(
             "Remove ${d.account.email}?", "Deletes this account and its saved password from the TV.", "Remove",
             onConfirm = { MailAccounts.remove(context, d.account.id); changed() }, onDismiss = { dialog = null },
+        )
+        SettingsDialog.NestProject -> TextInputDialog(
+            "Device Access Project ID", GoogleAuth.nestProject(context).orEmpty(), "Save",
+            onConfirm = { id ->
+                try { GoogleAuth.saveNestProject(context, id); changed() } catch (e: IllegalArgumentException) { vm.say(e.message ?: "Check the Project ID") }
+            },
+            onDismiss = { dialog = null },
+            hint = "From console.nest.google.com/device-access → your project.",
         )
         SettingsDialog.DreamHelp -> ConfirmDialog(
             "Set the screensaver with adb",

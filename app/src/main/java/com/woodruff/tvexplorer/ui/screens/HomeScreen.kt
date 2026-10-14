@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Slideshow
@@ -108,6 +109,7 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching() }
 
     val cloud = listOf(
+        Tile("Cameras", "Command center", Icons.Filled.Videocam, Palette.danger) { vm.show(Screen.CAMERAS) },
         Tile("Google Drive", "Stream & download", Icons.Filled.AddToDrive, Palette.drive) { vm.show(Screen.DRIVE) },
         Tile("iCloud", "Mail & files from iPhone", Icons.Filled.Cloud, Palette.icloud) { showICloud = true },
         Tile("Mail", "iCloud, Gmail & more", Icons.Filled.Email, Palette.accent) { vm.show(Screen.MAIL) },
