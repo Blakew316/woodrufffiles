@@ -137,7 +137,6 @@ fun SettingsScreen(vm: MainViewModel) {
     ) {
         item {
             Text("Settings", style = MaterialTheme.typography.headlineLarge)
-            Text("Saved on this TV, encrypted, and kept across restarts and updates.", color = Palette.muted, style = MaterialTheme.typography.bodyMedium)
         }
 
         section("Appearance")
@@ -149,26 +148,26 @@ fun SettingsScreen(vm: MainViewModel) {
 
         section("Screensaver & background")
         item {
-            SettingRow(Icons.Rounded.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None · in Files, open a photo's menu") {
+            SettingRow(Icons.Rounded.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None") {
                 if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
                 else vm.say("In Files, press and hold on a photo and choose Set as app background")
             }
         }
         item {
-            SettingRow(Icons.Rounded.PhotoLibrary, "Slideshow photos", Appearance.slideshowFolder?.let { File(it).name + " · select to reset" } ?: "Pictures & Camera · or pick a folder in Files") {
+            SettingRow(Icons.Rounded.PhotoLibrary, "Slideshow photos", Appearance.slideshowFolder?.let { File(it).name } ?: "Pictures & Camera") {
                 if (Appearance.slideshowFolder != null) Appearance.setSlideshowFolder(context, null)
                 else vm.say("In Files, press and hold on a folder and choose Use for photo slideshow")
             }
         }
         item { SettingRow(Icons.Rounded.Timer, "Show each photo for", "${Appearance.seconds} seconds") { Appearance.nextSpeed(context) } }
         item {
-            SettingRow(Icons.Rounded.Bedtime, "Start slideshow when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min in this app") {
+            SettingRow(Icons.Rounded.Bedtime, "Start slideshow when idle", if (Appearance.idleMinutes == 0) "Off" else "${Appearance.idleMinutes} min") {
                 Appearance.nextIdle(context)
             }
         }
         item { SettingRow(Icons.Rounded.Slideshow, "Start slideshow now", null) { SlideshowActivity.start(context) } }
         item {
-            SettingRow(Icons.Rounded.Tv, "Use as the TV's screensaver", "Choose Woodruff Films slideshow") {
+            SettingRow(Icons.Rounded.Tv, "Use as the TV's screensaver", null) {
                 val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
             }
@@ -176,7 +175,7 @@ fun SettingsScreen(vm: MainViewModel) {
 
         section("Cameras")
         item {
-            SettingRow(Icons.Rounded.Videocam, "Command center", if (nestConnected) "Cameras connected" else "Not connected · select to set up") { vm.show(Screen.CAMERAS) }
+            SettingRow(Icons.Rounded.Videocam, "Command center", if (nestConnected) "Connected" else "Not connected") { vm.show(Screen.CAMERAS) }
         }
         item {
             SettingRow(Icons.Rounded.Key, "Device Access Project ID", nestProject?.let { mask(it, 13) } ?: "Not set") {
@@ -184,21 +183,20 @@ fun SettingsScreen(vm: MainViewModel) {
             }
         }
         item {
-            SettingRow(Icons.Rounded.Dashboard, "Open Command center when the app starts", if (Appearance.startOnCameras) "On" else "Off") {
+            SettingRow(Icons.Rounded.Dashboard, "Open at start", if (Appearance.startOnCameras) "On" else "Off") {
                 Appearance.toggleStartOnCameras(context)
             }
         }
         if (nestConnected) item {
-            SettingRow(Icons.Rounded.Logout, "Disconnect cameras", "Keeps the Project ID") { Nest.signOut { changed() } }
+            SettingRow(Icons.Rounded.Logout, "Disconnect cameras", null) { Nest.signOut { changed() } }
         }
 
         section("Google Drive")
-        item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Keys saved · sign in from Google Drive" else "Not set up") { vm.show(Screen.DRIVE) } }
+        item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up") { vm.show(Screen.DRIVE) } }
         item { SettingRow(Icons.Rounded.Key, "Client ID", clientId?.let { mask(it, 18) } ?: "Not set") { dialog = SettingsDialog.ClientId } }
         item { SettingRow(Icons.Rounded.Lock, "Client secret", if (configured) "•••••••• saved" else "Not set") { dialog = SettingsDialog.ClientSecret } }
-        item { SettingRow(Icons.Rounded.PhoneIphone, "Enter keys from your phone", "Easier than typing with the remote") { vm.show(Screen.TRANSFER) } }
         if (connected) item {
-            SettingRow(Icons.Rounded.Logout, "Sign out of Google", "Keeps the keys") {
+            SettingRow(Icons.Rounded.Logout, "Sign out of Google", null) {
                 scope.launch { GoogleAuth.signOut(context); changed() }
             }
         }
@@ -208,11 +206,11 @@ fun SettingsScreen(vm: MainViewModel) {
         accounts.forEach { a ->
             item(key = a.id) { SettingRow(Icons.Rounded.Email, a.email, a.provider.label) { dialog = SettingsDialog.RemoveMail(a) } }
         }
-        item { SettingRow(Icons.Rounded.PersonAdd, "Add a mail account", "iCloud, Gmail, Yahoo or any IMAP mail") { dialog = SettingsDialog.PickProvider } }
+        item { SettingRow(Icons.Rounded.PersonAdd, "Add a mail account", null) { dialog = SettingsDialog.PickProvider } }
 
         section("Notifications")
         item {
-            SettingRow(Icons.Rounded.NotificationsActive, "Pop-ups over other apps", if (overlay) "Allowed" else "Off · select to allow") {
+            SettingRow(Icons.Rounded.NotificationsActive, "Pop-ups over other apps", if (overlay) "On" else "Off") {
                 if (!overlay) {
                     val r = Opener.firstThatStarts(
                         context,
@@ -228,21 +226,21 @@ fun SettingsScreen(vm: MainViewModel) {
         }
 
         section("Phones")
-        if (phones.isEmpty()) item { SettingRow(Icons.Rounded.Smartphone, "No phones yet", "Open Woodruff on a phone and give it a name") { vm.show(Screen.TRANSFER) } }
+        if (phones.isEmpty()) item { SettingRow(Icons.Rounded.Smartphone, "No phones yet", null) { vm.show(Screen.TRANSFER) } }
         phones.forEach { p ->
             item(key = "phone-" + p.id) {
-                SettingRow(Icons.Rounded.Smartphone, p.name, (if (p.topic != null) "Lock-screen alerts on" else "Alerts while the app is open") + " · seen " + Format.date(p.lastSeen)) {
+                SettingRow(Icons.Rounded.Smartphone, p.name, Format.date(p.lastSeen)) {
                     dialog = SettingsDialog.RemovePhone(p)
                 }
             }
         }
 
         section("Phone connection")
-        item { SettingRow(Icons.Rounded.PhoneIphone, "Connect a phone", TransferService.state.value.base ?: "Show the QR code") { vm.show(Screen.TRANSFER) } }
-        item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", "Disconnects every paired phone and shortcut", danger = true) { dialog = SettingsDialog.ResetPairing } }
+        item { SettingRow(Icons.Rounded.PhoneIphone, "Connect a phone", TransferService.state.value.base) { vm.show(Screen.TRANSFER) } }
+        item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", null, danger = true) { dialog = SettingsDialog.ResetPairing } }
 
         section("About")
-        item { SettingRow(Icons.Rounded.Info, "Woodruff Films ${BuildConfig.VERSION_NAME}", "Type: Inter (SIL Open Font License) · Video: Media3") {} }
+        item { SettingRow(Icons.Rounded.Info, "Woodruff Films", BuildConfig.VERSION_NAME) {} }
     }
 
     when (val d = dialog) {

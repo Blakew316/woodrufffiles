@@ -132,7 +132,6 @@ fun TextInputDialog(
             modifier = Modifier.fillMaxWidth(),
             textModifier = Modifier.focusRequester(field),
         )
-        PhoneKeyboardHint()
         ButtonRow {
             OutlinedButton(onClick = onDismiss) { Text("Cancel") }
             Button(onClick = submit) { Text(confirmLabel) }
@@ -201,16 +200,6 @@ fun RemoteTextField(
     }
 }
 
-/** Reminds the viewer they can type on the phone instead of the remote, when a phone can connect. */
-@Composable
-fun PhoneKeyboardHint() {
-    val server by TransferService.state.collectAsState()
-    if (!server.running) return
-    Text(
-        "Tip: type on your phone instead. Open Woodruff on the phone and choose Keyboard.",
-        color = Palette.muted, style = MaterialTheme.typography.bodySmall,
-    )
-}
 
 @Composable
 fun ProgressDialog(title: String, progress: OpProgress?, onCancel: () -> Unit) {

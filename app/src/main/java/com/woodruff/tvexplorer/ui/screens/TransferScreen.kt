@@ -79,19 +79,7 @@ fun TransferScreen(vm: MainViewModel) {
             verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
         ) {
             Text("Connect your phone", style = MaterialTheme.typography.headlineLarge)
-            Text(
-                "Scan once with your iPhone or Android camera. The page it opens works like an app: add it to your Home Screen to keep it.",
-                color = Palette.muted, style = MaterialTheme.typography.bodyLarge,
-            )
             if (state.running) {
-                Text("From your phone you can:", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 6.dp))
-                listOf(
-                    "Send photos, videos and files, including from iCloud Drive",
-                    "Pop up a message on the TV, or play a video link",
-                    "Press Play on any video stored on the TV",
-                    "Enter Google keys and mail accounts without the remote",
-                ).forEach { Text("•  $it", style = MaterialTheme.typography.bodyMedium) }
-                Text("Or type this address on a computer:", color = Palette.muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
                 Text(state.url.orEmpty(), color = Palette.accent, style = MaterialTheme.typography.bodyMedium)
                 state.log.take(4).forEach { Text("· $it", color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
             } else {

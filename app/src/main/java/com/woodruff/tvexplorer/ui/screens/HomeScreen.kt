@@ -110,10 +110,10 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching() }
 
     val cloud = listOf(
-        Tile("Cameras", "Command center", Icons.Rounded.Videocam, Palette.accent) { vm.show(Screen.CAMERAS) },
-        Tile("Google Drive", "Stream & download", Icons.Rounded.AddToDrive, Palette.drive) { vm.show(Screen.DRIVE) },
-        Tile("iCloud", "Mail & files from iPhone", Icons.Rounded.Cloud, Palette.icloud) { showICloud = true },
-        Tile("Mail", "iCloud, Gmail & more", Icons.Rounded.Email, Palette.accent) { vm.show(Screen.MAIL) },
+        Tile("Cameras", null, Icons.Rounded.Videocam, Palette.accent) { vm.show(Screen.CAMERAS) },
+        Tile("Google Drive", null, Icons.Rounded.AddToDrive, Palette.drive) { vm.show(Screen.DRIVE) },
+        Tile("iCloud", null, Icons.Rounded.Cloud, Palette.icloud) { showICloud = true },
+        Tile("Mail", null, Icons.Rounded.Email, Palette.accent) { vm.show(Screen.MAIL) },
     )
     val library = listOf(
         FileKind.VIDEO to "Videos", FileKind.AUDIO to "Music", FileKind.IMAGE to "Photos",
@@ -121,16 +121,16 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     ).map { (kind, title) -> Tile(title, null, kind.icon(), kind.color()) { vm.open(Location.Category(kind, title)) } } +
         Tile("Downloads", null, Icons.Rounded.Download, Palette.accent) { vm.openDownloads() }
     val watch = listOf(
-        Tile("YouTube", "Opens the YouTube app", Icons.Rounded.SmartDisplay, Color(0xFFFF0033)) { Handoff.launch(context, Handoff.YOUTUBE) },
-        Tile("Apple Music", "Opens Apple Music", Icons.Rounded.MusicNote, Color(0xFFFA2D48)) { Handoff.launch(context, Handoff.APPLE_MUSIC) },
-        Tile("Spotify", "Opens Spotify", Icons.Rounded.LibraryMusic, Color(0xFF1ED760)) { Handoff.launch(context, Handoff.SPOTIFY) },
-        Tile("Photo slideshow", "Your photos, full screen", Icons.Rounded.Slideshow, Palette.drive) { SlideshowActivity.start(context) },
+        Tile("YouTube", null, Icons.Rounded.SmartDisplay, Color(0xFFFF0033)) { Handoff.launch(context, Handoff.YOUTUBE) },
+        Tile("Apple Music", null, Icons.Rounded.MusicNote, Color(0xFFFA2D48)) { Handoff.launch(context, Handoff.APPLE_MUSIC) },
+        Tile("Spotify", null, Icons.Rounded.LibraryMusic, Color(0xFF1ED760)) { Handoff.launch(context, Handoff.SPOTIFY) },
+        Tile("Photo slideshow", null, Icons.Rounded.Slideshow, Palette.drive) { SlideshowActivity.start(context) },
     )
     val tools = listOf(
-        Tile("Notes", "Lists & reminders", Icons.Rounded.EditNote, Palette.accent) { vm.show(Screen.NOTES) },
-        Tile("Phone", "Send files, messages, links", Icons.Rounded.PhoneIphone, Palette.accent) { vm.show(Screen.TRANSFER) },
-        Tile("Apps", "Open, back up, uninstall", Icons.Rounded.Apps, Palette.apk) { vm.show(Screen.APPS) },
-        Tile("Settings", "Keys, accounts, theme", Icons.Rounded.Settings, Palette.muted) { vm.show(Screen.SETTINGS) },
+        Tile("Notes", null, Icons.Rounded.EditNote, Palette.accent) { vm.show(Screen.NOTES) },
+        Tile("Phone", null, Icons.Rounded.PhoneIphone, Palette.accent) { vm.show(Screen.TRANSFER) },
+        Tile("Apps", null, Icons.Rounded.Apps, Palette.apk) { vm.show(Screen.APPS) },
+        Tile("Settings", null, Icons.Rounded.Settings, Palette.muted) { vm.show(Screen.SETTINGS) },
     )
 
     LazyColumn(
@@ -186,7 +186,6 @@ private fun Header() {
     Row(Modifier.fillMaxWidth().padding(horizontal = 48.dp), verticalAlignment = Alignment.Bottom) {
         Column(Modifier.weight(1f)) {
             Text(greeting, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
-            Text("What are we watching tonight?", style = MaterialTheme.typography.titleMedium, color = Palette.muted)
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)), style = MaterialTheme.typography.headlineMedium)

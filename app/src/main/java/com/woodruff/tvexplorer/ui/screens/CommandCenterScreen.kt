@@ -116,11 +116,6 @@ fun CommandCenterScreen(vm: MainViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Command center", style = MaterialTheme.typography.headlineLarge)
-                Text(
-                    if (state.step == NestStep.CONNECTED) "${cams.size} camera${if (cams.size == 1) "" else "s"} · select one for full screen"
-                    else "Google Home cameras on your TV",
-                    color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
-                )
             }
             if (state.step == NestStep.CONNECTED) {
                 val ctx = LocalContext.current

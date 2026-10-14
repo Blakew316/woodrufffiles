@@ -65,7 +65,7 @@
 </style>
 </head>
 <body>
-<header><div class="brand"><img src="/emblem.png" alt="" width="30" height="30"><span>WOODRUFF <b>FILMS</b></span></div><h1 id="title">Files</h1><p class="sub" id="subtitle">Woodruff Films on your TV</p></header>
+<header><div class="brand"><img src="/emblem.png" alt="" width="30" height="30"><span>WOODRUFF <b>FILMS</b></span></div><h1 id="title">Files</h1></header>
 
 <!-- FILES -->
 <section id="files">
@@ -77,7 +77,7 @@
   </div>
   <button class="btn" id="pick">Upload files</button>
   <input id="file" type="file" multiple hidden>
-  <p class="note" id="drop">On iPhone, choose <b>Browse</b> for iCloud Drive or <b>Photo Library</b> for photos and videos. On a computer you can drop files onto this page.</p>
+  <p id="drop" hidden></p>
   <div id="uploads"></div>
   <h2>Contents</h2>
   <div class="group" id="list"></div>
@@ -91,7 +91,6 @@
   </div>
   <button class="btn" id="kb-enter">Done (press Enter on the TV)</button>
   <button class="btn secondary" id="kb-clear">Clear</button>
-  <p class="note">What you type appears in the TV's open text box as you type: search, rename, notes, passwords and keys.</p>
 </section>
 
 <!-- NOTES -->
@@ -121,22 +120,18 @@
     <label class="field"><span>Web address</span><input id="o-url" type="url" inputmode="url" autocapitalize="off" placeholder="https://…/movie.mp4"></label>
   </div>
   <button class="btn" id="o-send">Open on TV</button>
-  <p class="note">Video and audio links play in the TV's built-in player; other links open in an app on the TV if there is one.</p>
   <h2>Photos on the TV</h2>
   <button class="btn secondary" id="slideshow">Start photo slideshow on the TV</button>
-  <p class="note">In Files, choose <b>Background</b> on a photo to make it the app's background, or <b>Slideshow</b> on a folder to pick the slideshow photos. Upload photos from your iPhone first if they're not on the TV yet.</p>
   <h2>iPhone Shortcut</h2>
-  <div class="group"><div class="row"><span class="grow" style="white-space:normal;font-size:15px">
-    In the Shortcuts app, add <b>Get Contents of URL</b>. Set it to <b>POST</b> to the address below, with a JSON body containing <code>title</code> and <code>body</code>. Run it from Siri, a button or an automation, for example "when I arrive home".
-  </span></div><div class="row"><code id="shortcut-url"></code></div></div>
+  <div class="group"><div class="row"><span class="grow meta">POST JSON <code>{title, body}</code> to</span></div><div class="row"><code id="shortcut-url"></code></div></div>
 </section>
 
 <!-- SETTINGS -->
 <section id="settings">
   <h2>This phone</h2>
   <div class="group">
-    <label class="field"><span>Name (so the TV knows who to send announcements to)</span><input id="p-name" placeholder="Blake's iPhone" autocomplete="off"></label>
-    <div class="row"><span class="grow" style="white-space:normal">Lock-screen alerts with the free ntfy app</span><input type="checkbox" class="check" id="p-alerts"></div>
+    <label class="field"><span>Name</span><input id="p-name" placeholder="Blake's iPhone" autocomplete="off"></label>
+    <div class="row"><span class="grow" style="white-space:normal">Lock-screen alerts</span><input type="checkbox" class="check" id="p-alerts"></div>
   </div>
   <button class="btn" id="p-save">Save</button>
   <div class="card" id="p-ntfy" hidden>
@@ -146,7 +141,6 @@
     <button class="small" id="p-copy" style="margin-top:8px">Copy topic</button><br>
     <span class="meta">Keep the topic private: anyone with it can read these announcements.</span>
   </div>
-  <p class="note">Without ntfy, announcements still pop up whenever Woodruff is open on this phone.</p>
 
   <h2>Google Drive</h2>
   <div class="group">
@@ -155,7 +149,7 @@
     <label class="field"><span>Client secret</span><input id="g-secret" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="GOCSPX-… (leave blank to keep the saved one)"></label>
   </div>
   <button class="btn" id="g-save">Save Google keys</button>
-  <p class="note">From Google Cloud → Credentials → your <b>Web application</b> OAuth client. Its redirect URI must be <code id="g-redirect"></code>. The keys are stored encrypted on the TV and kept across restarts.</p>
+  <p class="note">Redirect URI: <code id="g-redirect"></code></p>
 
   <h2>Cameras (Command center)</h2>
   <div class="group">
@@ -163,7 +157,6 @@
     <label class="field"><span>Device Access Project ID</span><input id="c-project" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1a2b3c4d-5e6f-…"></label>
   </div>
   <button class="btn" id="c-save">Save Project ID</button>
-  <p class="note">From console.nest.google.com/device-access → your project. Then open Command center on the TV and scan its QR code to sign in.</p>
 
   <h2>Mail accounts</h2>
   <div class="group" id="m-list"></div>
@@ -235,7 +228,7 @@
     if (!titles[tab]) tab = 'files';
     document.querySelectorAll('section').forEach(function (s) { s.className = s.id === tab ? 'on' : ''; });
     document.querySelectorAll('nav button').forEach(function (b) { b.className = b.dataset.tab === tab ? 'on' : ''; });
-    $('title').textContent = titles[tab][0]; $('subtitle').textContent = titles[tab][1];
+    $('title').textContent = titles[tab][0];
     if (location.hash !== '#' + tab) history.replaceState(null, '', location.search + '#' + tab);
     window.scrollTo(0, 0);
     current = tab;

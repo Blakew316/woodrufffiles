@@ -68,13 +68,12 @@ fun NotificationsScreen(vm: MainViewModel) {
         Row {
             Column(Modifier.weight(1f)) {
                 Text("Notifications", style = MaterialTheme.typography.headlineLarge)
-                Text("Messages from your phone and new mail", color = Palette.muted, style = MaterialTheme.typography.bodyMedium)
             }
             ToolButton(Icons.Rounded.Campaign, "Announce", { announcing = true })
             if (items.isNotEmpty()) ToolButton(Icons.Rounded.ClearAll, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp))
         }
         if (items.isEmpty()) {
-            EmptyState("Nothing yet. Send a message from your phone (Phone in the menu) or add a mail account.")
+            EmptyState("No notifications")
             return@Column
         }
         LazyColumn(contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -102,7 +101,7 @@ fun NotificationsScreen(vm: MainViewModel) {
                     supportingContent = {
                         Column {
                             if (n.body.isNotBlank()) Text(n.body, maxLines = 3, style = MaterialTheme.typography.bodyMedium)
-                            Text(Format.date(n.at) + if (n.link != null) " · Select to open" else "", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                            Text(Format.date(n.at), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
                         }
                     },
                 )
@@ -147,7 +146,6 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                     onClick = { chosen = if (on) chosen - p.id else chosen + p.id },
                     leadingContent = { TvIcon(if (on) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank, tint = Palette.accent) },
                     headlineContent = { Text(p.name) },
-                    supportingContent = { Text(if (p.topic != null) "Lock-screen alert" else "Shows when Woodruff is open on it", color = Palette.muted) },
                 )
             }
             item {

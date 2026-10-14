@@ -45,7 +45,6 @@ import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.DialogFrame
-import com.woodruff.tvexplorer.ui.components.PhoneKeyboardHint
 import com.woodruff.tvexplorer.ui.components.RemoteTextField
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
@@ -69,12 +68,11 @@ fun NotesScreen(vm: MainViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Notes", style = MaterialTheme.typography.headlineLarge)
-                Text("Shared with every paired phone (Notes tab on the phone)", color = Palette.muted, style = MaterialTheme.typography.bodyMedium)
             }
             ToolButton(Icons.Rounded.Add, "New note", { editing = NEW })
         }
         if (notes.isEmpty()) {
-            EmptyState("No notes yet. Choose New note, or add one from your phone.")
+            EmptyState("No notes")
             return@Column
         }
         LazyVerticalGrid(
@@ -143,7 +141,6 @@ private fun NoteEditor(note: Note?, onDismiss: () -> Unit, onSave: (String, Stri
             placeholder = "Write something…", modifier = Modifier.fillMaxWidth(),
             textModifier = Modifier.heightIn(min = 140.dp, max = 240.dp),
         )
-        PhoneKeyboardHint()
         ButtonRow {
             OutlinedButton(onClick = onDismiss) { Text("Cancel") }
             OutlinedButton(onClick = { pinned = !pinned }) { Text(if (pinned) "Unpin" else "Pin") }
