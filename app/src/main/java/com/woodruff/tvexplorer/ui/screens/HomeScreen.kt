@@ -21,6 +21,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -130,11 +134,11 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     val play = { r: RecentItem -> context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key)) }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 28.dp, end = 28.dp, top = 20.dp, bottom = 20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 28.dp, end = 28.dp, top = 14.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Header()
-        Row(Modifier.fillMaxWidth().height(210.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(Modifier.fillMaxWidth().height(196.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ContinuePanel(
                 recent, play, onMenu = { removeFor = it },
                 onMovies = { drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE) },
@@ -143,7 +147,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
             )
             TvsPanel(vm, Modifier.weight(1f).fillMaxHeight())
         }
-        Row(Modifier.fillMaxWidth().height(182.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(Modifier.fillMaxWidth().height(232.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             CamerasPanel(vm, Modifier.weight(1.5f).fillMaxHeight())
             GlancePanel(vm, Modifier.weight(1f).fillMaxHeight())
         }
@@ -300,7 +304,7 @@ private fun ContinuePanel(
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(
                 onClick = { play(r) }, onLongClick = { onMenu(r) },
-                modifier = Modifier.width(180.dp).aspectRatio(16f / 9f).onMenuKey { onMenu(r) },
+                modifier = Modifier.width(160.dp).aspectRatio(16f / 9f).onMenuKey { onMenu(r) },
                 shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
             ) { ResumeArt(r) }
@@ -446,11 +450,12 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     val count = samples?.size ?: cams.size
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
-            samples != null -> LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                itemsIndexed(samples) { _, name -> CameraTile(name, null, onClick = {}) }
+            // Four at a glance in a 2×2 grid; more cameras scroll inside the panel.
+            samples != null -> CameraGrid4 {
+                gridItemsIndexed(samples) { _, name -> CameraTile(name, null, onClick = {}) }
             }
-            state.step == NestStep.CONNECTED && cams.isNotEmpty() -> LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                itemsIndexed(cams, key = { _, c -> c.name }) { i, cam ->
+            state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4 {
+                gridItemsIndexed(cams, key = { _, c -> c.name }) { i, cam ->
                     CameraTile(cam.label, cam, onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) })
                 }
             }
@@ -465,6 +470,17 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
 }
 
 @Composable
+private fun CameraGrid4(content: LazyGridScope.() -> Unit) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        content = content,
+    )
+}
+
+@Composable
 private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var live by remember { mutableStateOf(false) }
@@ -472,7 +488,7 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
     LaunchedEffect(focused) { live = false; if (focused && cam?.webRtc == true) { delay(700); live = true } }
     Surface(
         onClick = onClick,
-        modifier = Modifier.width(196.dp).aspectRatio(16f / 9f).onFocusChanged { focused = it.isFocused },
+        modifier = Modifier.fillMaxWidth().height(80.dp).onFocusChanged { focused = it.isFocused },
         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {
@@ -517,7 +533,7 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
             val first = n.body.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
             add(GlanceItem(Icons.Rounded.EditNote, Color(0xFFFFB340), n.title.ifBlank { first }, if (n.title.isBlank()) "Note" else first, false) { vm.show(Screen.NOTES) })
         }
-    }.take(3)
+    }.take(4)
     val unread = notices.count { !it.read }
     Panel("At a glance", modifier, note = if (unread > 0) "$unread new" else null) {
         if (items.isEmpty()) Text("All caught up.", color = Palette.muted)
