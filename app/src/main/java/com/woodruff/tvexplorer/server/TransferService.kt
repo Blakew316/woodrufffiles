@@ -86,6 +86,8 @@ class TransferService : Service() {
                 server = s
                 val base = "http://$ip:${s.listeningPort}"
                 _state.value = ServerState(running = true, url = "$base/?k=${s.token}", base = base, log = listOf("Phone connection ready"))
+                // Let other Woodruff TVs on the network find this one (Settings → Add another TV).
+                com.woodruff.tvexplorer.tvs.TvLinks.advertise(applicationContext, s.listeningPort)
                 getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(base))
                 startMailChecks()
                 return
@@ -113,6 +115,7 @@ class TransferService : Service() {
     }
 
     override fun onDestroy() {
+        com.woodruff.tvexplorer.tvs.TvLinks.stopAdvertising(applicationContext)
         scope.cancel()
         server?.stop()
         server = null

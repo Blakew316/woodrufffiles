@@ -69,6 +69,7 @@ import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.nest.Rtc
 import com.woodruff.tvexplorer.calendar.TodayCalendar
 import com.woodruff.tvexplorer.notes.Notes
+import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.ui.MainViewModel
@@ -329,6 +330,25 @@ private fun SidePanel(modifier: Modifier) {
                 Column {
                     Text(e.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                     Text(eventTime(e), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        // Other linked TVs: what each is playing, refreshed every 10 seconds while this is open.
+        val linked by TvLinks.linked.collectAsStateWithLifecycle()
+        var tvs by remember { mutableStateOf<List<com.woodruff.tvexplorer.tvs.TvStatus>>(emptyList()) }
+        LaunchedEffect(linked.size) {
+            TvLinks.load(context)
+            while (linked.isNotEmpty()) { tvs = runCatching { TvLinks.statuses(context) }.getOrDefault(tvs); delay(10_000) }
+        }
+        if (tvs.size > 1) {
+            PanelTitle("TVs")
+            tvs.forEach { t ->
+                Column {
+                    Text(t.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        when { !t.online -> "Off or unreachable"; t.playing != null -> "${if (t.playing.playing) "▶" else "❚❚"} ${t.playing.title} · ${t.playing.app}"; else -> "Nothing playing" },
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, color = Palette.muted, style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }

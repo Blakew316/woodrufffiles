@@ -14,6 +14,7 @@ import com.woodruff.tvexplorer.phones.Phones
 import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.remote.TvScreen
+import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.util.Handoff
@@ -45,6 +46,16 @@ class CompanionRoutes(private val ctx: Context) {
             return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, mime, bytes.inputStream(), bytes.size.toLong())
                 .apply { addHeader("Cache-Control", "max-age=604800") }
         }
+        // Another Woodruff TV linking to this one with the 6-digit code shown here (Settings → Link this TV).
+        if (s.uri == "/api/link" && s.method == Method.POST) {
+            val b = body(s) // the request body can only be read once
+            val r = TvLinks.redeem(ctx, b.optString("code"))
+                ?: return NanoHTTPD.newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "Wrong or expired code")
+            Notices.post(ctx, NoticeSource.SYSTEM, "TV linked", "${b.optString("from").ifBlank { "Another TV" }} can now see what's playing here.")
+            return json(r)
+        }
+        // A linked hub TV: its link key opens only status, screen and remote keys.
+        if (s.uri in TvLinks.LINK_ROUTES && TvLinks.isLinkKey(ctx, s.parameters["k"]?.firstOrNull())) return handle(s)
         if (s.uri != "/oauth/callback") return null
         val state = s.parameters["state"]?.firstOrNull()
         val attempt = state?.let { CompanionHub.googleAttempts[it] }
@@ -90,6 +101,32 @@ class CompanionRoutes(private val ctx: Context) {
             launch(PlayerActivity.intent(ctx, listOf(f.path), listOf(f.name), f.path))
             ok()
         }
+        // ---- Several TVs (this one is the hub) ------------------------------------------------
+        s.uri == "/api/status" && s.method == Method.GET -> json(TvLinks.status(ctx))
+        s.uri == "/api/tvs" && s.method == Method.GET -> {
+            val list = runBlocking { TvLinks.statuses(ctx) }
+            json(JSONObject().put("tvs", JSONArray().apply {
+                list.forEachIndexed { i, t ->
+                    put(JSONObject().put("id", if (i == 0) "this" else t.id).put("name", t.name).put("online", t.online)
+                        .put("onScreen", t.onScreen).put("playing", t.playing?.toJson() ?: JSONObject.NULL))
+                }
+            }))
+        }
+        s.uri == "/api/tvs/screen" && s.method == Method.GET -> {
+            val tv = TvLinks.find(s.parameters["id"]?.firstOrNull().orEmpty()) ?: throw IllegalArgumentException("Unknown TV")
+            val jpeg = runCatching { TvLinks.screen(tv) }.getOrNull()
+            if (jpeg == null) NanoHTTPD.newFixedLengthResponse(Response.Status.CONFLICT, "application/json",
+                JSONObject().put("message", "${tv.name} isn't showing Woodruff Family, or is off.").toString())
+            else NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "image/jpeg", jpeg.inputStream(), jpeg.size.toLong())
+                .apply { addHeader("Cache-Control", "no-store") }
+        }
+        s.uri == "/api/tvs/key" && s.method == Method.POST -> {
+            val b = body(s)
+            val tv = TvLinks.find(b.optString("id")) ?: throw IllegalArgumentException("Unknown TV")
+            try { TvLinks.press(tv, b.optString("key")) } catch (e: java.io.IOException) { throw IllegalArgumentException("${tv.name} didn't respond") }
+            ok()
+        }
+
         // ---- TV screen & remote ------------------------------------------------------------
         s.uri == "/api/screen" && s.method == Method.GET -> {
             val jpeg = TvScreen.frame()

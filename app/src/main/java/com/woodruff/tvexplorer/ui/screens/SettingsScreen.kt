@@ -32,6 +32,13 @@ import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.tmdb.Tmdb
+import com.woodruff.tvexplorer.tvs.LinkedTv
+import com.woodruff.tvexplorer.tvs.TvLinks
+import com.woodruff.tvexplorer.nowplaying.NowPlaying
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.PlayCircle
 import com.woodruff.tvexplorer.calendar.TodayCalendar
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Cast
@@ -113,6 +120,12 @@ private sealed interface SettingsDialog {
     data object DreamHelp : SettingsDialog
     data object NestProject : SettingsDialog
     data object TmdbKey : SettingsDialog
+    data object TvName : SettingsDialog
+    data object LinkCode : SettingsDialog
+    data object AddTv : SettingsDialog
+    data object MediaAccessHelp : SettingsDialog
+    data object UnlinkHubs : SettingsDialog
+    data class RemoveTv(val tv: LinkedTv) : SettingsDialog
     data class RemovePhone(val phone: Phone) : SettingsDialog
 }
 
@@ -142,6 +155,10 @@ fun SettingsScreen(vm: MainViewModel) {
     val nestProject = remember(v) { GoogleAuth.nestProject(context) }
     val nestConnected = remember(v) { GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST) }
     val tmdbSet = remember(v) { Tmdb.isConfigured(context) }
+    val tvName = remember(v) { TvLinks.name(context) }
+    val seesOtherApps = remember(v) { NowPlaying.canSeeOtherApps(context) }
+    remember { TvLinks.load(context) }
+    val linkedTvs by TvLinks.linked.collectAsStateWithLifecycle()
     val photosConnected = remember(v, showPhotos) { GoogleAuth.isConnected(context, GoogleAuth.Grant.PHOTOS) }
     val accounts = remember(v) { MailAccounts.list(context) }
     val overlay = remember(v) { Settings.canDrawOverlays(context) }
@@ -223,6 +240,21 @@ fun SettingsScreen(vm: MainViewModel) {
         }
         if (nestConnected) item {
             SettingRow(Icons.Rounded.Logout, "Disconnect cameras", null) { Nest.signOut { changed() } }
+        }
+
+        section("TVs")
+        item { SettingRow(Icons.Rounded.Tv, "This TV's name", tvName) { dialog = SettingsDialog.TvName } }
+        item { SettingRow(Icons.Rounded.Link, "Link this TV to another", null) { dialog = SettingsDialog.LinkCode } }
+        item { SettingRow(Icons.Rounded.LinkOff, "Stop other TVs seeing this one", null, danger = true) { dialog = SettingsDialog.UnlinkHubs } }
+        item { SettingRow(Icons.Rounded.Add, "Add another TV", if (linkedTvs.isEmpty()) null else "${linkedTvs.size} linked") { dialog = SettingsDialog.AddTv } }
+        linkedTvs.forEach { tv ->
+            item(key = "tv-" + tv.id) { SettingRow(Icons.Rounded.Tv, tv.name, tv.base.removePrefix("http://")) { dialog = SettingsDialog.RemoveTv(tv) } }
+        }
+        item {
+            SettingRow(Icons.Rounded.PlayCircle, "See what other apps are playing", if (seesOtherApps) "On" else "Off") {
+                val r = Opener.firstThatStarts(context, listOf(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")), "")
+                if (r is OpenResult.Failed) dialog = SettingsDialog.MediaAccessHelp
+            }
         }
 
         section("Video calls")
@@ -369,6 +401,31 @@ fun SettingsScreen(vm: MainViewModel) {
             "Remove ${d.account.email}?", "Deletes this account and its saved password from the TV.", "Remove",
             onConfirm = { MailAccounts.remove(context, d.account.id); changed() }, onDismiss = { dialog = null },
         )
+        SettingsDialog.TvName -> TextInputDialog(
+            "This TV's name", tvName, "Save",
+            onConfirm = { name ->
+                TvLinks.setName(context, name)
+                TransferService.state.value.base?.substringAfterLast(':')?.toIntOrNull()?.let { TvLinks.advertise(context, it) }
+                changed()
+            },
+            onDismiss = { dialog = null }, hint = "Shown to your other TVs and on the phone, e.g. Living Room.",
+        )
+        SettingsDialog.LinkCode -> LinkCodeDialog(onDismiss = { dialog = null })
+        SettingsDialog.AddTv -> AddTvDialog(onDismiss = { dialog = null }, onResult = { vm.say(it); changed() })
+        is SettingsDialog.RemoveTv -> ConfirmDialog(
+            "Unlink ${d.tv.name}?", "This TV stops showing what ${d.tv.name} is playing.", "Unlink",
+            onConfirm = { TvLinks.remove(context, d.tv.id) }, onDismiss = { dialog = null },
+        )
+        SettingsDialog.UnlinkHubs -> ConfirmDialog(
+            "Stop other TVs seeing this one?", "Every TV linked to this one loses access. Link again with a new code.", "Stop",
+            onConfirm = { TvLinks.resetLinkKey(context); vm.say("Other TVs can no longer see this one") }, onDismiss = { dialog = null },
+        )
+        SettingsDialog.MediaAccessHelp -> ConfirmDialog(
+            "Allow with adb",
+            "This TV hides the Notification access setting. From a computer with adb connected to the TV, run:\n\n" +
+                "adb shell cmd notification allow_listener ${context.packageName}/com.woodruff.tvexplorer.nowplaying.MediaWatcher",
+            "OK", onConfirm = {}, onDismiss = { dialog = null },
+        )
         SettingsDialog.TmdbKey -> TextInputDialog(
             "TMDB API key", "", "Save",
             onConfirm = { key -> Tmdb.saveKey(context, key); changed() },
@@ -439,6 +496,8 @@ private fun badgeColor(icon: ImageVector, danger: Boolean): Color {
         Icons.Rounded.Key, Icons.Rounded.Lock, Icons.Rounded.Logout, Icons.Rounded.Info -> Color(0xFF8E8E93)
         Icons.Rounded.Storage, Icons.Rounded.SdStorage -> Color(0xFF636366)
         Icons.Rounded.Apps -> Color(0xFF34C759)
+        Icons.Rounded.Link, Icons.Rounded.Add -> Color(0xFF5E5CE6)
+        Icons.Rounded.PlayCircle -> Color(0xFFFF9F0A)
         Icons.Rounded.Cast -> Color(0xFF0A84FF)
         Icons.Rounded.Email, Icons.Rounded.PersonAdd -> Color(0xFF0A84FF)
         else -> Palette.accent

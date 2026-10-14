@@ -67,6 +67,18 @@
                 android:value="Local-network companion server: receives files and messages from the owner's phone and checks for new mail." />
         </service>
 
+        <!-- Only used so the owner can grant "Notification access", which is what lets the TV see
+             what other apps (Netflix, YouTube…) are playing for the multi-TV view. Reads no notifications. -->
+        <service
+            android:name=".nowplaying.MediaWatcher"
+            android:exported="true"
+            android:label="Woodruff Family: what's playing"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- Photo slideshow as the TV's screensaver (Settings → Screen saver, or via adb on Google TV). -->
         <service
             android:name=".screensaver.SlideshowDream"

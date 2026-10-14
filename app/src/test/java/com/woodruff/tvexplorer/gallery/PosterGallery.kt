@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.gallery
 
+import android.graphics.BitmapFactory
 import android.os.Looper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -10,10 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
@@ -23,6 +27,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.ui.screens.LocalPosterPainter
 import com.woodruff.tvexplorer.ui.screens.PosterTile
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
@@ -69,18 +74,12 @@ class PosterGallery {
         val movieFiles = movies.mapIndexed { i, (name, key) -> DriveFile("m$i", name, "video/x-matroska", 0, 0, null, art(key)) }
         val showFiles = shows.mapIndexed { i, (name, key) -> DriveFile("t$i", name, DriveFile.FOLDER_MIME, 0, 0, null, art(key)) }
 
-        // Headless rendering: decode images right away and into normal (not hardware) bitmaps,
-        // which the JVM renderer can draw. The app itself keeps Coil's defaults.
-        coil.Coil.setImageLoader(
-            coil.ImageLoader.Builder(ApplicationProvider.getApplicationContext())
-                .dispatcher(kotlinx.coroutines.Dispatchers.Unconfined)
-                .allowHardware(false)
-                .crossfade(false)
-                .build(),
-        )
         var page by mutableStateOf("Movies" to movieFiles)
         compose.setContent {
             TvExplorerTheme {
+              CompositionLocalProvider(LocalPosterPainter provides { url ->
+                  BitmapFactory.decodeFile(url.removePrefix("file://"))?.let { BitmapPainter(it.asImageBitmap()) }
+              }) {
                 Column(Modifier.fillMaxSize().background(Palette.backdrop).padding(start = 40.dp, end = 40.dp, top = 32.dp)) {
                     Text(page.first, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(bottom = 20.dp))
                     LazyVerticalGrid(
@@ -92,6 +91,7 @@ class PosterGallery {
                         items(page.second, key = { it.id }) { f -> PosterTile(f, null, onClick = {}, onLongClick = {}, modifier = Modifier) }
                     }
                 }
+              }
             }
         }
         for (light in listOf(false, true)) {
@@ -103,7 +103,7 @@ class PosterGallery {
         }
     }
 
-    /** Coil decodes on background threads: give it real time, then run the main looper and frames. */
+    /** Let recomposition and frames run after each page switch. */
     private fun settle() {
         repeat(25) {
             Thread.sleep(80)

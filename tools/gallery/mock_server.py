@@ -74,6 +74,13 @@ class Handler(BaseHTTPRequestHandler):
             '/api/phones': {'phones': PHONES},
             '/api/inbox': {'messages': []},
             '/api/settings': SETTINGS,
+            '/api/tvs': {'tvs': [
+                {'id': 'this', 'name': 'Living Room', 'online': True, 'onScreen': True,
+                 'playing': {'title': 'Midnight Harbor', 'app': 'Woodruff Family', 'playing': True, 'position': 2710000, 'duration': 6840000}},
+                {'id': 'b', 'name': 'Kids Room', 'online': True, 'onScreen': False,
+                 'playing': {'title': 'Backyard Science · S2 E4', 'app': 'YouTube', 'playing': True, 'position': 410000, 'duration': 1320000}},
+                {'id': 'c', 'name': 'Bedroom', 'online': False, 'onScreen': False, 'playing': None},
+            ]},
         }
         if path in api:
             return self.send(api[path])

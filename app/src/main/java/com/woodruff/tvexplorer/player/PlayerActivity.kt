@@ -40,6 +40,21 @@ class PlayerActivity : ComponentActivity() {
     @Volatile private var driveToken: String? = null
     @Volatile private var driveTokenAt = 0L
 
+    /** Shares title / play state / position with other TVs and the phone (see NowPlaying). */
+    private val reporter = android.os.Handler(android.os.Looper.getMainLooper())
+    private val report = object : Runnable {
+        override fun run() {
+            player?.let { p ->
+                com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = com.woodruff.tvexplorer.nowplaying.Playing(
+                    title = p.currentMediaItem?.mediaMetadata?.title?.toString() ?: "Video",
+                    subtitle = null, app = "Woodruff Family", playing = p.isPlaying,
+                    positionMs = p.currentPosition.coerceAtLeast(0), durationMs = p.duration.coerceAtLeast(0),
+                )
+            }
+            reporter.postDelayed(this, 2_000)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -93,10 +108,13 @@ class PlayerActivity : ComponentActivity() {
             p.prepare()
             view.player = p
         }
+        reporter.post(report)
     }
 
     override fun onStop() {
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
+        reporter.removeCallbacks(report)
+        com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = null
         player?.let { p ->
             savedIndex = p.currentMediaItemIndex
             savedPosition = p.currentPosition

@@ -207,6 +207,10 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
                     title.trim().take(1).uppercase(), style = MaterialTheme.typography.displayLarge,
                     color = Palette.accent.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center),
                 )
+            } else if (LocalPosterPainter.current != null) {
+                LocalPosterPainter.current!!(art)?.let {
+                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
             } else {
                 AsyncImage(
                     model = ImageRequest.Builder(context).data(art)
@@ -228,6 +232,9 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
         }
     }
 }
+
+/** Only set by the UI gallery, which renders headless and can't wait on Coil: decodes art synchronously. */
+internal val LocalPosterPainter = androidx.compose.runtime.staticCompositionLocalOf<((String) -> androidx.compose.ui.graphics.painter.Painter?)?> { null }
 
 private fun isGoogle(url: String): Boolean {
     val host = android.net.Uri.parse(url).host.orEmpty()

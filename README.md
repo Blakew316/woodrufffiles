@@ -33,6 +33,13 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Away from home with Tailscale**: install Tailscale on the TV and the iPhone (same account). The TV's Phone
   screen then shows an *Away from home* link and QR code (also in the phone's TV tab); open it once on the phone
   and add it to the Home Screen. Everything in the phone app then works from anywhere, encrypted by Tailscale.
+- **Several TVs**: install Woodruff Family on each TV and give each a name (Settings → TVs → This TV's name).
+  On the TV you'll watch from (the hub), choose **Add another TV**, pick the other TV from the list and type the
+  6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's TV tab then
+  list every TV with what's playing, and the phone can see and control any of them. Woodruff's own player is
+  always reported; to also see Netflix, YouTube and other apps, turn on **See what other apps are playing** on
+  each TV (Notification access; Settings shows an adb command for TVs that hide that setting). Give each TV a
+  fixed address in your router so links keep working.
 - **Notes** (side menu): pinned and recent notes, editable from the TV or any paired phone.
 - **Announcements to phones**: each phone gets a name ("Mom's iPhone"). From the TV (Notifications → Announce) or a phone,
   pick who gets it. Phones that turned on *Lock-screen alerts* get a real notification through the free
@@ -209,6 +216,9 @@ The APK is written to `app/build/outputs/apk/release/`.
 - The pairing key stays in the phone page's address so a Home Screen copy keeps working. Treat that link like a password.
 - Lock-screen alerts go through the public ntfy.sh server. Each phone's topic is random, but anyone who learns it can read
   the announcements sent to that phone, so don't announce secrets.
+- A linked TV gets its own link key, not the phone pairing key: it can only read status, see the screen and press
+  remote keys, never touch files, settings or mail. **Stop other TVs seeing this one** in Settings revokes every link.
+  Linking codes last 10 minutes, work once, and die after 5 wrong tries.
 - Archive extraction rejects "zip slip" entries that would write outside the target folder.
 
 ## Project layout

@@ -60,6 +60,12 @@
   .pad .ok { background:var(--accent); color:var(--on-accent); font-size:16px; }
   .keys { display:flex; gap:8px; justify-content:center; margin:6px 16px 0; }
   .keys button { flex:1; height:46px; font-size:15px; }
+  .tvs { display:flex; gap:10px; overflow-x:auto; padding:0 16px 12px; scrollbar-width:none; }
+  .tvs::-webkit-scrollbar { display:none; }
+  .tvc { flex:none; width:200px; background:var(--card); border:2px solid transparent; border-radius:14px; padding:10px 12px; text-align:left; font:inherit; color:var(--text); }
+  .tvc.on { border-color:var(--accent); }
+  .tvc b { display:block; font-size:15px; } .tvc span { display:block; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tvc .live { color:var(--ok); }
   .ic { width:34px; height:34px; flex:none; display:block; }
   #list .row .grow { white-space:normal; line-height:1.25; }
   #list .row .grow a { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
@@ -98,6 +104,7 @@
 
 <!-- TV SCREEN -->
 <section id="tv">
+  <div class="tvs" id="tv-list" hidden></div>
   <div class="screen"><img id="tv-img" alt="TV screen"><p id="tv-msg">Connecting to the TV…</p></div>
   <div class="pad">
     <span></span><button data-key="up" aria-label="Up">▲</button><span></span>
@@ -270,7 +277,7 @@
     if (tab === 'send') loadPhones();
     if (tab === 'notes') loadNotes();
     if (tab === 'keyboard') pollField();
-    if (tab === 'tv') { loadSettings(); frame(); }
+    if (tab === 'tv') { loadSettings(); loadTvs(); frame(); }
   }
   var current = null;
   document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { show(b.dataset.tab); }; });
@@ -432,11 +439,12 @@
   // ---- TV screen & remote -------------------------------------------------------------
   // One frame at a time: the next request starts when the last image has loaded, so a slow
   // network never queues up frames. Stops whenever the tab or the app isn't visible.
-  var frameTimer = null, lastUrl = null;
+  var frameTimer = null, lastUrl = null, tvId = 'this', tvTimer = null;
+  function screenUrl() { return (tvId === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(tvId) + '&t=') + Date.now(); }
   function frame() {
     clearTimeout(frameTimer);
     if (current !== 'tv' || document.hidden) return;
-    fetch('/api/screen?t=' + Date.now(), { cache: 'no-store' }).then(function (r) {
+    fetch(screenUrl(), { cache: 'no-store' }).then(function (r) {
       if (r.status === 409) return r.json().then(function (d) { $('tv-msg').textContent = d.message; $('tv-img').style.opacity = .25; frameTimer = setTimeout(frame, 3000); });
       if (!r.ok) throw new Error();
       return r.blob().then(function (b) {
@@ -448,9 +456,29 @@
   }
   document.querySelectorAll('[data-key]').forEach(function (b) {
     b.onclick = function () {
-      post('/api/key', { key: b.dataset.key }).then(function () { clearTimeout(frameTimer); frameTimer = setTimeout(frame, 250); }, err);
+      var sent = tvId === 'this' ? post('/api/key', { key: b.dataset.key }) : post('/api/tvs/key', { id: tvId, key: b.dataset.key });
+      sent.then(function () { clearTimeout(frameTimer); frameTimer = setTimeout(frame, 250); }, err);
     };
   });
+
+  // Several TVs: this TV is the hub and relays the others. Shown only once another TV is linked.
+  function fmtTime(ms) { var s = Math.floor(ms / 1000), m = Math.floor(s / 60); return m + ':' + ('0' + (s % 60)).slice(-2); }
+  function loadTvs() {
+    clearTimeout(tvTimer);
+    if (current !== 'tv' || document.hidden) return;
+    api('/api/tvs').then(function (d) {
+      var list = $('tv-list'); list.hidden = d.tvs.length < 2; list.textContent = '';
+      d.tvs.forEach(function (t) {
+        var c = el('button', 'tvc' + (t.id === tvId ? ' on' : ''));
+        c.appendChild(el('b', null, t.name));
+        var p = t.playing, line = !t.online ? 'Off or unreachable' : p ? (p.playing ? '▶ ' : '❚❚ ') + p.title : 'Nothing playing';
+        var l1 = el('span', p && p.playing ? 'live' : null, line); c.appendChild(l1);
+        if (t.online && p) c.appendChild(el('span', null, p.app + (p.duration ? ' · ' + fmtTime(p.position) + ' / ' + fmtTime(p.duration) : '')));
+        c.onclick = function () { tvId = t.id; loadTvs(); frame(); };
+        list.appendChild(c);
+      });
+    }, function () {}).then(function () { tvTimer = setTimeout(loadTvs, 5000); });
+  }
 
   // ---- Keyboard -----------------------------------------------------------------------
   var field = null, typeTimer = null, pollTimer = null;
@@ -543,7 +571,7 @@
     api('/api/inbox?id=' + q(device.id)).then(function (d) { d.messages.forEach(showAlert); }, function () {});
   }
   setInterval(checkInbox, 5000);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); frame(); } });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); } });
   renderDevice();
   hello(null).catch(function () {});
   $('o-send').onclick = function () {
