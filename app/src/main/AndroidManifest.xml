@@ -22,6 +22,8 @@
     <!-- Popups for phone messages and new mail while another app is on screen. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Start the phone connection when the TV turns on (Settings → Phone connection). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".TvExplorerApp"
@@ -66,6 +68,16 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Local-network companion server: receives files and messages from the owner's phone and checks for new mail." />
         </service>
+
+        <!-- Exported only so the system can deliver boot / app-updated; it ignores every other action. -->
+        <receiver
+            android:name=".server.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Only used so the owner can grant "Notification access", which is what lets the TV see
              what other apps (Netflix, YouTube…) are playing for the multi-TV view. Reads no notifications. -->

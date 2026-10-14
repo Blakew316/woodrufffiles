@@ -34,6 +34,8 @@ import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.tmdb.Tmdb
 import com.woodruff.tvexplorer.tvs.LinkedTv
 import com.woodruff.tvexplorer.tvs.TvLinks
+import com.woodruff.tvexplorer.server.AutoStart
+import androidx.compose.material.icons.rounded.PowerSettingsNew
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Link
@@ -156,6 +158,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val nestConnected = remember(v) { GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST) }
     val tmdbSet = remember(v) { Tmdb.isConfigured(context) }
     val tvName = remember(v) { TvLinks.name(context) }
+    val autoStart = remember(v) { AutoStart.enabled(context) }
     val seesOtherApps = remember(v) { NowPlaying.canSeeOtherApps(context) }
     remember { TvLinks.load(context) }
     val linkedTvs by TvLinks.linked.collectAsStateWithLifecycle()
@@ -333,6 +336,11 @@ fun SettingsScreen(vm: MainViewModel) {
 
         section("Phone connection")
         item { SettingRow(Icons.Rounded.PhoneIphone, "Connect a phone", TransferService.state.value.base) { vm.show(Screen.TRANSFER) } }
+        item {
+            SettingRow(Icons.Rounded.PowerSettingsNew, "Start when the TV turns on", if (autoStart) "On" else "Off") {
+                AutoStart.setEnabled(context, !autoStart); changed()
+            }
+        }
         item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", null, danger = true) { dialog = SettingsDialog.ResetPairing } }
 
         section("About")

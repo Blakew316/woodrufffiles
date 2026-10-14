@@ -42,6 +42,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Away from home with Tailscale**: install Tailscale on the TV and the iPhone (same account). The TV's Phone
   screen then shows an *Away from home* link and QR code (also in the phone's Remote tab); open it once on the phone
   and add it to the Home Screen. Everything in the phone app then works from anywhere, encrypted by Tailscale.
+  The phone connection starts by itself when the TV turns on and after Woodruff updates (it waits for Wi-Fi first),
+  so nobody needs to open Woodruff on the TV after a restart. Settings → Phone connection → *Start when the TV turns on*.
 - **Several TVs**: install Woodruff Family on each TV and give each a name (Settings → TVs → This TV's name).
   On the TV you'll watch from (the hub), choose **Add another TV**, pick the other TV from the list and type the
   6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's TV tab then

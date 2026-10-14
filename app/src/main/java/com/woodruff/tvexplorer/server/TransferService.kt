@@ -44,6 +44,7 @@ data class ServerState(
  */
 class TransferService : Service() {
     private var server: TransferServer? = null
+    private var waiting: kotlinx.coroutines.Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -53,7 +54,7 @@ class TransferService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (server == null) start()
+        if (server == null && waiting?.isActive != true) start()
         return START_NOT_STICKY
     }
 
@@ -69,11 +70,20 @@ class TransferService : Service() {
             },
         )
         val ip = lanAddress()
-        if (ip == null) {
+        if (ip != null) { open(ip); return }
+        // Right after the TV starts, Wi-Fi often isn't connected yet: wait for it (up to 3 minutes).
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification("Waiting for the network…"))
+        waiting = scope.launch {
+            repeat(36) {
+                delay(5_000)
+                lanAddress()?.let { open(it); return@launch }
+            }
             _state.value = ServerState(error = "Not connected to a network. Connect the TV to Wi-Fi or Ethernet first.")
             stopSelf()
-            return
         }
+    }
+
+    private fun open(ip: String) {
         val page = assets.open("web/index.html").bufferedReader().use { it.readText() }
         val storage = StorageRepository(applicationContext)
         var lastError: IOException? = null
