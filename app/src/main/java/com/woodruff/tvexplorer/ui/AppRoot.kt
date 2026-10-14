@@ -124,7 +124,6 @@ fun AppRoot(vm: MainViewModel) {
                     Icons.Rounded.Notifications, screen == Screen.NOTIFICATIONS,
                 ) { vm.show(Screen.NOTIFICATIONS) }
                 RailItem("Notes", Icons.Rounded.EditNote, screen == Screen.NOTES) { vm.show(Screen.NOTES) }
-                RailItem("Apps", Icons.Rounded.Apps, screen == Screen.APPS) { vm.show(Screen.APPS) }
                 RailLabel("Connect")
                 RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Rounded.PhoneIphone, screen == Screen.TRANSFER) {
                     vm.show(Screen.TRANSFER)

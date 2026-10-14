@@ -73,6 +73,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Where Back leaves the browser to: Home, or Settings when a drive was opened from there. */
     private var browserReturn = Screen.HOME
 
+    /** Where Back from the Apps screen goes: Home, or Settings when opened from there. */
+    var appsReturn = Screen.HOME
+        private set
+
+    fun openApps(from: Screen) {
+        appsReturn = from
+        show(Screen.APPS)
+    }
+
     /** Switch top-level screen from the side rail. Leaving the browser forgets its back stack. */
     fun show(screen: Screen) {
         if (screen != Screen.BROWSER) {

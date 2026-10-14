@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.PhoneIphone
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.SdStorage
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Videocam
@@ -154,7 +155,7 @@ fun SettingsScreen(vm: MainViewModel) {
             }
         }
 
-        section("Storage")
+        section("Storage & apps")
         roots.forEach { r ->
             item(key = "root-" + r.dir.path) {
                 SettingRow(
@@ -163,6 +164,8 @@ fun SettingsScreen(vm: MainViewModel) {
                 ) { vm.openRoot(r.dir, from = Screen.SETTINGS) }
             }
         }
+
+        item { SettingRow(Icons.Rounded.Apps, "Apps", null) { vm.openApps(Screen.SETTINGS) } }
 
         section("Screensaver & background")
         item {
@@ -383,6 +386,7 @@ private fun badgeColor(icon: ImageVector, danger: Boolean): Color {
         Icons.Rounded.PhoneIphone, Icons.Rounded.Smartphone -> Color(0xFF30D158)
         Icons.Rounded.Key, Icons.Rounded.Lock, Icons.Rounded.Logout, Icons.Rounded.Info -> Color(0xFF8E8E93)
         Icons.Rounded.Storage, Icons.Rounded.SdStorage -> Color(0xFF636366)
+        Icons.Rounded.Apps -> Color(0xFF34C759)
         Icons.Rounded.Email, Icons.Rounded.PersonAdd -> Color(0xFF0A84FF)
         else -> Palette.accent
     }

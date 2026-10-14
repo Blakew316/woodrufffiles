@@ -68,7 +68,7 @@ fun AppsScreen(vm: MainViewModel) {
     var menuFor by remember { mutableStateOf<AppEntry?>(null) }
     val apps by produceState<List<AppEntry>?>(null, includeSystem, generation) { value = repo.apps(includeSystem) }
 
-    BackHandler { vm.show(Screen.HOME) }
+    BackHandler { vm.show(vm.appsReturn) }
 
     fun report(r: OpenResult) { if (r is OpenResult.Failed) vm.say(r.message) }
 

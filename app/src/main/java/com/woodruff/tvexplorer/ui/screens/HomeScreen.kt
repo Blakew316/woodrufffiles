@@ -140,7 +140,7 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     val tools = listOf(
         Tile("Notes", null, Icons.Rounded.EditNote, Palette.accent) { vm.show(Screen.NOTES) },
         Tile("Phone", null, Icons.Rounded.PhoneIphone, Palette.accent) { vm.show(Screen.TRANSFER) },
-        Tile("Apps", null, Icons.Rounded.Apps, Palette.apk) { vm.show(Screen.APPS) },
+        Tile("Apps", null, Icons.Rounded.Apps, Palette.apk) { vm.openApps(Screen.HOME) },
         Tile("Settings", null, Icons.Rounded.Settings, Palette.muted) { vm.show(Screen.SETTINGS) },
     )
 
