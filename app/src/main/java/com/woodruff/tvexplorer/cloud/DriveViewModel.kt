@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.woodruff.tvexplorer.tmdb.Tmdb
 import java.io.File
 
@@ -84,7 +86,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val token = GoogleAuth.token(ctx) ?: return@launch
             for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
-                runCatching { posters(token, listOf(place), DriveApi.list(token, place)) }.onSuccess { cache[place] = it }
+                runCatching { posters(token, listOf(place), parse(DriveApi.list(token, place))) }.onSuccess { cache[place] = it }
             }
         }
     }
@@ -211,11 +213,15 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Movies / TV Shows top level: titles and years parsed once, on a background thread. */
+    private suspend fun parse(files: List<DriveFile>) = withContext(Dispatchers.Default) { Library.withInfo(files) }
+
     private fun load() {
         loadJob?.cancel()
         val place = _state.value.place
         val stack = _state.value.stack
         val library = _state.value.library
+        val filterable = _state.value.filterable
         val cached = cache[place]
         _state.update { it.copy(busy = cached == null, error = null, files = cached ?: emptyList()) }
         loadJob = viewModelScope.launch {
@@ -229,6 +235,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 // Show the listing (with the owner's own art) right away; TMDB posters follow.
                 val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
+                    .let { if (filterable) parse(it) else it }
                 cache[place] = files
                 // Only apply if the viewer is still on this place.
                 _state.update { if (it.place == place) it.copy(token = token, files = files, busy = false) else it }

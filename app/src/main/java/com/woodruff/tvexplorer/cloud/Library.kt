@@ -8,7 +8,11 @@ import java.text.Normalizer
  * rating from TMDB when a key is set. The year in the file name wins over TMDB's, since a TMDB
  * match can be the wrong film.
  */
-data class MediaInfo(val title: String, val year: Int?, val genres: List<String> = emptyList(), val rating: Double? = null)
+data class MediaInfo(val title: String, val year: Int?, val genres: List<String> = emptyList(), val rating: Double? = null) {
+    // Worked out on first use, then kept with the listing: filter changes don't redo them.
+    internal val sortKey: String by lazy { Library.sortKey(title) }
+    internal val searchText: String by lazy { Library.normalize(title) }
+}
 
 enum class LibrarySort(val label: String) { TITLE("A–Z"), RECENT("Recently added"), YEAR("Newest"), RATING("Top rated") }
 
@@ -32,6 +36,12 @@ object Library {
         return MediaInfo(title.ifBlank { if (folder) name else name.substringBeforeLast('.') }, year?.toIntOrNull())
     }
 
+    /**
+     * Parses every name once (off the main thread, when a listing loads), so sorting, filtering
+     * and the filter chips never re-run the name regexes.
+     */
+    fun withInfo(files: List<DriveFile>): List<DriveFile> = files.map { if (it.info == null) it.copy(info = parsed(it.name, it.isFolder)) else it }
+
     /** "The Matrix (1999)"; just the title when the year is unknown. */
     fun label(f: DriveFile): String = info(f).let { i -> if (i.year != null) "${i.title} (${i.year})" else i.title }
 
@@ -47,15 +57,14 @@ object Library {
     fun apply(files: List<DriveFile>, filter: LibraryFilter): List<DriveFile> {
         // Parse each name once, not on every comparison.
         val infos = files.associateWith { info(it) }
-        val keys = infos.mapValues { sortKey(it.value.title) }
         val words = normalize(filter.query).split(' ').filter { it.isNotEmpty() }
         val kept = files.filter { f ->
             val i = infos.getValue(f)
             (filter.genre == null || filter.genre in i.genres) &&
                 (filter.decade == null || (i.year != null && i.year / 10 * 10 == filter.decade)) &&
-                (words.isEmpty() || keys.getValue(f).let { t -> words.all { it in t } } || normalize(i.title).let { t -> words.all { it in t } })
+                (words.isEmpty() || words.all { it in i.searchText })
         }
-        val byTitle = compareBy<DriveFile> { keys.getValue(it) }
+        val byTitle = compareBy<DriveFile> { infos.getValue(it).sortKey }
         return when (filter.sort) {
             LibrarySort.TITLE -> kept.sortedWith(byTitle)
             LibrarySort.RECENT -> kept.sortedWith(compareByDescending<DriveFile> { it.modified }.then(byTitle))

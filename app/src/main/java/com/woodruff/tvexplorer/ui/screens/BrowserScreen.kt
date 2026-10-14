@@ -169,6 +169,8 @@ fun BrowserScreen(vm: MainViewModel) {
                 state.loading -> EmptyState("Loading…")
                 state.error != null -> EmptyState(state.error!!)
                 state.items.isEmpty() -> EmptyState(if (location is Location.Search) "No matches" else "This folder is empty")
+                // First visit: wait for dates (usually instant now) rather than show the grid and reshuffle it.
+                dateFilterable && dates == null -> EmptyState("Loading…")
                 shown.isEmpty() -> EmptyState("Nothing from then")
                 settings.grid -> FileGrid(vm, listKey, shown, state.selected, onOpen, onMenu)
                 else -> FileList(vm, listKey, shown, state.selected, onOpen, onMenu)

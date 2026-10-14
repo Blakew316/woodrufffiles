@@ -147,8 +147,18 @@ object TvLinks {
 
     // ---- Talking to linked TVs ---------------------------------------------------------------
 
-    /** This TV plus every linked TV, fetched in parallel (offline TVs answer within 2.5 s). */
-    suspend fun statuses(c: Context): List<TvStatus> = coroutineScope {
+    @Volatile private var recent: Pair<Long, List<TvStatus>>? = null
+
+    /**
+     * This TV plus every linked TV, fetched in parallel (offline TVs answer within 2.5 s). Reused
+     * for 3 s, so several phones and the Command center polling at once cost one round of requests.
+     */
+    suspend fun statuses(c: Context): List<TvStatus> {
+        recent?.let { (at, list) -> if (System.currentTimeMillis() - at < 3_000 && list.size == _linked.value.size + 1) return list }
+        return fetchStatuses(c).also { recent = System.currentTimeMillis() to it }
+    }
+
+    private suspend fun fetchStatuses(c: Context): List<TvStatus> = coroutineScope {
         load(c)
         val me = async(Dispatchers.IO) { parse(status(c), online = true) }
         val others = _linked.value.map { tv ->

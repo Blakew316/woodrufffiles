@@ -14,9 +14,10 @@ import java.util.concurrent.ConcurrentHashMap
  * When each photo or video was taken, for the Photos / Videos date filters.
  *
  * Copies from Google Photos are resized, which drops their EXIF data, so the capture time Google
- * reports is saved here when they download. For anything else, in order: EXIF / video metadata,
- * a date in the file name ("PXL_20240512_140322.jpg", "IMG-20240512-WA0001", "2024-05-12 14.03.22"),
- * then the file's modified time. Results are kept in a small index so each file is read once.
+ * reports is saved here when they download. For anything else, in order: a date in the file name
+ * ("PXL_20240512_140322.jpg", "IMG-20240512-WA0001", "2024-05-12 14.03.22"; cameras write the same
+ * time into EXIF, and the name costs nothing to read), EXIF / video metadata, then the file's
+ * modified time. Results are kept in a small index so each file is read once.
  */
 object MediaDates {
     private val index = ConcurrentHashMap<String, Long>()
@@ -32,13 +33,29 @@ object MediaDates {
         runCatching { file.setLastModified(takenMs) }
     }
 
-    /** Capture time for each file (path → ms). Reads files, so call off the main thread. */
+    /**
+     * Capture time for each file (path → ms). Reads files, so call off the main thread.
+     * Cheap checks first: the index, then the name (camera names carry the time). Only the rest
+     * are opened for EXIF / video metadata, four at a time, and everything found is indexed.
+     */
     fun of(c: Context, files: List<File>): Map<String, Long> {
         load(c)
-        val out = HashMap<String, Long>(files.size)
+        val out = HashMap<String, Long>(files.size * 2)
+        val unknown = ArrayList<File>()
         for (f in files) {
             val path = f.absolutePath
-            out[path] = index[path] ?: (fromMetadata(f) ?: fromName(f.name) ?: f.lastModified()).also { index[path] = it; dirty = true }
+            val known = index[path] ?: fromName(f.name)?.also { index[path] = it; dirty = true }
+            if (known != null) out[path] = known else unknown += f
+        }
+        if (unknown.isNotEmpty()) {
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(minOf(4, unknown.size))
+            try {
+                unknown.map { f -> pool.submit<Pair<String, Long>> { f.absolutePath to (fromMetadata(f) ?: f.lastModified()) } }
+                    .forEach { task -> val (path, ms) = task.get(); out[path] = ms; index[path] = ms }
+                dirty = true
+            } finally {
+                pool.shutdown()
+            }
         }
         save(c)
         return out

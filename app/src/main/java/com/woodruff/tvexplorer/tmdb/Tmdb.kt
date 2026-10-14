@@ -75,7 +75,7 @@ object Tmdb {
                             }
                         }
                     }.onFailure { Log.w("Tmdb", "lookup failed: ${f.name}", it) }.getOrNull() ?: return@async f
-                    val parsed = Library.parsed(f.name, f.isFolder)
+                    val parsed = f.info ?: Library.parsed(f.name, f.isFolder)
                     f.copy(
                         posterUrl = f.posterUrl ?: hit.poster,
                         info = if (mode == Mode.SEASONS) f.info else parsed.copy(

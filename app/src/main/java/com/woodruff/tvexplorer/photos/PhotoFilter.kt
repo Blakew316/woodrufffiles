@@ -12,12 +12,16 @@ data class PhotoFilter(val newestFirst: Boolean = true, val year: Int? = null, /
 
     companion object {
         /** Years that have something, newest first. */
-        fun years(dates: Collection<Long>, zone: TimeZone = TimeZone.getDefault()): List<Int> =
-            dates.map { ym(it, zone).first }.distinct().sortedDescending()
+        fun years(dates: Collection<Long>, zone: TimeZone = TimeZone.getDefault()): List<Int> {
+            val cal = GregorianCalendar(zone)
+            return dates.mapTo(HashSet()) { ym(it, cal) / 100 }.sortedDescending()
+        }
 
         /** Months (1–12) of [year] that have something, in calendar order. */
-        fun months(dates: Collection<Long>, year: Int, zone: TimeZone = TimeZone.getDefault()): List<Int> =
-            dates.map { ym(it, zone) }.filter { it.first == year }.map { it.second }.distinct().sorted()
+        fun months(dates: Collection<Long>, year: Int, zone: TimeZone = TimeZone.getDefault()): List<Int> {
+            val cal = GregorianCalendar(zone)
+            return dates.mapNotNullTo(HashSet()) { ym(it, cal).takeIf { v -> v / 100 == year }?.rem(100) }.sorted()
+        }
 
         fun monthName(month: Int, locale: Locale = Locale.getDefault()): String = DateFormatSymbols(locale).shortMonths[month - 1]
 
@@ -30,16 +34,20 @@ data class PhotoFilter(val newestFirst: Boolean = true, val year: Int? = null, /
             filter: PhotoFilter, zone: TimeZone = TimeZone.getDefault(),
         ): List<T> {
             val (folders, files) = items.partition(isFolder)
-            val kept = files.filter { f ->
-                val d = dates[path(f)] ?: return@filter filter.year == null
-                val (y, m) = ym(d, zone)
-                (filter.year == null || y == filter.year) && (filter.month == null || m == filter.month)
+            val cal = GregorianCalendar(zone) // one calendar for the whole pass, not one per photo
+            val kept = if (filter.year == null) files else files.filter { f ->
+                val d = dates[path(f)] ?: return@filter false
+                val v = ym(d, cal)
+                v / 100 == filter.year && (filter.month == null || v % 100 == filter.month)
             }
             val byDate = compareBy<T> { dates[path(it)] ?: Long.MIN_VALUE }.thenBy { path(it) }
             return folders + kept.sortedWith(if (filter.newestFirst) byDate.reversed() else byDate)
         }
 
-        private fun ym(ms: Long, zone: TimeZone): Pair<Int, Int> =
-            GregorianCalendar(zone).apply { timeInMillis = ms }.let { it.get(Calendar.YEAR) to it.get(Calendar.MONTH) + 1 }
+        /** 202405 for May 2024. */
+        private fun ym(ms: Long, cal: Calendar): Int {
+            cal.timeInMillis = ms
+            return cal.get(Calendar.YEAR) * 100 + cal.get(Calendar.MONTH) + 1
+        }
     }
 }
