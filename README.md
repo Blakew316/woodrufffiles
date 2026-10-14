@@ -89,7 +89,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Send files**: start a small web server on the TV, then scan the QR code with your phone or open the URL on a computer.
   You can drag and drop uploads (streamed straight to disk, so they can go to a USB drive), download, create folders and delete.
 - **Light or dark mode**: switch it at the bottom of the side menu (Display → Light mode); the choice is remembered.
-- **TV-first navigation**: a side rail, large focus targets, and Back always does the expected thing.
+- **TV-first navigation**: a slim icon menu on the left that slides open over the screen when you move onto it (so
+  screens like the Home dashboard use nearly the full width), large focus targets, and Back always does the expected thing.
   Coming back to a folder puts you on the item you left. Long-press OK or the Menu key opens the action menu.
 
 ## Remote controls

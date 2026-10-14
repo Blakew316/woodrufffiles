@@ -15,6 +15,7 @@ import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.ui.AppRoot
 import com.woodruff.tvexplorer.ui.MainViewModel
+import com.woodruff.tvexplorer.ui.RailPreview
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
@@ -68,6 +69,15 @@ class TvGallery {
                 compose.mainClock.advanceTimeBy(1_500) // let the screen cross-fade finish
                 compose.waitForIdle()
                 compose.onRoot().captureRoboImage(File(out, "tv-$name-${if (light) "light" else "dark"}.png").path)
+                if (screen == Screen.HOME) {
+                    // The side menu opened over the dashboard, as when it has focus.
+                    compose.runOnIdle { RailPreview.open = true }
+                    compose.mainClock.advanceTimeBy(600)
+                    compose.waitForIdle()
+                    compose.onRoot().captureRoboImage(File(out, "tv-home-menu-${if (light) "light" else "dark"}.png").path)
+                    compose.runOnIdle { RailPreview.open = false }
+                    compose.mainClock.advanceTimeBy(600)
+                }
             }
         }
     }

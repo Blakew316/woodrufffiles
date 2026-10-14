@@ -1,6 +1,22 @@
 package com.woodruff.tvexplorer.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.focusGroup
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -89,6 +105,7 @@ import com.woodruff.tvexplorer.notify.Notices
 import kotlinx.coroutines.delay
 
 /** Main window: branded side rail, the active screen, and global overlays. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun AppRoot(vm: MainViewModel) {
     val drive: DriveViewModel = viewModel()
@@ -103,6 +120,10 @@ fun AppRoot(vm: MainViewModel) {
     val latestNotice by Notices.latest.collectAsStateWithLifecycle()
     val unread = notices.count { !it.read }
     val homeFocus = remember { FocusRequester() }
+    val contentFocus = remember { FocusRequester() }
+    var railFocused by remember { mutableStateOf(false) }
+    var contentFocused by remember { mutableStateOf(false) }
+    val open = railFocused || RailPreview.open
 
     Box(Modifier.fillMaxSize().background(Palette.backdrop)) {
         // Optional background photo (Settings → Screensaver & background), dimmed so text stays readable.
@@ -110,48 +131,9 @@ fun AppRoot(vm: MainViewModel) {
             AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Palette.background.copy(alpha = 0.78f)))
         }
-        Row(Modifier.fillMaxSize()) {
-            Column(
-                Modifier
-                    .width(250.dp)
-                    .fillMaxHeight()
-                    .background(Palette.background.copy(alpha = 0.6f))
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 28.dp, horizontal = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Brand(Modifier.padding(start = 8.dp, bottom = 24.dp))
-                RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
-                RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS) { vm.show(Screen.CAMERAS) }
-                // Library: Movies and TV Shows stream from those Drive folders; Photos and Videos are
-                // what was picked from Google Photos, saved on the TV.
-                val driveTop = driveState.stack.firstOrNull()
-                RailItem("Movies", Icons.Rounded.Movie, screen == Screen.DRIVE && driveTop == DrivePlace.Movies) {
-                    drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE)
-                }
-                RailItem("TV Shows", Icons.Rounded.Tv, screen == Screen.DRIVE && driveTop == DrivePlace.TvShows) {
-                    drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE)
-                }
-                val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browser.folder?.path?.startsWith(dir.path) == true }
-                RailItem("Photos", Icons.Rounded.PhotoLibrary, inFolder(GooglePhotos.folder)) {
-                    vm.openRoot(GooglePhotos.folder.apply { mkdirs() })
-                }
-                RailItem("Videos", Icons.Rounded.VideoLibrary, inFolder(GooglePhotos.videoFolder)) {
-                    vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() })
-                }
-                RailItem("Mail", Icons.Rounded.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
-                RailItem(
-                    if (unread > 0) "Notifications · $unread" else "Notifications",
-                    Icons.Rounded.Notifications, screen == Screen.NOTIFICATIONS,
-                ) { vm.show(Screen.NOTIFICATIONS) }
-                RailItem("Notes", Icons.Rounded.EditNote, screen == Screen.NOTES) { vm.show(Screen.NOTES) }
-                RailLabel("Connect")
-                RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Rounded.PhoneIphone, screen == Screen.TRANSFER) {
-                    vm.show(Screen.TRANSFER)
-                }
-                RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS) { vm.show(Screen.SETTINGS) }
-            }
-            Box(Modifier.fillMaxSize()) {
+        // Content keeps the slim rail's width to its left, so it never reflows when the menu opens:
+        // the open menu slides over the dashboard instead.
+        Box(Modifier.fillMaxSize().padding(start = RAIL_CLOSED).onFocusChanged { contentFocused = it.hasFocus }.focusRequester(contentFocus).focusRestorer().focusGroup()) {
                 Crossfade(targetState = screen, label = "screen") { s ->
                     when (s) {
                         Screen.HOME -> HomeScreen(vm, drive)
@@ -169,7 +151,61 @@ fun AppRoot(vm: MainViewModel) {
                 MessageBanner(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
                 MessageBanner(driveState.message, drive::dismissMessage, Modifier.align(Alignment.BottomCenter))
                 NoticeBanner(latestNotice, Modifier.align(Alignment.TopEnd)) { vm.show(Screen.NOTIFICATIONS) }
-            }
+        }
+        // Dim the dashboard while the menu is open over it.
+        val scrim by animateFloatAsState(if (open) 1f else 0f, tween(220), label = "scrim")
+        if (scrim > 0f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
+        // Side menu: icons only until it has focus, then it opens to full labels over the content.
+        val railWidth by animateDpAsState(if (open) RAIL_OPEN else RAIL_CLOSED, tween(220), label = "rail")
+        Column(
+            Modifier
+                .width(railWidth)
+                .fillMaxHeight()
+                .background(if (open) Palette.surface else Palette.background.copy(alpha = 0.6f))
+                .onFocusChanged { railFocused = it.hasFocus }
+                // Right goes back to where you were in the content (the open menu covers its left edge,
+                // so a plain geometric search would skip the first column).
+                .onPreviewKeyEvent { e ->
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {
+                        runCatching { contentFocus.requestFocus() }
+                        contentFocused
+                    } else false
+                }
+                .focusRestorer { homeFocus }
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 28.dp, horizontal = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+                Brand(open, Modifier.padding(start = 6.dp, bottom = 24.dp))
+                RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, open, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
+                RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS, open) { vm.show(Screen.CAMERAS) }
+                // Library: Movies and TV Shows stream from those Drive folders; Photos and Videos are
+                // what was picked from Google Photos, saved on the TV.
+                val driveTop = driveState.stack.firstOrNull()
+                RailItem("Movies", Icons.Rounded.Movie, screen == Screen.DRIVE && driveTop == DrivePlace.Movies, open) {
+                    drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE)
+                }
+                RailItem("TV Shows", Icons.Rounded.Tv, screen == Screen.DRIVE && driveTop == DrivePlace.TvShows, open) {
+                    drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE)
+                }
+                val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browser.folder?.path?.startsWith(dir.path) == true }
+                RailItem("Photos", Icons.Rounded.PhotoLibrary, inFolder(GooglePhotos.folder), open) {
+                    vm.openRoot(GooglePhotos.folder.apply { mkdirs() })
+                }
+                RailItem("Videos", Icons.Rounded.VideoLibrary, inFolder(GooglePhotos.videoFolder), open) {
+                    vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() })
+                }
+                RailItem("Mail", Icons.Rounded.Email, screen == Screen.MAIL, open) { vm.show(Screen.MAIL) }
+                RailItem(
+                    if (unread > 0) "Notifications · $unread" else "Notifications",
+                    Icons.Rounded.Notifications, screen == Screen.NOTIFICATIONS, open, badge = unread > 0,
+                ) { vm.show(Screen.NOTIFICATIONS) }
+                RailItem("Notes", Icons.Rounded.EditNote, screen == Screen.NOTES, open) { vm.show(Screen.NOTES) }
+                RailLabel("Connect", open)
+                RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Rounded.PhoneIphone, screen == Screen.TRANSFER, open, badge = server.running) {
+                    vm.show(Screen.TRANSFER)
+                }
+                RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS, open) { vm.show(Screen.SETTINGS) }
         }
     }
 
@@ -177,17 +213,27 @@ fun AppRoot(vm: MainViewModel) {
     driveState.operation?.let { ProgressDialog(it.title, it.progress, drive::cancelOperation) }
     com.woodruff.tvexplorer.ui.screens.UpdatePrompt(vm)
     LaunchedEffect(Unit) {
-        if (Appearance.startOnCameras) vm.show(Screen.CAMERAS) else runCatching { homeFocus.requestFocus() }
+        // Start in the content with the menu closed; fall back to the menu if nothing there takes focus.
+        if (Appearance.startOnCameras) vm.show(Screen.CAMERAS)
+        delay(300)
+        runCatching { contentFocus.requestFocus() }
+        delay(100)
+        if (!contentFocused) runCatching { homeFocus.requestFocus() }
     }
 }
 
+private val RAIL_CLOSED = 84.dp
+private val RAIL_OPEN = 260.dp
+
+/** Gallery hook: draws the menu open without giving it focus. */
+internal object RailPreview { var open by mutableStateOf(false) }
+
 /** Top-left brand: the Woodruff Family reel emblem (transparent outside the ring) and the wordmark. */
 @Composable
-private fun Brand(modifier: Modifier = Modifier) {
+private fun Brand(open: Boolean, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(R.drawable.brand_logo), contentDescription = "Woodruff Family logo", modifier = Modifier.size(52.dp))
-        Spacer(Modifier.width(12.dp))
-        Column {
+        Image(painterResource(R.drawable.brand_logo), contentDescription = "Woodruff Family logo", modifier = Modifier.size(44.dp))
+        if (open) Column(Modifier.padding(start = 12.dp)) {
             Text("WOODRUFF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Palette.text, letterSpacing = 1.sp)
             Text("FAMILY", style = MaterialTheme.typography.labelMedium, color = Palette.accent, letterSpacing = 6.sp)
         }
@@ -195,9 +241,9 @@ private fun Brand(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RailLabel(text: String) {
+private fun RailLabel(text: String, open: Boolean) {
     Text(
-        text.uppercase(),
+        if (open) text.uppercase() else "",
         style = MaterialTheme.typography.labelSmall,
         color = Palette.muted,
         modifier = Modifier.padding(start = 14.dp, top = 18.dp, bottom = 4.dp),
@@ -205,7 +251,7 @@ private fun RailLabel(text: String) {
 }
 
 @Composable
-private fun RailItem(label: String, icon: ImageVector, active: Boolean, modifier: Modifier = Modifier, brand: Int? = null, onClick: () -> Unit) {
+private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Boolean, modifier: Modifier = Modifier, badge: Boolean = false, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
@@ -219,9 +265,15 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, modifier
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (brand != null) Image(painterResource(brand), contentDescription = null, modifier = Modifier.size(24.dp)) else TvIcon(icon)
-            Spacer(Modifier.width(14.dp))
-            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+            Box {
+                TvIcon(icon)
+                // Closed menu: a dot stands in for "· 3" or "· Connected".
+                if (badge && !open) Box(Modifier.align(Alignment.TopEnd).size(8.dp).clip(RoundedCornerShape(50)).background(Palette.accent))
+            }
+            if (open) {
+                Spacer(Modifier.width(14.dp))
+                Text(label, maxLines = 1, overflow = TextOverflow.Clip, softWrap = false, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+            }
         }
     }
 }
