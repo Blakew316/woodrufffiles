@@ -1,0 +1,93 @@
+{
+ "build": "14",
+ "commit": "9cf0dc2",
+ "updated": "2026-10-14 13:19 UTC",
+ "tv": [
+  {
+   "name": "home",
+   "title": "Home",
+   "dark": "img/tv-home-dark.webp",
+   "light": "img/tv-home-light.webp"
+  },
+  {
+   "name": "command-center",
+   "title": "Command center",
+   "dark": "img/tv-command-center-dark.webp",
+   "light": "img/tv-command-center-light.webp"
+  },
+  {
+   "name": "google-drive",
+   "title": "Google Drive",
+   "dark": "img/tv-google-drive-dark.webp",
+   "light": "img/tv-google-drive-light.webp"
+  },
+  {
+   "name": "mail",
+   "title": "Mail",
+   "dark": "img/tv-mail-dark.webp",
+   "light": "img/tv-mail-light.webp"
+  },
+  {
+   "name": "notifications",
+   "title": "Notifications",
+   "dark": "img/tv-notifications-dark.webp",
+   "light": "img/tv-notifications-light.webp"
+  },
+  {
+   "name": "notes",
+   "title": "Notes",
+   "dark": "img/tv-notes-dark.webp",
+   "light": "img/tv-notes-light.webp"
+  },
+  {
+   "name": "apps",
+   "title": "Apps",
+   "dark": "img/tv-apps-dark.webp",
+   "light": "img/tv-apps-light.webp"
+  },
+  {
+   "name": "phone",
+   "title": "Phone connection",
+   "dark": "img/tv-phone-dark.webp",
+   "light": "img/tv-phone-light.webp"
+  },
+  {
+   "name": "settings",
+   "title": "Settings",
+   "dark": "img/tv-settings-dark.webp",
+   "light": "img/tv-settings-light.webp"
+  }
+ ],
+ "phone": [
+  {
+   "name": "files",
+   "title": "Files",
+   "dark": "img/phone-files-dark.webp",
+   "light": "img/phone-files-light.webp"
+  },
+  {
+   "name": "keyboard",
+   "title": "Keyboard",
+   "dark": "img/phone-keyboard-dark.webp",
+   "light": "img/phone-keyboard-light.webp"
+  },
+  {
+   "name": "notes",
+   "title": "Notes",
+   "dark": "img/phone-notes-dark.webp",
+   "light": "img/phone-notes-light.webp"
+  },
+  {
+   "name": "send",
+   "title": "Send to TV",
+   "dark": "img/phone-send-dark.webp",
+   "light": "img/phone-send-light.webp"
+  },
+  {
+   "name": "settings",
+   "title": "Settings",
+   "dark": "img/phone-settings-dark.webp",
+   "light": "img/phone-settings-light.webp"
+  }
+ ]
+}
