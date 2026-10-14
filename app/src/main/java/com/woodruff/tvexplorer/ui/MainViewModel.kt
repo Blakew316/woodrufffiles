@@ -70,9 +70,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Where Back leaves the browser to: Home, or Settings when a drive was opened from there. */
+    private var browserReturn = Screen.HOME
+
     /** Switch top-level screen from the side rail. Leaving the browser forgets its back stack. */
     fun show(screen: Screen) {
         if (screen != Screen.BROWSER) {
+            browserReturn = Screen.HOME
             loadJob?.cancel()
             history.clear()
             _browser.value = BrowserState()
@@ -90,7 +94,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun openFolder(dir: File) = open(Location.Folder(dir))
 
     /** Jump to a storage root from the side rail, starting a fresh back stack. */
-    fun openRoot(dir: File) {
+    fun openRoot(dir: File, from: Screen = Screen.HOME) {
+        browserReturn = from
         history.clear()
         _browser.value = BrowserState()
         open(Location.Folder(dir))
@@ -102,7 +107,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun back() {
         if (_browser.value.selecting) return clearSelection()
         val prev = history.removeLastOrNull()
-        if (prev != null) load(prev) else show(Screen.HOME)
+        if (prev != null) load(prev) else show(browserReturn)
     }
 
     /** Parent folder, but never above the storage root the user is in. */

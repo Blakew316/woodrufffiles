@@ -25,6 +25,8 @@ import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PhoneIphone
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.SdStorage
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
@@ -133,6 +135,8 @@ fun SettingsScreen(vm: MainViewModel) {
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
     LaunchedEffect(Unit) { Phones.load(context) }
     val phones by Phones.items.collectAsStateWithLifecycle()
+    val roots by vm.roots.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { vm.refreshRoots() }
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 32.dp),
@@ -147,6 +151,16 @@ fun SettingsScreen(vm: MainViewModel) {
         item {
             SettingRow(if (Palette.light) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, "Theme", if (Palette.light) "Light" else "Dark") {
                 ThemeSetting.toggle(context)
+            }
+        }
+
+        section("Storage")
+        roots.forEach { r ->
+            item(key = "root-" + r.dir.path) {
+                SettingRow(
+                    if (r.removable) Icons.Rounded.SdStorage else Icons.Rounded.Storage, r.title,
+                    if (r.totalBytes > 0) "${Format.bytes(r.freeBytes)} free of ${Format.bytes(r.totalBytes)}" else null,
+                ) { vm.openRoot(r.dir, from = Screen.SETTINGS) }
             }
         }
 
@@ -368,6 +382,7 @@ private fun badgeColor(icon: ImageVector, danger: Boolean): Color {
         Icons.Rounded.Dashboard, Icons.Rounded.Tv -> Color(0xFF40C8E0)
         Icons.Rounded.PhoneIphone, Icons.Rounded.Smartphone -> Color(0xFF30D158)
         Icons.Rounded.Key, Icons.Rounded.Lock, Icons.Rounded.Logout, Icons.Rounded.Info -> Color(0xFF8E8E93)
+        Icons.Rounded.Storage, Icons.Rounded.SdStorage -> Color(0xFF636366)
         Icons.Rounded.Email, Icons.Rounded.PersonAdd -> Color(0xFF0A84FF)
         else -> Palette.accent
     }
