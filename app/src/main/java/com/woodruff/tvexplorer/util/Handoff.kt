@@ -13,6 +13,10 @@ object Handoff {
     const val YOUTUBE = "com.google.android.youtube.tv"
     const val APPLE_MUSIC = "com.apple.android.music"
     const val SPOTIFY = "com.spotify.tv.android"
+    /** Google Meet on Google TV (the former Duo app keeps this package name). */
+    const val MEET = "com.google.android.apps.tachyon"
+    /** AirScreen: receives iPhone Screen Mirroring (AirPlay), e.g. a Meet call using the phone's camera. */
+    const val AIRSCREEN = "com.ionitech.airscreen"
 
     fun packageFor(uri: Uri): String? {
         val host = uri.host.orEmpty().lowercase().removePrefix("www.").removePrefix("m.")
@@ -20,6 +24,7 @@ object Handoff {
             "youtube.com", "youtu.be", "music.youtube.com" -> YOUTUBE
             "music.apple.com" -> APPLE_MUSIC
             "open.spotify.com" -> SPOTIFY
+            "meet.google.com" -> MEET
             else -> null
         }
     }

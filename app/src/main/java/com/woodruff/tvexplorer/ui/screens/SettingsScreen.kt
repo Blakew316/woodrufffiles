@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.calendar.TodayCalendar
 import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.Cast
+import com.woodruff.tvexplorer.util.Handoff
 import com.woodruff.tvexplorer.photos.GooglePhotos
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Slideshow
@@ -219,6 +221,10 @@ fun SettingsScreen(vm: MainViewModel) {
         if (nestConnected) item {
             SettingRow(Icons.Rounded.Logout, "Disconnect cameras", null) { Nest.signOut { changed() } }
         }
+
+        section("Video calls")
+        item { SettingRow(Icons.Rounded.Videocam, "Google Meet", null, brand = R.drawable.brand_google_meet) { Handoff.launch(context, Handoff.MEET) } }
+        item { SettingRow(Icons.Rounded.Cast, "AirScreen (iPhone camera & screen)", null) { Handoff.launch(context, Handoff.AIRSCREEN) } }
 
         section("Google Calendar")
         item {
@@ -421,6 +427,7 @@ private fun badgeColor(icon: ImageVector, danger: Boolean): Color {
         Icons.Rounded.Key, Icons.Rounded.Lock, Icons.Rounded.Logout, Icons.Rounded.Info -> Color(0xFF8E8E93)
         Icons.Rounded.Storage, Icons.Rounded.SdStorage -> Color(0xFF636366)
         Icons.Rounded.Apps -> Color(0xFF34C759)
+        Icons.Rounded.Cast -> Color(0xFF0A84FF)
         Icons.Rounded.Email, Icons.Rounded.PersonAdd -> Color(0xFF0A84FF)
         else -> Palette.accent
     }
