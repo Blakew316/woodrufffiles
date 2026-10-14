@@ -389,28 +389,42 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.width(118.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Color(0xFF0B0E13)),
-                contentAlignment = Alignment.Center,
-            ) {
-                val s = shot
-                if (s != null) Image(s, contentDescription = "${sel.name} screen", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                else TvIcon(Icons.Rounded.Tv, size = 30.dp, tint = if (sel.online) Palette.accent else Color.White.copy(alpha = 0.35f))
+            // Only another TV has a picture worth showing; otherwise a small icon keeps room for the title.
+            val s = shot
+            if (s != null) {
+                Image(
+                    s, contentDescription = "${sel.name} screen", contentScale = ContentScale.Crop,
+                    modifier = Modifier.width(112.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
+                )
+            } else {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Palette.surfaceHigh), contentAlignment = Alignment.Center) {
+                    TvIcon(Icons.Rounded.Tv, size = 24.dp, tint = if (sel.online) Palette.accent else Palette.muted)
+                }
             }
             Column(Modifier.weight(1f)) {
                 val p = sel.playing
-                Text(sel.name + if (isThis && tvs.size > 1) " (this TV)" else "", style = MaterialTheme.typography.labelMedium, color = Palette.muted, maxLines = 1)
+                Text(sel.name + if (isThis && tvs.size > 1) " · this TV" else "", style = MaterialTheme.typography.labelMedium, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     when { !sel.online -> "Off or unreachable"; p != null -> p.title; else -> "Nothing playing" },
-                    style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 if (sel.online && p != null) {
                     Text(
                         (if (p.playing) "Playing" else "Paused") + " · " + p.app,
-                        color = if (p.playing) Palette.success else Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                        color = if (p.playing) Palette.success else Palette.muted, style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
-                    if (p.durationMs > 0) UsageBar(p.positionMs.toFloat() / p.durationMs, Modifier.padding(top = 6.dp))
                 }
+            }
+        }
+        val p = sel.playing
+        if (sel.online && p != null && p.durationMs > 0) {
+            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                UsageBar(p.positionMs.toFloat() / p.durationMs, Modifier.weight(1f))
+                Text(
+                    "${Format.duration(p.positionMs)} / ${Format.duration(p.durationMs)}", color = Palette.muted,
+                    style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 8.dp),
+                )
             }
         }
         if (tvs.size == 1) {
@@ -458,7 +472,7 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
     LaunchedEffect(focused) { live = false; if (focused && cam?.webRtc == true) { delay(700); live = true } }
     Surface(
         onClick = onClick,
-        modifier = Modifier.width(170.dp).aspectRatio(16f / 9f).onFocusChanged { focused = it.isFocused },
+        modifier = Modifier.width(196.dp).aspectRatio(16f / 9f).onFocusChanged { focused = it.isFocused },
         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {

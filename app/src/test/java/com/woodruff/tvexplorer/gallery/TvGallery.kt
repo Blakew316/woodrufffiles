@@ -83,6 +83,7 @@ class TvGallery {
         Notices.post(app, NoticeSource.MAIL, "Your order has shipped", "Arriving Thursday")
         Notices.post(app, NoticeSource.SYSTEM, "Movie starts in 5 minutes", "")
         Notices.markAllRead(app)
+        Notices.dismissLatest() // no pop-up over the screens
         // Home dashboard: things in progress, the family's TVs and cameras (no network in the gallery).
         RecentStore(app).apply {
             save("drive:sample-3", "Paper Planes (2022)", 3_000_000, 5_600_000)
