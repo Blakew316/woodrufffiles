@@ -1,13 +1,19 @@
 {
- "build": "45",
- "commit": "961ed3a",
- "updated": "2026-10-14 21:14 UTC",
+ "build": "47",
+ "commit": "9ff4f2c",
+ "updated": "2026-10-14 22:04 UTC",
  "tv": [
   {
    "name": "home",
    "title": "Home",
    "dark": "img/tv-home-dark.webp",
    "light": "img/tv-home-light.webp"
+  },
+  {
+   "name": "home-menu",
+   "title": "Home \u00b7 menu open",
+   "dark": "img/tv-home-menu-dark.webp",
+   "light": "img/tv-home-menu-light.webp"
   },
   {
    "name": "movies",
