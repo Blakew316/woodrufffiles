@@ -1,7 +1,7 @@
 {
- "build": "36",
- "commit": "73cab50",
- "updated": "2026-10-14 18:05 UTC",
+ "build": "37",
+ "commit": "ebef67e",
+ "updated": "2026-10-14 18:44 UTC",
  "tv": [
   {
    "name": "home",
@@ -72,14 +72,8 @@
  ],
  "phone": [
   {
-   "name": "files",
-   "title": "Files",
-   "dark": "img/phone-files-dark.webp",
-   "light": "img/phone-files-light.webp"
-  },
-  {
    "name": "tv",
-   "title": "TV remote",
+   "title": "Remote",
    "dark": "img/phone-tv-dark.webp",
    "light": "img/phone-tv-light.webp"
   },
@@ -90,10 +84,28 @@
    "light": "img/phone-keyboard-light.webp"
   },
   {
+   "name": "files",
+   "title": "Files",
+   "dark": "img/phone-files-dark.webp",
+   "light": "img/phone-files-light.webp"
+  },
+  {
+   "name": "files-actions",
+   "title": "File actions",
+   "dark": "img/phone-files-actions-dark.webp",
+   "light": "img/phone-files-actions-light.webp"
+  },
+  {
    "name": "notes",
    "title": "Notes",
    "dark": "img/phone-notes-dark.webp",
    "light": "img/phone-notes-light.webp"
+  },
+  {
+   "name": "note",
+   "title": "Note editor",
+   "dark": "img/phone-note-dark.webp",
+   "light": "img/phone-note-light.webp"
   },
   {
    "name": "send",
@@ -106,6 +118,12 @@
    "title": "Settings",
    "dark": "img/phone-settings-dark.webp",
    "light": "img/phone-settings-light.webp"
+  },
+  {
+   "name": "settings-drive",
+   "title": "Settings \u203a Google Drive",
+   "dark": "img/phone-settings-drive-dark.webp",
+   "light": "img/phone-settings-drive-light.webp"
   }
  ]
 }
