@@ -36,6 +36,14 @@ jobs:
           cp app/build/outputs/apk/release/*.apk WoodruffFamily.apk
           # Older names too, so links (and short links) made for earlier versions keep working.
           for old in WoodruffFilms WoodruffPictures WoodruffShows TVExplorer; do cp WoodruffFamily.apk "$old.apk"; done
+      # Builds can finish out of order; only the build of the branch's newest commit becomes
+      # "latest", so the stable link never goes back to an older APK.
+      - name: Is this the newest commit?
+        id: head
+        if: github.event_name != 'pull_request'
+        run: |
+          head=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)
+          if [ "$head" = "$GITHUB_SHA" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
       # Gives a stable download link: /releases/latest/download/WoodruffFamily.apk
       - uses: softprops/action-gh-release@v2
         if: github.event_name != 'pull_request'
@@ -43,7 +51,7 @@ jobs:
           tag_name: v2.0.${{ github.run_number }}
           name: Woodruff Family 2.0 (build ${{ github.run_number }})
           target_commitish: ${{ github.sha }}
-          make_latest: true
+          make_latest: ${{ steps.head.outputs.latest }}
           files: |
             WoodruffFamily.apk
             WoodruffFilms.apk
