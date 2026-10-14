@@ -15,6 +15,9 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.Slideshow
+import androidx.compose.material.icons.filled.Wallpaper
+import com.woodruff.tvexplorer.screensaver.Appearance
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -77,10 +80,17 @@ fun BrowserDialogs(dialog: BrowserDialog, vm: MainViewModel, onDismiss: () -> Un
                         FileKind.APK -> add(MenuAction("Install", Icons.Filled.InstallMobile) { report(Opener.installApk(context, item.file)) })
                         FileKind.ARCHIVE -> if (FileTypes.extension(item.name) == "zip") add(MenuAction("Extract here", Icons.Filled.Unarchive) { vm.extract(item.file) })
                         FileKind.VIDEO, FileKind.AUDIO -> add(MenuAction("Play", Icons.Filled.PlayArrow) { report(Opener.open(context, item, vm.browser.value.items)) })
+                        FileKind.IMAGE -> add(MenuAction("Set as app background", Icons.Filled.Wallpaper) {
+                            Appearance.setBackground(context, item.file.absolutePath); vm.say("Background set")
+                        })
                         else -> Unit
                     }
                     add(MenuAction("Open with…", Icons.Filled.OpenInNew) { report(Opener.openExternal(context, item.file)) })
                 }
+                if (!many && item.isDirectory) add(MenuAction("Use for photo slideshow", Icons.Filled.Slideshow) {
+                    Appearance.setSlideshowFolder(context, item.file.absolutePath)
+                    vm.say("Slideshow will show photos from ${item.name}")
+                })
                 add(MenuAction("Copy", Icons.Filled.ContentCopy) { vm.copyToClipboard(targets, move = false) })
                 add(MenuAction("Move", Icons.Filled.ContentCut) { vm.copyToClipboard(targets, move = true) })
                 if (!many) add(MenuAction("Rename", Icons.Filled.DriveFileRenameOutline) { show(BrowserDialog.Rename(item)) })

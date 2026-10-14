@@ -14,6 +14,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +46,8 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.OpProgress
+import com.woodruff.tvexplorer.remote.RemoteInput
+import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 
@@ -100,7 +105,7 @@ fun ConfirmDialog(title: String, body: String, confirmLabel: String, onConfirm: 
     LaunchedEffect(Unit) { runCatching { cancel.requestFocus() } }
 }
 
-/** Single-line text entry; the on-screen keyboard opens when the field is clicked with OK. */
+/** Single-line text entry; the on-screen keyboard opens when the field is clicked with OK, or type on the phone. */
 @Composable
 fun TextInputDialog(
     title: String,
@@ -114,38 +119,97 @@ fun TextInputDialog(
     // Pre-select the name without its extension, the part people usually want to change.
     val stemEnd = initial.lastIndexOf('.').takeIf { it > 0 } ?: initial.length
     var value by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, stemEnd))) }
-    var focused by remember { mutableStateOf(false) }
     val field = remember { FocusRequester() }
     val submit = { if (value.text.isNotBlank()) { onDismiss(); onConfirm(value.text.trim()) } }
     DialogFrame(title, onDismiss) {
         if (hint != null) Text(hint, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .border(2.dp, if (focused) Palette.accent else Palette.surfaceHigh, RoundedCornerShape(8.dp))
-                .padding(12.dp),
-        ) {
-            BasicTextField(
-                value = value,
-                onValueChange = { value = it },
-                singleLine = true,
-                textStyle = TextStyle(color = Palette.text, fontSize = 20.sp),
-                cursorBrush = SolidColor(Palette.accent),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, keyboardType = if (secret) KeyboardType.Password else KeyboardType.Text),
-                visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
-                keyboardActions = KeyboardActions(onDone = { submit() }),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(field)
-                    .onFocusChanged { focused = it.isFocused },
-            )
-        }
+        RemoteTextField(
+            value = value,
+            onValueChange = { value = it },
+            label = title,
+            secret = secret,
+            onSubmit = submit,
+            modifier = Modifier.fillMaxWidth(),
+            textModifier = Modifier.focusRequester(field),
+        )
+        PhoneKeyboardHint()
         ButtonRow {
             OutlinedButton(onClick = onDismiss) { Text("Cancel") }
             Button(onClick = submit) { Text(confirmLabel) }
         }
     }
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+}
+
+/**
+ * A text box the phone can type into (Phone → Keyboard on the phone). While it's on screen it's
+ * registered with [RemoteInput]; the newest or most recently focused box receives the typing.
+ */
+@Composable
+fun RemoteTextField(
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    secret: Boolean = false,
+    singleLine: Boolean = true,
+    onSubmit: (() -> Unit)? = null,
+    placeholder: String? = null,
+    textModifier: Modifier = Modifier,
+) {
+    val id = remember { RemoteInput.newId() }
+    val change by rememberUpdatedState(onValueChange)
+    val submit by rememberUpdatedState(onSubmit)
+    var focused by remember { mutableStateOf(false) }
+    DisposableEffect(id) {
+        RemoteInput.register(id, label, secret, !singleLine, value.text)
+        onDispose { RemoteInput.unregister(id) }
+    }
+    LaunchedEffect(value.text) { RemoteInput.updateText(id, value.text) }
+    LaunchedEffect(id) {
+        RemoteInput.typed.collect { t ->
+            if (t.id != id) return@collect
+            change(TextFieldValue(t.text, TextRange(t.text.length)))
+            if (t.submit) submit?.invoke()
+        }
+    }
+    Box(
+        modifier
+            .border(2.dp, if (focused) Palette.accent else Palette.surfaceHigh, RoundedCornerShape(10.dp))
+            .padding(12.dp),
+    ) {
+        if (value.text.isEmpty() && placeholder != null) Text(placeholder, color = Palette.muted, fontSize = 20.sp)
+        BasicTextField(
+            value = value,
+            onValueChange = { change(it) },
+            singleLine = singleLine,
+            textStyle = TextStyle(color = Palette.text, fontSize = 20.sp),
+            cursorBrush = SolidColor(Palette.accent),
+            keyboardOptions = KeyboardOptions(
+                imeAction = if (singleLine) ImeAction.Done else ImeAction.Default,
+                keyboardType = if (secret) KeyboardType.Password else KeyboardType.Text,
+            ),
+            visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+            keyboardActions = KeyboardActions(onDone = { submit?.invoke() }),
+            modifier = textModifier
+                .fillMaxWidth()
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) RemoteInput.bringToFront(id)
+                },
+        )
+    }
+}
+
+/** Reminds the viewer they can type on the phone instead of the remote, when a phone can connect. */
+@Composable
+fun PhoneKeyboardHint() {
+    val server by TransferService.state.collectAsState()
+    if (!server.running) return
+    Text(
+        "Tip: type on your phone instead. Open Woodruff on the phone and choose Keyboard.",
+        color = Palette.muted, style = MaterialTheme.typography.bodySmall,
+    )
 }
 
 @Composable

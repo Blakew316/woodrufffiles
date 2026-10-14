@@ -32,6 +32,12 @@ import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import com.woodruff.tvexplorer.screensaver.Appearance
+import com.woodruff.tvexplorer.ui.screens.NotesScreen
+import java.io.File
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,55 +96,64 @@ fun AppRoot(vm: MainViewModel) {
     val unread = notices.count { !it.read }
     val homeFocus = remember { FocusRequester() }
 
-    Row(Modifier.fillMaxSize().background(Palette.backdrop)) {
-        Column(
-            Modifier
-                .width(250.dp)
-                .fillMaxHeight()
-                .background(Palette.background.copy(alpha = 0.6f))
-                .verticalScroll(rememberScrollState())
-                .padding(vertical = 28.dp, horizontal = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Brand(Modifier.padding(start = 8.dp, bottom = 24.dp))
-            RailItem("Home", Icons.Filled.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
-            RailItem("Google Drive", Icons.Filled.AddToDrive, screen == Screen.DRIVE) { vm.show(Screen.DRIVE) }
-            RailItem("Mail", Icons.Filled.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
-            RailItem(
-                if (unread > 0) "Notifications · $unread" else "Notifications",
-                Icons.Filled.Notifications, screen == Screen.NOTIFICATIONS,
-            ) { vm.show(Screen.NOTIFICATIONS) }
-            RailLabel("This TV")
-            roots.forEach { root ->
-                val active = screen == Screen.BROWSER &&
-                    browser.folder?.absolutePath?.startsWith(root.dir.absolutePath) == true
-                RailItem(root.title, if (root.removable) Icons.Filled.SdStorage else Icons.Filled.Storage, active) {
-                    vm.openRoot(root.dir)
-                }
-            }
-            RailItem("Apps", Icons.Filled.Apps, screen == Screen.APPS) { vm.show(Screen.APPS) }
-            RailLabel("Connect")
-            RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Filled.PhoneIphone, screen == Screen.TRANSFER) {
-                vm.show(Screen.TRANSFER)
-            }
-            RailItem("Settings", Icons.Filled.Settings, screen == Screen.SETTINGS) { vm.show(Screen.SETTINGS) }
+    Box(Modifier.fillMaxSize().background(Palette.backdrop)) {
+        // Optional background photo (Settings → Screensaver & background), dimmed so text stays readable.
+        Appearance.background?.let { path ->
+            AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Palette.background.copy(alpha = 0.78f)))
         }
-        Box(Modifier.fillMaxSize()) {
-            Crossfade(targetState = screen, label = "screen") { s ->
-                when (s) {
-                    Screen.HOME -> HomeScreen(vm, roots)
-                    Screen.BROWSER -> BrowserScreen(vm)
-                    Screen.DRIVE -> DriveScreen(vm, drive)
-                    Screen.MAIL -> MailScreen(vm)
-                    Screen.NOTIFICATIONS -> NotificationsScreen(vm)
-                    Screen.APPS -> AppsScreen(vm)
-                    Screen.TRANSFER -> TransferScreen(vm)
-                    Screen.SETTINGS -> SettingsScreen(vm)
+        Row(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .width(250.dp)
+                    .fillMaxHeight()
+                    .background(Palette.background.copy(alpha = 0.6f))
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 28.dp, horizontal = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Brand(Modifier.padding(start = 8.dp, bottom = 24.dp))
+                RailItem("Home", Icons.Filled.Home, screen == Screen.HOME, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
+                RailItem("Google Drive", Icons.Filled.AddToDrive, screen == Screen.DRIVE) { vm.show(Screen.DRIVE) }
+                RailItem("Mail", Icons.Filled.Email, screen == Screen.MAIL) { vm.show(Screen.MAIL) }
+                RailItem(
+                    if (unread > 0) "Notifications · $unread" else "Notifications",
+                    Icons.Filled.Notifications, screen == Screen.NOTIFICATIONS,
+                ) { vm.show(Screen.NOTIFICATIONS) }
+                RailItem("Notes", Icons.Filled.EditNote, screen == Screen.NOTES) { vm.show(Screen.NOTES) }
+                RailLabel("This TV")
+                roots.forEach { root ->
+                    val active = screen == Screen.BROWSER &&
+                        browser.folder?.absolutePath?.startsWith(root.dir.absolutePath) == true
+                    RailItem(root.title, if (root.removable) Icons.Filled.SdStorage else Icons.Filled.Storage, active) {
+                        vm.openRoot(root.dir)
+                    }
                 }
+                RailItem("Apps", Icons.Filled.Apps, screen == Screen.APPS) { vm.show(Screen.APPS) }
+                RailLabel("Connect")
+                RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Filled.PhoneIphone, screen == Screen.TRANSFER) {
+                    vm.show(Screen.TRANSFER)
+                }
+                RailItem("Settings", Icons.Filled.Settings, screen == Screen.SETTINGS) { vm.show(Screen.SETTINGS) }
             }
-            MessageBanner(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
-            MessageBanner(driveState.message, drive::dismissMessage, Modifier.align(Alignment.BottomCenter))
-            NoticeBanner(latestNotice, Modifier.align(Alignment.TopEnd)) { vm.show(Screen.NOTIFICATIONS) }
+            Box(Modifier.fillMaxSize()) {
+                Crossfade(targetState = screen, label = "screen") { s ->
+                    when (s) {
+                        Screen.HOME -> HomeScreen(vm, roots)
+                        Screen.BROWSER -> BrowserScreen(vm)
+                        Screen.DRIVE -> DriveScreen(vm, drive)
+                        Screen.MAIL -> MailScreen(vm)
+                        Screen.NOTIFICATIONS -> NotificationsScreen(vm)
+                        Screen.NOTES -> NotesScreen(vm)
+                        Screen.APPS -> AppsScreen(vm)
+                        Screen.TRANSFER -> TransferScreen(vm)
+                        Screen.SETTINGS -> SettingsScreen(vm)
+                    }
+                }
+                MessageBanner(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
+                MessageBanner(driveState.message, drive::dismissMessage, Modifier.align(Alignment.BottomCenter))
+                NoticeBanner(latestNotice, Modifier.align(Alignment.TopEnd)) { vm.show(Screen.NOTIFICATIONS) }
+            }
         }
     }
 

@@ -5,6 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import com.woodruff.tvexplorer.screensaver.Appearance
+import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -42,6 +46,7 @@ class MainActivity : ComponentActivity() {
         hasAccess = Permissions.hasStorageAccess(this)
         ThemeSetting.load(this)
         Notices.load(this)
+        Appearance.load(this)
         handleOpen(intent)
         setContent {
             TvExplorerTheme {
@@ -66,11 +71,28 @@ class MainActivity : ComponentActivity() {
         AppVisibility.foreground = true
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
+        armIdle()
     }
 
     override fun onStop() {
         AppVisibility.foreground = false
+        idle.removeCallbacks(startSlideshow)
         super.onStop()
+    }
+
+    /** In-app screensaver: after [Appearance.idleMinutes] without a button press, show the slideshow. */
+    private val idle = Handler(Looper.getMainLooper())
+    private val startSlideshow = Runnable { if (AppVisibility.foreground && hasAccess) SlideshowActivity.start(this) }
+
+    private fun armIdle() {
+        idle.removeCallbacks(startSlideshow)
+        val minutes = Appearance.idleMinutes
+        if (minutes > 0) idle.postDelayed(startSlideshow, minutes * 60_000L)
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        armIdle()
     }
 
     override fun onNewIntent(intent: Intent) {

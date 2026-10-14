@@ -32,6 +32,13 @@ import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Slideshow
+import androidx.compose.material.icons.filled.SmartDisplay
+import com.woodruff.tvexplorer.screensaver.SlideshowActivity
+import com.woodruff.tvexplorer.util.Handoff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -110,7 +117,14 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
         FileKind.DOCUMENT to "Documents", FileKind.APK to "APK files", FileKind.ARCHIVE to "Archives",
     ).map { (kind, title) -> Tile(title, null, kind.icon(), kind.color()) { vm.open(Location.Category(kind, title)) } } +
         Tile("Downloads", null, Icons.Filled.Download, Palette.accent) { vm.openDownloads() }
+    val watch = listOf(
+        Tile("YouTube", "Opens the YouTube app", Icons.Filled.SmartDisplay, Color(0xFFFF0033)) { Handoff.launch(context, Handoff.YOUTUBE) },
+        Tile("Apple Music", "Opens Apple Music", Icons.Filled.MusicNote, Color(0xFFFA2D48)) { Handoff.launch(context, Handoff.APPLE_MUSIC) },
+        Tile("Spotify", "Opens Spotify", Icons.Filled.LibraryMusic, Color(0xFF1ED760)) { Handoff.launch(context, Handoff.SPOTIFY) },
+        Tile("Photo slideshow", "Your photos, full screen", Icons.Filled.Slideshow, Palette.drive) { SlideshowActivity.start(context) },
+    )
     val tools = listOf(
+        Tile("Notes", "Lists & reminders", Icons.Filled.EditNote, Palette.accent) { vm.show(Screen.NOTES) },
         Tile("Phone", "Send files, messages, links", Icons.Filled.PhoneIphone, Palette.accent) { vm.show(Screen.TRANSFER) },
         Tile("Apps", "Open, back up, uninstall", Icons.Filled.Apps, Palette.apk) { vm.show(Screen.APPS) },
         Tile("Settings", "Keys, accounts, theme", Icons.Filled.Settings, Palette.muted) { vm.show(Screen.SETTINGS) },
@@ -137,6 +151,7 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
             }
         }
         item { Shelf("Cloud") { items(cloud, key = { it.title }) { TileCard(it, wide = true) } } }
+        item { Shelf("Watch & listen") { items(watch, key = { it.title }) { TileCard(it, wide = true) } } }
         item { Shelf("On this TV") { items(roots, key = { it.dir.absolutePath }) { StorageCard(it) { vm.openFolder(it.dir) } } } }
         item { Shelf("Library") { items(library, key = { it.title }) { TileCard(it) } } }
         item { Shelf("Tools") { items(tools, key = { it.title }) { TileCard(it, wide = true) } } }

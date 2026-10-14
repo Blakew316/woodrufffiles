@@ -67,6 +67,24 @@
                 android:value="Local-network companion server: receives files and messages from the owner's phone and checks for new mail." />
         </service>
 
+        <!-- Photo slideshow as the TV's screensaver (Settings → Screen saver, or via adb on Google TV). -->
+        <service
+            android:name=".screensaver.SlideshowDream"
+            android:exported="true"
+            android:label="Woodruff Pictures slideshow"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+
+        <activity
+            android:name=".screensaver.SlideshowActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.TVExplorer.Player" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

@@ -9,7 +9,13 @@ import com.woodruff.tvexplorer.mail.MailClient
 import com.woodruff.tvexplorer.mail.MailProvider
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
+import com.woodruff.tvexplorer.notes.Notes
+import com.woodruff.tvexplorer.phones.Phones
 import com.woodruff.tvexplorer.player.PlayerActivity
+import com.woodruff.tvexplorer.remote.RemoteInput
+import com.woodruff.tvexplorer.screensaver.Appearance
+import com.woodruff.tvexplorer.screensaver.SlideshowActivity
+import com.woodruff.tvexplorer.util.Handoff
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
@@ -31,6 +37,12 @@ class CompanionRoutes(private val ctx: Context) {
 
     /** The Google OAuth callback proves itself with the one-time `state`, not the pairing key. */
     fun public(s: IHTTPSession): Response? {
+        // Home Screen app manifest and icons: no secrets in them, and iOS may fetch them without cookies.
+        PUBLIC_ASSETS[s.uri]?.let { mime ->
+            val bytes = ctx.assets.open("web" + s.uri).use { it.readBytes() }
+            return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, mime, bytes.inputStream(), bytes.size.toLong())
+                .apply { addHeader("Cache-Control", "max-age=86400") }
+        }
         if (s.uri != "/oauth/callback") return null
         val state = s.parameters["state"]?.firstOrNull()
         val attempt = CompanionHub.googleAttempt
@@ -67,6 +79,69 @@ class CompanionRoutes(private val ctx: Context) {
             launch(PlayerActivity.intent(ctx, listOf(f.path), listOf(f.name), f.path))
             ok()
         }
+        // ---- Phone keyboard -----------------------------------------------------------------
+        s.uri == "/api/type" && s.method == Method.GET -> json(JSONObject().put("field", RemoteInput.target?.let { f ->
+            JSONObject().put("id", f.id).put("label", f.label).put("secret", f.secret).put("multiline", f.multiline)
+                .put("text", if (f.secret) "" else f.text)
+        } ?: JSONObject.NULL))
+        s.uri == "/api/type" && s.method == Method.POST -> {
+            val b = body(s)
+            val id = if (b.has("id")) b.optLong("id") else null
+            require(RemoteInput.type(id, b.optString("text").take(20_000), b.optBoolean("submit"))) { "No text box is open on the TV" }
+            ok()
+        }
+
+        // ---- Notes -------------------------------------------------------------------------
+        s.uri == "/api/notes" && s.method == Method.GET -> {
+            Notes.load(ctx)
+            json(JSONObject().put("notes", JSONArray().apply { Notes.items.value.forEach { put(Notes.toJson(it)) } }))
+        }
+        s.uri == "/api/notes" && s.method == Method.POST -> {
+            val b = body(s)
+            val n = Notes.save(ctx, b.optString("id").ifBlank { null }, b.optString("title"), b.optString("body"),
+                if (b.has("pinned")) b.optBoolean("pinned") else null)
+            json(JSONObject().put("note", n?.let(Notes::toJson) ?: JSONObject.NULL))
+        }
+        s.uri == "/api/notes/delete" && s.method == Method.POST -> { Notes.delete(ctx, body(s).optString("id")); ok() }
+
+        // ---- Phones & announcements ------------------------------------------------------------
+        s.uri == "/api/phone/hello" && s.method == Method.POST -> {
+            val b = body(s)
+            val p = Phones.hello(ctx, b.optString("id"), b.optString("name"), if (b.has("alerts")) b.optBoolean("alerts") else null)
+            json(JSONObject().put("phone", Phones.toJson(p, withTopic = true)).put("phones", phonesJson()))
+        }
+        s.uri == "/api/phones" && s.method == Method.GET -> json(JSONObject().put("phones", phonesJson()))
+        s.uri == "/api/phone/delete" && s.method == Method.POST -> { Phones.remove(ctx, body(s).optString("id")); json(JSONObject().put("phones", phonesJson())) }
+        s.uri == "/api/inbox" && s.method == Method.GET -> json(JSONObject().put("messages", Phones.takeInbox(s.parameters["id"]?.firstOrNull().orEmpty())))
+        s.uri == "/api/announce" && s.method == Method.POST -> {
+            val b = body(s)
+            val title = b.optString("title").trim()
+            require(title.isNotEmpty()) { "Write a title first" }
+            val text = b.optString("body").trim()
+            val from = b.optString("from").ifBlank { null }
+            if (b.optBoolean("tv", true)) Notices.post(ctx, NoticeSource.PHONE, title, if (from != null && text.isEmpty()) "From $from" else text)
+            val phones = b.optJSONArray("phones")
+            val sent = when {
+                b.optString("phones") == "all" -> Phones.announce(ctx, null, title, text, from)
+                phones != null && phones.length() > 0 -> Phones.announce(ctx, (0 until phones.length()).map { phones.getString(it) }, title, text, from)
+                else -> 0
+            }
+            json(JSONObject().put("ok", true).put("phones", sent))
+        }
+
+        // ---- Background & slideshow --------------------------------------------------------
+        s.uri == "/api/background" && s.method == Method.POST -> {
+            val path = body(s).optString("path").ifBlank { null }
+            Appearance.setBackground(ctx, path?.let(::sharedPath))
+            ok()
+        }
+        s.uri == "/api/slideshow" && s.method == Method.POST -> {
+            val b = body(s)
+            if (b.has("folder")) Appearance.setSlideshowFolder(ctx, b.optString("folder").ifBlank { null }?.let(::sharedPath))
+            if (b.optBoolean("start")) launch(Intent(ctx, SlideshowActivity::class.java))
+            ok()
+        }
+
         s.uri == "/api/settings" && s.method == Method.GET -> json(settingsJson(s))
         s.uri == "/api/settings/google" && s.method == Method.POST -> {
             val b = body(s)
@@ -122,11 +197,17 @@ class CompanionRoutes(private val ctx: Context) {
             })
     }
 
-    /** Videos and audio play in the built-in player; anything else goes to whatever app handles links. */
+    /**
+     * Videos and audio play in the built-in player; YouTube and Apple Music links open in those
+     * apps on the TV; anything else goes to whatever app handles links.
+     */
     private fun openUrl(url: String) {
-        val path = Uri.parse(url).path.orEmpty().lowercase()
+        val uri = Uri.parse(url)
+        val path = uri.path.orEmpty().lowercase()
         val media = listOf(".mp4", ".mkv", ".webm", ".m3u8", ".mpd", ".mov", ".mp3", ".m4a", ".aac", ".flac", ".ts").any { path.endsWith(it) }
-        if (media) launch(PlayerActivity.intent(ctx, listOf(url), listOf(Uri.parse(url).lastPathSegment ?: url), url))
+        val app = Handoff.packageFor(uri)
+        if (media) launch(PlayerActivity.intent(ctx, listOf(url), listOf(uri.lastPathSegment ?: url), url))
+        else if (app != null && Handoff.installed(ctx, app)) launch(Handoff.viewIntent(uri, app))
         else try {
             launch(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (e: Exception) {
@@ -167,6 +248,15 @@ class CompanionRoutes(private val ctx: Context) {
         }
     }
 
+    private fun phonesJson() = JSONArray().apply { Phones.load(ctx); Phones.items.value.forEach { put(Phones.toJson(it, withTopic = false)) } }
+
+    /** Only files on shared storage, never app-private data. */
+    private fun sharedPath(path: String): String {
+        val f = File(path).canonicalFile
+        require(f.path.startsWith("/storage/") || f.path.startsWith("/mnt/media_rw/")) { "Choose something on the TV's storage" }
+        return f.path
+    }
+
     private fun ok() = json(JSONObject().put("ok", true))
     private fun json(o: JSONObject) = NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "application/json", o.toString())
 
@@ -177,6 +267,12 @@ class CompanionRoutes(private val ctx: Context) {
         <h1 style="font-size:24px;margin:0 0 10px">$title</h1><p style="color:#9aa4b2">$body</p></body>""",
     )
 }
+
+private val PUBLIC_ASSETS = mapOf(
+    "/manifest.webmanifest" to "application/manifest+json",
+    "/icon-180.png" to "image/png",
+    "/icon-512.png" to "image/png",
+)
 
 /** Process-wide companion state shared by the server and the screens. */
 object CompanionHub {

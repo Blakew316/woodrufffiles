@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Woodruff">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#c4232b">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon-180.png">
 <title>Woodruff Pictures</title>
 <style>
   :root { --bg:#f2f2f7; --card:#fff; --text:#1c1c1e; --muted:#6e6e73; --line:#e5e5ea; --accent:#c4232b; --on-accent:#fff; --danger:#d1242f; --ok:#1e9e63; }
@@ -44,6 +50,15 @@
   .toast { position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:20px; font-size:15px; opacity:0; transition:opacity .25s; pointer-events:none; max-width:90%; }
   .toast.show { opacity:1; }
   code { font-size:13px; word-break:break-all; }
+  #kb-text { min-height:160px; font-size:20px; }
+  .status { display:flex; align-items:center; gap:8px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex:none; } .dot.live { background:var(--ok); }
+  .check { width:auto; margin:0; accent-color:var(--accent); transform:scale(1.25); }
+  .card { background:var(--card); border-radius:14px; margin:12px 16px 0; padding:14px 16px; font-size:15px; }
+  .card b { color:var(--accent); }
+  .note-row .grow { white-space:normal; } .note-row .meta { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .alert { position:fixed; left:12px; right:12px; top:calc(10px + env(safe-area-inset-top)); background:var(--card); color:var(--text); border-radius:16px; padding:14px 16px; box-shadow:0 8px 30px rgba(0,0,0,.25); transform:translateY(-140%); transition:transform .3s; z-index:9; }
+  .alert.show { transform:none; } .alert small { color:var(--accent); font-weight:600; letter-spacing:.3px; }
 </style>
 </head>
 <body>
@@ -51,6 +66,8 @@
 
 <!-- FILES -->
 <section id="files">
+  <div class="card" id="install" hidden>Open Woodruff like an app: tap <b>Share</b> then <b>Add to Home Screen</b>. It stays paired with this TV.</div>
+  <div class="card" id="name-me" hidden>Give this phone a name in <b>Settings</b> so the TV can send it announcements.</div>
   <div class="group">
     <div class="row"><select id="roots" aria-label="Storage"></select></div>
     <div class="row"><span class="grow meta" id="path"></span><button class="small" id="up">Up</button><button class="small" id="mkdir">New folder</button></div>
@@ -63,20 +80,48 @@
   <div class="group" id="list"></div>
 </section>
 
+<!-- KEYBOARD -->
+<section id="keyboard">
+  <div class="group">
+    <div class="row status"><span class="dot" id="kb-dot"></span><span class="grow" id="kb-status">Looking for a text box on the TV…</span></div>
+    <label class="field"><textarea id="kb-text" autocomplete="off" placeholder="Open a text box on the TV, then type here"></textarea></label>
+  </div>
+  <button class="btn" id="kb-enter">Done (press Enter on the TV)</button>
+  <button class="btn secondary" id="kb-clear">Clear</button>
+  <p class="note">What you type appears in the TV's open text box as you type: search, rename, notes, passwords and keys.</p>
+</section>
+
+<!-- NOTES -->
+<section id="notes">
+  <div class="group">
+    <label class="field"><span>Title</span><input id="note-title" placeholder="Groceries"></label>
+    <label class="field"><span>Note</span><textarea id="note-body" placeholder="Milk, eggs…"></textarea></label>
+  </div>
+  <button class="btn" id="note-save">Save note</button>
+  <button class="btn secondary" id="note-new" hidden>New note</button>
+  <h2>All notes</h2>
+  <div class="group" id="note-list"></div>
+</section>
+
 <!-- SEND -->
 <section id="send">
-  <h2>Show a message on the TV</h2>
+  <h2>Announcement</h2>
   <div class="group">
     <label class="field"><span>Title</span><input id="n-title" placeholder="Dinner's ready"></label>
     <label class="field"><span>Message</span><textarea id="n-body" placeholder="Optional"></textarea></label>
   </div>
-  <button class="btn" id="n-send">Send to TV</button>
+  <h2>Send to</h2>
+  <div class="group" id="n-targets"></div>
+  <button class="btn" id="n-send">Send</button>
   <h2>Play or open a link on the TV</h2>
   <div class="group">
     <label class="field"><span>Web address</span><input id="o-url" type="url" inputmode="url" autocapitalize="off" placeholder="https://…/movie.mp4"></label>
   </div>
   <button class="btn" id="o-send">Open on TV</button>
   <p class="note">Video and audio links play in the TV's built-in player; other links open in an app on the TV if there is one.</p>
+  <h2>Photos on the TV</h2>
+  <button class="btn secondary" id="slideshow">Start photo slideshow on the TV</button>
+  <p class="note">In Files, choose <b>Background</b> on a photo to make it the app's background, or <b>Slideshow</b> on a folder to pick the slideshow photos. Upload photos from your iPhone first if they're not on the TV yet.</p>
   <h2>iPhone Shortcut</h2>
   <div class="group"><div class="row"><span class="grow" style="white-space:normal;font-size:15px">
     In the Shortcuts app, add <b>Get Contents of URL</b>. Set it to <b>POST</b> to the address below, with a JSON body containing <code>title</code> and <code>body</code>. Run it from Siri, a button or an automation, for example "when I arrive home".
@@ -85,6 +130,21 @@
 
 <!-- SETTINGS -->
 <section id="settings">
+  <h2>This phone</h2>
+  <div class="group">
+    <label class="field"><span>Name (so the TV knows who to send announcements to)</span><input id="p-name" placeholder="Blake's iPhone" autocomplete="off"></label>
+    <div class="row"><span class="grow" style="white-space:normal">Lock-screen alerts with the free ntfy app</span><input type="checkbox" class="check" id="p-alerts"></div>
+  </div>
+  <button class="btn" id="p-save">Save</button>
+  <div class="card" id="p-ntfy" hidden>
+    1. Install <b>ntfy</b> from the App Store and allow notifications.<br>
+    2. In ntfy tap <b>+</b>, then paste this topic and tap Subscribe:<br>
+    <code id="p-topic"></code><br>
+    <button class="small" id="p-copy" style="margin-top:8px">Copy topic</button><br>
+    <span class="meta">Keep the topic private: anyone with it can read these announcements.</span>
+  </div>
+  <p class="note">Without ntfy, announcements still pop up whenever Woodruff is open on this phone.</p>
+
   <h2>Google Drive</h2>
   <div class="group">
     <div class="row"><span class="grow">Status</span><span class="meta" id="g-status">…</span></div>
@@ -109,16 +169,43 @@
 
 <nav>
   <button data-tab="files"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>Files</button>
+  <button data-tab="keyboard"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM11 8h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zM5 8h2v2H5V8zm0 3h2v2H5v-2zm11 5H8v-2h8v2zm0-3h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/></svg>Keyboard</button>
+  <button data-tab="notes"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10l6-6V5a2 2 0 0 0-2-2zM7 8h10v2H7V8zm0 4h10v2H7v-2zm7 7.5V15h4.5L14 19.5z"/></svg>Notes</button>
   <button data-tab="send"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 3 10.5l7 2.5 2.5 7L21 3z"/></svg>Send to TV</button>
   <button data-tab="settings"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a7.5 7.5 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.5 7.5 0 0 0 1.7-1l2.5 1 2-3.4L19.4 13zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>Settings</button>
 </nav>
 <div class="toast" id="toast"></div>
+<div class="alert" id="alert"><small id="alert-from">ANNOUNCEMENT</small><div id="alert-title" style="font-weight:600"></div><div id="alert-body" class="meta"></div></div>
 
+<script>var TVX_KEY = '__TVX_KEY__';</script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var cwd = null, parent = null, settings = null;
-  var titles = { files: ['Files', 'Browse and send files to your TV'], send: ['Send to TV', 'Messages, links and shortcuts'], settings: ['Settings', 'Saved on the TV, encrypted'] };
+  var cwd = null, parent = null, settings = null, tab = null;
+  var titles = {
+    files: ['Files', 'Browse and send files to your TV'],
+    keyboard: ['Keyboard', 'Type into the TV from here'],
+    notes: ['Notes', 'Shared with the TV'],
+    send: ['Send to TV', 'Announcements, links and photos'],
+    settings: ['Settings', 'Saved on the TV, encrypted']
+  };
+
+  // Keep the pairing key in the address so "Add to Home Screen" saves a link that stays paired
+  // (Home Screen apps on iPhone don't share Safari's cookies).
+  if (TVX_KEY.indexOf('__') !== 0 && !/[?&]k=/.test(location.search)) {
+    history.replaceState(null, '', '/?k=' + TVX_KEY + location.hash);
+  }
+  var standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !standalone) $('install').hidden = false;
+
+  // This phone's identity, kept on the phone. Registered with the TV only once it has a name.
+  var device = {};
+  try { device = JSON.parse(localStorage.getItem('woodruff.device') || '{}'); } catch (e) {}
+  if (!device.id) {
+    device.id = 'p-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    try { localStorage.setItem('woodruff.device', JSON.stringify(device)); } catch (e) {}
+  }
+  function saveDevice() { try { localStorage.setItem('woodruff.device', JSON.stringify(device)); } catch (e) {} }
 
   function toast(text, bad) { var t = $('toast'); t.textContent = text; t.className = 'toast show'; t.style.background = bad ? 'var(--danger)' : ''; clearTimeout(toast.h); toast.h = setTimeout(function () { t.className = 'toast'; }, 2600); }
   function fmt(b) { if (b < 1024) return b + ' B'; var u = ['KB','MB','GB','TB'], i = -1; do { b /= 1024; i++; } while (b >= 1024 && i < 3); return (b >= 100 ? b.toFixed(0) : b.toFixed(1)) + ' ' + u[i]; }
@@ -138,9 +225,15 @@
     document.querySelectorAll('section').forEach(function (s) { s.className = s.id === tab ? 'on' : ''; });
     document.querySelectorAll('nav button').forEach(function (b) { b.className = b.dataset.tab === tab ? 'on' : ''; });
     $('title').textContent = titles[tab][0]; $('subtitle').textContent = titles[tab][1];
-    if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
+    if (location.hash !== '#' + tab) history.replaceState(null, '', location.search + '#' + tab);
+    window.scrollTo(0, 0);
+    current = tab;
     if (tab === 'settings' || tab === 'send') loadSettings();
+    if (tab === 'send') loadPhones();
+    if (tab === 'notes') loadNotes();
+    if (tab === 'keyboard') pollField();
   }
+  var current = null;
   document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { show(b.dataset.tab); }; });
 
   // ---- Files --------------------------------------------------------------------------
@@ -158,6 +251,16 @@
         else { a.href = '/api/download?path=' + q(f.path); a.setAttribute('download', f.name); }
         name.appendChild(a); row.appendChild(name);
         if (!f.dir) row.appendChild(el('span', 'meta', fmt(f.size)));
+        if (!f.dir && /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(f.name)) {
+          var bg = el('button', 'small', 'Background');
+          bg.onclick = function () { post('/api/background', { path: f.path }).then(function () { toast('Set as the TV background'); }, err); };
+          row.appendChild(bg);
+        }
+        if (f.dir) {
+          var ss = el('button', 'small', 'Slideshow');
+          ss.onclick = function () { post('/api/slideshow', { folder: f.path }).then(function () { toast('Slideshow uses ' + f.name); }, err); };
+          row.appendChild(ss);
+        }
         if (!f.dir && /\.(mp4|mkv|webm|avi|mov|m4v|ts|mp3|flac|m4a|aac|ogg|wav)$/i.test(f.name)) {
           var play = el('button', 'small', 'Play on TV');
           play.onclick = function () { post('/api/play', { path: f.path }).then(function () { toast('Playing on the TV'); }, err); };
@@ -201,10 +304,129 @@
   document.addEventListener('drop', function (e) { if (e.dataTransfer.files.length) upload(e.dataTransfer.files); });
 
   // ---- Send ---------------------------------------------------------------------------
+  var chosen = { tv: true };
+  function loadPhones() { api('/api/phones').then(function (d) { renderTargets(d.phones); }, err); }
+  function target(key, label, meta) {
+    var row = el('label', 'row'); var box = el('input', 'check'); box.type = 'checkbox'; box.checked = !!chosen[key];
+    box.onchange = function () { chosen[key] = box.checked; };
+    var name = el('span', 'grow', label); row.appendChild(name);
+    if (meta) row.appendChild(el('span', 'meta', meta));
+    row.appendChild(box); return row;
+  }
+  function renderTargets(phones) {
+    var t = $('n-targets'); t.innerHTML = '';
+    t.appendChild(target('tv', 'The TV screen'));
+    phones.forEach(function (p) {
+      if (!(p.id in chosen)) chosen[p.id] = p.id !== device.id;
+      t.appendChild(target(p.id, p.name + (p.id === device.id ? ' (this phone)' : ''), p.alerts ? 'Lock screen' : 'In app'));
+    });
+    if (!phones.length) t.appendChild(el('div', 'row meta', 'Name your phones in Settings to send them announcements'));
+  }
   $('n-send').onclick = function () {
     var t = $('n-title').value.trim(); if (!t) return toast('Write a title first', true);
-    post('/api/notify', { title: t, body: $('n-body').value.trim() }).then(function () { toast('Shown on the TV'); $('n-title').value = ''; $('n-body').value = ''; }, err);
+    var ids = Object.keys(chosen).filter(function (k) { return k !== 'tv' && chosen[k]; });
+    if (!chosen.tv && !ids.length) return toast('Choose the TV or a phone', true);
+    post('/api/announce', { title: t, body: $('n-body').value.trim(), tv: !!chosen.tv, phones: ids, from: device.name || '' }).then(function (r) {
+      toast(chosen.tv ? (r.phones ? 'Sent to the TV and ' + r.phones + ' phone(s)' : 'Shown on the TV') : 'Sent to ' + r.phones + ' phone(s)');
+      $('n-title').value = ''; $('n-body').value = '';
+    }, err);
   };
+  $('slideshow').onclick = function () { post('/api/slideshow', { start: true }).then(function () { toast('Slideshow started'); }, err); };
+
+  // ---- Keyboard -----------------------------------------------------------------------
+  var field = null, typeTimer = null, pollTimer = null;
+  function pollField() {
+    clearTimeout(pollTimer);
+    if (current !== 'keyboard' || document.hidden) return;
+    api('/api/type').then(function (d) {
+      var f = d.field;
+      if (!f) { field = null; $('kb-dot').className = 'dot'; $('kb-status').textContent = 'No text box open on the TV. Select one with the remote.'; }
+      else {
+        if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
+        field = f;
+        $('kb-dot').className = 'dot live';
+        $('kb-status').textContent = 'Typing into: ' + f.label + (f.secret ? ' (hidden)' : '');
+        $('kb-text').style.webkitTextSecurity = f.secret ? 'disc' : 'none';
+      }
+    }, function () {}).then(function () { pollTimer = setTimeout(pollField, 1500); });
+  }
+  function sendText(submit) {
+    if (!field) return toast('Open a text box on the TV first', true);
+    var text = $('kb-text').value;
+    if (field && !field.multiline) text = text.replace(/\n/g, ' ');
+    return post('/api/type', { id: field.id, text: text, submit: !!submit }).then(function () {
+      if (submit) { toast('Sent'); $('kb-text').value = ''; field = null; }
+    }, err);
+  }
+  $('kb-text').addEventListener('input', function () { clearTimeout(typeTimer); typeTimer = setTimeout(function () { sendText(false); }, 120); });
+  $('kb-text').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && field && !field.multiline) { e.preventDefault(); clearTimeout(typeTimer); sendText(true); }
+  });
+  $('kb-enter').onclick = function () { clearTimeout(typeTimer); sendText(true); };
+  $('kb-clear').onclick = function () { $('kb-text').value = ''; sendText(false); };
+
+  // ---- Notes --------------------------------------------------------------------------
+  var editing = null;
+  function loadNotes() { api('/api/notes').then(function (d) { renderNotes(d.notes); }, err); }
+  function renderNotes(notes) {
+    var list = $('note-list'); list.innerHTML = '';
+    if (!notes.length) list.appendChild(el('div', 'row meta', 'No notes yet'));
+    notes.forEach(function (n) {
+      var row = el('div', 'row note-row'); var text = el('span', 'grow');
+      text.appendChild(el('div', null, (n.pinned ? '📌 ' : '') + (n.title || n.body.split('\n')[0] || 'Untitled')));
+      if (n.body) text.appendChild(el('span', 'meta', n.body));
+      text.onclick = function () { editing = n.id; $('note-title').value = n.title; $('note-body').value = n.body; $('note-new').hidden = false; $('note-save').textContent = 'Save changes'; window.scrollTo(0, 0); };
+      row.appendChild(text);
+      var del = el('button', 'small danger', 'Delete');
+      del.onclick = function () { if (confirm('Delete this note?')) post('/api/notes/delete', { id: n.id }).then(function () { if (editing === n.id) resetNote(); loadNotes(); }, err); };
+      row.appendChild(del); list.appendChild(row);
+    });
+  }
+  function resetNote() { editing = null; $('note-title').value = ''; $('note-body').value = ''; $('note-new').hidden = true; $('note-save').textContent = 'Save note'; }
+  $('note-new').onclick = resetNote;
+  $('note-save').onclick = function () {
+    var t = $('note-title').value, b = $('note-body').value;
+    if (!t.trim() && !b.trim()) return toast('Write something first', true);
+    post('/api/notes', { id: editing || '', title: t, body: b }).then(function () { toast('Saved on the TV'); resetNote(); loadNotes(); }, err);
+  };
+
+  // ---- This phone & announcements to it -------------------------------------------------
+  function hello(alerts) {
+    if (!device.name) return Promise.resolve();
+    var body = { id: device.id, name: device.name }; if (alerts != null) body.alerts = alerts;
+    return post('/api/phone/hello', body).then(function (r) { device.alerts = r.phone.alerts; device.topic = r.phone.topic || ''; saveDevice(); renderDevice(); return r; });
+  }
+  function renderDevice() {
+    $('p-name').value = device.name || '';
+    $('p-alerts').checked = !!device.alerts;
+    $('p-ntfy').hidden = !device.topic;
+    $('p-topic').textContent = device.topic || '';
+    $('name-me').hidden = !!device.name;
+  }
+  $('p-save').onclick = function () {
+    var n = $('p-name').value.trim(); if (!n) return toast('Give this phone a name', true);
+    device.name = n; saveDevice();
+    hello($('p-alerts').checked).then(function () { toast(device.topic ? 'Saved. Now subscribe in ntfy' : 'Saved'); }, err);
+  };
+  $('p-copy').onclick = function () {
+    var t = device.topic; if (!t) return;
+    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copied'); }, function () { prompt('Copy this topic', t); });
+  };
+  function showAlert(m) {
+    $('alert-from').textContent = 'FROM ' + String(m.from || 'TV').toUpperCase();
+    $('alert-title').textContent = m.title; $('alert-body').textContent = m.body || '';
+    $('alert').className = 'alert show';
+    clearTimeout(showAlert.h); showAlert.h = setTimeout(function () { $('alert').className = 'alert'; }, 8000);
+  }
+  $('alert').onclick = function () { $('alert').className = 'alert'; };
+  function checkInbox() {
+    if (!device.name || document.hidden) return;
+    api('/api/inbox?id=' + q(device.id)).then(function (d) { d.messages.forEach(showAlert); }, function () {});
+  }
+  setInterval(checkInbox, 5000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); } });
+  renderDevice();
+  hello(null).catch(function () {});
   $('o-send').onclick = function () {
     post('/api/open', { url: $('o-url').value.trim() }).then(function () { toast('Sent to the TV'); }, err);
   };

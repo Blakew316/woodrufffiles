@@ -65,7 +65,9 @@ class TransferServer(
             return text(Response.Status.UNAUTHORIZED, "Scan the QR code on the TV (or type the full address shown there) to connect.")
         }
         return when {
-            s.uri == "/" -> newFixedLengthResponse(Response.Status.OK, MIME_HTML, page)
+            // The page keeps the key in its address so a Home Screen copy stays paired (see index.html).
+            s.uri == "/" -> newFixedLengthResponse(Response.Status.OK, MIME_HTML, page.replace("__TVX_KEY__", token))
+                .apply { addHeader("Cache-Control", "no-store") }
             s.uri == "/api/roots" -> json(JSONArray().apply {
                 roots().forEach { put(JSONObject().put("name", it.title).put("path", it.dir.absolutePath)) }
             })

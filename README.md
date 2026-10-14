@@ -12,10 +12,21 @@ None of its code is reused: the original no longer builds, because it depends on
   and you can type them on the TV or paste them from your phone.
 - **Mail**: iCloud Mail, Gmail, Yahoo or any IMAP account, using an app-specific password. There's an inbox and a reader,
   and new mail shows up as a notification.
-- **Phone connection**: scan the QR code once (the pairing key persists). The page it opens has three tabs:
-  - **Files**: upload, download, delete, and *Play on TV*.
-  - **Send to TV**: pop up a message, or play/open a link.
-  - **Settings**: Google keys and mail accounts.
+- **Phone connection**: scan the QR code once (the pairing key persists). On iPhone, tap **Share → Add to Home Screen**
+  and it opens like an app that stays paired. It has five tabs:
+  - **Files**: upload, download, delete, *Play on TV*, *Background* (photos) and *Slideshow* (folders).
+  - **Keyboard**: type on the phone and the text appears in whatever text box is open on the TV (search, rename,
+    notes, passwords, Google keys). Enter on the phone presses Done on the TV.
+  - **Notes**: the same notes as the TV's Notes screen.
+  - **Send to TV**: announcements to the TV and/or chosen phones, links (YouTube and Apple Music links open in those apps), slideshow.
+  - **Settings**: name this phone, lock-screen alerts, Google keys and mail accounts.
+- **Notes** (side menu): pinned and recent notes, editable from the TV or any paired phone.
+- **Announcements to phones**: each phone gets a name ("Mom's iPhone"). From the TV (Notifications → Announce) or a phone,
+  pick who gets it. Phones that turned on *Lock-screen alerts* get a real notification through the free
+  [ntfy](https://ntfy.sh) app. The others see it whenever Woodruff is open.
+- **Screensaver and background**: any photo can be the app background, and a photo slideshow (with a clock) can run from
+  Home, after a few idle minutes, or as the TV's own screensaver (Settings → Screensaver & background).
+- **Watch & listen**: Home shortcuts to YouTube, Apple Music and Spotify.
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…` (the URL is shown on that tab) for automations like "when I get home".
 - **Notifications**: messages from the phone and new mail appear as a pop-up, even over other apps once
@@ -133,6 +144,9 @@ The APK is written to `app/build/outputs/apk/release/`.
   Paths are canonicalised, so `..` and symlink tricks are rejected.
 - Traffic is plain HTTP on your local network, so anyone on the network who can see the URL can use it.
   Use it on a network you trust.
+- The pairing key stays in the phone page's address so a Home Screen copy keeps working. Treat that link like a password.
+- Lock-screen alerts go through the public ntfy.sh server. Each phone's topic is random, but anyone who learns it can read
+  the announcements sent to that phone, so don't announce secrets.
 - Archive extraction rejects "zip slip" entries that would write outside the target folder.
 
 ## Project layout

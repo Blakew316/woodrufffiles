@@ -1,0 +1,12 @@
+{
+  "name": "Woodruff Pictures",
+  "short_name": "Woodruff",
+  "description": "Remote, keyboard, notes and file transfer for Woodruff Pictures on your TV",
+  "display": "standalone",
+  "background_color": "#f2f2f7",
+  "theme_color": "#c4232b",
+  "icons": [
+    { "src": "/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

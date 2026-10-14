@@ -24,6 +24,20 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Slideshow
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Wallpaper
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.woodruff.tvexplorer.phones.Phone
+import com.woodruff.tvexplorer.phones.Phones
+import com.woodruff.tvexplorer.screensaver.Appearance
+import com.woodruff.tvexplorer.screensaver.SlideshowActivity
+import com.woodruff.tvexplorer.util.Format
+import java.io.File
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,6 +92,8 @@ private sealed interface SettingsDialog {
     data class MailHost(val provider: MailProvider, val email: String, val password: String) : SettingsDialog
     data class RemoveMail(val account: MailAccount) : SettingsDialog
     data object OverlayHelp : SettingsDialog
+    data object DreamHelp : SettingsDialog
+    data class RemovePhone(val phone: Phone) : SettingsDialog
 }
 
 /**
@@ -103,6 +119,8 @@ fun SettingsScreen(vm: MainViewModel) {
     val accounts = remember(v) { MailAccounts.list(context) }
     val overlay = remember(v) { Settings.canDrawOverlays(context) }
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
+    LaunchedEffect(Unit) { Phones.load(context) }
+    val phones by Phones.items.collectAsStateWithLifecycle()
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 32.dp),
@@ -118,6 +136,33 @@ fun SettingsScreen(vm: MainViewModel) {
         item {
             SettingRow(if (Palette.light) Icons.Filled.LightMode else Icons.Filled.DarkMode, "Theme", if (Palette.light) "Light" else "Dark") {
                 ThemeSetting.toggle(context)
+            }
+        }
+
+        section("Screensaver & background")
+        item {
+            SettingRow(Icons.Filled.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None · in Files, open a photo's menu") {
+                if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
+                else vm.say("In Files, press and hold on a photo and choose Set as app background")
+            }
+        }
+        item {
+            SettingRow(Icons.Filled.PhotoLibrary, "Slideshow photos", Appearance.slideshowFolder?.let { File(it).name + " · select to reset" } ?: "Pictures & Camera · or pick a folder in Files") {
+                if (Appearance.slideshowFolder != null) Appearance.setSlideshowFolder(context, null)
+                else vm.say("In Files, press and hold on a folder and choose Use for photo slideshow")
+            }
+        }
+        item { SettingRow(Icons.Filled.Timer, "Show each photo for", "${Appearance.seconds} seconds") { Appearance.nextSpeed(context) } }
+        item {
+            SettingRow(Icons.Filled.Bedtime, "Start slideshow when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min in this app") {
+                Appearance.nextIdle(context)
+            }
+        }
+        item { SettingRow(Icons.Filled.Slideshow, "Start slideshow now", null) { SlideshowActivity.start(context) } }
+        item {
+            SettingRow(Icons.Filled.Tv, "Use as the TV's screensaver", "Choose Woodruff Pictures slideshow") {
+                val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
+                if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
             }
         }
 
@@ -152,6 +197,16 @@ fun SettingsScreen(vm: MainViewModel) {
                         "",
                     )
                     if (r is OpenResult.Failed) dialog = SettingsDialog.OverlayHelp
+                }
+            }
+        }
+
+        section("Phones")
+        if (phones.isEmpty()) item { SettingRow(Icons.Filled.Smartphone, "No phones yet", "Open Woodruff on a phone and give it a name") { vm.show(Screen.TRANSFER) } }
+        phones.forEach { p ->
+            item(key = "phone-" + p.id) {
+                SettingRow(Icons.Filled.Smartphone, p.name, (if (p.topic != null) "Lock-screen alerts on" else "Alerts while the app is open") + " · seen " + Format.date(p.lastSeen)) {
+                    dialog = SettingsDialog.RemovePhone(p)
                 }
             }
         }
@@ -222,6 +277,17 @@ fun SettingsScreen(vm: MainViewModel) {
         is SettingsDialog.RemoveMail -> ConfirmDialog(
             "Remove ${d.account.email}?", "Deletes this account and its saved password from the TV.", "Remove",
             onConfirm = { MailAccounts.remove(context, d.account.id); changed() }, onDismiss = { dialog = null },
+        )
+        SettingsDialog.DreamHelp -> ConfirmDialog(
+            "Set the screensaver with adb",
+            "This TV hides the screensaver picker. From a computer with adb connected to the TV, run:\n\n" +
+                "adb shell settings put secure screensaver_components ${context.packageName}/com.woodruff.tvexplorer.screensaver.SlideshowDream\n\n" +
+                "Or turn on \"Start slideshow when idle\" to use it inside this app.",
+            "OK", onConfirm = {}, onDismiss = { dialog = null },
+        )
+        is SettingsDialog.RemovePhone -> ConfirmDialog(
+            "Forget ${d.phone.name}?", "It stops getting announcements until it opens Woodruff again.", "Forget",
+            onConfirm = { Phones.remove(context, d.phone.id) }, onDismiss = { dialog = null },
         )
         SettingsDialog.OverlayHelp -> ConfirmDialog(
             "Allow pop-ups with adb",
