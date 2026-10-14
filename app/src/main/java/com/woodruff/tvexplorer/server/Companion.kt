@@ -16,6 +16,7 @@ import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.util.Handoff
+import com.woodruff.tvexplorer.tmdb.Tmdb
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
@@ -162,6 +163,11 @@ class CompanionRoutes(private val ctx: Context) {
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
         }
+        s.uri == "/api/settings/tmdb" && s.method == Method.POST -> {
+            Tmdb.saveKey(ctx, body(s).optString("key"))
+            CompanionHub.settingsChanged.tryEmit(Unit)
+            json(settingsJson(s))
+        }
         s.uri == "/api/settings/nest" && s.method == Method.POST -> {
             GoogleAuth.saveNestProject(ctx, body(s).optString("project"))
             CompanionHub.settingsChanged.tryEmit(Unit)
@@ -203,6 +209,7 @@ class CompanionRoutes(private val ctx: Context) {
                 .put("hasSecret", GoogleAuth.isConfigured(ctx))
                 .put("connected", GoogleAuth.isConnected(ctx))
                 .put("redirectUri", GoogleAuth.REDIRECT_URI))
+            .put("tmdb", Tmdb.isConfigured(ctx))
             .put("nest", JSONObject()
                 .put("project", GoogleAuth.nestProject(ctx) ?: "")
                 .put("connected", GoogleAuth.isConnected(ctx, GoogleAuth.Grant.NEST)))

@@ -155,6 +155,13 @@
   <button class="btn" id="g-save">Save Google keys</button>
   <p class="note">Redirect URI: <code id="g-redirect"></code></p>
 
+  <h2>Movie &amp; show posters</h2>
+  <div class="group">
+    <div class="row"><span class="grow">TMDB API key</span><span class="meta" id="t-status">…</span></div>
+    <label class="field"><span>API key or Read Access Token</span><input id="t-key" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="From themoviedb.org → Settings → API"></label>
+  </div>
+  <button class="btn" id="t-save">Save TMDB key</button>
+
   <h2>Cameras (Command center)</h2>
   <div class="group">
     <div class="row"><span class="grow">Status</span><span class="meta" id="c-status">…</span></div>
@@ -506,6 +513,8 @@
     $('g-status').className = 'meta ' + (g.connected ? 'ok' : '');
     if (!$('g-id').value) $('g-id').value = g.clientId || '';
     $('g-redirect').textContent = g.redirectUri;
+    $('t-status').textContent = s.tmdb ? 'Saved' : 'Not set';
+    $('t-status').className = 'meta ' + (s.tmdb ? 'ok' : '');
     if (s.nest) {
       $('c-status').textContent = s.nest.connected ? 'Connected' : s.nest.project ? 'Sign in on the TV' : 'Not set up';
       $('c-status').className = 'meta ' + (s.nest.connected ? 'ok' : '');
@@ -534,6 +543,10 @@
     var id = $('g-id').value.trim(), secret = $('g-secret').value.trim();
     if (!secret && settings && settings.google.hasSecret && id === settings.google.clientId) return toast('Nothing changed');
     post('/api/settings/google', { client_id: id, client_secret: secret }).then(function (s) { $('g-secret').value = ''; renderSettings(s); toast('Saved. Look at the TV to sign in'); }, err);
+  };
+  $('t-save').onclick = function () {
+    var k = $('t-key').value.trim(); if (!k) return toast('Paste the TMDB key first', true);
+    post('/api/settings/tmdb', { key: k }).then(function (r) { $('t-key').value = ''; renderSettings(r); toast('Saved. Posters update on the TV'); }, err);
   };
   $('c-save').onclick = function () {
     post('/api/settings/nest', { project: $('c-project').value.trim() }).then(function (s) { renderSettings(s); toast('Saved. Open Command center on the TV'); }, err);

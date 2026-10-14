@@ -36,7 +36,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Command center**: live Google Home / Nest cameras and doorbells (WebRTC, so the newest models work). Either
   cameras only or "all on one" next to the clock, notifications and notes. Select a camera for full screen with sound,
   Left/Right flips between cameras. It can open automatically when the app starts. Setup is [below](#connect-google-home-cameras).
-- **Watch & listen**: Home shortcuts to YouTube, Apple Music and Spotify.
+- **Watch & listen**: Home shortcuts to YouTube and Apple Music.
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…` (the URL is shown on that tab) for automations like "when I get home".
 - **Notifications**: messages from the phone and new mail appear as a pop-up, even over other apps once
@@ -135,8 +135,15 @@ Notes:
 Movies and TV Shows use poster tiles. Artwork follows the Plex/Kodi convention, no API key needed:
 - A movie or show **folder**: put `poster.jpg` (or `folder.jpg` / `cover.jpg`) inside it.
 - A **loose movie file**: put an image with the same name next to it, e.g. `Inception.mp4` + `Inception.jpg`.
-Those images are used as posters and hidden from the grid. Without one, the video's Drive preview frame
-(or a title card for folders) is shown.
+Those images are used as posters and hidden from the grid.
+
+**Automatic posters (TMDB):** add a free API key from [themoviedb.org](https://www.themoviedb.org/settings/api)
+(the API Key or the Read Access Token) in **Settings → Movie & show posters**, or in the phone's Settings tab. Movies,
+shows and seasons without their own art then get official posters, matched from names like `Inception (2010).mkv`,
+`The.Office.S01.1080p` or `Season 2`. Lookups are cached on the TV. Your own art always wins. Without either, the
+video's Drive preview frame (or a title card for folders) is shown.
+
+*This product uses the TMDB API but is not endorsed or certified by TMDB.*
 
 ## Connect Google Calendar (Today's Activities)
 

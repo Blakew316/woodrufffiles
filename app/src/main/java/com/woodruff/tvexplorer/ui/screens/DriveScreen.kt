@@ -60,6 +60,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveState
@@ -198,7 +199,9 @@ private fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLong
         scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
     ) {
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))) {
-            if (f.posterUrl == null || token == null) {
+            // Real art (own poster or TMDB), else the Drive preview frame, else a title card.
+            val art = f.posterUrl ?: f.thumbnailLink?.takeIf { f.kind == FileKind.VIDEO }?.let(DriveApi::big)
+            if (art == null || (token == null && isGoogle(art))) {
                 // Title card: large initial and the name, so tiles stay readable without art.
                 Text(
                     title.trim().take(1).uppercase(), style = MaterialTheme.typography.displayLarge,
@@ -206,7 +209,9 @@ private fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLong
                 )
             } else {
                 AsyncImage(
-                    model = ImageRequest.Builder(context).data(f.posterUrl).addHeader("Authorization", "Bearer $token")
+                    model = ImageRequest.Builder(context).data(art)
+                        // The Google token only ever goes to Google's own image servers, never to TMDB.
+                        .apply { if (isGoogle(art) && token != null) addHeader("Authorization", "Bearer $token") }
                         .size(450, 675).crossfade(true).build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
@@ -222,6 +227,11 @@ private fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLong
             }
         }
     }
+}
+
+private fun isGoogle(url: String): Boolean {
+    val host = android.net.Uri.parse(url).host.orEmpty()
+    return host.endsWith(".googleusercontent.com") || host.endsWith(".google.com") || host.endsWith(".googleapis.com")
 }
 
 @Composable

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
+import com.woodruff.tvexplorer.tmdb.Tmdb
 import com.woodruff.tvexplorer.calendar.TodayCalendar
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Cast
@@ -111,6 +112,7 @@ private sealed interface SettingsDialog {
     data object OverlayHelp : SettingsDialog
     data object DreamHelp : SettingsDialog
     data object NestProject : SettingsDialog
+    data object TmdbKey : SettingsDialog
     data class RemovePhone(val phone: Phone) : SettingsDialog
 }
 
@@ -139,6 +141,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val connected = remember(v) { GoogleAuth.isConnected(context) }
     val nestProject = remember(v) { GoogleAuth.nestProject(context) }
     val nestConnected = remember(v) { GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST) }
+    val tmdbSet = remember(v) { Tmdb.isConfigured(context) }
     val photosConnected = remember(v, showPhotos) { GoogleAuth.isConnected(context, GoogleAuth.Grant.PHOTOS) }
     val accounts = remember(v) { MailAccounts.list(context) }
     val overlay = remember(v) { Settings.canDrawOverlays(context) }
@@ -248,6 +251,9 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingRow(Icons.Rounded.Logout, "Disconnect Google Photos", null) { GooglePhotos.signOut { changed() } }
         }
 
+        section("Movie & show posters")
+        item { SettingRow(Icons.Rounded.Key, "TMDB API key", if (tmdbSet) "•••••••• saved" else "Not set") { dialog = SettingsDialog.TmdbKey } }
+
         section("Google Drive")
         item { SettingRow(Icons.Rounded.AddToDrive, "Browse Google Drive", null, brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
         item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up", brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
@@ -298,7 +304,7 @@ fun SettingsScreen(vm: MainViewModel) {
         item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", null, danger = true) { dialog = SettingsDialog.ResetPairing } }
 
         section("About")
-        item { SettingRow(Icons.Rounded.Info, "Woodruff Family", BuildConfig.VERSION_NAME) {} }
+        item { SettingRow(Icons.Rounded.Info, "Woodruff Family ${BuildConfig.VERSION_NAME}", "Posters: TMDB (not endorsed by TMDB)") {} }
     }
 
     if (showCalendar) CalendarConnectDialog(onDismiss = { showCalendar = false })
@@ -362,6 +368,12 @@ fun SettingsScreen(vm: MainViewModel) {
         is SettingsDialog.RemoveMail -> ConfirmDialog(
             "Remove ${d.account.email}?", "Deletes this account and its saved password from the TV.", "Remove",
             onConfirm = { MailAccounts.remove(context, d.account.id); changed() }, onDismiss = { dialog = null },
+        )
+        SettingsDialog.TmdbKey -> TextInputDialog(
+            "TMDB API key", "", "Save",
+            onConfirm = { key -> Tmdb.saveKey(context, key); changed() },
+            onDismiss = { dialog = null }, secret = true,
+            hint = "Free at themoviedb.org → Settings → API. The API Key or the Read Access Token both work.",
         )
         SettingsDialog.NestProject -> TextInputDialog(
             "Device Access Project ID", GoogleAuth.nestProject(context).orEmpty(), "Save",

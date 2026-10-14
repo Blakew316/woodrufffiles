@@ -139,7 +139,6 @@ fun HomeScreen(vm: MainViewModel, roots: List<StorageRoot>) {
     val watch = listOf(
         Tile("YouTube", null, Icons.Rounded.SmartDisplay, Color(0xFFFF0033), R.drawable.brand_youtube) { Handoff.launch(context, Handoff.YOUTUBE) },
         Tile("Apple Music", null, Icons.Rounded.MusicNote, Color(0xFFFA2D48), R.drawable.brand_apple_music) { Handoff.launch(context, Handoff.APPLE_MUSIC) },
-        Tile("Spotify", null, Icons.Rounded.LibraryMusic, Color(0xFF1ED760), R.drawable.brand_spotify) { Handoff.launch(context, Handoff.SPOTIFY) },
         Tile("Photo slideshow", null, Icons.Rounded.Slideshow, Palette.drive) { SlideshowActivity.start(context) },
     )
     val tools = listOf(

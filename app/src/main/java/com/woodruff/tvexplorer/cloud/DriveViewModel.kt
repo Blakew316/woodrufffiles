@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.woodruff.tvexplorer.tmdb.Tmdb
 import java.io.File
 
 /** Where the Connect flow is: paste the client from a phone, sign in on a phone, or done. */
@@ -63,7 +64,13 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch { CompanionHub.googleCodes.collect { (code, attempt) -> if (attempt.grant == GoogleAuth.Grant.DRIVE) finishSignIn(code, attempt) } }
         // Keys saved from the phone or the Settings screen: move on to the sign-in step.
-        viewModelScope.launch { CompanionHub.changes.collect { if (!_state.value.connected) { _state.update { it.copy(step = initialStep()) }; prepareSignIn() } } }
+        viewModelScope.launch {
+            CompanionHub.changes.collect {
+                if (!_state.value.connected) { _state.update { it.copy(step = initialStep()) }; prepareSignIn() }
+                // A new TMDB key changes posters: drop cached library listings and fetch again.
+                else if (_state.value.library) { cache.clear(); prefetchLibraries(); load() }
+            }
+        }
         prefetchLibraries()
     }
 
@@ -72,7 +79,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val token = GoogleAuth.token(ctx) ?: return@launch
             for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
-                runCatching { DriveApi.withPosters(token, DriveApi.list(token, place)) }.onSuccess { cache[place] = it }
+                runCatching { posters(token, listOf(place), DriveApi.list(token, place)) }.onSuccess { cache[place] = it }
             }
         }
     }
@@ -164,9 +171,25 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() = load()
 
+    /**
+     * Poster art for a Movies / TV Shows listing: the owner's own images first, then TMDB.
+     * Movies: the movies themselves. TV Shows: shows at the top, seasons one level down.
+     */
+    private suspend fun posters(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> {
+        val own = DriveApi.withPosters(token, files)
+        val mode = when {
+            stack.first() == DrivePlace.Movies && stack.size == 1 -> Tmdb.Mode.MOVIES
+            stack.first() == DrivePlace.TvShows && stack.size == 1 -> Tmdb.Mode.SHOWS
+            stack.first() == DrivePlace.TvShows && stack.size == 2 -> Tmdb.Mode.SEASONS
+            else -> Tmdb.Mode.NONE
+        }
+        return Tmdb.fill(ctx, own, mode, show = stack.getOrNull(1)?.title)
+    }
+
     private fun load() {
         loadJob?.cancel()
         val place = _state.value.place
+        val stack = _state.value.stack
         val library = _state.value.library
         val cached = cache[place]
         _state.update { it.copy(busy = cached == null, error = null, files = cached ?: emptyList()) }
@@ -179,7 +202,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     prepareSignIn()
                     return@launch
                 }
-                val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
+                val files = DriveApi.list(token, place).let { if (library) posters(token, stack, it) else it }
                 cache[place] = files
                 // Only apply if the viewer is still on this place.
                 _state.update { if (it.place == place) it.copy(token = token, files = files, busy = false) else it }

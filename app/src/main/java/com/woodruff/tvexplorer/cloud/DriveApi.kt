@@ -145,7 +145,8 @@ object DriveApi {
                 f.kind == FileKind.VIDEO -> {
                     val img = byStem[f.name.substringBeforeLast('.').lowercase()]
                     if (img != null) used += img.id
-                    f.copy(posterUrl = img?.thumbnailLink?.let(::big) ?: f.thumbnailLink?.let(::big))
+                    // Only real artwork here; the tile falls back to the video frame, and TMDB fills the rest.
+                    f.copy(posterUrl = img?.thumbnailLink?.let(::big))
                 }
                 else -> f
             }
@@ -153,7 +154,7 @@ object DriveApi {
     }
 
     /** Drive thumbnails come at 220px ("=s220"); ask for a size that's sharp on a TV poster. */
-    private fun big(link: String) = link.replace(Regex("=s\\d+(-c)?$"), "") + "=s720"
+    fun big(link: String) = link.replace(Regex("=s\\d+(-c)?$"), "") + "=s720"
 
     /** The first folder named one of [names]: at the top of My Drive if there is one, else anywhere. */
     private fun findFolder(token: String, names: List<String>): String? {

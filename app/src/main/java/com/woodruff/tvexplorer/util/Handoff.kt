@@ -7,12 +7,11 @@ import android.net.Uri
 
 /**
  * Hands links and shortcuts to the streaming apps installed on the TV (YouTube, Apple Music,
- * Spotify). Their catalogues and sign-in stay in their own apps; this just gets you there.
+ * Google Meet). Their catalogues and sign-in stay in their own apps; this just gets you there.
  */
 object Handoff {
     const val YOUTUBE = "com.google.android.youtube.tv"
     const val APPLE_MUSIC = "com.apple.android.music"
-    const val SPOTIFY = "com.spotify.tv.android"
     /** Google Meet on Google TV (the former Duo app keeps this package name). */
     const val MEET = "com.google.android.apps.tachyon"
     /** AirScreen: receives iPhone Screen Mirroring (AirPlay), e.g. a Meet call using the phone's camera. */
@@ -23,7 +22,6 @@ object Handoff {
         return when (host) {
             "youtube.com", "youtu.be", "music.youtube.com" -> YOUTUBE
             "music.apple.com" -> APPLE_MUSIC
-            "open.spotify.com" -> SPOTIFY
             "meet.google.com" -> MEET
             else -> null
         }
