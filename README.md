@@ -27,6 +27,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   anywhere in My Drive, top level preferred) and stream from them. **Photos** and **Videos** show what you've added from
   Google Photos (saved on the TV), each with an **Add from Google Photos** button. Google Drive and Google Photos
   settings live in Settings.
+- **Filters**: Movies and TV Shows can be sorted (A–Z, recently added, newest, top rated), searched (type on the
+  TV or the phone), and narrowed by decade and genre. Titles and years come from the file names ("The.Matrix.1999.
+  1080p.mkv" shows as *The Matrix (1999)*); genres and ratings come from TMDB when a key is set. Photos and Videos
+  sort newest or oldest first and filter by year and month, using when each was taken: Google's capture time for
+  Google Photos items, otherwise the photo's own data or a date in its name.
 - **TV tab on the phone**: a live picture of what Woodruff Family shows on the TV (about once a second, only
   while the tab is open), with arrows, OK, Back, Home and play/pause. Only Woodruff Family's own screens can be
   shown (video itself appears black); other apps would need a permission prompt on the TV every time.

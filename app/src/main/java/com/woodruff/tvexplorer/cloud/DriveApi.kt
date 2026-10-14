@@ -26,6 +26,8 @@ data class DriveFile(
     val thumbnailLink: String?,
     /** Poster art for Movies / TV Shows tiles (a poster image's thumbnail), when one was found. */
     val posterUrl: String? = null,
+    /** Title, year, genres and rating for Movies / TV Shows (see [Library]); null outside the library. */
+    val info: MediaInfo? = null,
 ) {
     val isFolder: Boolean get() = mimeType == FOLDER_MIME
     /** Google Docs/Sheets/Slides have no file bytes to stream or download. */

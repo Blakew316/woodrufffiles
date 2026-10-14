@@ -60,6 +60,11 @@ import com.woodruff.tvexplorer.util.Opener
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import com.woodruff.tvexplorer.photos.GooglePhotos
+import com.woodruff.tvexplorer.photos.MediaDates
+import com.woodruff.tvexplorer.photos.PhotoFilter
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.woodruff.tvexplorer.ui.Screen
 
 @Composable
@@ -76,6 +81,19 @@ fun BrowserScreen(vm: MainViewModel) {
         p.startsWith(GooglePhotos.folder.path) || p.startsWith(GooglePhotos.videoFolder.path)
     } == true
     val photos by GooglePhotos.state.collectAsStateWithLifecycle()
+    // Photos / Videos: filter and sort by when each was taken (read in the background, then cached).
+    val dateFilterable = photosFolder && location is Location.Folder && !state.selecting
+    var photoFilter by remember(location.key) { mutableStateOf(photoFilterMemory[location.key] ?: PhotoFilter()) }
+    val dates by produceState<Map<String, Long>?>(null, dateFilterable, state.items) {
+        value = if (!dateFilterable) null else withContext(Dispatchers.IO) {
+            MediaDates.of(context, state.items.filter { !it.isDirectory }.map { it.file })
+        }
+    }
+    val shown = remember(state.items, dates, photoFilter, dateFilterable) {
+        val d = dates
+        if (dateFilterable && d != null) PhotoFilter.apply(state.items, { it.path }, { it.isDirectory }, d, photoFilter) else state.items
+    }
+    val listKey = if (dateFilterable) "${location.key}|$photoFilter" else location.key
     LaunchedEffect(photos.step) { if (photos.step == GooglePhotos.Step.DONE) vm.reload() }
     if (showPhotos) GooglePhotosDialog(onDismiss = { showPhotos = false }, onSetUpGoogle = { vm.show(Screen.DRIVE) })
 
@@ -85,7 +103,7 @@ fun BrowserScreen(vm: MainViewModel) {
         when {
             state.selecting -> vm.toggleSelected(item)
             item.isDirectory -> vm.openFolder(item.file)
-            else -> when (val r = Opener.open(context, item, state.items)) {
+            else -> when (val r = Opener.open(context, item, shown)) {
                 is OpenResult.Failed -> vm.say(r.message)
                 OpenResult.NeedsInstallPermission -> dialog = BrowserDialog.InstallPermission
                 OpenResult.Opened -> Unit
@@ -131,7 +149,8 @@ fun BrowserScreen(vm: MainViewModel) {
                     }
                 }
                 ToolButton(Icons.Rounded.Search, null, { dialog = BrowserDialog.Search })
-                ToolButton(Icons.Rounded.Sort, null, { dialog = BrowserDialog.Sort })
+                // Photos / Videos sort by date with their own filters below.
+                if (!dateFilterable) ToolButton(Icons.Rounded.Sort, null, { dialog = BrowserDialog.Sort })
                 ToolButton(if (settings.grid) Icons.Rounded.ViewList else Icons.Rounded.GridView, null, {
                     vm.updateSettings { it.copy(grid = !it.grid) }
                 })
@@ -141,19 +160,27 @@ fun BrowserScreen(vm: MainViewModel) {
             }
         }
 
+        val d = dates
+        if (dateFilterable && d != null && d.isNotEmpty()) {
+            PhotoFilters(d.values, photoFilter, { photoFilter = it; photoFilterMemory[location.key] = it }, Modifier.padding(bottom = 10.dp))
+        }
         Box(Modifier.fillMaxSize()) {
             when {
                 state.loading -> EmptyState("Loading…")
                 state.error != null -> EmptyState(state.error!!)
                 state.items.isEmpty() -> EmptyState(if (location is Location.Search) "No matches" else "This folder is empty")
-                settings.grid -> FileGrid(vm, location.key, state.items, state.selected, onOpen, onMenu)
-                else -> FileList(vm, location.key, state.items, state.selected, onOpen, onMenu)
+                shown.isEmpty() -> EmptyState("Nothing from then")
+                settings.grid -> FileGrid(vm, listKey, shown, state.selected, onOpen, onMenu)
+                else -> FileList(vm, listKey, shown, state.selected, onOpen, onMenu)
             }
         }
     }
 
     dialog?.let { BrowserDialogs(it, vm, onDismiss = { dialog = null }, show = { next -> dialog = next }) }
 }
+
+/** Photos / Videos filter per folder, kept while the app runs. */
+private val photoFilterMemory = HashMap<String, PhotoFilter>()
 
 /**
  * Returns to the item you were on when you come back to a folder: scrolls to it, then focuses it.

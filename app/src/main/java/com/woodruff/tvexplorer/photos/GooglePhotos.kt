@@ -133,7 +133,7 @@ object GooglePhotos {
     }
 
     private suspend fun download(session: String) {
-        data class Item(val url: String, val name: String, val video: Boolean)
+        data class Item(val url: String, val name: String, val video: Boolean, val taken: Long?)
         val items = mutableListOf<Item>()
         var page: String? = null
         do {
@@ -145,7 +145,8 @@ object GooglePhotos {
                 val f = m.optJSONObject("mediaFile") ?: continue
                 val video = m.optString("type") == "VIDEO"
                 val name = f.optString("filename").ifBlank { m.optString("id") + if (video) ".mp4" else ".jpg" }
-                items += Item(f.getString("baseUrl"), name, video)
+                // Resized downloads lose their EXIF data, so keep Google's capture time for the date filters.
+                items += Item(f.getString("baseUrl"), name, video, MediaDates.parseRfc3339(m.optString("createTime")))
             }
             page = r.optString("nextPageToken").ifBlank { null }
         } while (page != null)
@@ -173,7 +174,10 @@ object GooglePhotos {
                         conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 256 * 1024) } }
                         conn.disconnect()
                         // rename() replaces the empty placeholder atomically, keeping the name reserved.
-                        if (tmp.renameTo(target)) { if (item.video) videos.incrementAndGet() else added.incrementAndGet() }
+                        if (tmp.renameTo(target)) {
+                            item.taken?.let { MediaDates.record(app, target, it) }
+                            if (item.video) videos.incrementAndGet() else added.incrementAndGet()
+                        }
                     } catch (e: CancellationException) {
                         target.delete()
                         throw e
@@ -188,6 +192,7 @@ object GooglePhotos {
                 _state.update { it.copy(done = n, added = added.get(), videos = videos.get()) }
             }
         }
+        MediaDates.save(app)
         if (added.get() > 0) Appearance.setSlideshowFolder(app, folder.path)
         _state.value = State(Step.DONE, done = items.size, total = items.size, added = added.get(), videos = videos.get())
     }

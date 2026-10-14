@@ -36,11 +36,16 @@ data class DriveState(
     val error: String? = null,
     val operation: Operation? = null,
     val message: String? = null,
+    /** Filter per library ("Movies", "TV Shows"), kept while the app runs. */
+    val filters: Map<String, LibraryFilter> = emptyMap(),
 ) {
     val place: DrivePlace get() = stack.last()
     val connected: Boolean get() = step == SignInStep.CONNECTED
     /** Inside Movies or TV Shows: poster tiles instead of file tiles. */
     val library: Boolean get() = stack.firstOrNull() is DrivePlace.Named
+    /** The library's own top level gets filters; seasons and episodes don't need them. */
+    val filterable: Boolean get() = library && stack.size == 1
+    val filter: LibraryFilter get() = filters[stack.first().title] ?: LibraryFilter()
 }
 
 /**
@@ -170,6 +175,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() = load()
+
+    fun setFilter(filter: LibraryFilter) = _state.update { it.copy(filters = it.filters + (it.stack.first().title to filter)) }
 
     /**
      * Poster art for a Movies / TV Shows listing: the owner's own images first, then TMDB.

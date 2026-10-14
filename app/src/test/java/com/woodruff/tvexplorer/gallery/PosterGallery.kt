@@ -27,6 +27,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.Library
+import com.woodruff.tvexplorer.cloud.LibraryFilter
+import com.woodruff.tvexplorer.ui.screens.LibraryFilters
 import com.woodruff.tvexplorer.ui.screens.LocalPosterPainter
 import com.woodruff.tvexplorer.ui.screens.PosterTile
 import com.woodruff.tvexplorer.ui.theme.Palette
@@ -71,7 +74,13 @@ class PosterGallery {
             if (!f.exists()) javaClass.getResourceAsStream("/gallery/posters/$k.jpg")!!.use { input -> f.outputStream().use { input.copyTo(it) } }
             "file://" + f.absolutePath
         }
-        val movieFiles = movies.mapIndexed { i, (name, key) -> DriveFile("m$i", name, "video/x-matroska", 0, 0, null, art(key)) }
+        // Sample TMDB details, so the filter bar shows its genre row as it would with a TMDB key.
+        val genres = listOf(listOf("Thriller", "Drama"), listOf("Drama"), listOf("Family", "Comedy"), listOf("Drama", "Western"),
+            listOf("Sci-Fi", "Adventure"), listOf("Family", "Comedy"), listOf("Sci-Fi", "Thriller"))
+        val movieFiles = movies.mapIndexed { i, (name, key) ->
+            val parsed = Library.parsed(name, folder = false)
+            DriveFile("m$i", name, "video/x-matroska", 0, i.toLong(), null, art(key), parsed.copy(genres = genres[i], rating = 6.5 + i * 0.3))
+        }
         val showFiles = shows.mapIndexed { i, (name, key) -> DriveFile("t$i", name, DriveFile.FOLDER_MIME, 0, 0, null, art(key)) }
 
         var page by mutableStateOf("Movies" to movieFiles)
@@ -81,14 +90,17 @@ class PosterGallery {
                   BitmapFactory.decodeFile(url.removePrefix("file://"))?.let { BitmapPainter(it.asImageBitmap()) }
               }) {
                 Column(Modifier.fillMaxSize().background(Palette.backdrop).padding(start = 40.dp, end = 40.dp, top = 32.dp)) {
-                    Text(page.first, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(bottom = 20.dp))
+                    Text(page.first, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(bottom = 12.dp))
+                    LibraryFilters(page.second, LibraryFilter(), onChange = {}, onSearch = {}, modifier = Modifier.padding(bottom = 14.dp))
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(150.dp),
                         contentPadding = PaddingValues(bottom = 48.dp),
                         horizontalArrangement = Arrangement.spacedBy(22.dp),
                         verticalArrangement = Arrangement.spacedBy(22.dp),
                     ) {
-                        items(page.second, key = { it.id }) { f -> PosterTile(f, null, onClick = {}, onLongClick = {}, modifier = Modifier) }
+                        items(Library.apply(page.second, LibraryFilter()), key = { it.id }) { f ->
+                            PosterTile(f, null, onClick = {}, onLongClick = {}, modifier = Modifier, label = Library.label(f))
+                        }
                     }
                 }
               }

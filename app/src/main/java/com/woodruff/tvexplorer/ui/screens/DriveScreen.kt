@@ -65,6 +65,8 @@ import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveState
 import com.woodruff.tvexplorer.cloud.DriveViewModel
+import com.woodruff.tvexplorer.cloud.Library
+import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.cloud.SignInStep
 import com.woodruff.tvexplorer.util.Qr
 import com.woodruff.tvexplorer.data.FileKind
@@ -90,6 +92,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val state by drive.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var menuFor by remember { mutableStateOf<DriveFile?>(null) }
+    var searching by remember { mutableStateOf(false) }
     BackHandler { if (!drive.back()) vm.show(Screen.HOME) }
 
     // Load files, or start the phone sign-in server; stop that server when leaving the screen.
@@ -103,7 +106,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         return
     }
 
-    val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, state.files, drive::open, onOther = { menuFor = it }) }
+    val filter = state.filter
+    // Movies / TV Shows top level: filtered and sorted; everywhere else as Drive lists it.
+    val shown = remember(state.files, state.filterable, filter) {
+        if (state.filterable) Library.apply(state.files, filter) else state.files
+    }
+    val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, shown, drive::open, onOther = { menuFor = it }) }
 
     Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -115,7 +123,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 4.dp),
         )
-        Row(Modifier.padding(vertical = 18.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.padding(top = 18.dp, bottom = if (state.filterable) 6.dp else 18.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (state.stack.size > 1) ToolButton(Icons.Rounded.ArrowBack, null, { drive.back() })
             ToolButton(Icons.Rounded.AddToDrive, "My Drive", { drive.openRoot(DrivePlace.MyDrive) })
             ToolButton(Icons.Rounded.Movie, "All videos", { drive.openRoot(DrivePlace.Videos()) })
@@ -123,11 +131,15 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             ToolButton(Icons.Rounded.Refresh, null, drive::refresh)
             ToolButton(Icons.Rounded.Logout, null, drive::signOut)
         }
+        if (state.filterable && state.files.isNotEmpty()) {
+            LibraryFilters(state.files, filter, drive::setFilter, onSearch = { searching = true }, modifier = Modifier.padding(bottom = 10.dp))
+        }
         Box(Modifier.fillMaxSize()) {
             when {
                 state.busy -> EmptyState("Loading from Google Drive…")
                 state.error != null -> EmptyState(state.error!!)
                 state.files.isEmpty() -> EmptyState("Nothing here")
+                shown.isEmpty() -> EmptyState("No matches")
                 else -> {
                     val first = remember(state.place) { FocusRequester() }
                     LazyVerticalGrid(
@@ -137,9 +149,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(22.dp),
                         verticalArrangement = Arrangement.spacedBy(22.dp),
                     ) {
-                        items(state.files, key = { it.id }) { f ->
-                            val mod = if (f == state.files.first()) Modifier.focusRequester(first) else Modifier
-                            if (state.library) PosterTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
+                        items(shown, key = { it.id }) { f ->
+                            val mod = if (f == shown.first()) Modifier.focusRequester(first) else Modifier
+                            if (state.library) PosterTile(
+                                f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod,
+                                label = if (state.filterable) Library.label(f) else null,
+                            )
                             else DriveTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
                         }
                     }
@@ -147,6 +162,14 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 }
             }
         }
+    }
+
+    if (searching) {
+        TextInputDialog(
+            "Search ${state.place.title}", filter.query, "Search",
+            onConfirm = { q -> drive.setFilter(filter.copy(query = q.trim())); searching = false },
+            onDismiss = { searching = false },
+        )
     }
 
     menuFor?.let { f ->
@@ -186,9 +209,9 @@ private fun openDriveFile(context: Context, f: DriveFile, all: List<DriveFile>, 
  * Without artwork, a title card in the brand colors.
  */
 @Composable
-internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
+internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier, label: String? = null) {
     val context = LocalContext.current
-    val title = f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
+    val title = label ?: f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
