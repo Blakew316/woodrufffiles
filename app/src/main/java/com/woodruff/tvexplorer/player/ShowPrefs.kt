@@ -18,6 +18,10 @@ object ShowPrefs {
             .replace(Regex("""(?i)[\s\-]*(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2}|season\s*\d+|episode\s*\d+).*$"""), "")
             .replace(Regex("""\s+"""), " ").trim().lowercase().ifBlank { title.lowercase() }
 
+    /** "Show S01E02", "Show 1x02", "Episode 4": a TV episode rather than a movie. */
+    fun isEpisode(title: String): Boolean =
+        Regex("""(?i)(^|[^a-z0-9])(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2}|episode\s*\d+|ep\s*\d+)""").containsMatchIn(title)
+
     private fun p(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun audio(c: Context, show: String): String? = p(c).getString("a:$show", null)

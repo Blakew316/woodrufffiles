@@ -39,6 +39,10 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var recent: RecentStore
     private var savedIndex: Int? = null
     private var savedPosition: Long? = null
+    /** The queue as it was when the player last stopped (it can grow: see [fillQueueFromFolder]). */
+    private var savedQueue: Pair<List<String>, List<String>>? = null
+    /** One retry with a fresh Google token after a sign-in error, per item. */
+    private var retriedKey: String? = null
 
     // Drive requests need a bearer token. Play services caches it, but asking costs an IPC,
     // so reuse it for a while; tokens live for about an hour.
@@ -279,8 +283,8 @@ class PlayerActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
-        val keys = intent.getStringArrayListExtra(EXTRA_KEYS).orEmpty()
-        val titles = intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
+        val keys = savedQueue?.first ?: intent.getStringArrayListExtra(EXTRA_KEYS).orEmpty()
+        val titles = savedQueue?.second ?: intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
         if (keys.isEmpty()) { finish(); return }
         val start = savedIndex ?: keys.indexOf(intent.getStringExtra(EXTRA_START)).coerceAtLeast(0)
         val startPos = savedPosition ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
@@ -297,12 +301,35 @@ class PlayerActivity : ComponentActivity() {
         player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources())).build().also { p ->
             p.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
+                    val key = p.currentMediaItem?.mediaId
+                    val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
+                    // Google Drive turned the request down (sign-in ran out, a hiccup): get a fresh
+                    // token and try this episode again once, from where it was, before giving up on it.
+                    if (key != null && key.startsWith("drive:") && retriedKey != key &&
+                        (http == 401 || http == 403 || http == 429 || (http ?: 0) in 500..599 ||
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)
+                    ) {
+                        retriedKey = key
+                        driveToken = null
+                        p.prepare()
+                        return
+                    }
                     // Unsupported codec etc.: say so and move on rather than sitting on a black screen.
-                    Toast.makeText(this@PlayerActivity, "Can't play this file (${error.errorCodeName}). Try Open with…", Toast.LENGTH_LONG).show()
+                    val why = when {
+                        http == 401 || http == 403 -> "Google Drive refused it (sign in to Google Drive again in Settings)"
+                        http == 404 -> "it's no longer in Google Drive"
+                        http != null -> "Google Drive error $http"
+                        else -> error.errorCodeName
+                    }
+                    Toast.makeText(this@PlayerActivity, "Can't play ${p.currentMediaItem?.mediaMetadata?.title ?: "this file"}: $why", Toast.LENGTH_LONG).show()
                     if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
                 }
 
-                override fun onIsPlayingChanged(isPlaying: Boolean) { if (leader) sendSync() }
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying) retriedKey = null
+                    if (leader) sendSync()
+                }
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                     if (leader && reason == Player.DISCONTINUITY_REASON_SEEK) sendSync()
                 }
@@ -348,6 +375,7 @@ class PlayerActivity : ComponentActivity() {
             p.playWhenReady = true
             p.prepare()
             view.player = p
+            if (items.size == 1) fillQueueFromFolder(p)
         }
         reporter.post(report)
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
@@ -363,6 +391,9 @@ class PlayerActivity : ComponentActivity() {
         player?.let { p ->
             savedIndex = p.currentMediaItemIndex
             savedPosition = p.currentPosition
+            savedQueue = (0 until p.mediaItemCount).map { p.getMediaItemAt(it) }.let { items ->
+                items.map { it.mediaId } to items.map { it.mediaMetadata.title?.toString() ?: "" }
+            }
             p.currentMediaItem?.let { item ->
                 // Watched to the end: it stays out of Continue watching instead of coming back at its last second.
                 if (p.duration > 0 && p.duration - p.currentPosition < 5_000) recent.remove(item.mediaId)
@@ -372,6 +403,34 @@ class PlayerActivity : ComponentActivity() {
         }
         player = null
         super.onStop()
+    }
+
+    /**
+     * Started on its own (Continue watching, Recently added, search): queue the other episodes in
+     * its Google Drive folder around it, so Next / Previous and "Up next" work. Playback carries on
+     * while they're added.
+     */
+    private fun fillQueueFromFolder(p: ExoPlayer) {
+        val key = p.currentMediaItem?.mediaId ?: return
+        val ref = MediaRef.parse(key) as? MediaRef.Drive ?: return
+        if (!ShowPrefs.isEpisode(p.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty())) return
+        lifecycleScope.launch {
+            val folder = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val t = token().ifEmpty { return@withContext null }
+                    com.woodruff.tvexplorer.cloud.DriveApi.siblings(t, ref.id)
+                }
+            }.getOrNull() ?: return@launch
+            if (player !== p || p.mediaItemCount != 1 || p.currentMediaItem?.mediaId != key) return@launch
+            // Episodes only: a movie in the Movies folder shouldn't roll on into another movie.
+            val media = folder.filter { it.kind == com.woodruff.tvexplorer.data.FileKind.VIDEO && ShowPrefs.isEpisode(it.name) }
+            val at = media.indexOfFirst { it.id == ref.id }.takeIf { it >= 0 } ?: return@launch
+            fun item(f: com.woodruff.tvexplorer.cloud.DriveFile) = MediaItem.Builder()
+                .setMediaId(MediaRef.Drive(f.id).key).setUri(MediaRef.Drive(f.id).uri)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(f.name).build()).build()
+            p.addMediaItems(media.drop(at + 1).take(300).map(::item))
+            p.addMediaItems(0, media.take(at).takeLast(300).map(::item))
+        }
     }
 
     /** Local files pass straight through; Drive URLs get an Authorization header per request. */

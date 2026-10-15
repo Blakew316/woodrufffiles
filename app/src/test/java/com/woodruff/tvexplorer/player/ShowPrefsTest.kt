@@ -16,4 +16,13 @@ class ShowPrefsTest {
     @Test fun moviesKeepTheirTitle() {
         assertEquals("midnight harbor (2024)", ShowPrefs.showKey("Midnight Harbor (2024)"))
     }
+
+    @Test fun episodesAreToldApartFromMovies() {
+        listOf("The Office S02E03", "The Office - S2 E4", "The.Office.s03e01.1080p.mkv", "The Office 2x05", "Episode 7").forEach {
+            assertEquals(it, true, ShowPrefs.isEpisode(it))
+        }
+        listOf("Midnight Harbor (2024)", "Movie.1920x1080.x264.mkv", "Step Up 2", "Deep 3").forEach {
+            assertEquals(it, false, ShowPrefs.isEpisode(it))
+        }
+    }
 }

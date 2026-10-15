@@ -112,6 +112,13 @@ object DriveApi {
         out
     }
 
+    /** The files in the same folder as file [id] (its first parent), in Drive's natural name order. */
+    suspend fun siblings(token: String, id: String): List<DriveFile> = withContext(Dispatchers.IO) {
+        val json = JSONObject(get(token, "$BASE/${enc(id)}?fields=parents&supportsAllDrives=true"))
+        val parent = json.optJSONArray("parents")?.optString(0)?.ifEmpty { null } ?: return@withContext emptyList()
+        list(token, DrivePlace.Folder(parent, ""))
+    }
+
     private val POSTER_NAMES = setOf("poster", "folder", "cover")
 
     /**
