@@ -175,7 +175,8 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
                 if (linked.isNotEmpty() && MediaRef.parse(r.key) is MediaRef.Drive) MenuAction("Watch together on all TVs", Icons.Rounded.Groups) {
                     scope.launch {
                         withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, r.key, r.title, r.positionMs) } }
-                        play(r)
+                        // This TV leads: pause, seek and its position keep the others in step.
+                        context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key, r.positionMs, together = true))
                     }
                 } else null,
                 MenuAction("Remove from Continue watching", Icons.Rounded.Delete, destructive = true) {

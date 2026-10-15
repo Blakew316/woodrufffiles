@@ -31,7 +31,7 @@ import java.util.UUID
 data class LinkedTv(val id: String, val name: String, val base: String, val key: String)
 
 /** A TV's live status, for the phone's TV picker and the Command center. */
-data class TvStatus(val id: String, val name: String, val online: Boolean, val onScreen: Boolean, val playing: Playing?)
+data class TvStatus(val id: String, val name: String, val online: Boolean, val onScreen: Boolean, val playing: Playing?, val version: String? = null)
 
 /**
  * Several TVs, one place to watch them. Each TV running Woodruff Family advertises itself on the
@@ -66,13 +66,14 @@ object TvLinks {
     /** Unlinks every TV that can see this one; they'd need a new code. */
     fun resetLinkKey(c: Context) { SecretStore.get(c).put(K_LINK_KEY, TransferServer.randomToken()) }
 
-    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell")
+    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync")
 
     fun isLinkKey(c: Context, k: String?): Boolean =
         k != null && MessageDigest.isEqual(k.toByteArray(), linkKey(c).toByteArray())
 
     fun status(c: Context): JSONObject = JSONObject()
         .put("id", id(c)).put("name", name(c)).put("onScreen", TvScreen.onScreen)
+        .put("version", com.woodruff.tvexplorer.BuildConfig.VERSION_NAME)
         .put("playing", NowPlaying.current(c)?.toJson() ?: JSONObject.NULL)
 
     // ---- Being linked (the other TV shows a code) -----------------------------------------------
@@ -186,6 +187,12 @@ object TvLinks {
         request("${tv.base}/api/watch?k=${enc(tv.key)}", "POST", JSONObject().put("key", key).put("title", title).put("position", positionMs).toString())
     }
 
+    /** Watch together: the leader's position and play/pause, for [tv] to follow. */
+    fun sync(tv: LinkedTv, key: String, positionMs: Long, playing: Boolean) {
+        request("${tv.base}/api/sync?k=${enc(tv.key)}", "POST",
+            JSONObject().put("key", key).put("position", positionMs).put("playing", playing).put("at", System.currentTimeMillis()).toString())
+    }
+
     /** Doorbell rang (seen by the TV that watches for it): tell [tv] too. */
     fun doorbell(tv: LinkedTv, camera: String, label: String, kind: String = "doorbell") {
         request("${tv.base}/api/doorbell?k=${enc(tv.key)}", "POST", JSONObject().put("camera", camera).put("label", label).put("kind", kind).toString())
@@ -204,6 +211,7 @@ object TvLinks {
 
     private fun parse(o: JSONObject, online: Boolean) = TvStatus(
         o.optString("id"), o.optString("name"), online, o.optBoolean("onScreen"), Playing.fromJson(o.optJSONObject("playing")),
+        o.optString("version").ifBlank { null },
     )
 
     private fun open(url: String, method: String) = (URL(url).openConnection() as HttpURLConnection).apply {

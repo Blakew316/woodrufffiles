@@ -19,6 +19,8 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 
 /**
@@ -55,6 +57,7 @@ class PlayerActivity : ComponentActivity() {
                 )
             }
             player?.let { updateSkip(it) }
+            if (leader && ++syncTicks % 10 == 0) sendSync()
             reporter.postDelayed(this, 1_000)
         }
     }
@@ -116,6 +119,33 @@ class PlayerActivity : ComponentActivity() {
     // ---- Sleep timer, skip intro, remembered tracks ----------------------------------------
 
     private lateinit var skip: android.widget.TextView
+
+    // ---- Watch together ----------------------------------------------------------------------
+    /** This TV started a watch-together: it leads, the linked TVs follow. */
+    private val leader get() = intent.getBooleanExtra(EXTRA_TOGETHER, false)
+    private var syncTicks = 0
+    private var followJob: kotlinx.coroutines.Job? = null
+
+    private fun sendSync() {
+        val p = player ?: return
+        val key = p.currentMediaItem?.mediaId ?: return
+        val pos = p.currentPosition
+        val playing = p.playWhenReady
+        val app = applicationContext
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.woodruff.tvexplorer.tvs.TvLinks.forEachLinked(app) { com.woodruff.tvexplorer.tvs.TvLinks.sync(it, key, pos, playing) }
+        }
+    }
+
+    private fun follow(u: WatchSync.Update) {
+        val p = player ?: return
+        if (leader || p.currentMediaItem?.mediaId != u.key) return
+        // Where the leader is now: its position plus the time the message took (clocks roughly agree on a LAN).
+        val lag = (System.currentTimeMillis() - u.sentAt).coerceIn(0, 2_000)
+        val target = u.positionMs + if (u.playing) lag else 0
+        if (kotlin.math.abs(p.currentPosition - target) > 2_000) p.seekTo(target)
+        p.playWhenReady = u.playing
+    }
     private var sleepAtEnd = false
     private val sleep = Runnable { sleepNow() }
 
@@ -248,6 +278,11 @@ class PlayerActivity : ComponentActivity() {
                     if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
                 }
 
+                override fun onIsPlayingChanged(isPlaying: Boolean) { if (leader) sendSync() }
+                override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                    if (leader && reason == Player.DISCONTINUITY_REASON_SEEK) sendSync()
+                }
+
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                     if (!tracks.isEmpty) rememberTracks(tracks)
                 }
@@ -278,11 +313,13 @@ class PlayerActivity : ComponentActivity() {
             view.player = p
         }
         reporter.post(report)
+        if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
     }
 
     override fun onStop() {
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         reporter.removeCallbacks(report)
+        followJob?.cancel(); followJob = null
         cancelUpNext()
         countdown.removeCallbacks(sleep)
         com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = null
@@ -349,10 +386,12 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_TITLES = "titles"
         private const val EXTRA_START = "start"
         private const val EXTRA_POSITION = "position"
+        private const val EXTRA_TOGETHER = "together"
 
         /** [keys] are [MediaRef] keys; [titles] line up with them. */
-        fun intent(context: Context, keys: List<String>, titles: List<String>, start: String, positionMs: Long? = null): Intent =
+        fun intent(context: Context, keys: List<String>, titles: List<String>, start: String, positionMs: Long? = null, together: Boolean = false): Intent =
             Intent(context, PlayerActivity::class.java)
+                .putExtra(EXTRA_TOGETHER, together)
                 .apply { if (positionMs != null) putExtra(EXTRA_POSITION, positionMs) }
                 .putStringArrayListExtra(EXTRA_KEYS, ArrayList(keys.ifEmpty { listOf(start) }))
                 .putStringArrayListExtra(EXTRA_TITLES, ArrayList(titles))

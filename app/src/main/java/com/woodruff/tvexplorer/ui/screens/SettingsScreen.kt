@@ -38,6 +38,9 @@ import com.woodruff.tvexplorer.server.AutoStart
 import com.woodruff.tvexplorer.update.Updater
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Autorenew
+import androidx.compose.runtime.produceState
+import com.woodruff.tvexplorer.nest.Doorbell
+import com.woodruff.tvexplorer.nest.NestStep
 import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
@@ -178,6 +181,11 @@ fun SettingsScreen(vm: MainViewModel) {
     val autoUpdate = remember(v) { Updater.autoEnabled(context) }
     val testTv = remember(v) { Updater.isTestTv(context) }
     val update by Updater.state.collectAsStateWithLifecycle()
+    val nestState by Nest.state.collectAsStateWithLifecycle()
+    val doorbellStatus by Doorbell.status.collectAsStateWithLifecycle()
+    val otherTvs by produceState(emptyList<com.woodruff.tvexplorer.tvs.TvStatus>(), v) {
+        value = runCatching { TvLinks.statuses(context) }.getOrDefault(emptyList())
+    }
     val seesOtherApps = remember(v) { NowPlaying.canSeeOtherApps(context) }
     remember { TvLinks.load(context) }
     val linkedTvs by TvLinks.linked.collectAsStateWithLifecycle()
@@ -197,6 +205,31 @@ fun SettingsScreen(vm: MainViewModel) {
     ) {
         item {
             Text("Settings", style = MaterialTheme.typography.headlineLarge)
+        }
+
+        // Status: everything that can stop working, at a glance, with the reason when it isn't.
+        section("Status")
+        item {
+            SettingRow(Icons.Rounded.Info, "This TV", "Version ${BuildConfig.VERSION_NAME} · phone connection ${if (TransferService.state.value.running) "on" else "off"}") {}
+        }
+        item { SettingRow(Icons.Rounded.AddToDrive, "Google Drive", if (connected) "Connected" else if (configured) "Not signed in" else "Not set up") { vm.show(Screen.DRIVE) } }
+        item {
+            val cams = nestState
+            SettingRow(Icons.Rounded.Videocam, "Cameras", when {
+                cams.step != NestStep.CONNECTED -> "Not connected"
+                cams.error != null -> cams.error
+                cams.loading -> "Loading…"
+                else -> "${cams.cameras.size} camera${if (cams.cameras.size == 1) "" else "s"} · working"
+            }) { vm.show(Screen.CAMERAS) }
+        }
+        item {
+            SettingRow(Icons.Rounded.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off (set up in the phone app)") {}
+        }
+        item { SettingRow(Icons.Rounded.SystemUpdate, "Updates", updateStatus(update)) { Updater.checkNow(context) } }
+        otherTvs.drop(1).forEach { t ->
+            item(key = "status-" + t.id) {
+                SettingRow(Icons.Rounded.Tv, t.name, if (t.online) "Online · ${t.version?.let { "version $it" } ?: "older version"}" else "Off or unreachable") {}
+            }
         }
 
         section("Appearance")

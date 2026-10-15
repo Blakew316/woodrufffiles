@@ -110,6 +110,13 @@ class CompanionRoutes(private val ctx: Context) {
             launch(PlayerActivity.intent(ctx, listOf(key), listOf(b.optString("title").ifBlank { "Video" }), key, b.optLong("position").coerceAtLeast(0)))
             ok()
         }
+        s.uri == "/api/sync" && s.method == Method.POST -> {
+            val b = body(s)
+            com.woodruff.tvexplorer.player.WatchSync.receive(
+                com.woodruff.tvexplorer.player.WatchSync.Update(b.optString("key"), b.optLong("position"), b.optBoolean("playing", true), b.optLong("at")),
+            )
+            ok()
+        }
         s.uri == "/api/doorbell" && s.method == Method.POST -> {
             val b = body(s)
             com.woodruff.tvexplorer.nest.Doorbell.ring(ctx, b.optString("camera"), b.optString("label"), relay = false, kind = b.optString("kind").ifBlank { "doorbell" })
