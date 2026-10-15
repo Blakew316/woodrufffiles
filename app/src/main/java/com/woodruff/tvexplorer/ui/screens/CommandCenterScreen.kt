@@ -103,6 +103,9 @@ private const val MAX_LIVE = 4
 /** Set by Home's camera tiles before opening the Command center, to show that camera full screen. */
 internal var openCameraAt: Int? = null
 
+/** Show this camera full screen while the Command center is already open (a doorbell ring). */
+internal val cameraRequests = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 1)
+
 /**
  * Command center: live Google Home / Nest cameras, either on their own or next to the clock,
  * notifications and notes ("all on one"). Select a camera for full screen; Left/Right flips
@@ -115,6 +118,7 @@ fun CommandCenterScreen(vm: MainViewModel) {
     var full by remember { mutableStateOf(openCameraAt.also { openCameraAt = null }) }
     var askProject by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { Nest.open() }
+    LaunchedEffect(Unit) { cameraRequests.collect { full = it } }
     BackHandler { if (full != null) full = null else vm.show(Screen.HOME) }
 
     val cams = state.cameras

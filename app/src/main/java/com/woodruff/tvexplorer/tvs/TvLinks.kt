@@ -66,7 +66,7 @@ object TvLinks {
     /** Unlinks every TV that can see this one; they'd need a new code. */
     fun resetLinkKey(c: Context) { SecretStore.get(c).put(K_LINK_KEY, TransferServer.randomToken()) }
 
-    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key")
+    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell")
 
     fun isLinkKey(c: Context, k: String?): Boolean =
         k != null && MessageDigest.isEqual(k.toByteArray(), linkKey(c).toByteArray())
@@ -179,6 +179,23 @@ object TvLinks {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** Start [key] (a Drive video) on [tv] at [positionMs]: "watch together". */
+    fun watch(tv: LinkedTv, key: String, title: String, positionMs: Long) {
+        request("${tv.base}/api/watch?k=${enc(tv.key)}", "POST", JSONObject().put("key", key).put("title", title).put("position", positionMs).toString())
+    }
+
+    /** Doorbell rang (seen by the TV that watches for it): tell [tv] too. */
+    fun doorbell(tv: LinkedTv, camera: String, label: String) {
+        request("${tv.base}/api/doorbell?k=${enc(tv.key)}", "POST", JSONObject().put("camera", camera).put("label", label).toString())
+    }
+
+    /** Every linked TV, in parallel; failures (TV off) are ignored. */
+    suspend fun forEachLinked(c: Context, action: (LinkedTv) -> Unit) = coroutineScope {
+        load(c)
+        _linked.value.map { tv -> async(Dispatchers.IO) { runCatching { action(tv) } } }.awaitAll()
+        Unit
     }
 
     fun press(tv: LinkedTv, key: String) {

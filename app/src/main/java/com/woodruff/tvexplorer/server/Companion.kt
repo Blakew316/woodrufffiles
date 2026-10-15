@@ -101,6 +101,20 @@ class CompanionRoutes(private val ctx: Context) {
             launch(PlayerActivity.intent(ctx, listOf(f.path), listOf(f.name), f.path))
             ok()
         }
+        // Watch together: another TV (or a phone) starts the same Drive video here at a position.
+        s.uri == "/api/watch" && s.method == Method.POST -> {
+            val b = body(s)
+            val key = b.optString("key")
+            val ref = com.woodruff.tvexplorer.player.MediaRef.parse(key)
+            require(ref is com.woodruff.tvexplorer.player.MediaRef.Drive) { "Only Google Drive videos can be watched together" }
+            launch(PlayerActivity.intent(ctx, listOf(key), listOf(b.optString("title").ifBlank { "Video" }), key, b.optLong("position").coerceAtLeast(0)))
+            ok()
+        }
+        s.uri == "/api/doorbell" && s.method == Method.POST -> {
+            val b = body(s)
+            com.woodruff.tvexplorer.nest.Doorbell.ring(ctx, b.optString("camera"), b.optString("label"), relay = false)
+            ok()
+        }
         // ---- Several TVs (this one is the hub) ------------------------------------------------
         s.uri == "/api/status" && s.method == Method.GET -> json(TvLinks.status(ctx))
         s.uri == "/api/tvs" && s.method == Method.GET -> {
@@ -232,7 +246,9 @@ class CompanionRoutes(private val ctx: Context) {
             json(settingsJson(s))
         }
         s.uri == "/api/settings/nest" && s.method == Method.POST -> {
-            GoogleAuth.saveNestProject(ctx, body(s).optString("project"))
+            val b = body(s)
+            if (b.has("project")) GoogleAuth.saveNestProject(ctx, b.optString("project"))
+            if (b.has("doorbell")) com.woodruff.tvexplorer.nest.Doorbell.setSubscription(ctx, b.optString("doorbell"))
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
         }
@@ -278,7 +294,9 @@ class CompanionRoutes(private val ctx: Context) {
             .put("awayUrl", TransferService.awayUrl() ?: "")
             .put("nest", JSONObject()
                 .put("project", GoogleAuth.nestProject(ctx) ?: "")
-                .put("connected", GoogleAuth.isConnected(ctx, GoogleAuth.Grant.NEST)))
+                .put("connected", GoogleAuth.isConnected(ctx, GoogleAuth.Grant.NEST))
+                .put("doorbell", com.woodruff.tvexplorer.nest.Doorbell.subscription(ctx) ?: "")
+                .put("doorbellStatus", com.woodruff.tvexplorer.nest.Doorbell.status.value ?: ""))
             .put("mail", JSONArray().apply {
                 MailAccounts.list(ctx).forEach { put(JSONObject().put("id", it.id).put("email", it.email).put("provider", it.provider.label)) }
             })

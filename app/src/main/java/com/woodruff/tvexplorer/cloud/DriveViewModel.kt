@@ -91,7 +91,31 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
                 runCatching { posters(token, listOf(place), parse(DriveApi.list(token, place))) }.onSuccess { cache[place] = it }
             }
+            updateRecentlyAdded()
         }
+    }
+
+    private val _recentlyAdded = MutableStateFlow<List<Pair<DrivePlace, DriveFile>>>(emptyList())
+    /** Newest Movies and TV Shows entries (by Drive's modified time), for Home. */
+    val recentlyAdded: StateFlow<List<Pair<DrivePlace, DriveFile>>> = _recentlyAdded.asStateFlow()
+
+    private fun updateRecentlyAdded() {
+        _recentlyAdded.value = listOf(DrivePlace.Movies, DrivePlace.TvShows)
+            .flatMap { place -> cache[place].orEmpty().map { place to it } }
+            .sortedByDescending { it.second.modified }
+            .take(10)
+    }
+
+    /**
+     * Movies and TV Shows whose title matches every word of [query] (accents and case ignored),
+     * from the listings already loaded; for voice search.
+     */
+    fun searchLibraries(query: String): List<Pair<DrivePlace, DriveFile>> {
+        val words = Library.normalize(query).split(' ').filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        return listOf(DrivePlace.Movies, DrivePlace.TvShows).flatMap { place ->
+            cache[place].orEmpty().filter { f -> val t = Library.info(f).searchText; words.all { it in t } }.map { place to it }
+        }.take(12)
     }
 
     private fun initialStep() = when {
@@ -246,6 +270,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     val withTmdb = tmdb(token, stack, files)
                     cache[place] = withTmdb
                     _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
+                    if (place == DrivePlace.Movies || place == DrivePlace.TvShows) updateRecentlyAdded()
                 }
             } catch (e: CancellationException) {
                 throw e

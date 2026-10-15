@@ -101,6 +101,11 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import androidx.compose.material.icons.rounded.Groups
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
@@ -127,6 +132,15 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Coming back from the player: pick up the position it just saved.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching() }
     val play = { r: RecentItem -> context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key)) }
+    // Recently added movies and shows, after what's in progress.
+    val added by drive.recentlyAdded.collectAsStateWithLifecycle()
+    val driveToken by remember(drive) { drive.state.map { it.token }.distinctUntilChanged() }.collectAsStateWithLifecycle(drive.state.value.token)
+    val openAdded = { (place, f): Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile> ->
+        if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
+        else { val key = MediaRef.Drive(f.id).key; context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(f.name), key)) }
+    }
+    val scope = rememberCoroutineScope()
+    val linked by TvLinks.linked.collectAsStateWithLifecycle()
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 28.dp, end = 28.dp, top = 14.dp, bottom = 14.dp),
@@ -136,6 +150,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         Row(Modifier.fillMaxWidth().height(196.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ContinuePanel(
                 recent, play, onMenu = { removeFor = it },
+                added = added, token = driveToken, openAdded = openAdded,
                 onMovies = { drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE) },
                 onShows = { drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE) },
                 modifier = Modifier.weight(1.5f).fillMaxHeight(),
@@ -152,8 +167,15 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         ActionMenu(
             title = r.title, subtitle = "${(r.progress * 100).toInt()}% watched",
             onDismiss = { removeFor = null },
-            actions = listOf(
+            actions = listOfNotNull(
                 MenuAction("Play from where you left off", Icons.Rounded.PlayArrow) { play(r) },
+                // Same Drive video on every linked TV, from the same spot.
+                if (linked.isNotEmpty() && MediaRef.parse(r.key) is MediaRef.Drive) MenuAction("Watch together on all TVs", Icons.Rounded.Groups) {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, r.key, r.title, r.positionMs) } }
+                        play(r)
+                    }
+                } else null,
                 MenuAction("Remove from Continue watching", Icons.Rounded.Delete, destructive = true) {
                     store.remove(r.key); recent = store.continueWatching()
                 },
@@ -259,10 +281,21 @@ private fun PanelButton(label: String, icon: ImageVector, onClick: () -> Unit) {
 @Composable
 private fun ContinuePanel(
     recent: List<RecentItem>, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit,
+    added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>, token: String?,
+    openAdded: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
     onMovies: () -> Unit, onShows: () -> Unit, modifier: Modifier,
 ) {
-    Panel("Continue watching", modifier, note = if (recent.size > 1) "${recent.size} in progress" else null) {
+    val title = if (recent.isEmpty() && added.isNotEmpty()) "Recently added" else "Continue watching"
+    Panel(title, modifier, note = if (recent.size > 1) "${recent.size} in progress" else if (added.isNotEmpty()) "New" else null) {
         val r = recent.firstOrNull()
+        if (r == null && added.isNotEmpty()) {
+            LazyRow(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(4.dp)) {
+                items(added, key = { "new-" + it.second.id }) { a ->
+                    PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+                }
+            }
+            return@Panel
+        }
         if (r == null) {
             Text("Nothing in progress.", style = MaterialTheme.typography.titleMedium)
             Text("Pick something to start; it shows up here to resume.", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
@@ -283,6 +316,10 @@ private fun ContinuePanel(
             }
             items(recent.drop(1).take(8), key = { it.key }) { m ->
                 ResumeTile(m, play, onMenu, Modifier.fillMaxHeight().aspectRatio(1f), main = false)
+            }
+            // Then what's new in Movies and TV Shows.
+            items(added, key = { "new-" + it.second.id }) { a ->
+                PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
             }
         }
     }

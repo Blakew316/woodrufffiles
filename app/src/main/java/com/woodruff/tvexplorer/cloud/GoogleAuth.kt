@@ -41,7 +41,8 @@ object GoogleAuth {
     enum class Grant(prefix: String, val scope: String) {
         DRIVE("google", "https://www.googleapis.com/auth/drive.readonly"),
         /** Google Home / Nest cameras through Device Access (Smart Device Management API). */
-        NEST("nest", "https://www.googleapis.com/auth/sdm.service"),
+        // Pub/Sub too, for doorbell rings (they only arrive as Pub/Sub events).
+        NEST("nest", "https://www.googleapis.com/auth/sdm.service https://www.googleapis.com/auth/pubsub"),
         /** Google Photos Picker: only the photos the owner picks, one selection at a time. */
         PHOTOS("photos", "https://www.googleapis.com/auth/photospicker.mediaitems.readonly"),
         /** Read-only Google Calendar, for Today's Activities. */

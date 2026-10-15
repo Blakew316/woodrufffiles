@@ -69,6 +69,19 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   event, the latest notifications and a pinned note. Setup (iCloud, storage, apps, browse by type) lives in Settings.
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…` (the URL is shown on that tab) for automations like "when I get home".
+- **Up next**: when an episode (or any queued video) ends, a card counts down 10 seconds to the next one; OK
+  plays it now, Back stops.
+- **Recently added**: Home's first panel shows the newest Movies and TV Shows (posters) after what's in progress,
+  or on their own when nothing is.
+- **Watch together**: hold OK (or Menu) on a Continue-watching tile → *Watch together on all TVs* starts that
+  Google Drive video on every linked TV from the same spot.
+- **Search**: *Search* in the side menu (or the remote's search button, where the TV passes it to apps) listens for
+  a title, or lets you type one, and finds it in Movies and TV Shows.
+- **Doorbell alerts**: when the Nest doorbell rings, every linked TV shows a notice (over other apps too) and opens
+  the doorbell full screen if Woodruff is on screen. Google only announces rings through Cloud Pub/Sub: turn on
+  Pub/Sub for the Device Access project, create a pull subscription to its topic in Google Cloud, enter the
+  subscription's full name in the phone app (Settings → Cameras → Doorbell alerts) for one TV, then connect the
+  cameras again on that TV so the sign-in includes Pub/Sub.
 - **Notifications**: messages from the phone and new mail appear as a pop-up, even over other apps once
   "Pop-ups over other apps" is allowed in Settings. They're also kept in the Notifications screen.
 - **Typeface**: Inter, the closest open-license match to Apple's San Francisco font, with Apple-style tracking.

@@ -95,6 +95,15 @@ class MainActivity : ComponentActivity() {
         if (minutes > 0) idle.postDelayed(startSlideshow, minutes * 60_000L)
     }
 
+    /** The remote's search button (if the TV hands it to apps): voice search. */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_SEARCH) {
+            com.woodruff.tvexplorer.ui.VoiceSearch.requests.tryEmit(Unit)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onUserInteraction() {
         super.onUserInteraction()
         AppVisibility.lastInput = System.currentTimeMillis()

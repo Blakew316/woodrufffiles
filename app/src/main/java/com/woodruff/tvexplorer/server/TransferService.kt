@@ -100,6 +100,7 @@ class TransferService : Service() {
                 com.woodruff.tvexplorer.tvs.TvLinks.advertise(applicationContext, s.listeningPort)
                 getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(base))
                 startMailChecks()
+                com.woodruff.tvexplorer.nest.Doorbell.start(applicationContext)
                 return
             } catch (e: IOException) {
                 lastError = e
