@@ -4,6 +4,13 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      ref:
+        # Undo a bad update: rebuild an earlier commit. It gets this run's (higher) build number,
+        # so every TV treats it as an update and installs it like any other.
+        description: "Commit to re-release (leave empty for the branch's newest)"
+        required: false
+        default: ""
 
 permissions:
   contents: write # needed to publish the APK as a GitHub Release
@@ -14,6 +21,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -44,6 +53,8 @@ jobs:
         id: head
         if: github.event_name != 'pull_request'
         run: |
+          # A re-release (undo) is always meant to become the latest.
+          if [ -n "${{ inputs.ref }}" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           git fetch -q --depth=50 origin "$GITHUB_REF_NAME"
           newer=$(git log --format=%s "$GITHUB_SHA..FETCH_HEAD" | grep -v '^Update UI gallery' || true)
           if [ -z "$newer" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
@@ -52,8 +63,9 @@ jobs:
         if: github.event_name != 'pull_request'
         with:
           tag_name: v2.0.${{ github.run_number }}
-          name: Woodruff Family 2.0 (build ${{ github.run_number }})
-          target_commitish: ${{ github.sha }}
+          # "rollback" tells the TVs to install it right away instead of waiting a day.
+          name: Woodruff Family 2.0 (build ${{ github.run_number }})${{ inputs.ref && ' · rollback' || '' }}
+          target_commitish: ${{ inputs.ref || github.sha }}
           make_latest: ${{ steps.head.outputs.latest }}
           files: |
             WoodruffFamily.apk

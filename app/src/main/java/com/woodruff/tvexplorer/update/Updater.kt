@@ -46,6 +46,7 @@ object Updater {
     /** When Woodruff is opened: often enough that a fresh release shows up the next time you open it. */
     private const val CHECK_ON_OPEN_MS = 10 * 60_000L
     private const val IDLE_MS = 2 * 60_000L
+    private const val SETTLE_MS = 24 * 3_600_000L
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
 
@@ -65,6 +66,14 @@ object Updater {
     private val lock = Mutex()
 
     val current: Int get() = BuildConfig.VERSION_CODE
+
+    /**
+     * Test TV: installs each release as soon as it's out. Every other TV waits until the newest
+     * release has been out for [SETTLE_MS] with nothing newer, so a bad build is caught (and
+     * replaced) on the test TV before it reaches them. "Check for updates" in Settings skips the wait.
+     */
+    fun isTestTv(c: Context) = prefs(c).getBoolean("testTv", false)
+    fun setTestTv(c: Context, on: Boolean) { prefs(c).edit().putBoolean("testTv", on).apply() }
 
     fun autoEnabled(c: Context) = prefs(c).getBoolean("auto", true)
     fun setAuto(c: Context, on: Boolean) { prefs(c).edit().putBoolean("auto", on).apply() }
@@ -114,9 +123,9 @@ object Updater {
     }
 
     /** Settings → Check for updates. */
-    fun checkNow(c: Context) { val app = c.applicationContext; scope.launch { checkAndDownload(app) } }
+    fun checkNow(c: Context) { val app = c.applicationContext; scope.launch { checkAndDownload(app, manual = true) } }
 
-    private suspend fun checkAndDownload(c: Context) { lock.withLock {
+    private suspend fun checkAndDownload(c: Context, manual: Boolean = false) { lock.withLock {
         if (_state.value.step == Step.DOWNLOADING || _state.value.step == Step.INSTALLING) return@withLock
         _state.update { it.copy(step = Step.CHECKING, message = null) }
         try {
@@ -125,6 +134,14 @@ object Updater {
             val latest = buildNumber(release.optString("tag_name"))
                 ?: throw IOException("Couldn't read the latest version")
             if (latest <= current) { _state.value = State(Step.UP_TO_DATE, latest); return@withLock }
+            val age = System.currentTimeMillis() - (published(release.optString("published_at")) ?: 0L)
+            // A rollback (an earlier version re-released to undo a bad one) goes to every TV at once.
+            val rollback = release.optString("name").contains("rollback")
+            if (!manual && !rollback && !isTestTv(c) && age < SETTLE_MS) {
+                val hours = ((SETTLE_MS - age) / 3_600_000L + 1).coerceAtLeast(1)
+                _state.value = State(Step.UP_TO_DATE, latest, message = "2.0.$latest arrives in about $hours h (after the test TV)")
+                return@withLock
+            }
             val assets = release.optJSONArray("assets")
             val asset = (0 until (assets?.length() ?: 0)).map { assets!!.getJSONObject(it) }.firstOrNull { it.optString("name") == ASSET }
                 ?: throw IOException("The release has no $ASSET")
@@ -144,6 +161,11 @@ object Updater {
         }
         Unit
     } }
+
+    /** GitHub's "2026-10-14T22:06:24Z" → ms. */
+    private fun published(s: String): Long? = runCatching {
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", java.util.Locale.US).parse(s)?.time
+    }.getOrNull()
 
     /** "v2.0.41" → 41. Visible for tests. */
     fun buildNumber(tag: String): Int? = Regex("^v?\\d+\\.\\d+\\.(\\d+)$").find(tag.trim())?.groupValues?.get(1)?.toIntOrNull()

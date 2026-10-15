@@ -38,6 +38,7 @@ import com.woodruff.tvexplorer.server.AutoStart
 import com.woodruff.tvexplorer.update.Updater
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Autorenew
+import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
 import androidx.compose.material.icons.rounded.Add
@@ -175,6 +176,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val tvName = remember(v) { TvLinks.name(context) }
     val autoStart = remember(v) { AutoStart.enabled(context) }
     val autoUpdate = remember(v) { Updater.autoEnabled(context) }
+    val testTv = remember(v) { Updater.isTestTv(context) }
     val update by Updater.state.collectAsStateWithLifecycle()
     val seesOtherApps = remember(v) { NowPlaying.canSeeOtherApps(context) }
     remember { TvLinks.load(context) }
@@ -372,6 +374,12 @@ fun SettingsScreen(vm: MainViewModel) {
         item {
             SettingRow(Icons.Rounded.Autorenew, "Install updates automatically", if (autoUpdate) "On" else "Off") {
                 Updater.setAuto(context, !autoUpdate); changed()
+            }
+        }
+        item {
+            // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
+            SettingRow(Icons.Rounded.Science, "Test TV", if (testTv) "On · gets updates first" else "Off · updates a day after the test TV") {
+                Updater.setTestTv(context, !testTv); changed()
             }
         }
 

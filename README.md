@@ -119,6 +119,14 @@ and installs it with Android's package installer (which only accepts an update s
   itself when Woodruff starts with an update ready, so it's one button press.
 - The TV asks once to let Woodruff Family *install unknown apps*.
 - Settings → Updates shows the version, checks now, and turns automatic updates off.
+- **Test TV** (Settings → Updates): turn it on for one TV. That TV installs each new version as soon as it's
+  out; every other TV waits until the newest version has been out for a day with nothing newer after it, so a
+  bad build shows up on the test TV first. *Check for updates* skips the wait.
+- **Undo a bad update**: Android won't install an older version over a newer one, so an earlier version is
+  re-released with a new, higher number: GitHub → Actions → Build APK → *Run workflow*, with the commit to go
+  back to. It's marked "rollback" and every TV installs it right away.
+- **Crashes**: the next launch shows what went wrong in Notifications, and the phone app shows the full report
+  under Settings → *Last crash on this TV*, with Copy.
 
 Each release is built with its build number as the version (release v2.0.N is version N), which is how the app
 tells a newer release apart.

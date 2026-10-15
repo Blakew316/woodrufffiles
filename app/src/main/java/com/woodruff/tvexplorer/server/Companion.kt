@@ -215,6 +215,7 @@ class CompanionRoutes(private val ctx: Context) {
         }
 
         s.uri == "/api/settings" && s.method == Method.GET -> json(settingsJson(s))
+        s.uri == "/api/crash/clear" && s.method == Method.POST -> { com.woodruff.tvexplorer.util.CrashLog.clear(ctx); json(settingsJson(s)) }
         s.uri == "/api/settings/google" && s.method == Method.POST -> {
             val b = body(s)
             val id = b.optString("client_id").trim()
@@ -272,6 +273,8 @@ class CompanionRoutes(private val ctx: Context) {
                 .put("connected", GoogleAuth.isConnected(ctx))
                 .put("redirectUri", GoogleAuth.REDIRECT_URI))
             .put("tmdb", Tmdb.isConfigured(ctx))
+            .put("version", com.woodruff.tvexplorer.BuildConfig.VERSION_NAME)
+            .put("crash", com.woodruff.tvexplorer.util.CrashLog.last(ctx) ?: "")
             .put("awayUrl", TransferService.awayUrl() ?: "")
             .put("nest", JSONObject()
                 .put("project", GoogleAuth.nestProject(ctx) ?: "")

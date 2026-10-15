@@ -13,13 +13,19 @@ import java.io.File
  */
 object CrashLog {
     private fun file(c: Context) = File(c.applicationContext.filesDir, "last_crash.txt")
+    /** The full report, kept after the notice so the phone app can show and copy it. */
+    private fun report(c: Context) = File(c.applicationContext.filesDir, "crash_report.txt")
+
+    fun last(c: Context): String? = runCatching { report(c).takeIf { it.isFile }?.readText() }.getOrNull()
+    fun clear(c: Context) { report(c).delete() }
 
     fun install(c: Context) {
         val app = c.applicationContext
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
             runCatching {
-                file(app).writeText("Version ${BuildConfig.VERSION_NAME} · thread ${thread.name}\n" + e.stackTraceToString().take(6_000))
+                val stamp = java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US).format(java.util.Date())
+                file(app).writeText("Version ${BuildConfig.VERSION_NAME} · $stamp · thread ${thread.name}\n" + e.stackTraceToString().take(6_000))
             }
             previous?.uncaughtException(thread, e)
         }
@@ -29,6 +35,7 @@ object CrashLog {
     fun report(c: Context) {
         val f = file(c)
         val text = runCatching { f.readText() }.getOrNull() ?: return
+        runCatching { report(c).writeText(text) }
         f.delete()
         // The first lines say what failed and where; the full trace stays short enough to read.
         val lines = text.lines()
@@ -37,6 +44,6 @@ object CrashLog {
         val top = lines.take(8)
         val ours = lines.drop(8).filter { it.contains("woodruff") || it.startsWith("Caused by") }.take(8)
         val shown = (top + ours).joinToString("\n") { it.trim() }
-        Notices.post(c, NoticeSource.SYSTEM, "Woodruff closed unexpectedly last time", shown)
+        Notices.post(c, NoticeSource.SYSTEM, "Woodruff closed unexpectedly last time", "$shown\n\nThe full report is in the phone app: Settings → Last crash.")
     }
 }

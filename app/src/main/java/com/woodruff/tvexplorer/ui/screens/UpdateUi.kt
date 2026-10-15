@@ -28,7 +28,7 @@ fun startUpdate(context: Context, vm: MainViewModel) {
 fun updateStatus(s: Updater.State): String = when (s.step) {
     Updater.Step.IDLE -> "Check for updates"
     Updater.Step.CHECKING -> "Checking…"
-    Updater.Step.UP_TO_DATE -> "Up to date"
+    Updater.Step.UP_TO_DATE -> s.message ?: "Up to date"
     Updater.Step.DOWNLOADING -> "Downloading ${(s.progress * 100).toInt()}%"
     Updater.Step.READY -> "${s.latestName} ready · Install"
     Updater.Step.INSTALLING -> "Installing…"

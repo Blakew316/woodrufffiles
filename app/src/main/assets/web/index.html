@@ -291,6 +291,12 @@
       <button class="row ic-row" data-page="set-cams"><span class="badge" style="background:#34c759"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 7h11a1 1 0 0 1 1 1v2.5l4.3-2.9a.5.5 0 0 1 .7.4v8a.5.5 0 0 1-.7.4L16 13.5V16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/></svg></span><span class="grow t">Cameras</span><span class="v" id="c-status">…</span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button class="row ic-row" data-page="set-mail"><span class="badge" style="background:#0a84ff"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16a2 2 0 0 1 2 2v.4l-10 6.2L2 7.4V7a2 2 0 0 1 2-2zm-2 4.7 10 6.2 10-6.2V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/></svg></span><span class="grow t">Mail</span><span class="v" id="m-status">…</span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
+    <div class="head" id="crash-head" hidden>Last crash on this TV</div>
+    <div class="group" id="crash" hidden>
+      <div class="row"><span class="grow" id="crash-text" style="white-space:pre-wrap;word-break:break-word;font:12px/1.4 ui-monospace,Menlo,monospace;color:var(--muted)"></span></div>
+      <button class="row" id="crash-copy"><span class="grow" style="color:var(--accent)">Copy crash report</span></button>
+      <button class="row" id="crash-clear"><span class="grow" style="color:var(--danger,#ff453a)">Clear</span></button>
+    </div>
   </div>
 
   <div class="page" id="set-drive" data-title="Google Drive">
@@ -885,6 +891,8 @@
   }
   document.querySelectorAll('[data-page]').forEach(function (b) { b.onclick = function () { page(b.dataset.page); }; });
   function loadSettings() { api('/api/settings').then(renderSettings, err); }
+  $('crash-copy').onclick = function () { if (settings && settings.crash) copy(settings.crash, 'Crash report copied'); };
+  $('crash-clear').onclick = function () { post('/api/crash/clear', {}).then(renderSettings, err); };
   function status(ids, text, ok) { ids.forEach(function (id) { $(id).textContent = text; $(id).className = 'v' + (ok ? ' ok' : ''); }); }
   function renderSettings(s) {
     settings = s;
@@ -900,6 +908,8 @@
       if (!$('c-project').value) $('c-project').value = s.nest.project || '';
     }
     status(['m-status'], s.mail.length ? String(s.mail.length) : 'None', false);
+    ['crash-head', 'crash'].forEach(function (id) { $(id).hidden = !s.crash; });
+    $('crash-text').textContent = (s.crash || '').split('\n').slice(0, 14).join('\n');
     var ml = $('m-list'); ml.textContent = '';
     if (!s.mail.length) ml.appendChild(el('div', 'row', 'No accounts yet')).style.color = 'var(--muted)';
     s.mail.forEach(function (m) {
