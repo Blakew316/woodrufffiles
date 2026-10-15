@@ -31,6 +31,9 @@ import com.woodruff.tvexplorer.cloud.GoogleAuth
 class PlayerActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private lateinit var view: PlayerView
+    private lateinit var upNext: android.widget.TextView
+    private val countdown = android.os.Handler(android.os.Looper.getMainLooper())
+    private var secondsLeft = 0
     private lateinit var recent: RecentStore
     private var savedIndex: Int? = null
     private var savedPosition: Long? = null
@@ -66,7 +69,55 @@ class PlayerActivity : ComponentActivity() {
             setShowPreviousButton(true)
             keepScreenOn = true
         }
-        setContentView(view)
+        // "Up next" card, bottom right, shown when an episode ends and there's another queued.
+        upNext = android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 20f
+            setPadding(48, 32, 48, 32)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xE6101820.toInt()); cornerRadius = 36f
+            }
+            visibility = android.view.View.GONE
+        }
+        val root = android.widget.FrameLayout(this)
+        root.addView(view)
+        root.addView(upNext, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.END,
+        ).apply { setMargins(0, 0, 72, 72) })
+        setContentView(root)
+    }
+
+    /** End of an episode with another one queued: count down 10 s, then play it. OK plays now, Back stops. */
+    private val tick = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            if (secondsLeft <= 0) { playNext(); return }
+            val next = p.getMediaItemAt(p.nextMediaItemIndex).mediaMetadata.title ?: "Next"
+            upNext.text = "Up next: $next\nPlaying in $secondsLeft  ·  OK to play now  ·  Back to stop"
+            secondsLeft--
+            countdown.postDelayed(this, 1_000)
+        }
+    }
+
+    private fun startUpNext() {
+        secondsLeft = 10
+        upNext.visibility = android.view.View.VISIBLE
+        countdown.removeCallbacks(tick)
+        countdown.post(tick)
+    }
+
+    private fun cancelUpNext() {
+        countdown.removeCallbacks(tick)
+        upNext.visibility = android.view.View.GONE
+    }
+
+    private fun playNext() {
+        cancelUpNext()
+        val p = player ?: return
+        // Finished: drop it from Continue watching, then on to the next one.
+        p.currentMediaItem?.mediaId?.let(recent::remove)
+        if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.play() }
     }
 
     override fun onStart() {
@@ -76,7 +127,7 @@ class PlayerActivity : ComponentActivity() {
         val titles = intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
         if (keys.isEmpty()) { finish(); return }
         val start = savedIndex ?: keys.indexOf(intent.getStringExtra(EXTRA_START)).coerceAtLeast(0)
-        val startPos = savedPosition ?: recent.resumePosition(keys[start])
+        val startPos = savedPosition ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
 
         val items = keys.mapIndexed { i, key ->
             val ref = MediaRef.parse(key)
@@ -95,7 +146,14 @@ class PlayerActivity : ComponentActivity() {
                     if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
                 }
 
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (playWhenReady || reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) return
+                    if (p.hasNextMediaItem()) startUpNext()
+                    else { p.currentMediaItem?.mediaId?.let(recent::remove); finish() }
+                }
+
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    cancelUpNext()
                     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                         // Finished the previous one: drop it from Continue watching.
                         val prev = p.previousMediaItemIndex.takeIf { it >= 0 }?.let { p.getMediaItemAt(it) }
@@ -103,6 +161,8 @@ class PlayerActivity : ComponentActivity() {
                     }
                 }
             })
+            // Pause at the end of each item so the "Up next" countdown can run (and be cancelled).
+            p.pauseAtEndOfMediaItems = true
             p.setMediaItems(items, start, startPos)
             p.playWhenReady = true
             p.prepare()
@@ -114,6 +174,7 @@ class PlayerActivity : ComponentActivity() {
     override fun onStop() {
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         reporter.removeCallbacks(report)
+        cancelUpNext()
         com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = null
         player?.let { p ->
             savedIndex = p.currentMediaItemIndex
@@ -150,6 +211,12 @@ class PlayerActivity : ComponentActivity() {
 
     /** OK shows the controls; everything else (media keys, D-pad seeking) PlayerView handles. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (upNext.visibility == android.view.View.VISIBLE && event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { playNext(); return true }
+                KeyEvent.KEYCODE_BACK -> { cancelUpNext(); return true }
+            }
+        }
         if (!view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
@@ -163,10 +230,12 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_KEYS = "keys"
         private const val EXTRA_TITLES = "titles"
         private const val EXTRA_START = "start"
+        private const val EXTRA_POSITION = "position"
 
         /** [keys] are [MediaRef] keys; [titles] line up with them. */
-        fun intent(context: Context, keys: List<String>, titles: List<String>, start: String): Intent =
+        fun intent(context: Context, keys: List<String>, titles: List<String>, start: String, positionMs: Long? = null): Intent =
             Intent(context, PlayerActivity::class.java)
+                .apply { if (positionMs != null) putExtra(EXTRA_POSITION, positionMs) }
                 .putStringArrayListExtra(EXTRA_KEYS, ArrayList(keys.ifEmpty { listOf(start) }))
                 .putStringArrayListExtra(EXTRA_TITLES, ArrayList(titles))
                 .putExtra(EXTRA_START, start)

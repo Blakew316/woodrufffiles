@@ -14,10 +14,10 @@ import java.io.File
 object CrashLog {
     private fun file(c: Context) = File(c.applicationContext.filesDir, "last_crash.txt")
     /** The full report, kept after the notice so the phone app can show and copy it. */
-    private fun report(c: Context) = File(c.applicationContext.filesDir, "crash_report.txt")
+    private fun reportFile(c: Context) = File(c.applicationContext.filesDir, "crash_report.txt")
 
-    fun last(c: Context): String? = runCatching { report(c).takeIf { it.isFile }?.readText() }.getOrNull()
-    fun clear(c: Context) { report(c).delete() }
+    fun last(c: Context): String? = runCatching { reportFile(c).takeIf { it.isFile }?.readText() }.getOrNull()
+    fun clear(c: Context) { reportFile(c).delete() }
 
     fun install(c: Context) {
         val app = c.applicationContext
@@ -35,7 +35,7 @@ object CrashLog {
     fun report(c: Context) {
         val f = file(c)
         val text = runCatching { f.readText() }.getOrNull() ?: return
-        runCatching { report(c).writeText(text) }
+        runCatching { reportFile(c).writeText(text) }
         f.delete()
         // The first lines say what failed and where; the full trace stays short enough to read.
         val lines = text.lines()
