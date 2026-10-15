@@ -8,7 +8,6 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -173,9 +172,12 @@ fun AppRoot(vm: MainViewModel) {
             AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Palette.background.copy(alpha = 0.78f)))
         }
+        // No focusRestorer here or on the menu: it pins the last focused item of a lazy list, and when
+        // that list went away with the old screen, un-pinning it crashed the app ("Release should only
+        // be called once") on pressing Right from the menu. Focus enters the screen at its first item.
         // Content keeps the slim rail's width to its left, so it never reflows when the menu opens:
         // the open menu slides over the dashboard instead.
-        Box(Modifier.fillMaxSize().padding(start = RAIL_CLOSED).onFocusChanged { contentFocused = it.hasFocus }.focusRequester(contentFocus).focusRestorer().focusGroup()) {
+        Box(Modifier.fillMaxSize().padding(start = RAIL_CLOSED).onFocusChanged { contentFocused = it.hasFocus }.focusRequester(contentFocus).focusGroup()) {
                 // Switch screens in one step, not a cross-fade: during a fade the Command center's
                 // live video views were torn down by the transition, which crashed on some TVs.
                 key(screen) {
@@ -213,15 +215,14 @@ fun AppRoot(vm: MainViewModel) {
                 .fillMaxHeight()
                 .background(if (open) Palette.surface else Palette.background.copy(alpha = 0.6f))
                 .onFocusChanged { railFocused = it.hasFocus }
-                // Right goes back to where you were in the content (the open menu covers its left edge,
-                // so a plain geometric search would skip the first column).
+                // Right goes into the content (the open menu covers its left edge, so a plain geometric
+                // search would skip the first column).
                 .onPreviewKeyEvent { e ->
                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {
                         runCatching { contentFocus.requestFocus() }
                         contentFocused
                     } else false
                 }
-                .focusRestorer { homeFocus }
                 .verticalScroll(rememberScrollState())
                 .padding(vertical = 28.dp, horizontal = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),

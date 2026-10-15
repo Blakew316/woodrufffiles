@@ -63,8 +63,9 @@ jobs:
         if: github.event_name != 'pull_request'
         with:
           tag_name: v2.0.${{ github.run_number }}
-          # "rollback" tells the TVs to install it right away instead of waiting a day.
-          name: Woodruff Family 2.0 (build ${{ github.run_number }})${{ inputs.ref && ' · rollback' || '' }}
+          # "rollback" tells the TVs to install it right away instead of waiting a day: re-releases, and
+          # urgent fixes (a commit message with "[urgent]") that every TV needs now.
+          name: Woodruff Family 2.0 (build ${{ github.run_number }})${{ (inputs.ref || contains(github.event.head_commit.message, '[urgent]')) && ' · rollback' || '' }}
           target_commitish: ${{ inputs.ref || github.sha }}
           make_latest: ${{ steps.head.outputs.latest }}
           files: |
