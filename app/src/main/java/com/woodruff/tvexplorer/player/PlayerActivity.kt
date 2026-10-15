@@ -54,7 +54,8 @@ class PlayerActivity : ComponentActivity() {
                     positionMs = p.currentPosition.coerceAtLeast(0), durationMs = p.duration.coerceAtLeast(0),
                 )
             }
-            reporter.postDelayed(this, 2_000)
+            player?.let { updateSkip(it) }
+            reporter.postDelayed(this, 1_000)
         }
     }
 
@@ -67,7 +68,27 @@ class PlayerActivity : ComponentActivity() {
             controllerAutoShow = true
             setShowNextButton(true)
             setShowPreviousButton(true)
+            // Subtitles button, and the settings (gear) menu with audio track and speed.
+            setShowSubtitleButton(true)
             keepScreenOn = true
+        }
+        // Our own button next to them: sleep timer and "Skip intro" setup.
+        runCatching {
+            val bar = view.findViewById<android.view.ViewGroup>(androidx.media3.ui.R.id.exo_basic_controls)
+            bar?.addView(android.widget.ImageButton(this).apply {
+                setImageResource(android.R.drawable.ic_menu_recent_history)
+                background = null
+                contentDescription = "Sleep timer and intro"
+                setOnClickListener { showOptions() }
+            }, 0)
+        }
+        skip = android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 20f
+            text = "Skip intro  ▸  OK"
+            setPadding(44, 26, 44, 26)
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xE6101820.toInt()); cornerRadius = 36f }
+            visibility = android.view.View.GONE
         }
         // "Up next" card, bottom right, shown when an episode ends and there's another queued.
         upNext = android.widget.TextView(this).apply {
@@ -85,7 +106,88 @@ class PlayerActivity : ComponentActivity() {
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.END,
         ).apply { setMargins(0, 0, 72, 72) })
+        root.addView(skip, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.END,
+        ).apply { setMargins(0, 0, 72, 72) })
         setContentView(root)
+    }
+
+    // ---- Sleep timer, skip intro, remembered tracks ----------------------------------------
+
+    private lateinit var skip: android.widget.TextView
+    private var sleepAtEnd = false
+    private val sleep = Runnable { sleepNow() }
+
+    private fun show(): String = ShowPrefs.showKey(player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: "")
+
+    /** Stop for the night: pause, leave the player, and let the slideshow take over the screen. */
+    private fun sleepNow() {
+        player?.pause()
+        runCatching { com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(this) }
+        finish()
+    }
+
+    private fun showOptions() {
+        val p = player ?: return
+        val intro = ShowPrefs.introEnd(this, show())
+        val here = p.currentPosition
+        val items = arrayOf(
+            "Sleep in 30 minutes", "Sleep in 60 minutes", "Sleep in 90 minutes", "Sleep at the end of this episode", "Sleep timer off",
+            "Intro ends here (${com.woodruff.tvexplorer.util.Format.duration(here)}): use for this show",
+            if (intro > 0) "Forget this show's intro" else null,
+        ).filterNotNull().toTypedArray()
+        android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Player options")
+            .setItems(items) { _, which ->
+                countdown.removeCallbacks(sleep); sleepAtEnd = false
+                when (which) {
+                    0, 1, 2 -> { val min = 30L * (which + 1); countdown.postDelayed(sleep, min * 60_000L); Toast.makeText(this, "Sleeping in $min minutes", Toast.LENGTH_SHORT).show() }
+                    3 -> { sleepAtEnd = true; Toast.makeText(this, "Sleeping after this episode", Toast.LENGTH_SHORT).show() }
+                    4 -> Toast.makeText(this, "Sleep timer off", Toast.LENGTH_SHORT).show()
+                    5 -> { ShowPrefs.setIntroEnd(this, show(), here); Toast.makeText(this, "Skip intro will jump here", Toast.LENGTH_SHORT).show() }
+                    6 -> ShowPrefs.setIntroEnd(this, show(), 0)
+                }
+            }
+            .show()
+    }
+
+    /** "Skip intro" while inside this show's intro. */
+    private fun updateSkip(p: ExoPlayer) {
+        val end = ShowPrefs.introEnd(this, show())
+        val pos = p.currentPosition
+        skip.visibility = if (end > 0 && pos in 1_000 until end - 2_000 && upNext.visibility != android.view.View.VISIBLE) android.view.View.VISIBLE else android.view.View.GONE
+    }
+
+    /** This show's audio / subtitle choice, applied when an episode starts. */
+    private fun applyShowTracks(p: ExoPlayer) {
+        val s = show()
+        val audio = ShowPrefs.audio(this, s)
+        val text = ShowPrefs.text(this, s)
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().apply {
+            if (audio != null) setPreferredAudioLanguage(audio)
+            when (text) {
+                null -> Unit
+                ShowPrefs.OFF -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true)
+                else -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(text)
+            }
+        }.build()
+    }
+
+    /** Remember what's playing (picked in the settings / subtitles menus) for the rest of the show. */
+    private fun rememberTracks(tracks: androidx.media3.common.Tracks) {
+        var audio: String? = null
+        var text: String? = ShowPrefs.OFF
+        for (g in tracks.groups) {
+            if (!g.isSelected) continue
+            for (i in 0 until g.length) if (g.isTrackSelected(i)) {
+                val lang = g.getTrackFormat(i).language ?: continue
+                if (g.type == androidx.media3.common.C.TRACK_TYPE_AUDIO) audio = lang
+                if (g.type == androidx.media3.common.C.TRACK_TYPE_TEXT) text = lang
+            }
+        }
+        if (tracks.groups.none { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }) text = null // nothing to choose
+        ShowPrefs.setLanguages(this, show(), audio, text)
     }
 
     /** End of an episode with another one queued: count down 10 s, then play it. OK plays now, Back stops. */
@@ -146,14 +248,20 @@ class PlayerActivity : ComponentActivity() {
                     if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
                 }
 
+                override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                    if (!tracks.isEmpty) rememberTracks(tracks)
+                }
+
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     if (playWhenReady || reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) return
+                    if (sleepAtEnd) { sleepNow(); return }
                     if (p.hasNextMediaItem()) startUpNext()
                     else { p.currentMediaItem?.mediaId?.let(recent::remove); finish() }
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     cancelUpNext()
+                    applyShowTracks(p)
                     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                         // Finished the previous one: drop it from Continue watching.
                         val prev = p.previousMediaItemIndex.takeIf { it >= 0 }?.let { p.getMediaItemAt(it) }
@@ -164,6 +272,7 @@ class PlayerActivity : ComponentActivity() {
             // Pause at the end of each item so the "Up next" countdown can run (and be cancelled).
             p.pauseAtEndOfMediaItems = true
             p.setMediaItems(items, start, startPos)
+            applyShowTracks(p)
             p.playWhenReady = true
             p.prepare()
             view.player = p
@@ -175,6 +284,7 @@ class PlayerActivity : ComponentActivity() {
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         reporter.removeCallbacks(report)
         cancelUpNext()
+        countdown.removeCallbacks(sleep)
         com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = null
         player?.let { p ->
             savedIndex = p.currentMediaItemIndex
@@ -211,6 +321,14 @@ class PlayerActivity : ComponentActivity() {
 
     /** OK shows the controls; everything else (media keys, D-pad seeking) PlayerView handles. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && (event.keyCode == KeyEvent.KEYCODE_MENU || event.keyCode == KeyEvent.KEYCODE_INFO)) {
+            showOptions(); return true
+        }
+        if (skip.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
+            (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
+        ) {
+            player?.seekTo(ShowPrefs.introEnd(this, show())); skip.visibility = android.view.View.GONE; return true
+        }
         if (upNext.visibility == android.view.View.VISIBLE && event.action == KeyEvent.ACTION_DOWN) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { playNext(); return true }

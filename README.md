@@ -69,6 +69,10 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   event, the latest notifications and a pinned note. Setup (iCloud, storage, apps, browse by type) lives in Settings.
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…` (the URL is shown on that tab) for automations like "when I get home".
+- **Player options**: the clock button in the player's controls (or the remote's Menu/Info button) sets a sleep
+  timer (30/60/90 minutes or end of episode; then the slideshow takes over) and marks where a show's intro ends.
+  After that, *Skip intro* appears during the intro of every episode of that show; OK skips it.
+- **Subtitles and audio**: the subtitles button and the gear menu pick tracks; the choice is remembered per show.
 - **Up next**: when an episode (or any queued video) ends, a card counts down 10 seconds to the next one; OK
   plays it now, Back stops.
 - **Recently added**: Home's first panel shows the newest Movies and TV Shows (posters) after what's in progress,
