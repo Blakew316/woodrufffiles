@@ -6,6 +6,19 @@ import java.util.Calendar
 
 /** "On this day": photos taken on today's date in earlier years, by their capture date. */
 object Memories {
+    @Volatile private var cached: Triple<Int, Long, List<File>>? = null
+
+    /**
+     * Today's memories from the slideshow folders, worked out at most once an hour (and again when
+     * the day changes): walking the photo folders is too slow to repeat on every visit to Home.
+     */
+    fun forToday(c: Context, photos: () -> List<File>): List<File> {
+        val now = Calendar.getInstance()
+        val day = now.get(Calendar.YEAR) * 1000 + now.get(Calendar.DAY_OF_YEAR)
+        cached?.let { (d, at, list) -> if (d == day && System.currentTimeMillis() - at < 3_600_000L) return list }
+        return today(c, photos(), now).also { cached = Triple(day, System.currentTimeMillis(), it) }
+    }
+
     /** [photos] taken on this day in earlier years, oldest year first. */
     fun today(c: Context, photos: List<File>, now: Calendar = Calendar.getInstance()): List<File> {
         if (photos.isEmpty()) return emptyList()

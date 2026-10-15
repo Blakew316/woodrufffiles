@@ -149,7 +149,17 @@ class PlayerActivity : ComponentActivity() {
     private var sleepAtEnd = false
     private val sleep = Runnable { sleepNow() }
 
-    private fun show(): String = ShowPrefs.showKey(player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: "")
+    /** The current episode's show and its intro end, worked out when the episode starts (not every second). */
+    private var showCache: Pair<String?, String> = null to ""
+    private var introEnd = 0L
+    private fun show(): String {
+        val id = player?.currentMediaItem?.mediaId
+        if (showCache.first != id) {
+            showCache = id to ShowPrefs.showKey(player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: "")
+            introEnd = ShowPrefs.introEnd(this, showCache.second)
+        }
+        return showCache.second
+    }
 
     /** Stop for the night: pause, leave the player, and let the slideshow take over the screen. */
     private fun sleepNow() {
@@ -175,8 +185,8 @@ class PlayerActivity : ComponentActivity() {
                     0, 1, 2 -> { val min = 30L * (which + 1); countdown.postDelayed(sleep, min * 60_000L); Toast.makeText(this, "Sleeping in $min minutes", Toast.LENGTH_SHORT).show() }
                     3 -> { sleepAtEnd = true; Toast.makeText(this, "Sleeping after this episode", Toast.LENGTH_SHORT).show() }
                     4 -> Toast.makeText(this, "Sleep timer off", Toast.LENGTH_SHORT).show()
-                    5 -> { ShowPrefs.setIntroEnd(this, show(), here); Toast.makeText(this, "Skip intro will jump here", Toast.LENGTH_SHORT).show() }
-                    6 -> ShowPrefs.setIntroEnd(this, show(), 0)
+                    5 -> { ShowPrefs.setIntroEnd(this, show(), here); introEnd = here; Toast.makeText(this, "Skip intro will jump here", Toast.LENGTH_SHORT).show() }
+                    6 -> { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 }
                 }
             }
             .show()
@@ -184,7 +194,8 @@ class PlayerActivity : ComponentActivity() {
 
     /** "Skip intro" while inside this show's intro. */
     private fun updateSkip(p: ExoPlayer) {
-        val end = ShowPrefs.introEnd(this, show())
+        show() // refreshes introEnd when the episode changed
+        val end = introEnd
         val pos = p.currentPosition
         skip.visibility = if (end > 0 && pos in 1_000 until end - 2_000 && upNext.visibility != android.view.View.VISIBLE) android.view.View.VISIBLE else android.view.View.GONE
     }
@@ -364,7 +375,7 @@ class PlayerActivity : ComponentActivity() {
         if (skip.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
-            player?.seekTo(ShowPrefs.introEnd(this, show())); skip.visibility = android.view.View.GONE; return true
+            show(); player?.seekTo(introEnd); skip.visibility = android.view.View.GONE; return true
         }
         if (upNext.visibility == android.view.View.VISIBLE && event.action == KeyEvent.ACTION_DOWN) {
             when (event.keyCode) {

@@ -43,7 +43,7 @@ data class ServerState(
  * ever one server per process.
  */
 class TransferService : Service() {
-    private var server: TransferServer? = null
+    @Volatile private var server: TransferServer? = null
     private var waiting: kotlinx.coroutines.Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -69,11 +69,12 @@ class TransferService : Service() {
                 else -> 0
             },
         )
-        val ip = lanAddress()
-        if (ip != null) { open(ip); return }
-        // Right after the TV starts, Wi-Fi often isn't connected yet: wait for it (up to 3 minutes).
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification("Waiting for the network…"))
+        // Everything else off the main thread: this runs as Woodruff opens, and reading the phone
+        // page, the pairing key (Keystore), the network interfaces and binding a port all take time.
         waiting = scope.launch {
+            lanAddress()?.let { open(it); return@launch }
+            // Right after the TV starts, Wi-Fi often isn't connected yet: wait for it (up to 3 minutes).
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification("Waiting for the network…"))
             repeat(36) {
                 delay(5_000)
                 lanAddress()?.let { open(it); return@launch }
@@ -93,6 +94,8 @@ class TransferService : Service() {
             val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public)
             try {
                 s.start(SOCKET_TIMEOUT_MS, true)
+                // Stopped while this was starting (it runs in the background now): don't leave it open.
+                if (!scope.isActive) { s.stop(); return }
                 server = s
                 val base = "http://$ip:${s.listeningPort}"
                 _state.value = ServerState(running = true, url = "$base/?k=${s.token}", base = base, log = listOf("Phone connection ready"))

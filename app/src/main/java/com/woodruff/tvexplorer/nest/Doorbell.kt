@@ -116,7 +116,7 @@ object Doorbell {
         val res = post(token, "https://pubsub.googleapis.com/v1/$sub:pull", JSONObject().put("maxMessages", 10))
         val messages = res.optJSONArray("receivedMessages") ?: JSONArray()
         _status.value = null
-        if (messages.length() == 0) return 3_000
+        if (messages.length() == 0) return 5_000
         val acks = JSONArray()
         for (i in 0 until messages.length()) {
             val m = messages.getJSONObject(i)

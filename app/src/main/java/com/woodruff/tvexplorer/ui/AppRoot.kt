@@ -131,7 +131,10 @@ fun AppRoot(vm: MainViewModel) {
     // progress tick and would redraw the whole window with it.
     val driveTop by remember(drive) { drive.state.map { it.stack.firstOrNull() }.distinctUntilChanged() }
         .collectAsStateWithLifecycle(drive.state.value.stack.firstOrNull())
-    val server by TransferService.state.collectAsStateWithLifecycle()
+    // Only whether the phone connection is up: its state also carries a request log that changes
+    // with every phone request, which would redraw the whole window while the phone app is open.
+    val phoneConnected by remember { TransferService.state.map { it.running }.distinctUntilChanged() }
+        .collectAsStateWithLifecycle(TransferService.state.value.running)
     val notices by Notices.items.collectAsStateWithLifecycle()
     val latestNotice by Notices.latest.collectAsStateWithLifecycle()
     val unread = notices.count { !it.read }
@@ -249,7 +252,7 @@ fun AppRoot(vm: MainViewModel) {
                 ) { vm.show(Screen.NOTIFICATIONS) }
                 RailItem("Notes", Icons.Rounded.EditNote, screen == Screen.NOTES, open) { vm.show(Screen.NOTES) }
                 RailLabel("Connect", open)
-                RailItem(if (server.running) "Phone · Connected" else "Phone", Icons.Rounded.PhoneIphone, screen == Screen.TRANSFER, open, badge = server.running) {
+                RailItem(if (phoneConnected) "Phone · Connected" else "Phone", Icons.Rounded.PhoneIphone, screen == Screen.TRANSFER, open, badge = phoneConnected) {
                     vm.show(Screen.TRANSFER)
                 }
                 RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS, open) { vm.show(Screen.SETTINGS) }

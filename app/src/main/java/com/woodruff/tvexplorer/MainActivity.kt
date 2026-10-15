@@ -52,7 +52,8 @@ class MainActivity : ComponentActivity() {
         handleOpen(intent)
         setContent {
             TvExplorerTheme {
-                Box(Modifier.fillMaxSize().background(Palette.background)) {
+                // No background here: the window and AppRoot's backdrop already paint the whole screen.
+                Box(Modifier.fillMaxSize()) {
                     if (hasAccess) AppRoot(vm) else PermissionScreen(onRecheck = ::recheck)
                 }
             }

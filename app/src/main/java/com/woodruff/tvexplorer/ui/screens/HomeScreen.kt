@@ -632,7 +632,7 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
     val cal by TodayCalendar.state.collectAsStateWithLifecycle()
     val now = System.currentTimeMillis()
     val memories by produceState(0) {
-        value = withContext(Dispatchers.IO) { runCatching { Memories.today(context, Appearance.photos(context)).size }.getOrDefault(0) }
+        value = withContext(Dispatchers.IO) { runCatching { Memories.forToday(context) { Appearance.photos(context) }.size }.getOrDefault(0) }
     }
     val items = buildList {
         if (memories > 0) add(GlanceItem(Icons.Rounded.PhotoLibrary, Color(0xFFFF9F0A), "On this day", "$memories photo${if (memories == 1) "" else "s"} from earlier years", false) {

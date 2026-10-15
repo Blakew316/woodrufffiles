@@ -93,7 +93,7 @@ class SlideshowView(context: Context) : FrameLayout(context) {
         io.execute {
             val all = Appearance.photos(context)
             // "On this day" photos first (or only them, when opened from Home's Memories).
-            val memories = runCatching { com.woodruff.tvexplorer.photos.Memories.today(context, all) }.getOrDefault(emptyList())
+            val memories = runCatching { com.woodruff.tvexplorer.photos.Memories.forToday(context) { all } }.getOrDefault(emptyList())
             val found = if (memoriesOnly) memories else memories + (all - memories.toSet())
             main.post {
                 if (!running) return@post
