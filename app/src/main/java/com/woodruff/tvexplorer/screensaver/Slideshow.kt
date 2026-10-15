@@ -80,6 +80,9 @@ class SlideshowView(context: Context) : FrameLayout(context) {
         }
     }
 
+    /** Show only today's "On this day" photos. */
+    var memoriesOnly = false
+
     fun start() {
         if (running) return
         running = true
@@ -88,7 +91,10 @@ class SlideshowView(context: Context) : FrameLayout(context) {
         message.text = "Loading photos…"
         // Walking a large photo folder can take a moment; don't block the UI thread.
         io.execute {
-            val found = Appearance.photos(context)
+            val all = Appearance.photos(context)
+            // "On this day" photos first (or only them, when opened from Home's Memories).
+            val memories = runCatching { com.woodruff.tvexplorer.photos.Memories.today(context, all) }.getOrDefault(emptyList())
+            val found = if (memoriesOnly) memories else memories + (all - memories.toSet())
             main.post {
                 if (!running) return@post
                 photos = found
@@ -165,7 +171,7 @@ class SlideshowActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        view = SlideshowView(this)
+        view = SlideshowView(this).apply { memoriesOnly = intent.getBooleanExtra(EXTRA_MEMORIES, false) }
         setContentView(view)
     }
 
@@ -175,8 +181,9 @@ class SlideshowActivity : Activity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean { finish(); return true }
 
     companion object {
-        fun start(context: Context) = context.startActivity(
-            Intent(context, SlideshowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        private const val EXTRA_MEMORIES = "memories"
+        fun start(context: Context, memories: Boolean = false) = context.startActivity(
+            Intent(context, SlideshowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(EXTRA_MEMORIES, memories),
         )
     }
 }

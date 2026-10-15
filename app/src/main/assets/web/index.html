@@ -264,6 +264,7 @@
   </div>
   <div class="head">Show on</div>
   <div class="group" id="n-targets"></div>
+  <div class="group"><label class="row"><span class="grow">Pin on every TV's Home<span class="s" style="display:block">Stays until someone dismisses it on that TV</span></span><input type="checkbox" class="switch" id="n-pin"></label></div>
   <button class="btn" id="n-send">Send</button>
   <div class="head">Open on the TV</div>
   <div class="group"><label class="field"><span>Web address</span><input id="o-url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="YouTube, Apple Music or a video link" enterkeyhint="go"></label></div>
@@ -297,6 +298,9 @@
       <button class="row ic-row" data-page="set-cams"><span class="badge" style="background:#34c759"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 7h11a1 1 0 0 1 1 1v2.5l4.3-2.9a.5.5 0 0 1 .7.4v8a.5.5 0 0 1-.7.4L16 13.5V16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/></svg></span><span class="grow t">Cameras</span><span class="v" id="c-status">…</span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button class="row ic-row" data-page="set-mail"><span class="badge" style="background:#0a84ff"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16a2 2 0 0 1 2 2v.4l-10 6.2L2 7.4V7a2 2 0 0 1 2-2zm-2 4.7 10 6.2 10-6.2V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/></svg></span><span class="grow t">Mail</span><span class="v" id="m-status">…</span><svg class="chev" viewBox="0 0 8 13"><path d="m1.5 1.5 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
+    <div class="head">Weather on Home</div>
+    <div class="group"><label class="field"><span>Place</span><input id="w-place" autocomplete="off" placeholder="City or ZIP, e.g. Austin, TX" enterkeyhint="done"></label></div>
+    <button class="btn plain" id="w-save">Save place</button>
     <div class="head">Share to TV</div>
     <div class="group"><button class="row" id="share-copy"><span class="grow"><span class="t">Copy share link</span><span class="s">For an iPhone Shortcut in the share sheet</span></span></button></div>
     <p class="foot">In Shortcuts: New Shortcut → turn on <b>Show in Share Sheet</b> → add <b>Get Contents of URL</b> with this link, Method <b>POST</b>, Request Body <b>JSON</b> with a field <b>input</b> set to <b>Shortcut Input</b>. Name it "Send to TV". Links (YouTube, Apple Music, web pages) open on the TV; text shows up as a message.</p>
@@ -675,8 +679,11 @@
   $('n-send').onclick = function () {
     var t = $('n-title').value.trim(); if (!t) { $('n-title').focus(); return toast('Write a title first', true); }
     var ids = Object.keys(chosen).filter(function (k) { return k !== 'tv' && chosen[k]; });
-    if (!chosen.tv && !ids.length) return toast('Choose the TV or a phone', true);
-    post('/api/announce', { title: t, body: $('n-body').value.trim(), tv: !!chosen.tv, phones: ids, from: device.name || '' }).then(function (r) {
+    var pin = $('n-pin').checked;
+    if (!chosen.tv && !ids.length && !pin) return toast('Choose the TV or a phone', true);
+    post('/api/announce', { title: t, body: $('n-body').value.trim(), tv: !!chosen.tv, phones: ids, from: device.name || '', pin: pin }).then(function (r) {
+      $('n-pin').checked = false;
+      if (pin && !chosen.tv && !r.phones) return toast('Pinned on every TV');
       toast(chosen.tv ? (r.phones ? 'Sent to the TV and ' + r.phones + (r.phones === 1 ? ' phone' : ' phones') : 'Shown on the TV') : 'Sent to ' + r.phones + (r.phones === 1 ? ' phone' : ' phones'));
       $('n-title').value = ''; $('n-body').value = ''; document.activeElement.blur();
     }, err);
@@ -917,6 +924,9 @@
   }
   document.querySelectorAll('[data-page]').forEach(function (b) { b.onclick = function () { page(b.dataset.page); }; });
   function loadSettings() { api('/api/settings').then(renderSettings, err); }
+  $('w-save').onclick = function () {
+    post('/api/settings/weather', { place: $('w-place').value.trim() }).then(function (s) { renderSettings(s); toast(s.weather ? 'Weather for ' + s.weather : 'Weather off'); }, err);
+  };
   $('share-copy').onclick = function () { if (settings && settings.shareUrl) copy(settings.shareUrl, 'Share link copied'); };
   $('crash-copy').onclick = function () { if (settings && settings.crash) copy(settings.crash, 'Crash report copied'); };
   $('crash-clear').onclick = function () { post('/api/crash/clear', {}).then(renderSettings, err); };
@@ -938,6 +948,7 @@
       if (s.nest.doorbellStatus) $('c-doorbell-foot').textContent = s.nest.doorbellStatus;
     }
     status(['m-status'], s.mail.length ? String(s.mail.length) : 'None', false);
+    if (!$('w-place').value) $('w-place').value = s.weather || '';
     ['crash-head', 'crash'].forEach(function (id) { $(id).hidden = !s.crash; });
     $('crash-text').textContent = (s.crash || '').split('\n').slice(0, 14).join('\n');
     var ml = $('m-list'); ml.textContent = '';

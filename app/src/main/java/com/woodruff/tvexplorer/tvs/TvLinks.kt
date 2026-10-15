@@ -66,7 +66,7 @@ object TvLinks {
     /** Unlinks every TV that can see this one; they'd need a new code. */
     fun resetLinkKey(c: Context) { SecretStore.get(c).put(K_LINK_KEY, TransferServer.randomToken()) }
 
-    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync")
+    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board")
 
     fun isLinkKey(c: Context, k: String?): Boolean =
         k != null && MessageDigest.isEqual(k.toByteArray(), linkKey(c).toByteArray())
@@ -185,6 +185,11 @@ object TvLinks {
     /** Start [key] (a Drive video) on [tv] at [positionMs]: "watch together". */
     fun watch(tv: LinkedTv, key: String, title: String, positionMs: Long) {
         request("${tv.base}/api/watch?k=${enc(tv.key)}", "POST", JSONObject().put("key", key).put("title", title).put("position", positionMs).toString())
+    }
+
+    /** Pin a family message on [tv]'s Home. */
+    fun board(tv: LinkedTv, title: String, body: String, from: String?) {
+        request("${tv.base}/api/board?k=${enc(tv.key)}", "POST", JSONObject().put("title", title).put("body", body).put("from", from ?: "").toString())
     }
 
     /** Watch together: the leader's position and play/pause, for [tv] to follow. */

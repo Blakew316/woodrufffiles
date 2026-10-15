@@ -120,6 +120,17 @@ class CompanionRoutes(private val ctx: Context) {
             launch(PlayerActivity.intent(ctx, listOf(key), listOf(b.optString("title").ifBlank { "Video" }), key, b.optLong("position").coerceAtLeast(0)))
             ok()
         }
+        s.uri == "/api/board" && s.method == Method.POST -> {
+            val b = body(s)
+            require(b.optString("title").isNotBlank()) { "Empty message" }
+            com.woodruff.tvexplorer.notify.Board.pin(ctx, b.optString("title"), b.optString("body"), b.optString("from").ifBlank { null }, relay = false)
+            ok()
+        }
+        s.uri == "/api/settings/weather" && s.method == Method.POST -> {
+            val place = body(s).optString("place")
+            kotlinx.coroutines.runBlocking { com.woodruff.tvexplorer.weather.Weather.setPlace(ctx, place) }
+            json(settingsJson(s))
+        }
         s.uri == "/api/sync" && s.method == Method.POST -> {
             val b = body(s)
             com.woodruff.tvexplorer.player.WatchSync.receive(
@@ -232,6 +243,8 @@ class CompanionRoutes(private val ctx: Context) {
             val text = b.optString("body").trim()
             val from = b.optString("from").ifBlank { null }
             if (b.optBoolean("tv", true)) Notices.post(ctx, NoticeSource.PHONE, title, if (from != null && text.isEmpty()) "From $from" else text)
+            // Pinned: stays on Home on this TV and every linked TV until dismissed there.
+            if (b.optBoolean("pin")) com.woodruff.tvexplorer.notify.Board.pin(ctx, title, text, from, relay = true)
             val phones = b.optJSONArray("phones")
             val sent = when {
                 b.optString("phones") == "all" -> Phones.announce(ctx, null, title, text, from)
@@ -319,6 +332,7 @@ class CompanionRoutes(private val ctx: Context) {
                 .put("connected", GoogleAuth.isConnected(ctx))
                 .put("redirectUri", GoogleAuth.REDIRECT_URI))
             .put("tmdb", Tmdb.isConfigured(ctx))
+            .put("weather", com.woodruff.tvexplorer.weather.Weather.place(ctx) ?: "")
             .put("version", com.woodruff.tvexplorer.BuildConfig.VERSION_NAME)
             .put("crash", com.woodruff.tvexplorer.util.CrashLog.last(ctx) ?: "")
             .put("awayUrl", TransferService.awayUrl() ?: "")

@@ -73,6 +73,13 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   timer (30/60/90 minutes or end of episode; then the slideshow takes over) and marks where a show's intro ends.
   After that, *Skip intro* appears during the intro of every episode of that show; OK skips it.
 - **Subtitles and audio**: the subtitles button and the gear menu pick tracks; the choice is remembered per show.
+- **Morning briefing**: before 10am Home's greeting line becomes today's weather (from Open-Meteo, no account)
+  and calendar; the date line shows the current temperature all day. Set the place in the phone app: Settings →
+  *Weather on Home* (city or ZIP).
+- **On this day**: photos taken on today's date in earlier years show up in *At a glance* (select to see them as a
+  slideshow) and come first in the regular slideshow.
+- **Family message board**: in the phone app's Send tab, *Pin on every TV's Home* keeps a message at the top of Home
+  on this TV and every linked TV until someone dismisses it on that TV.
 - **Status** (top of Settings): version, phone connection, Google Drive, cameras, doorbell alerts, updates, and
   every linked TV (online or not, and its version), each with the reason when something isn't working.
 - **Share to TV from iPhone**: phone app → Settings → *Share to TV* copies a link for a "Send to TV" Shortcut in the

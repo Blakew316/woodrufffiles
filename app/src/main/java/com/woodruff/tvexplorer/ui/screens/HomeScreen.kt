@@ -101,6 +101,13 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import com.woodruff.tvexplorer.weather.Weather
+import com.woodruff.tvexplorer.notify.Board
+import com.woodruff.tvexplorer.photos.Memories
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.runtime.produceState
 import com.woodruff.tvexplorer.nest.CameraStills
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -149,6 +156,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Header()
+        PinnedMessage()
         Row(Modifier.fillMaxWidth().height(196.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ContinuePanel(
                 recent, play, onMenu = { removeFor = it },
@@ -187,11 +195,38 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 }
 
+// ---- Family message board ------------------------------------------------------------------
+
+/** The message pinned from a phone, on every TV until dismissed here. */
+@Composable
+private fun PinnedMessage() {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Board.load(context) } }
+    val pin by Board.pin.collectAsStateWithLifecycle()
+    val p = pin ?: return
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.accentSoft).padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TvIcon(Icons.Rounded.PushPin, size = 22.dp, tint = Palette.accent)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(p.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val sub = listOfNotNull(p.body.takeIf { it.isNotBlank() }, p.from?.let { "from $it" }).joinToString(" · ")
+            if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        PanelButton("Dismiss", Icons.Rounded.Close) { Board.dismiss(context) }
+    }
+}
+
 // ---- Header: greeting and clock --------------------------------------------------
 
 @Composable
 private fun Header() {
+    val context = LocalContext.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val weather by Weather.now.collectAsStateWithLifecycle()
+    val cal by TodayCalendar.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { while (true) { Weather.refresh(context); delay(10 * 60_000L) } }
     LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
     val hour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
     val greeting = when (hour) { in 5..11 -> "Good morning"; in 12..16 -> "Good afternoon"; else -> "Good evening" }
@@ -205,7 +240,8 @@ private fun Header() {
     // A new line each hour, the same one all hour (no flicker when the clock ticks).
     val lines = when (hour) { in 5..11 -> MORNING; in 12..16 -> AFTERNOON; in 17..23 -> EVENING; else -> LATE }
     val day = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.DAY_OF_YEAR)
-    val line = lines[(day * 24 + hour) % lines.size]
+    // Mornings: a briefing (weather and today's calendar) instead of the playful line.
+    val line = if (hour in 4..9 && (weather != null || cal.connected)) briefing(weather, cal) else lines[(day * 24 + hour) % lines.size]
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -213,9 +249,30 @@ private fun Header() {
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)), style = MaterialTheme.typography.headlineSmall)
-            Text(DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(now)), style = MaterialTheme.typography.bodySmall, color = Palette.muted)
+            Text(
+                DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(now)) + (weather?.let { "  ·  ${it.tempF}° ${it.summary}" } ?: ""),
+                style = MaterialTheme.typography.bodySmall, color = Palette.muted,
+            )
         }
     }
+}
+
+/** "Partly cloudy, 64° · high 72°, low 55° · 20% rain · 2 events today, first Dentist 9:30 AM". */
+private fun briefing(w: Weather.Now?, cal: com.woodruff.tvexplorer.calendar.CalendarState): String {
+    val parts = mutableListOf<String>()
+    if (w != null) {
+        parts += "${w.summary}, ${w.tempF}°"
+        parts += "high ${w.highF}°, low ${w.lowF}°"
+        if (w.rainChance >= 20) parts += "${w.rainChance}% chance of rain"
+    }
+    if (cal.connected) {
+        val n = cal.events.size
+        parts += when (n) {
+            0 -> "nothing on the calendar"
+            else -> "$n event${if (n == 1) "" else "s"} today, first ${cal.events.first().title} ${eventTime(cal.events.first())}"
+        }
+    }
+    return parts.joinToString("  ·  ")
 }
 
 private val MORNING = listOf(
@@ -574,7 +631,13 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
     val notes by Notes.items.collectAsStateWithLifecycle()
     val cal by TodayCalendar.state.collectAsStateWithLifecycle()
     val now = System.currentTimeMillis()
+    val memories by produceState(0) {
+        value = withContext(Dispatchers.IO) { runCatching { Memories.today(context, Appearance.photos(context)).size }.getOrDefault(0) }
+    }
     val items = buildList {
+        if (memories > 0) add(GlanceItem(Icons.Rounded.PhotoLibrary, Color(0xFFFF9F0A), "On this day", "$memories photo${if (memories == 1) "" else "s"} from earlier years", false) {
+            com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(context, memories = true)
+        })
         if (cal.connected) {
             val next = cal.events.firstOrNull { (it.end ?: it.start ?: Long.MAX_VALUE) > now }
             add(GlanceItem(Icons.Rounded.Event, Palette.danger, next?.title ?: "Nothing else today", next?.let { eventTime(it) } ?: "Calendar", false, null))
