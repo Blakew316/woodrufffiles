@@ -85,9 +85,12 @@ fun BrowserScreen(vm: MainViewModel) {
     val dateFilterable = photosFolder && location is Location.Folder && !state.selecting
     var photoFilter by remember(location.key) { mutableStateOf(photoFilterMemory[location.key] ?: PhotoFilter()) }
     val dates by produceState<Map<String, Long>?>(null, dateFilterable, state.items) {
-        value = if (!dateFilterable) null else withContext(Dispatchers.IO) {
-            MediaDates.of(context, state.items.filter { !it.isDirectory }.map { it.file })
-        }
+        if (!dateFilterable) { value = null; return@produceState }
+        val files = state.items.filter { !it.isDirectory }.map { it.file }
+        // Show the folder at once (known dates, else file dates), then the exact capture times.
+        val (quick, complete) = withContext(Dispatchers.IO) { MediaDates.quick(context, files) }
+        value = quick
+        if (!complete) value = withContext(Dispatchers.IO) { MediaDates.of(context, files) }
     }
     val shown = remember(state.items, dates, photoFilter, dateFilterable) {
         val d = dates
@@ -169,7 +172,6 @@ fun BrowserScreen(vm: MainViewModel) {
                 state.loading -> EmptyState("Loading…")
                 state.error != null -> EmptyState(state.error!!)
                 state.items.isEmpty() -> EmptyState(if (location is Location.Search) "No matches" else "This folder is empty")
-                // First visit: wait for dates (usually instant now) rather than show the grid and reshuffle it.
                 dateFilterable && dates == null -> EmptyState("Loading…")
                 shown.isEmpty() -> EmptyState("Nothing from then")
                 settings.grid -> FileGrid(vm, listKey, shown, state.selected, onOpen, onMenu)

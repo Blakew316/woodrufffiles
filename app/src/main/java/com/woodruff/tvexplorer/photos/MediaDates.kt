@@ -38,6 +38,21 @@ object MediaDates {
      * Cheap checks first: the index, then the name (camera names carry the time). Only the rest
      * are opened for EXIF / video metadata, four at a time, and everything found is indexed.
      */
+    /**
+     * Instant answer for showing a folder right away: the index and file names, else the file's
+     * modified time. [of] then fills in the real capture times for the rest.
+     */
+    fun quick(c: Context, files: List<File>): Pair<Map<String, Long>, Boolean> {
+        load(c)
+        var complete = true
+        val out = HashMap<String, Long>(files.size * 2)
+        for (f in files) {
+            val path = f.absolutePath
+            out[path] = index[path] ?: fromName(f.name) ?: run { complete = false; f.lastModified() }
+        }
+        return out to complete
+    }
+
     fun of(c: Context, files: List<File>): Map<String, Long> {
         load(c)
         val out = HashMap<String, Long>(files.size * 2)

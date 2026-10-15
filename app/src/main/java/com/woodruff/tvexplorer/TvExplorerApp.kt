@@ -11,6 +11,9 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.woodruff.tvexplorer.util.CrashLog.install(this)
+        // Decrypt the saved keys and tokens in the background before any screen asks for them.
+        Thread({ runCatching { com.woodruff.tvexplorer.settings.SecretStore.get(this).warmAll() } }, "secrets-warmup")
+            .apply { priority = Thread.NORM_PRIORITY + 1 }.start()
         GoogleAuth.migrate(this)
         com.woodruff.tvexplorer.nest.Nest.init(this)
         com.woodruff.tvexplorer.photos.GooglePhotos.init(this)

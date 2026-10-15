@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -432,6 +433,10 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     // Wait a moment before connecting, so passing through Home (opening straight to the Command
     // center, or a quick switch) doesn't start four streams only to close them again.
     var onScreen by remember { mutableStateOf(false) }
+    // Low-memory TVs can't decode four streams and stay responsive: there only the camera you're on plays.
+    val context = LocalContext.current
+    val lowRam = remember { context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true }
+    var focusedCam by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(visible) { onScreen = false; if (visible) { delay(1_500); onScreen = true } }
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
@@ -440,7 +445,12 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
             state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4(cams.take(4)) { i, cam ->
                 // Play live on their own, like the Command center.
                 key(cam.name) {
-                    CameraTile(cam.label, cam, live = onScreen && cam.webRtc && Appearance.homeLive, onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) })
+                    CameraTile(
+                        cam.label, cam,
+                        live = onScreen && cam.webRtc && Appearance.homeLive && (!lowRam || focusedCam == cam.name),
+                        onFocus = { f -> if (f) focusedCam = cam.name else if (focusedCam == cam.name) focusedCam = null },
+                        onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) },
+                    )
                 }
             }
             state.step == NestStep.CONNECTED -> Text(if (state.loading) "Loading cameras…" else "No cameras found", color = Palette.muted)
@@ -471,10 +481,10 @@ private fun <T> CameraGrid4(items: List<T>, tile: @Composable (Int, T) -> Unit) 
 }
 
 @Composable
-private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, onClick: () -> Unit) {
+private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, onFocus: (Boolean) -> Unit = {}, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(80.dp),
+        modifier = Modifier.fillMaxWidth().height(80.dp).onFocusChanged { onFocus(it.isFocused) },
         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {

@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -142,8 +144,14 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 state.files.isEmpty() -> EmptyState("Nothing here")
                 shown.isEmpty() -> EmptyState("No matches")
                 else -> {
+                    // Back to a list you've been in: the item you left from is focused (and scrolled to)
+                    // again, instead of the first one.
+                    val placeKey = state.place.toString()
+                    val target = remember(state.place) { driveFocus[placeKey]?.takeIf { id -> shown.any { it.id == id } } ?: shown.first().id }
                     val first = remember(state.place) { FocusRequester() }
+                    val grid = remember(state.place) { LazyGridState() }
                     LazyVerticalGrid(
+                        state = grid,
                         // Movies / TV Shows: tall poster tiles, more per row.
                         columns = GridCells.Adaptive(if (state.library) 150.dp else 230.dp),
                         contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp, start = 6.dp, end = 6.dp),
@@ -151,7 +159,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         verticalArrangement = Arrangement.spacedBy(22.dp),
                     ) {
                         items(shown, key = { it.id }) { f ->
-                            val mod = if (f == shown.first()) Modifier.focusRequester(first) else Modifier
+                            val mod = (if (f.id == target) Modifier.focusRequester(first) else Modifier)
+                                .onFocusChanged { if (it.isFocused) driveFocus[placeKey] = f.id }
                             if (state.library) PosterTile(
                                 f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod,
                                 label = if (state.filterable) Library.label(f) else null,
@@ -159,7 +168,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                             else DriveTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
                         }
                     }
-                    LaunchedEffect(state.place) { runCatching { first.requestFocus() } }
+                    LaunchedEffect(state.place) {
+                        val i = shown.indexOfFirst { it.id == target }
+                        if (i > 0) runCatching { grid.scrollToItem(i) }
+                        withFrameNanos {}
+                        runCatching { first.requestFocus() }
+                    }
                 }
             }
         }
@@ -367,3 +381,6 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
 }
 
 private val QR_SIZE = 250.dp
+
+/** Last focused item per Drive list (by place), for coming back to it with Back. */
+private val driveFocus = java.util.concurrent.ConcurrentHashMap<String, String>()

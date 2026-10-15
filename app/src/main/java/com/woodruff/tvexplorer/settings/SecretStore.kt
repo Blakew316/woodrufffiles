@@ -42,6 +42,14 @@ class SecretStore private constructor(context: Context) {
         }
     }
 
+    /**
+     * Decrypts every stored value into the cache. Run once in the background at app start, so the
+     * screens' first reads (Settings, Drive, Mail, cameras) never wait on the Keystore.
+     */
+    fun warmAll() {
+        prefs.all.keys.forEach { runCatching { get(it) } }
+    }
+
     fun put(name: String, value: String?) {
         if (value == null) { remove(name); return }
         if (cache[name] == value && prefs.contains(name)) return // unchanged: skip the Keystore round trip
