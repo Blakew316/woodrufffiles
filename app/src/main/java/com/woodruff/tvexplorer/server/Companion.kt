@@ -112,7 +112,7 @@ class CompanionRoutes(private val ctx: Context) {
         }
         s.uri == "/api/doorbell" && s.method == Method.POST -> {
             val b = body(s)
-            com.woodruff.tvexplorer.nest.Doorbell.ring(ctx, b.optString("camera"), b.optString("label"), relay = false)
+            com.woodruff.tvexplorer.nest.Doorbell.ring(ctx, b.optString("camera"), b.optString("label"), relay = false, kind = b.optString("kind").ifBlank { "doorbell" })
             ok()
         }
         // ---- Several TVs (this one is the hub) ------------------------------------------------
@@ -249,6 +249,9 @@ class CompanionRoutes(private val ctx: Context) {
             val b = body(s)
             if (b.has("project")) GoogleAuth.saveNestProject(ctx, b.optString("project"))
             if (b.has("doorbell")) com.woodruff.tvexplorer.nest.Doorbell.setSubscription(ctx, b.optString("doorbell"))
+            if (b.has("person") || b.has("motion")) com.woodruff.tvexplorer.nest.Doorbell.setAlerts(
+                ctx, if (b.has("person")) b.optBoolean("person") else null, if (b.has("motion")) b.optBoolean("motion") else null,
+            )
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
         }
@@ -296,7 +299,9 @@ class CompanionRoutes(private val ctx: Context) {
                 .put("project", GoogleAuth.nestProject(ctx) ?: "")
                 .put("connected", GoogleAuth.isConnected(ctx, GoogleAuth.Grant.NEST))
                 .put("doorbell", com.woodruff.tvexplorer.nest.Doorbell.subscription(ctx) ?: "")
-                .put("doorbellStatus", com.woodruff.tvexplorer.nest.Doorbell.status.value ?: ""))
+                .put("doorbellStatus", com.woodruff.tvexplorer.nest.Doorbell.status.value ?: "")
+                .put("person", com.woodruff.tvexplorer.nest.Doorbell.personAlerts(ctx))
+                .put("motion", com.woodruff.tvexplorer.nest.Doorbell.motionAlerts(ctx)))
             .put("mail", JSONArray().apply {
                 MailAccounts.list(ctx).forEach { put(JSONObject().put("id", it.id).put("email", it.email).put("provider", it.provider.label)) }
             })

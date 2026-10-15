@@ -187,8 +187,8 @@ object TvLinks {
     }
 
     /** Doorbell rang (seen by the TV that watches for it): tell [tv] too. */
-    fun doorbell(tv: LinkedTv, camera: String, label: String) {
-        request("${tv.base}/api/doorbell?k=${enc(tv.key)}", "POST", JSONObject().put("camera", camera).put("label", label).toString())
+    fun doorbell(tv: LinkedTv, camera: String, label: String, kind: String = "doorbell") {
+        request("${tv.base}/api/doorbell?k=${enc(tv.key)}", "POST", JSONObject().put("camera", camera).put("label", label).put("kind", kind).toString())
     }
 
     /** Every linked TV, in parallel; failures (TV off) are ignored. */

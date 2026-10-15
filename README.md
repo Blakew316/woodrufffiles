@@ -81,6 +81,12 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   Google Drive video on every linked TV from the same spot.
 - **Search**: *Search* in the side menu (or the remote's search button, where the TV passes it to apps) listens for
   a title, or lets you type one, and finds it in Movies and TV Shows.
+- **Cameras on Home** (Settings → Command center): *All live*, *One at a time (lighter)* (one tile streams and
+  moves on every 20 s, the tile you're on always plays) or *Off*. Tiles that aren't streaming show the last
+  frame seen from that camera. Low-memory TVs use one at a time automatically.
+- **Person and motion alerts**: with doorbell alerts set up, a person (on by default) or motion (off by default)
+  seen by any camera pops up on every TV, at most once per camera every 2 minutes. Toggles are in the phone app
+  under Settings → Cameras.
 - **Doorbell alerts**: when the Nest doorbell rings, every linked TV shows a notice (over other apps too) and opens
   the doorbell full screen if Woodruff is on screen. Google only announces rings through Cloud Pub/Sub: turn on
   Pub/Sub for the Device Access project, create a pull subscription to its topic in Google Cloud, enter the

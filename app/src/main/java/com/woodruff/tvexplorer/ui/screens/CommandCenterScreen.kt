@@ -1,6 +1,7 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import android.util.Log
+import com.woodruff.tvexplorer.nest.CameraStills
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
@@ -307,6 +308,14 @@ private fun LiveStream(cam: Camera, audio: Boolean) {
     }
     LaunchedEffect(audio) { stream.setAudio(audio) }
     val status by stream.status.collectAsState()
+    // Keep a small recent frame of this camera for tiles that aren't streaming.
+    LaunchedEffect(status) {
+        while (status == CameraStream.Status.Live) {
+            delay(1_500)
+            runCatching { renderer.addFrameListener({ bmp -> CameraStills.put(cam.name, bmp) }, 0.3f) }
+            delay(20_000)
+        }
+    }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { renderer }, modifier = Modifier.fillMaxSize())
         when (val s = status) {

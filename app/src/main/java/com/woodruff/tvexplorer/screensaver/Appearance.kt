@@ -26,7 +26,10 @@ object Appearance {
     /** Command center: cameras next to clock, notifications and notes (true) or cameras only. */
     var allInOne by mutableStateOf(true); private set
     /** Home's camera tiles stream live by themselves. Per TV: each live view counts against Google's limits. */
-    var homeLive by mutableStateOf(true); private set
+    /** Home's camera tiles: every one live, one live at a time (the rest show their last frame), or none. */
+    enum class HomeCameras(val label: String) { ALL("All live"), ROTATE("One at a time (lighter)"), OFF("Off · select a camera to watch") }
+    var homeCameras by mutableStateOf(HomeCameras.ALL); private set
+    val homeLive: Boolean get() = homeCameras != HomeCameras.OFF
 
     fun load(c: Context) {
         val p = prefs(c)
@@ -37,12 +40,13 @@ object Appearance {
         allInOne = p.getBoolean("all_in_one", true)
         // The "open the Command center at start" option was removed; drop its saved value.
         if (p.contains("start_cameras")) p.edit().remove("start_cameras").apply()
-        homeLive = p.getBoolean("home_live", true)
+        homeCameras = p.getString("home_cameras", null)?.let { runCatching { HomeCameras.valueOf(it) }.getOrNull() }
+            ?: if (p.getBoolean("home_live", true)) HomeCameras.ALL else HomeCameras.OFF
     }
 
-    fun toggleHomeLive(c: Context) {
-        homeLive = !homeLive
-        prefs(c).edit().putBoolean("home_live", homeLive).apply()
+    fun nextHomeCameras(c: Context) {
+        homeCameras = HomeCameras.entries[(homeCameras.ordinal + 1) % HomeCameras.entries.size]
+        prefs(c).edit().putString("home_cameras", homeCameras.name).apply()
     }
 
     fun toggleAllInOne(c: Context) {

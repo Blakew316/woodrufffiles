@@ -324,6 +324,10 @@
     <div class="group"><label class="field"><span>Project ID</span><input id="c-project" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1a2b3c4d-5e6f-…"></label></div>
     <div class="head">Doorbell alerts</div>
     <div class="group"><label class="field"><span>Pub/Sub subscription</span><input id="c-doorbell" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="projects/…/subscriptions/…"></label></div>
+    <div class="group">
+      <label class="row"><span class="grow">Person alerts</span><input type="checkbox" class="switch" id="c-person"></label>
+      <label class="row"><span class="grow">Motion alerts</span><input type="checkbox" class="switch" id="c-motion"></label>
+    </div>
     <p class="foot" id="c-doorbell-foot">Set this on one TV only. In the Device Access Console turn on Pub/Sub for your project, then in Google Cloud create a pull subscription to that topic and paste its full name here. Connect the cameras again on the TV afterwards.</p>
     <button class="btn" id="c-save">Save</button>
   </div>
@@ -910,6 +914,7 @@
       status(['c-status', 'c-status2'], s.nest.connected ? 'Connected' : s.nest.project ? 'Sign in on TV' : 'Not set up', s.nest.connected);
       if (!$('c-project').value) $('c-project').value = s.nest.project || '';
       if (!$('c-doorbell').value) $('c-doorbell').value = s.nest.doorbell || '';
+      $('c-person').checked = !!s.nest.person; $('c-motion').checked = !!s.nest.motion;
       if (s.nest.doorbellStatus) $('c-doorbell-foot').textContent = s.nest.doorbellStatus;
     }
     status(['m-status'], s.mail.length ? String(s.mail.length) : 'None', false);
@@ -942,6 +947,8 @@
     var k = $('t-key').value.trim(); if (!k) return toast('Paste the TMDB key first', true);
     post('/api/settings/tmdb', { key: k }).then(function (r) { $('t-key').value = ''; renderSettings(r); toast('Saved. Posters update on the TV'); }, err);
   };
+  $('c-person').onchange = function () { post('/api/settings/nest', { person: $('c-person').checked }).then(renderSettings, err); };
+  $('c-motion').onchange = function () { post('/api/settings/nest', { motion: $('c-motion').checked }).then(renderSettings, err); };
   $('c-save').onclick = function () {
     post('/api/settings/nest', { project: $('c-project').value.trim(), doorbell: $('c-doorbell').value.trim() }).then(function (s) { renderSettings(s); toast('Saved. Open Command center on the TV'); }, err);
   };

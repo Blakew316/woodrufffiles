@@ -259,8 +259,8 @@ fun SettingsScreen(vm: MainViewModel) {
         }
         item {
             // Turn off on extra TVs if Google starts limiting camera requests.
-            SettingRow(Icons.Rounded.Videocam, "Live cameras on Home", if (Appearance.homeLive) "On" else "Off · select a camera to watch") {
-                Appearance.toggleHomeLive(context)
+            SettingRow(Icons.Rounded.Videocam, "Cameras on Home", Appearance.homeCameras.label) {
+                Appearance.nextHomeCameras(context)
             }
         }
         if (nestConnected) item {

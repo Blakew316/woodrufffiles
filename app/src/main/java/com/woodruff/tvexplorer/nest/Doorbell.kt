@@ -35,6 +35,21 @@ import java.net.URL
 object Doorbell {
     private const val PREFS = "doorbell"
     private const val EVENT = "sdm.devices.events.DoorbellChime.Chime"
+    private const val PERSON = "sdm.devices.events.CameraPerson.Person"
+    private const val MOTION = "sdm.devices.events.CameraMotion.Motion"
+
+    /** Person / motion pop-ups (same Pub/Sub feed as the doorbell). Person on, motion off by default. */
+    fun personAlerts(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("person", true)
+    fun motionAlerts(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("motion", false)
+    fun setAlerts(c: Context, person: Boolean?, motion: Boolean?) {
+        c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
+            if (person != null) putBoolean("person", person)
+            if (motion != null) putBoolean("motion", motion)
+        }.apply()
+    }
+
+    /** One pop-up per camera and kind every 2 minutes: a person walking around isn't ten alerts. */
+    private val lastAlert = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
 
@@ -59,12 +74,19 @@ object Doorbell {
         start(c)
     }
 
-    /** A doorbell rang: here, and (when [relay]) on every linked TV. */
-    fun ring(c: Context, camera: String, label: String, relay: Boolean) {
+    /**
+     * A doorbell rang ([kind] "doorbell"), or a person / motion was seen: here, and (when [relay])
+     * on every linked TV. Only the doorbell opens the camera full screen.
+     */
+    fun ring(c: Context, camera: String, label: String, relay: Boolean, kind: String = "doorbell") {
         val app = c.applicationContext
-        Notices.post(app, NoticeSource.SYSTEM, "Someone's at the door", label.ifBlank { "Doorbell" })
-        _rings.tryEmit(camera)
-        if (relay) scope.launch { TvLinks.forEachLinked(app) { TvLinks.doorbell(it, camera, label) } }
+        val where = label.ifBlank { "Doorbell" }
+        when (kind) {
+            "person" -> Notices.post(app, NoticeSource.SYSTEM, "Person at $where", "Seen on the $where camera")
+            "motion" -> Notices.post(app, NoticeSource.SYSTEM, "Motion at $where", "Seen on the $where camera")
+            else -> { Notices.post(app, NoticeSource.SYSTEM, "Someone's at the door", where); _rings.tryEmit(camera) }
+        }
+        if (relay) scope.launch { TvLinks.forEachLinked(app) { TvLinks.doorbell(it, camera, label, kind) } }
     }
 
     /** Starts (or restarts) watching for rings; called when the phone-connection service starts. */
@@ -102,7 +124,13 @@ object Doorbell {
             val data = m.optJSONObject("message")?.optString("data").orEmpty()
             val event = runCatching { JSONObject(String(Base64.decode(data, Base64.DEFAULT))) }.getOrNull() ?: continue
             val update = event.optJSONObject("resourceUpdate") ?: continue
-            if (update.optJSONObject("events")?.has(EVENT) != true) continue
+            val events = update.optJSONObject("events") ?: continue
+            val kind = when {
+                events.has(EVENT) -> "doorbell"
+                events.has(PERSON) && personAlerts(c) -> "person"
+                events.has(MOTION) && motionAlerts(c) -> "motion"
+                else -> continue
+            }
             // A backlog from while the TV was off isn't news any more.
             val at = runCatching {
                 java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
@@ -112,7 +140,12 @@ object Doorbell {
             if (System.currentTimeMillis() - at > 90_000) continue
             val camera = update.optString("name")
             val label = Nest.state.value.cameras.firstOrNull { it.name == camera }?.label ?: "Doorbell"
-            ring(c, camera, label, relay = true)
+            if (kind != "doorbell") {
+                val k = "$kind|$camera"
+                if (System.currentTimeMillis() - (lastAlert[k] ?: 0L) < 120_000) continue
+                lastAlert[k] = System.currentTimeMillis()
+            }
+            ring(c, camera, label, relay = true, kind = kind)
         }
         if (acks.length() > 0) post(token, "https://pubsub.googleapis.com/v1/$sub:acknowledge", JSONObject().put("ackIds", acks))
         return 0

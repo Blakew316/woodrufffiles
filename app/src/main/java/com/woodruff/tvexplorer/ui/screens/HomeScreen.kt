@@ -101,6 +101,8 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import com.woodruff.tvexplorer.nest.CameraStills
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -474,6 +476,12 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     val context = LocalContext.current
     val lowRam = remember { context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true }
     var focusedCam by remember { mutableStateOf<String?>(null) }
+    // "One at a time" (and low-memory TVs): one tile streams, moving on every 20 s; the others
+    // show their last frame. The tile you're on always plays.
+    val mode = Appearance.homeCameras
+    val rotate = mode == Appearance.HomeCameras.ROTATE || (lowRam && mode == Appearance.HomeCameras.ALL)
+    var turn by remember { mutableIntStateOf(0) }
+    LaunchedEffect(rotate, onScreen) { while (rotate && onScreen) { delay(20_000); turn++ } }
     LaunchedEffect(visible) { onScreen = false; if (visible) { delay(1_500); onScreen = true } }
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
@@ -484,7 +492,11 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
                 key(cam.name) {
                     CameraTile(
                         cam.label, cam,
-                        live = onScreen && cam.webRtc && Appearance.homeLive && (!lowRam || focusedCam == cam.name),
+                        live = onScreen && cam.webRtc && mode != Appearance.HomeCameras.OFF && when {
+                            !rotate -> true
+                            focusedCam != null -> focusedCam == cam.name
+                            else -> i == turn % minOf(cams.size, 4)
+                        },
                         onFocus = { f -> if (f) focusedCam = cam.name else if (focusedCam == cam.name) focusedCam = null },
                         onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) },
                     )
@@ -526,7 +538,11 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {
         Box(Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF0B0E13))) {
+            val stills by CameraStills.stills.collectAsStateWithLifecycle()
+            val still = cam?.let { stills[it.name] }
+            val stillImage = remember(still) { still?.bitmap?.asImageBitmap() }
             if (live && cam != null) LiveVideo(cam, audio = false)
+            else if (stillImage != null) Image(stillImage, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 TvIcon(Icons.Rounded.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))
                 // Older Nest models only stream over RTSP, which Google's API doesn't offer to apps.
