@@ -25,4 +25,9 @@ class ShowPrefsTest {
             assertEquals(it, false, ShowPrefs.isEpisode(it))
         }
     }
+
+    @Test fun foreignSpeechIsAnyKnownLanguageButEnglish() {
+        listOf("ja", "jpn", "ko", "es-MX", "fre").forEach { assertEquals(it, true, ShowPrefs.isForeign(it)) }
+        listOf("en", "eng", "en-US", "und", "", null).forEach { assertEquals(it.toString(), false, ShowPrefs.isForeign(it)) }
+    }
 }

@@ -22,6 +22,15 @@ object ShowPrefs {
     fun isEpisode(title: String): Boolean =
         Regex("""(?i)(^|[^a-z0-9])(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2}|episode\s*\d+|ep\s*\d+)""").containsMatchIn(title)
 
+    /** A language tag ("en", "eng", "en-US") that is English. */
+    fun isEnglish(lang: String?): Boolean = lang?.lowercase()?.let { it == "en" || it == "eng" || it.startsWith("en-") || it.startsWith("en_") } == true
+
+    /** A known language other than English ("und", "mis" and missing tags don't count: unknown). */
+    fun isForeign(lang: String?): Boolean {
+        val l = lang?.lowercase()?.trim().orEmpty()
+        return l.isNotEmpty() && l !in setOf("und", "mis", "mul", "zxx", "unknown") && !isEnglish(l)
+    }
+
     private fun p(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun audio(c: Context, show: String): String? = p(c).getString("a:$show", null)

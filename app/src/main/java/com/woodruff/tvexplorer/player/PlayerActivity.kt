@@ -228,6 +228,33 @@ class PlayerActivity : ComponentActivity() {
         }.build().also { ownParams = it }
     }
 
+    /** The episode English subtitles were last switched on for, so it happens once per episode. */
+    private var autoSubsFor: String? = null
+
+    /**
+     * Speech that isn't English: turn on English subtitles when the file has them, without
+     * asking. A choice made for the show in the subtitles menu (including Off) still wins.
+     */
+    private fun englishSubtitlesIfForeign(p: ExoPlayer, tracks: androidx.media3.common.Tracks) {
+        val key = p.currentMediaItem?.mediaId ?: return
+        if (autoSubsFor == key || ShowPrefs.text(this, show()) != null) return
+        val text = androidx.media3.common.C.TRACK_TYPE_TEXT
+        val audio = tracks.groups.firstOrNull { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO && it.isSelected }
+            ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).language } }
+        if (!ShowPrefs.isForeign(audio)) return
+        // English subtitles in the file: full ones before "forced" (signs-only) ones.
+        val choices = tracks.groups.filter { it.type == text }.flatMap { g -> (0 until g.length).map { g to it } }
+            .filter { (g, i) -> g.isTrackSupported(i) && ShowPrefs.isEnglish(g.getTrackFormat(i).language) }
+        val (group, index) = choices.firstOrNull { (g, i) -> g.getTrackFormat(i).selectionFlags and androidx.media3.common.C.SELECTION_FLAG_FORCED == 0 }
+            ?: choices.firstOrNull() ?: return
+        autoSubsFor = key
+        if (group.isTrackSelected(index)) return
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(text, false)
+            .setOverrideForType(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, index))
+            .build().also { ownParams = it }
+    }
+
     /** The track settings this activity applied itself; anything else came from the viewer's menus. */
     private var ownParams: androidx.media3.common.TrackSelectionParameters? = null
     private var userPickedTracks = false
@@ -340,6 +367,7 @@ class PlayerActivity : ComponentActivity() {
                     p.pauseAtEndOfMediaItems = tracks.containsType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
                     // Remember tracks only when the viewer picked them, not the player's automatic choice.
                     if (userPickedTracks) { userPickedTracks = false; rememberTracks(tracks) }
+                    else englishSubtitlesIfForeign(p, tracks)
                 }
 
                 override fun onTrackSelectionParametersChanged(parameters: androidx.media3.common.TrackSelectionParameters) {
