@@ -29,6 +29,9 @@ class UpdaterTest {
         assertEquals(false, Updater.waits(manual = false, rollback = false, testTv = true, ageMs = 0))
         assertEquals(false, Updater.waits(manual = false, rollback = true, testTv = false, ageMs = 0))
         assertEquals(false, Updater.waits(manual = true, rollback = false, testTv = false, ageMs = 0))
+        // Releases every few hours never get 24 h old: after 48 h behind, the TV takes the newest anyway.
+        assertEquals(true, Updater.waits(manual = false, rollback = false, testTv = false, ageMs = 0, behindMs = 47 * hour))
+        assertEquals(false, Updater.waits(manual = false, rollback = false, testTv = false, ageMs = 0, behindMs = 49 * hour))
     }
 
     @Test fun readsGitHubTimes() {

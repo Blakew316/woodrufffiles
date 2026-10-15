@@ -67,8 +67,12 @@ object Opener {
             "No installed app can open .${FileTypes.extension(file.name).ifEmpty { "?" }} files")
     }
 
+    /** "Install unknown apps" is allowed for Woodruff. Before Android 8 it's a system-wide setting the installer asks about itself. */
+    fun canInstallPackages(context: Context): Boolean =
+        android.os.Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()
+
     fun installApk(context: Context, file: File): OpenResult {
-        if (!context.packageManager.canRequestPackageInstalls()) return OpenResult.NeedsInstallPermission
+        if (!canInstallPackages(context)) return OpenResult.NeedsInstallPermission
         val intent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uriFor(context, file), "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)

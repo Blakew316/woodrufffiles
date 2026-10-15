@@ -47,6 +47,8 @@ object Updater {
     private const val CHECK_ON_OPEN_MS = 10 * 60_000L
     private const val IDLE_MS = 2 * 60_000L
     private const val SETTLE_MS = 24 * 3_600_000L
+    /** However often releases come, a TV never stays behind longer than this. */
+    private const val MAX_BEHIND_MS = 2 * SETTLE_MS
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
 
@@ -101,7 +103,7 @@ object Updater {
             if (System.currentTimeMillis() - p.getLong("lastCheck", 0) >= every || _state.value.step == Step.ERROR) {
                 checkAndDownload(app)
             }
-            if (_state.value.step == Step.READY && canInstallSilently(app) && idle()) {
+            if (_state.value.step == Step.READY && canInstallSilently(app) && idle() && System.currentTimeMillis() >= retryAt) {
                 // On screen but untouched: Woodruff restarts, so open it again afterwards.
                 if (AppVisibility.foreground) prefs(app).edit().putBoolean("reopen", true).apply()
                 install(app)
@@ -125,20 +127,37 @@ object Updater {
     /** Settings → Check for updates. */
     fun checkNow(c: Context) { val app = c.applicationContext; scope.launch { checkAndDownload(app, manual = true) } }
 
+    /** After a failed silent install, the next try waits (5 min, doubling, up to 6 h) instead of looping. */
+    @Volatile private var retryAt = 0L
+    @Volatile private var failures = 0
+    private fun installFailed() {
+        failures++
+        retryAt = System.currentTimeMillis() + (5 * 60_000L shl (failures - 1).coerceAtMost(6)).coerceAtMost(6 * 3_600_000L)
+    }
+
     private suspend fun checkAndDownload(c: Context, manual: Boolean = false) { lock.withLock {
         if (_state.value.step == Step.DOWNLOADING || _state.value.step == Step.INSTALLING) return@withLock
+        val before = _state.value
         _state.update { it.copy(step = Step.CHECKING, message = null) }
         try {
             val release = JSONObject(get(API))
             prefs(c).edit().putLong("lastCheck", System.currentTimeMillis()).apply()
             val latest = buildNumber(release.optString("tag_name"))
                 ?: throw IOException("Couldn't read the latest version")
-            if (latest <= current) { _state.value = State(Step.UP_TO_DATE, latest); return@withLock }
-            val age = System.currentTimeMillis() - (published(release.optString("published_at")) ?: 0L)
+            val p = prefs(c)
+            if (latest <= current) { p.edit().remove("behindOn").remove("behindSince").apply(); _state.value = State(Step.UP_TO_DATE, latest); return@withLock }
+            // Already downloaded and waiting for a quiet moment: keep it ready.
+            if (before.step == Step.READY && before.latest == latest && apkFile(c).exists()) { _state.value = before; return@withLock }
+            val now = System.currentTimeMillis()
+            val age = now - (published(release.optString("published_at")) ?: 0L)
+            // How long this TV has known it's behind (on this installed version).
+            if (p.getInt("behindOn", -1) != current) p.edit().putInt("behindOn", current).putLong("behindSince", now).apply()
+            val behind = now - p.getLong("behindSince", now)
             // A rollback (an earlier version re-released to undo a bad one) goes to every TV at once.
-            val rollback = release.optString("name").contains("rollback")
-            if (waits(manual, rollback, isTestTv(c), age)) {
-                val hours = ((SETTLE_MS - age) / 3_600_000L + 1).coerceAtLeast(1)
+            val rollback = release.optString("name").contains("rollback", ignoreCase = true) ||
+                release.optString("tag_name").contains("rollback", ignoreCase = true)
+            if (waits(manual, rollback, isTestTv(c), age, behind)) {
+                val hours = (minOf(SETTLE_MS - age, MAX_BEHIND_MS - behind) / 3_600_000L + 1).coerceAtLeast(1)
                 _state.value = State(Step.UP_TO_DATE, latest, message = "2.0.$latest arrives in about $hours h (after the test TV)")
                 return@withLock
             }
@@ -163,8 +182,8 @@ object Updater {
     } }
 
     /** Whether this TV holds off on a release [ageMs] old (see [isTestTv]). Visible for tests. */
-    fun waits(manual: Boolean, rollback: Boolean, testTv: Boolean, ageMs: Long): Boolean =
-        !manual && !rollback && !testTv && ageMs < SETTLE_MS
+    fun waits(manual: Boolean, rollback: Boolean, testTv: Boolean, ageMs: Long, behindMs: Long = 0): Boolean =
+        !manual && !rollback && !testTv && ageMs < SETTLE_MS && behindMs < MAX_BEHIND_MS
 
     /** GitHub's "2026-10-14T22:06:24Z" → ms. Visible for tests. */
     fun published(s: String): Long? = runCatching {
@@ -215,6 +234,7 @@ object Updater {
                 }
             } catch (e: Exception) {
                 Log.w("Updater", "install failed", e)
+                installFailed()
                 _state.update { it.copy(step = Step.READY, message = e.message ?: "Couldn't start the update") }
             }
         }
@@ -229,8 +249,8 @@ object Updater {
                 // Not on screen (or the prompt couldn't open): offer it again next time Woodruff opens.
                 _state.update { it.copy(step = Step.READY) }
             }
-            PackageInstaller.STATUS_SUCCESS -> { apkFile(c).delete(); _state.value = State(Step.UP_TO_DATE, current) }
-            else -> _state.update { it.copy(step = Step.READY, message = message ?: "The update didn't install") }
+            PackageInstaller.STATUS_SUCCESS -> { failures = 0; retryAt = 0; apkFile(c).delete(); _state.value = State(Step.UP_TO_DATE, current) }
+            else -> { installFailed(); _state.update { it.copy(step = Step.READY, message = message ?: "The update didn't install") } }
         }
     }
 

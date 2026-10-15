@@ -22,7 +22,9 @@ object Memories {
     /** [photos] taken on this day in earlier years, oldest year first. */
     fun today(c: Context, photos: List<File>, now: Calendar = Calendar.getInstance()): List<File> {
         if (photos.isEmpty()) return emptyList()
-        val (dates, _) = MediaDates.quick(c, photos)
+        // Dates from the index / file names first; only when some are unknown, read them from the photos (cached after).
+        val (quick, complete) = MediaDates.quick(c, photos)
+        val dates = if (complete) quick else MediaDates.of(c, photos)
         return onThisDay(photos.map { it to (dates[it.absolutePath] ?: it.lastModified()) }, now).map { it }
     }
 

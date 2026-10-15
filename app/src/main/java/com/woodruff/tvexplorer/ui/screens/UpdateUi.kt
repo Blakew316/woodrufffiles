@@ -16,7 +16,7 @@ import com.woodruff.tvexplorer.util.Opener
 
 /** Installs the downloaded update, first asking for "Install unknown apps" if it isn't allowed yet. */
 fun startUpdate(context: Context, vm: MainViewModel) {
-    if (!context.packageManager.canRequestPackageInstalls()) {
+    if (!Opener.canInstallPackages(context)) {
         Opener.openInstallPermissionSettings(context)
         vm.say("Allow Woodruff Family to install apps, then choose Install again")
         return
@@ -47,7 +47,7 @@ fun UpdatePrompt(vm: MainViewModel) {
     var dismissed by remember { mutableStateOf<Int?>(null) }
     if (s.step != Updater.Step.READY || s.latest == null || s.latest == dismissed || Updater.canInstallSilently(context)) return
     // Allowed to install: go straight to Android's own "Update" screen (one press), no dialog of ours.
-    if (context.packageManager.canRequestPackageInstalls()) {
+    if (Opener.canInstallPackages(context)) {
         LaunchedEffect(s.latest) { dismissed = s.latest; Updater.install(context) }
         return
     }

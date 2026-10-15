@@ -48,8 +48,18 @@ object Doorbell {
         }.apply()
     }
 
-    /** One pop-up per camera and kind every 2 minutes: a person walking around isn't ten alerts. */
+    /** The alert kinds there are; anything else (e.g. from a linked TV) is ignored. */
+    val KINDS = setOf("doorbell", "person", "motion")
+
+    /**
+     * One pop-up per camera and kind every 2 minutes (30 s for the doorbell): a person walking
+     * around isn't ten alerts, and a double press is one ring.
+     */
     private val lastAlert = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** Pub/Sub delivers at least once: messages already handled, so a redelivery doesn't ring again. */
+    private val seen = object : LinkedHashMap<String, Unit>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?) = size > 200
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
 
@@ -79,6 +89,11 @@ object Doorbell {
      * on every linked TV. Only the doorbell opens the camera full screen.
      */
     fun ring(c: Context, camera: String, label: String, relay: Boolean, kind: String = "doorbell") {
+        if (kind !in KINDS) return
+        val now = System.currentTimeMillis()
+        val k = "$kind|$camera"
+        if (now - (lastAlert[k] ?: 0L) < if (kind == "doorbell") 30_000 else 120_000) return
+        lastAlert[k] = now
         val app = c.applicationContext
         val where = label.ifBlank { "Doorbell" }
         when (kind) {
@@ -89,8 +104,11 @@ object Doorbell {
         if (relay) scope.launch { TvLinks.forEachLinked(app) { TvLinks.doorbell(it, camera, label, kind) } }
     }
 
+    /** Stops watching (the phone-connection service stopped). */
+    fun stop() { job?.cancel(); job = null }
+
     /** Starts (or restarts) watching for rings; called when the phone-connection service starts. */
-    fun start(c: Context) {
+    @Synchronized fun start(c: Context) {
         val app = c.applicationContext
         job?.cancel()
         job = scope.launch {
@@ -117,10 +135,15 @@ object Doorbell {
         val messages = res.optJSONArray("receivedMessages") ?: JSONArray()
         _status.value = null
         if (messages.length() == 0) return 5_000
+        // Acknowledge first: if handling one goes wrong, it still isn't delivered (and announced) again.
         val acks = JSONArray()
+        for (i in 0 until messages.length()) acks.put(messages.getJSONObject(i).optString("ackId"))
+        runCatching { post(token, "https://pubsub.googleapis.com/v1/$sub:acknowledge", JSONObject().put("ackIds", acks)) }
+            .onFailure { Log.w("Doorbell", "acknowledge failed: ${it.message}") }
         for (i in 0 until messages.length()) {
             val m = messages.getJSONObject(i)
-            acks.put(m.optString("ackId"))
+            val id = m.optJSONObject("message")?.optString("messageId").orEmpty()
+            if (id.isNotEmpty() && synchronized(seen) { seen.put(id, Unit) != null }) continue
             val data = m.optJSONObject("message")?.optString("data").orEmpty()
             val event = runCatching { JSONObject(String(Base64.decode(data, Base64.DEFAULT))) }.getOrNull() ?: continue
             val update = event.optJSONObject("resourceUpdate") ?: continue
@@ -140,14 +163,8 @@ object Doorbell {
             if (System.currentTimeMillis() - at > 90_000) continue
             val camera = update.optString("name")
             val label = Nest.state.value.cameras.firstOrNull { it.name == camera }?.label ?: "Doorbell"
-            if (kind != "doorbell") {
-                val k = "$kind|$camera"
-                if (System.currentTimeMillis() - (lastAlert[k] ?: 0L) < 120_000) continue
-                lastAlert[k] = System.currentTimeMillis()
-            }
             ring(c, camera, label, relay = true, kind = kind)
         }
-        if (acks.length() > 0) post(token, "https://pubsub.googleapis.com/v1/$sub:acknowledge", JSONObject().put("ackIds", acks))
         return 0
     }
 

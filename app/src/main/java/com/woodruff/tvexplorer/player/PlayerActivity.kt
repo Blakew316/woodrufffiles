@@ -139,11 +139,20 @@ class PlayerActivity : ComponentActivity() {
 
     private fun follow(u: WatchSync.Update) {
         val p = player ?: return
-        if (leader || p.currentMediaItem?.mediaId != u.key) return
+        if (leader) return
         // Where the leader is now: its position plus the time the message took (clocks roughly agree on a LAN).
         val lag = (System.currentTimeMillis() - u.sentAt).coerceIn(0, 2_000)
         val target = u.positionMs + if (u.playing) lag else 0
-        if (kotlin.math.abs(p.currentPosition - target) > 2_000) p.seekTo(target)
+        if (p.currentMediaItem?.mediaId != u.key) {
+            // The leader moved on to another episode: follow it there if it's in this queue.
+            val i = (0 until p.mediaItemCount).firstOrNull { p.getMediaItemAt(it).mediaId == u.key } ?: return
+            cancelUpNext()
+            p.seekTo(i, target)
+        } else if (kotlin.math.abs(p.currentPosition - target) > if (u.playing) 2_000 else 300) {
+            // Playing: only correct real drift. Paused: line up exactly on the leader's frame.
+            p.seekTo(target)
+        }
+        if (u.playing && upNext.visibility == android.view.View.VISIBLE) cancelUpNext()
         p.playWhenReady = u.playing
     }
     private var sleepAtEnd = false
@@ -208,12 +217,16 @@ class PlayerActivity : ComponentActivity() {
         p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().apply {
             if (audio != null) setPreferredAudioLanguage(audio)
             when (text) {
-                null -> Unit
+                null -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false)
                 ShowPrefs.OFF -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true)
                 else -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(text)
             }
-        }.build()
+        }.build().also { ownParams = it }
     }
+
+    /** The track settings this activity applied itself; anything else came from the viewer's menus. */
+    private var ownParams: androidx.media3.common.TrackSelectionParameters? = null
+    private var userPickedTracks = false
 
     /** Remember what's playing (picked in the settings / subtitles menus) for the rest of the show. */
     private fun rememberTracks(tracks: androidx.media3.common.Tracks) {
@@ -295,7 +308,20 @@ class PlayerActivity : ComponentActivity() {
                 }
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                    if (!tracks.isEmpty) rememberTracks(tracks)
+                    if (tracks.isEmpty) return
+                    // Music runs straight on; only video pauses at the end for the Up next countdown.
+                    p.pauseAtEndOfMediaItems = tracks.containsType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                    // Remember tracks only when the viewer picked them, not the player's automatic choice.
+                    if (userPickedTracks) { userPickedTracks = false; rememberTracks(tracks) }
+                }
+
+                override fun onTrackSelectionParametersChanged(parameters: androidx.media3.common.TrackSelectionParameters) {
+                    if (parameters != ownParams) userPickedTracks = true
+                }
+
+                override fun onPlaybackStateChanged(state: Int) {
+                    // Last item of a music queue (no pause at the end): leave like a video does.
+                    if (state == Player.STATE_ENDED) { p.currentMediaItem?.mediaId?.let(recent::remove); finish() }
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -338,7 +364,9 @@ class PlayerActivity : ComponentActivity() {
             savedIndex = p.currentMediaItemIndex
             savedPosition = p.currentPosition
             p.currentMediaItem?.let { item ->
-                recent.save(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0))
+                // Watched to the end: it stays out of Continue watching instead of coming back at its last second.
+                if (p.duration > 0 && p.duration - p.currentPosition < 5_000) recent.remove(item.mediaId)
+                else recent.save(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0))
             }
             p.release()
         }
@@ -350,7 +378,9 @@ class PlayerActivity : ComponentActivity() {
     private fun dataSources(): DefaultDataSource.Factory {
         val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
         val authed = ResolvingDataSource.Factory(http) { spec ->
-            if (spec.uri.host?.endsWith("googleapis.com") == true) {
+            // Only Google's own hosts over https get the token: never a look-alike or a plain-http redirect.
+            val host = spec.uri.host.orEmpty()
+            if (spec.uri.scheme == "https" && (host == "googleapis.com" || host.endsWith(".googleapis.com"))) {
                 spec.withAdditionalHeaders(mapOf("Authorization" to "Bearer ${token()}"))
             } else spec
         }
@@ -380,7 +410,10 @@ class PlayerActivity : ComponentActivity() {
         if (upNext.visibility == android.view.View.VISIBLE && event.action == KeyEvent.ACTION_DOWN) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { playNext(); return true }
-                KeyEvent.KEYCODE_BACK -> { cancelUpNext(); return true }
+                KeyEvent.KEYCODE_BACK -> {
+                    // Stop: this one is finished, so leave rather than sit paused on its last frame.
+                    cancelUpNext(); player?.currentMediaItem?.mediaId?.let(recent::remove); finish(); return true
+                }
             }
         }
         if (!view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&

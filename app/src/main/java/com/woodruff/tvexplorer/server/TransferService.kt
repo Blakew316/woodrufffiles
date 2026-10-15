@@ -133,6 +133,7 @@ class TransferService : Service() {
 
     override fun onDestroy() {
         com.woodruff.tvexplorer.tvs.TvLinks.stopAdvertising(applicationContext)
+        com.woodruff.tvexplorer.nest.Doorbell.stop()
         scope.cancel()
         server?.stop()
         server = null

@@ -92,7 +92,7 @@ class CompanionRoutes(private val ctx: Context) {
         // Apple Music links in their apps), anything else shows up as a message.
         s.uri == "/api/share" && s.method == Method.POST -> {
             val b = body(s)
-            val input = (b.optString("input").ifBlank { b.optString("url") }.ifBlank { b.optString("text") }).trim()
+            val input = (b.optString("input").ifBlank { b.optString("url") }.ifBlank { b.optString("text") }.ifBlank { b.optString("message") }).trim()
             require(input.isNotEmpty()) { "Nothing was shared" }
             val link = Regex("""https?://\S+""").find(input)?.value
             if (link != null) openUrl(link) else Notices.post(ctx, NoticeSource.PHONE, "Shared from iPhone", input.take(2000))
