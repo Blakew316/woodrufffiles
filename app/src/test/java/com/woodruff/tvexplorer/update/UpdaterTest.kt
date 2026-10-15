@@ -17,4 +17,22 @@ class UpdaterTest {
         assertNull(Updater.buildNumber("v2.0.41-beta"))
         assertNull(Updater.buildNumber(""))
     }
+
+    private val hour = 3_600_000L
+
+    @Test fun otherTvsWaitADayAfterARelease() {
+        assertEquals(true, Updater.waits(manual = false, rollback = false, testTv = false, ageMs = 2 * hour))
+        assertEquals(false, Updater.waits(manual = false, rollback = false, testTv = false, ageMs = 25 * hour))
+    }
+
+    @Test fun testTvRollbackAndManualCheckDontWait() {
+        assertEquals(false, Updater.waits(manual = false, rollback = false, testTv = true, ageMs = 0))
+        assertEquals(false, Updater.waits(manual = false, rollback = true, testTv = false, ageMs = 0))
+        assertEquals(false, Updater.waits(manual = true, rollback = false, testTv = false, ageMs = 0))
+    }
+
+    @Test fun readsGitHubTimes() {
+        assertEquals(1_760_479_584_000L, Updater.published("2025-10-14T22:06:24Z"))
+        assertNull(Updater.published("yesterday"))
+    }
 }

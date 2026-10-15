@@ -13,8 +13,10 @@ object ShowPrefs {
     const val OFF = "off"
 
     fun showKey(title: String): String =
-        title.replace(Regex("""(?i)[\s._\-]*(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2}|season\s*\d+|episode\s*\d+).*$"""), "")
-            .substringBeforeLast('.').trim().lowercase().ifBlank { title.lowercase() }
+        title.replace(Regex("""\.[A-Za-z0-9]{2,4}$"""), "") // file extension
+            .replace(Regex("""[._]+"""), " ")
+            .replace(Regex("""(?i)[\s\-]*(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2}|season\s*\d+|episode\s*\d+).*$"""), "")
+            .replace(Regex("""\s+"""), " ").trim().lowercase().ifBlank { title.lowercase() }
 
     private fun p(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 

@@ -88,6 +88,16 @@ class CompanionRoutes(private val ctx: Context) {
             Notices.post(ctx, NoticeSource.PHONE, title, text, b.optString("link").ifBlank { null })
             ok()
         }
+        // iPhone share sheet (a Shortcut posts whatever was shared): links open on the TV (YouTube and
+        // Apple Music links in their apps), anything else shows up as a message.
+        s.uri == "/api/share" && s.method == Method.POST -> {
+            val b = body(s)
+            val input = (b.optString("input").ifBlank { b.optString("url") }.ifBlank { b.optString("text") }).trim()
+            require(input.isNotEmpty()) { "Nothing was shared" }
+            val link = Regex("""https?://\S+""").find(input)?.value
+            if (link != null) openUrl(link) else Notices.post(ctx, NoticeSource.PHONE, "Shared from iPhone", input.take(2000))
+            ok()
+        }
         s.uri == "/api/open" && s.method == Method.POST -> {
             val url = body(s).optString("url").trim()
             require(url.startsWith("http://") || url.startsWith("https://")) { "Send a web address starting with http:// or https://" }
@@ -161,7 +171,16 @@ class CompanionRoutes(private val ctx: Context) {
         }
         s.uri == "/api/key" && s.method == Method.POST -> {
             val key = body(s).optString("key")
-            if (key == "home") {
+            // Volume works whatever is on screen: it's the TV's own volume, not a key press.
+            val volume = mapOf(
+                "volup" to android.media.AudioManager.ADJUST_RAISE,
+                "voldown" to android.media.AudioManager.ADJUST_LOWER,
+                "mute" to android.media.AudioManager.ADJUST_TOGGLE_MUTE,
+            )[key]
+            if (volume != null) {
+                ctx.getSystemService(android.media.AudioManager::class.java)
+                    ?.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, volume, android.media.AudioManager.FLAG_SHOW_UI)
+            } else if (key == "home") {
                 // Brings Woodruff Family up on its Home screen (from another app too, if allowed).
                 launch(Intent(ctx, com.woodruff.tvexplorer.MainActivity::class.java)
                     .putExtra(com.woodruff.tvexplorer.MainActivity.EXTRA_OPEN, "home")
@@ -293,6 +312,7 @@ class CompanionRoutes(private val ctx: Context) {
         return JSONObject()
             // For iPhone Shortcuts / automations: the pairing key travels in the URL.
             .put("notifyUrl", "http://$host/api/notify?k=${PairingKey.get(ctx)}")
+            .put("shareUrl", "http://$host/api/share?k=${PairingKey.get(ctx)}")
             .put("google", JSONObject()
                 .put("clientId", clientId ?: "")
                 .put("hasSecret", GoogleAuth.isConfigured(ctx))

@@ -137,7 +137,7 @@ object Updater {
             val age = System.currentTimeMillis() - (published(release.optString("published_at")) ?: 0L)
             // A rollback (an earlier version re-released to undo a bad one) goes to every TV at once.
             val rollback = release.optString("name").contains("rollback")
-            if (!manual && !rollback && !isTestTv(c) && age < SETTLE_MS) {
+            if (waits(manual, rollback, isTestTv(c), age)) {
                 val hours = ((SETTLE_MS - age) / 3_600_000L + 1).coerceAtLeast(1)
                 _state.value = State(Step.UP_TO_DATE, latest, message = "2.0.$latest arrives in about $hours h (after the test TV)")
                 return@withLock
@@ -162,8 +162,12 @@ object Updater {
         Unit
     } }
 
-    /** GitHub's "2026-10-14T22:06:24Z" → ms. */
-    private fun published(s: String): Long? = runCatching {
+    /** Whether this TV holds off on a release [ageMs] old (see [isTestTv]). Visible for tests. */
+    fun waits(manual: Boolean, rollback: Boolean, testTv: Boolean, ageMs: Long): Boolean =
+        !manual && !rollback && !testTv && ageMs < SETTLE_MS
+
+    /** GitHub's "2026-10-14T22:06:24Z" → ms. Visible for tests. */
+    fun published(s: String): Long? = runCatching {
         java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", java.util.Locale.US).parse(s)?.time
     }.getOrNull()
 

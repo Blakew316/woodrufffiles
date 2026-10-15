@@ -73,12 +73,20 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   timer (30/60/90 minutes or end of episode; then the slideshow takes over) and marks where a show's intro ends.
   After that, *Skip intro* appears during the intro of every episode of that show; OK skips it.
 - **Subtitles and audio**: the subtitles button and the gear menu pick tracks; the choice is remembered per show.
+- **Status** (top of Settings): version, phone connection, Google Drive, cameras, doorbell alerts, updates, and
+  every linked TV (online or not, and its version), each with the reason when something isn't working.
+- **Share to TV from iPhone**: phone app → Settings → *Share to TV* copies a link for a "Send to TV" Shortcut in the
+  share sheet (steps are on that screen). Links open on the TV (YouTube and Apple Music in their apps); text
+  shows up as a message.
+- **Phone remote extras**: volume down / mute / up buttons (the TV's own volume, whatever is on screen); hold an
+  arrow to keep scrolling.
 - **Up next**: when an episode (or any queued video) ends, a card counts down 10 seconds to the next one; OK
   plays it now, Back stops.
 - **Recently added**: Home's first panel shows the newest Movies and TV Shows (posters) after what's in progress,
   or on their own when nothing is.
 - **Watch together**: hold OK (or Menu) on a Continue-watching tile → *Watch together on all TVs* starts that
-  Google Drive video on every linked TV from the same spot.
+  Google Drive video on every linked TV from the same spot. The TV that started it leads: pausing, seeking and
+  its position keep the others in step (re-synced when more than 2 seconds apart).
 - **Search**: *Search* in the side menu (or the remote's search button, where the TV passes it to apps) listens for
   a title, or lets you type one, and finds it in Movies and TV Shows.
 - **Cameras on Home** (Settings → Command center): *All live*, *One at a time (lighter)* (one tile streams and
