@@ -1,6 +1,17 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import android.content.Context
+import kotlin.math.sin
+import kotlin.math.cos
+import kotlinx.coroutines.launch
+import com.woodruff.tvexplorer.ui.theme.Shapes
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.blur
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -119,6 +130,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, shown, drive::open, onOther = { menuFor = it }) }
 
     var moreOpen by remember { mutableStateOf(false) }
+    // The focused poster's art, for the backdrop.
+    var focusedArt by remember(state.place) { mutableStateOf<String?>(null) }
+    if (state.library) PosterBackdrop(focusedArt, state.token)
     Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = if (state.library) 18.dp else 32.dp)) {
         if (state.library) {
             // Movies / TV Shows: title, filters and the Drive buttons share one short row, so the
@@ -172,13 +186,15 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         state = grid,
                         // Movies / TV Shows: tall poster tiles, more per row.
                         columns = GridCells.Adaptive(if (state.library) 150.dp else 230.dp),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp, start = 6.dp, end = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(22.dp),
-                        verticalArrangement = Arrangement.spacedBy(22.dp),
+                        // Posters lift and grow when focused: leave them room so the edges aren't cut off.
+                        contentPadding = if (state.library) PaddingValues(top = 20.dp, bottom = 56.dp, start = 18.dp, end = 18.dp)
+                        else PaddingValues(top = 8.dp, bottom = 48.dp, start = 6.dp, end = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (state.library) 30.dp else 22.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (state.library) 30.dp else 22.dp),
                     ) {
                         items(shown, key = { it.id }) { f ->
                             val mod = (if (f.id == target) Modifier.focusRequester(first) else Modifier)
-                                .onFocusChanged { if (it.isFocused) driveFocus[placeKey] = f.id }
+                                .onFocusChanged { if (it.isFocused) { driveFocus[placeKey] = f.id; if (state.library) focusedArt = posterArt(f) } }
                             if (state.library) PosterTile(
                                 f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod,
                                 label = if (state.filterable) Library.label(f) else null,
@@ -250,8 +266,14 @@ private fun openDriveFile(context: Context, f: DriveFile, all: List<DriveFile>, 
     }
 }
 
+/** The artwork a poster tile shows (and the backdrop behind the grid uses): its poster, else the Drive preview frame. */
+internal fun posterArt(f: DriveFile): String? = f.posterUrl ?: f.thumbnailLink?.takeIf { f.kind == FileKind.VIDEO }?.let(DriveApi::big)
+
 /**
- * Movie / show poster: 2:3 artwork filling the tile, title over a dark fade at the bottom.
+ * Movie / show poster, Apple TV style: 2:3 artwork that, when focused, lifts off the page (bigger,
+ * deep shadow), slowly tilts in 3D with a glint of light sliding across it, and the art inside
+ * shifts against the frame for depth. TV remotes have no touch surface to steer the tilt, so it
+ * sways by itself while focused. Everything moves in the draw layer, so it costs no recomposition.
  * Without artwork, a title card in the brand colors.
  */
 @Composable
@@ -261,18 +283,74 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
     // Posters already show their title, so the label only appears on focus; frames and title cards always have it.
     val poster = f.posterUrl != null && (token != null || !isGoogle(f.posterUrl))
     var focused by remember { mutableStateOf(false) }
+    // 0 → 1: how far "up" the tile is; the sway phase runs while it's focused.
+    val lift = remember { Animatable(0f) }
+    val phase = remember { Animatable(0f) }
+    LaunchedEffect(focused) {
+        if (focused) {
+            launch { lift.animateTo(1f, tween(260, easing = FastOutSlowInEasing)) }
+            // One slow circle every 7 s, round and round (sin/cos line up again at 2π, so no jump).
+            while (true) {
+                phase.animateTo(2f * Math.PI.toFloat(), tween(((1f - phase.value / (2f * Math.PI.toFloat())) * 7_000).toInt().coerceAtLeast(1), easing = LinearEasing))
+                phase.snapTo(0f)
+            }
+        } else {
+            lift.animateTo(0f, tween(220))
+        }
+    }
+    // Tilt (degrees) from the sway; eased in and out with the lift.
+    fun tiltX() = sin(phase.value) * 5f * lift.value
+    fun tiltY() = cos(phase.value) * 7f * lift.value
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.onMenuKey(onLongClick).aspectRatio(2f / 3f).onFocusChanged { focused = it.isFocused },
+        modifier = modifier.onMenuKey(onLongClick).aspectRatio(2f / 3f).onFocusChanged { focused = it.isFocused }
+            .graphicsLayer {
+                rotationX = tiltX()
+                rotationY = tiltY()
+                cameraDistance = 14f * density
+                // Lifted: a little bigger and casting a deep, soft shadow on the backdrop.
+                val sc = 1f + 0.12f * lift.value
+                scaleX = sc; scaleY = sc
+                shadowElevation = 34.dp.toPx() * lift.value
+                shape = Shapes.card
+                clip = false
+            },
         shape = CardStyle.shape(),
         colors = CardStyle.colors(),
-        border = CardStyle.border(),
-        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        // No focus outline or extra zoom: the lift is the focus.
+        border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)), shape = Shapes.card),
+            focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)), shape = Shapes.card),
+        ),
+        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1f),
     ) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))) {
-            // Real art (own poster or TMDB), else the Drive preview frame, else a title card.
-            val art = f.posterUrl ?: f.thumbnailLink?.takeIf { f.kind == FileKind.VIDEO }?.let(DriveApi::big)
+        Box(
+            Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))
+                // The glint: a soft highlight that slides across the art opposite to the tilt.
+                .drawWithContent {
+                    drawContent()
+                    val l = lift.value
+                    if (l > 0.01f) {
+                        val cx = size.width * (0.5f - tiltY() / 14f)
+                        val cy = size.height * (0.3f + tiltX() / 12f)
+                        drawRect(
+                            Brush.radialGradient(
+                                listOf(Color.White.copy(alpha = 0.28f * l), Color.Transparent),
+                                center = androidx.compose.ui.geometry.Offset(cx, cy), radius = size.maxDimension * 0.75f,
+                            ),
+                        )
+                    }
+                },
+        ) {
+            val art = posterArt(f)
+            // The art sits slightly "behind" the frame: a touch larger and moving against the tilt.
+            val depth = Modifier.fillMaxSize().graphicsLayer {
+                val l = lift.value
+                scaleX = 1f + 0.06f * l; scaleY = 1f + 0.06f * l
+                translationX = -tiltY() * 1.6f.dp.toPx()
+                translationY = tiltX() * 1.6f.dp.toPx()
+            }
             if (art == null || (token == null && isGoogle(art))) {
                 // Title card: large initial and the name, so tiles stay readable without art.
                 Text(
@@ -281,7 +359,7 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
                 )
             } else if (LocalPosterPainter.current != null) {
                 LocalPosterPainter.current!!(art)?.let {
-                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = depth)
                 }
             } else {
                 AsyncImage(
@@ -291,7 +369,7 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
                         .size(450, 675).crossfade(true).build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = depth,
                 )
             }
             if (!poster || focused) Box(
@@ -301,6 +379,37 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
             ) {
                 Text(title, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
+        }
+    }
+}
+
+/**
+ * Behind Movies / TV Shows: the focused title's art, blown up, blurred and dimmed, so the posters
+ * float over their own picture. A tiny image scaled up is already soft (and cheap); Android 12+
+ * blurs it properly too. Changes settle for a moment first, so fast scrolling doesn't flicker it.
+ */
+@Composable
+private fun PosterBackdrop(art: String?, token: String?) {
+    val context = LocalContext.current
+    var shown by remember { mutableStateOf(art) }
+    LaunchedEffect(art) { kotlinx.coroutines.delay(220); shown = art }
+    androidx.compose.animation.Crossfade(shown, animationSpec = tween(600), label = "backdrop") { url ->
+        Box(Modifier.fillMaxSize()) {
+            if (url != null) {
+                val blur = if (android.os.Build.VERSION.SDK_INT >= 31) Modifier.blur(36.dp) else Modifier
+                val painter = LocalPosterPainter.current
+                if (painter != null) painter(url)?.let {
+                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().then(blur))
+                } else AsyncImage(
+                    model = ImageRequest.Builder(context).data(url)
+                        .apply { if (isGoogle(url) && token != null) addHeader("Authorization", "Bearer $token") }
+                        .size(96, 144).build(),
+                    contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().then(blur),
+                )
+            }
+            // Dim it towards the page color, darker at the top where the header sits.
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.background.copy(alpha = 0.9f), Palette.background.copy(alpha = 0.62f), Palette.background.copy(alpha = 0.85f)))))
         }
     }
 }
