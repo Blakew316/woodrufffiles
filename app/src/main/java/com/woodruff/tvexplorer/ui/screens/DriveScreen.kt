@@ -2,19 +2,14 @@ package com.woodruff.tvexplorer.ui.screens
 
 import android.content.Context
 import androidx.compose.ui.zIndex
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import kotlin.math.sin
-import kotlin.math.cos
-import kotlinx.coroutines.launch
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Animatable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -276,10 +271,9 @@ private fun openDriveFile(context: Context, f: DriveFile, all: List<DriveFile>, 
 internal fun posterArt(f: DriveFile): String? = f.posterUrl ?: f.thumbnailLink?.takeIf { f.kind == FileKind.VIDEO }?.let(DriveApi::big)
 
 /**
- * Movie / show poster, Apple TV style: 2:3 artwork that, when focused, lifts off the page (bigger,
- * deep shadow) and slowly tilts in 3D with a glint of light sliding across it. The art itself
- * stays still inside the frame. TV remotes have no touch surface to steer the tilt, so it
- * sways by itself while focused. Everything moves in the draw layer, so it costs no recomposition.
+ * Movie / show poster, Apple TV style: 2:3 artwork that, when focused, lifts off the page: a
+ * little bigger, raised, with a soft shadow beneath and a gentle sheen. No tilting or moving
+ * art. The lift animates in the draw layer, so it costs no recomposition.
  * Without artwork, a title card in the brand colors.
  */
 @Composable
@@ -289,35 +283,20 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
     // Posters already show their title, so the label only appears on focus; frames and title cards always have it.
     val poster = f.posterUrl != null && (token != null || !isGoogle(f.posterUrl))
     var focused by remember { mutableStateOf(false) }
-    // 0 → 1: how far "up" the tile is; the sway phase runs while it's focused.
+    // 0 → 1: how far "up" the tile is.
     val lift = remember { Animatable(0f) }
-    // How much it sways: eases in after the lift, so the tile settles first, then starts drifting.
-    val sway = remember { Animatable(0f) }
-    val phase = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     LaunchedEffect(focused) {
-        if (focused) {
-            // A soft spring rather than a timed curve: it rises and settles like something with weight.
-            launch { lift.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)) }
-            launch { sway.animateTo(1f, tween(1_400, delayMillis = 250, easing = FastOutSlowInEasing)) }
-            // The drift follows the frame clock directly (one slow loop every 9 s), so there is no
-            // restart or jump; the sway easing in from zero keeps the start smooth.
-            val start = withFrameMillis { it }
-            while (true) withFrameMillis { t -> phase.floatValue = ((t - start) / 9_000f) * 2f * Math.PI.toFloat() }
-        } else {
-            launch { sway.animateTo(0f, tween(260)) }
-            lift.animateTo(0f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium))
-        }
+        // A soft spring rather than a timed curve: it rises and settles like something with weight.
+        if (focused) lift.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow))
+        else lift.animateTo(0f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium))
     }
-    // Tilt (degrees): a slow circle, scaled by the sway.
-    fun tiltX() = sin(phase.floatValue) * 4f * sway.value
-    fun tiltY() = cos(phase.floatValue) * 6f * sway.value
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         // Drawn above its neighbours while lifted, so they don't cover its grown edges.
         modifier = modifier.zIndex(if (focused) 1f else 0f).onMenuKey(onLongClick).aspectRatio(2f / 3f).onFocusChanged { focused = it.isFocused }
             // The shadow it casts on the page: a soft dark oval below the tile, painted from a
-            // gradient made once (a real elevation shadow re-renders every frame while tilting).
+            // gradient made once (cheaper than a real elevation shadow while it animates).
             .drawWithCache {
                 val shadow = Brush.radialGradient(
                     listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.25f), Color.Transparent),
@@ -334,9 +313,6 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
                 }
             }
             .graphicsLayer {
-                rotationX = tiltX()
-                rotationY = tiltY()
-                cameraDistance = 14f * density
                 // Lifted: a little bigger and raised off its shadow.
                 val sc = 1f + 0.12f * lift.value
                 scaleX = sc; scaleY = sc
@@ -353,24 +329,24 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
     ) {
         Box(
             Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))
-                // The glint: a soft highlight that slides across the art opposite to the tilt. The
-                // gradient is made once per size and only moved each frame (no allocations while animating).
+                // The sheen: a soft highlight near the top while lifted. The gradient is made once per
+                // size (no allocations while animating).
                 .drawWithCache {
                     val r = size.maxDimension * 0.75f
                     val glint = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.3f), Color.Transparent), center = androidx.compose.ui.geometry.Offset.Zero, radius = r)
                     onDrawWithContent {
                         drawContent()
-                        val l = sway.value.coerceAtLeast(lift.value * 0.6f).coerceIn(0f, 1f)
+                        val l = lift.value.coerceIn(0f, 1f) * 0.6f
                         if (l > 0.01f) {
-                            val cx = size.width * (0.5f - tiltY() / 12f)
-                            val cy = size.height * (0.28f + tiltX() / 10f)
+                            val cx = size.width * 0.5f
+                            val cy = size.height * 0.2f
                             translate(cx, cy) { drawCircle(glint, radius = r, center = androidx.compose.ui.geometry.Offset.Zero, alpha = l) }
                         }
                     }
                 },
         ) {
             val art = posterArt(f)
-            // The art stays put inside the frame; only the whole tile lifts and tilts.
+            // The art stays put inside the frame; only the whole tile lifts.
             val depth = Modifier.fillMaxSize()
             if (art == null || (token == null && isGoogle(art))) {
                 // Title card: large initial and the name, so tiles stay readable without art.
