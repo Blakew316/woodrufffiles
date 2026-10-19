@@ -58,6 +58,7 @@ import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
 import kotlinx.coroutines.launch
 
@@ -136,9 +137,8 @@ private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolea
         Modifier
             .fillMaxSize()
             .padding(bottom = 24.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(Palette.surface)
-            .border(2.dp, if (focused) Palette.accent else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(22.dp))
+            .glassPanel(RoundedCornerShape(26.dp))
+            .border(2.dp, if (focused) Palette.focusRim else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(26.dp))
             .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onKeyEvent false

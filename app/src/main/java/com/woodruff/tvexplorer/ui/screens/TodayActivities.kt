@@ -36,6 +36,7 @@ import com.woodruff.tvexplorer.calendar.TodayCalendar
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Qr
 import java.text.DateFormat
 import java.util.Date
@@ -72,8 +73,7 @@ private fun EventCard(e: DayEvent) {
     val happening = e.start != null && e.end != null && now in e.start..e.end
     val past = e.end != null && now > e.end
     Row(
-        Modifier.width(250.dp).height(76.dp).clip(RoundedCornerShape(16.dp))
-            .background(if (happening) Palette.accentSoft else Palette.surface),
+        Modifier.width(250.dp).height(76.dp).glassPanel(RoundedCornerShape(18.dp), fill = if (happening) Palette.accentSoft else null),
     ) {
         Box(Modifier.width(5.dp).fillMaxHeight().background(Color(e.color)))
         Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {

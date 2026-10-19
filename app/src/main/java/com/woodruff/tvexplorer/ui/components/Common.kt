@@ -180,6 +180,8 @@ fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier:
         enabled = enabled,
         contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
         scale = ButtonDefaults.scale(focusedScale = 1.06f),
+        // Glass pill: tinted fill with the lit rim; solid accent when focused.
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = com.woodruff.tvexplorer.ui.theme.Shapes.pill)),
         colors = ButtonDefaults.colors(
             containerColor = Palette.surfaceHigh,
             contentColor = Palette.text,

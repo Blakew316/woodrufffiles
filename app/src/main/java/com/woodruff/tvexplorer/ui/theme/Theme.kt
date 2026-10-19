@@ -1,6 +1,13 @@
 package com.woodruff.tvexplorer.ui.theme
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.RoundedCornerShape
 import android.content.Context
 import androidx.compose.runtime.Composable
@@ -30,9 +37,18 @@ object Palette {
     // Cool navy (dark) and blue-white (light) to sit under the Woodruff Family blues.
     val background get() = pick(0xFF060A12, 0xFFF2F6FA)
     val backgroundTop get() = pick(0xFF10213A, 0xFFFFFFFF)
-    val surface get() = pick(0xFF0E1726, 0xFFFFFFFF)
-    val surfaceHigh get() = pick(0xFF182740, 0xFFE2ECF6)
-    val outline get() = pick(0xFF253852, 0xFFCCDAE8)
+    // Liquid Glass: panels and cards are tinted glass over the glowing backdrop (see [drawAmbient]),
+    // not solid slabs. Brighter glass when focused.
+    val surface get() = pick(0x1CFFFFFF, 0x8CFFFFFF)
+    val surfaceHigh get() = pick(0x33FFFFFF, 0xD9FFFFFF)
+    val outline get() = pick(0x26FFFFFF, 0x2414202E)
+    /** Frosted, nearly opaque glass for things that sit over busy content: dialogs, the open menu, banners. */
+    val glass get() = pick(0xEB142236, 0xF2F8FBFE)
+    /** The glass edge: a light rim, brightest along the top as if lit from above. */
+    val rim get() = if (light) Brush.verticalGradient(listOf(Color(0xE6FFFFFF), Color(0x1414202E)))
+        else Brush.verticalGradient(listOf(Color(0x59FFFFFF), Color(0x0FFFFFFF)))
+    /** A focused card's rim: bright white glass edge (deeper blue in light mode, for contrast). */
+    val focusRim get() = pick(0xD9FFFFFF, 0xFF3A7AB0)
     val text get() = pick(0xFFF2F6FA, 0xFF14202E)
     val muted get() = pick(0xFF93A6BC, 0xFF56677A)
     // Woodruff Family blue (logo #5592BF): lighter on dark backgrounds, deeper on light ones,
@@ -56,6 +72,28 @@ object Palette {
     val backdrop get() = Brush.verticalGradient(listOf(backgroundTop, background, background))
 }
 
+/**
+ * The app's backdrop: the base gradient plus two large, soft pools of colored light, so the
+ * glass panels above have something to tint and the screen never reads as a flat slab. Brushes
+ * are built once per size and theme.
+ */
+fun Modifier.ambientBackdrop(): Modifier = drawWithCache {
+    val base = Palette.backdrop
+    val a = if (Palette.light) Color(0x553A7AB0) else Color(0x663A7AB0)
+    val b = if (Palette.light) Color(0x3352B6A8) else Color(0x4D5B4BB5)
+    val glowA = Brush.radialGradient(listOf(a, Color.Transparent), center = Offset(size.width * 0.12f, size.height * 0.05f), radius = size.maxDimension * 0.55f)
+    val glowB = Brush.radialGradient(listOf(b, Color.Transparent), center = Offset(size.width * 0.92f, size.height * 0.95f), radius = size.maxDimension * 0.6f)
+    onDrawBehind {
+        drawRect(base)
+        drawRect(glowA)
+        drawRect(glowB)
+    }
+}
+
+/** A glass panel: tinted glass fill, clipped to [shape], with the lit rim. */
+fun Modifier.glassPanel(shape: Shape, fill: Color? = null): Modifier =
+    clip(shape).background(fill ?: Palette.surface).border(1.dp, Palette.rim, shape)
+
 /** Remembers the light/dark choice across launches. */
 object ThemeSetting {
     private const val PREFS = "settings"
@@ -72,11 +110,11 @@ object ThemeSetting {
 }
 
 object Shapes {
-    val card = RoundedCornerShape(22.dp)
+    val card = RoundedCornerShape(26.dp)
     val pill = RoundedCornerShape(50)
 }
 
-/** Shared look for every focusable card: lifts, brightens and gets an amber outline on focus. */
+/** Shared look for every focusable card: glass that brightens and gains a bright rim on focus. */
 object CardStyle {
     @Composable fun colors() = ClickableSurfaceDefaults.colors(
         containerColor = Palette.surface,
@@ -87,8 +125,8 @@ object CardStyle {
     )
 
     @Composable fun border() = ClickableSurfaceDefaults.border(
-        border = Border(BorderStroke(1.dp, Palette.outline), shape = Shapes.card),
-        focusedBorder = Border(BorderStroke(3.dp, Palette.accent), shape = Shapes.card),
+        border = Border(BorderStroke(1.dp, Palette.rim), shape = Shapes.card),
+        focusedBorder = Border(BorderStroke(2.dp, Palette.focusRim), shape = Shapes.card),
     )
 
     @Composable fun shape() = ClickableSurfaceDefaults.shape(Shapes.card)

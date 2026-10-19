@@ -98,6 +98,7 @@ import com.woodruff.tvexplorer.ui.screens.NotificationsScreen
 import com.woodruff.tvexplorer.ui.screens.SettingsScreen
 import com.woodruff.tvexplorer.ui.screens.TransferScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.ambientBackdrop
 import com.woodruff.tvexplorer.notify.Notice
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
@@ -166,7 +167,7 @@ fun AppRoot(vm: MainViewModel) {
     }
     LaunchedEffect(Unit) { VoiceSearch.requests.collect { startSearch() } }
 
-    Box(Modifier.fillMaxSize().background(Palette.backdrop)) {
+    Box(Modifier.fillMaxSize().ambientBackdrop()) {
         // Optional background photo (Settings → Screensaver & background), dimmed so text stays readable.
         Appearance.background?.let { path ->
             AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -213,7 +214,7 @@ fun AppRoot(vm: MainViewModel) {
                     layout(w, p.height) { p.place(0, 0) }
                 }
                 .fillMaxHeight()
-                .background(if (open) Palette.surface else Palette.background.copy(alpha = 0.6f))
+                .background(if (open) Palette.glass else Palette.surface)
                 .onFocusChanged { railFocused = it.hasFocus }
                 // Right goes into the content (the open menu covers its left edge, so a plain geometric
                 // search would skip the first column).
@@ -396,7 +397,8 @@ private fun NoticeBanner(notice: Notice?, modifier: Modifier, onOpen: () -> Unit
         val n = notice ?: return@AnimatedVisibility
         Surface(
             shape = RoundedCornerShape(20.dp),
-            colors = SurfaceDefaults.colors(containerColor = Palette.surfaceHigh, contentColor = Palette.text),
+            colors = SurfaceDefaults.colors(containerColor = Palette.glass, contentColor = Palette.text),
+            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(20.dp)),
             modifier = Modifier.width(360.dp),
         ) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
@@ -425,7 +427,8 @@ private fun MessageBanner(message: String?, onTimeout: () -> Unit, modifier: Mod
     ) {
         Surface(
             shape = RoundedCornerShape(28.dp),
-            colors = SurfaceDefaults.colors(containerColor = Palette.surfaceHigh, contentColor = Palette.text),
+            colors = SurfaceDefaults.colors(containerColor = Palette.glass, contentColor = Palette.text),
+            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(28.dp)),
         ) {
             Text(message.orEmpty(), modifier = Modifier.padding(horizontal = 28.dp, vertical = 14.dp))
         }

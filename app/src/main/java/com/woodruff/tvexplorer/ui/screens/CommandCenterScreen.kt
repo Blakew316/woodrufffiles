@@ -86,6 +86,7 @@ import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.Qr
 import kotlinx.coroutines.delay
@@ -354,7 +355,7 @@ private fun SidePanel(modifier: Modifier) {
     val notices by Notices.items.collectAsStateWithLifecycle()
     val notes by Notes.items.collectAsStateWithLifecycle()
     Column(
-        modifier.clip(RoundedCornerShape(22.dp)).background(Palette.surface).padding(20.dp).verticalScroll(rememberScrollState()),
+        modifier.glassPanel(RoundedCornerShape(26.dp)).padding(20.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now)), style = MaterialTheme.typography.displayMedium)

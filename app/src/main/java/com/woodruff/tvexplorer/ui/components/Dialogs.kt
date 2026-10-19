@@ -57,8 +57,9 @@ fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content:
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier.width(width.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = SurfaceDefaults.colors(containerColor = Palette.surface),
+            shape = RoundedCornerShape(28.dp),
+            colors = SurfaceDefaults.colors(containerColor = Palette.glass),
+            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(28.dp)),
         ) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 2)

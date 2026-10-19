@@ -28,6 +28,7 @@ fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit, icon: Imag
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         scale = ButtonDefaults.scale(focusedScale = 1.06f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = com.woodruff.tvexplorer.ui.theme.Shapes.pill)),
         colors = ButtonDefaults.colors(
             containerColor = if (selected) Palette.accent.copy(alpha = 0.22f) else Palette.surfaceHigh,
             contentColor = if (selected) Palette.accent else Palette.text,

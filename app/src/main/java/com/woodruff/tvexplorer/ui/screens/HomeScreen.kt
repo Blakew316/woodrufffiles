@@ -98,6 +98,7 @@ import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -308,7 +309,7 @@ private val LATE = listOf(
 
 @Composable
 private fun Panel(title: String, modifier: Modifier, note: String? = null, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.clip(RoundedCornerShape(22.dp)).background(Palette.surface).padding(14.dp)) {
+    Column(modifier.glassPanel(RoundedCornerShape(26.dp)).padding(14.dp)) {
         Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title.uppercase(), color = Palette.accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             if (note != null) Text(note, color = Palette.muted, style = MaterialTheme.typography.labelSmall)
