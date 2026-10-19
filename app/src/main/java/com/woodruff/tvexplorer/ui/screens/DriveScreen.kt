@@ -31,6 +31,8 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FolderShared
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Visibility
@@ -116,26 +118,42 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
     val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, shown, drive::open, onOther = { menuFor = it }) }
 
-    Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = 32.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.brand_google_drive), contentDescription = null, modifier = Modifier.size(32.dp))
-            Text(state.place.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Text(
-            state.stack.joinToString("  ›  ") { it.title },
-            color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        Row(Modifier.padding(top = 18.dp, bottom = if (state.filterable) 6.dp else 18.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (state.stack.size > 1) ToolButton(Icons.Rounded.ArrowBack, null, { drive.back() })
-            ToolButton(Icons.Rounded.AddToDrive, "My Drive", { drive.openRoot(DrivePlace.MyDrive) })
-            ToolButton(Icons.Rounded.Movie, "All videos", { drive.openRoot(DrivePlace.Videos()) })
-            ToolButton(Icons.Rounded.FolderShared, "Shared with me", { drive.openRoot(DrivePlace.SharedWithMe) })
-            ToolButton(Icons.Rounded.Refresh, null, drive::refresh)
-            ToolButton(Icons.Rounded.Logout, null, drive::signOut)
-        }
-        if (state.filterable && state.files.isNotEmpty()) {
-            LibraryFilters(state.files, filter, drive::setFilter, onSearch = { searching = true }, modifier = Modifier.padding(bottom = 10.dp))
+    var moreOpen by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = if (state.library) 18.dp else 32.dp)) {
+        if (state.library) {
+            // Movies / TV Shows: title, filters and the Drive buttons share one short row, so the
+            // posters start near the top of the screen.
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                if (state.stack.size > 1) ToolButton(Icons.Rounded.ArrowBack, null, { drive.back() }, modifier = Modifier.padding(end = 14.dp))
+                Text(
+                    state.place.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = 18.dp).then(if (state.filterable) Modifier else Modifier.weight(1f)),
+                )
+                // Filters on the library's top level only (a season folder just lists its episodes).
+                if (state.filterable) {
+                    if (state.files.isNotEmpty()) LibraryFilters(state.files, filter, drive::setFilter, onSearch = { searching = true }, modifier = Modifier.weight(1f))
+                    else Spacer(Modifier.weight(1f))
+                }
+                ToolButton(Icons.Rounded.MoreHoriz, null, { moreOpen = true }, modifier = Modifier.padding(start = 10.dp))
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(painterResource(R.drawable.brand_google_drive), contentDescription = null, modifier = Modifier.size(32.dp))
+                Text(state.place.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(
+                state.stack.joinToString("  ›  ") { it.title },
+                color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(Modifier.padding(top = 18.dp, bottom = 18.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (state.stack.size > 1) ToolButton(Icons.Rounded.ArrowBack, null, { drive.back() })
+                ToolButton(Icons.Rounded.AddToDrive, "My Drive", { drive.openRoot(DrivePlace.MyDrive) })
+                ToolButton(Icons.Rounded.Movie, "All videos", { drive.openRoot(DrivePlace.Videos()) })
+                ToolButton(Icons.Rounded.FolderShared, "Shared with me", { drive.openRoot(DrivePlace.SharedWithMe) })
+                ToolButton(Icons.Rounded.Refresh, null, drive::refresh)
+                ToolButton(Icons.Rounded.Logout, null, drive::signOut)
+            }
         }
         Box(Modifier.fillMaxSize()) {
             when {
@@ -177,6 +195,19 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 }
             }
         }
+    }
+
+    if (moreOpen) {
+        ActionMenu(
+            title = "Google Drive", subtitle = null, onDismiss = { moreOpen = false },
+            actions = listOf(
+                MenuAction("Refresh", Icons.Rounded.Refresh, run = drive::refresh),
+                MenuAction("My Drive", Icons.Rounded.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
+                MenuAction("All videos", Icons.Rounded.Movie) { drive.openRoot(DrivePlace.Videos()) },
+                MenuAction("Shared with me", Icons.Rounded.FolderShared) { drive.openRoot(DrivePlace.SharedWithMe) },
+                MenuAction("Sign out of Google Drive", Icons.Rounded.Logout, destructive = true, run = drive::signOut),
+            ),
+        )
     }
 
     if (searching) {
