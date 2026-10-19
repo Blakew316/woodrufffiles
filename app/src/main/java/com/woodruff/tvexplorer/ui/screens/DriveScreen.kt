@@ -277,8 +277,8 @@ internal fun posterArt(f: DriveFile): String? = f.posterUrl ?: f.thumbnailLink?.
 
 /**
  * Movie / show poster, Apple TV style: 2:3 artwork that, when focused, lifts off the page (bigger,
- * deep shadow), slowly tilts in 3D with a glint of light sliding across it, and the art inside
- * shifts against the frame for depth. TV remotes have no touch surface to steer the tilt, so it
+ * deep shadow) and slowly tilts in 3D with a glint of light sliding across it. The art itself
+ * stays still inside the frame. TV remotes have no touch surface to steer the tilt, so it
  * sways by itself while focused. Everything moves in the draw layer, so it costs no recomposition.
  * Without artwork, a title card in the brand colors.
  */
@@ -370,13 +370,8 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
                 },
         ) {
             val art = posterArt(f)
-            // The art sits slightly "behind" the frame: a touch larger and moving against the tilt.
-            val depth = Modifier.fillMaxSize().graphicsLayer {
-                val l = lift.value
-                scaleX = 1f + 0.06f * l; scaleY = 1f + 0.06f * l
-                translationX = -tiltY() * 1.6f.dp.toPx()
-                translationY = tiltX() * 1.6f.dp.toPx()
-            }
+            // The art stays put inside the frame; only the whole tile lifts and tilts.
+            val depth = Modifier.fillMaxSize()
             if (art == null || (token == null && isGoogle(art))) {
                 // Title card: large initial and the name, so tiles stay readable without art.
                 Text(
