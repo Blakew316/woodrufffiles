@@ -1,13 +1,17 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import android.content.Context
+import androidx.compose.ui.zIndex
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import kotlin.math.sin
 import kotlin.math.cos
 import kotlinx.coroutines.launch
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.blur
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -131,7 +135,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
 
     var moreOpen by remember { mutableStateOf(false) }
     // The focused poster's art, for the backdrop.
-    var focusedArt by remember(state.place) { mutableStateOf<String?>(null) }
+    // Held as a State and read only inside the backdrop: moving between posters then redraws the
+    // backdrop alone, not the whole screen and grid.
+    val focusedArt = remember(state.place) { mutableStateOf<String?>(null) }
     if (state.library) PosterBackdrop(focusedArt, state.token)
     Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = if (state.library) 18.dp else 32.dp)) {
         if (state.library) {
@@ -194,7 +200,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     ) {
                         items(shown, key = { it.id }) { f ->
                             val mod = (if (f.id == target) Modifier.focusRequester(first) else Modifier)
-                                .onFocusChanged { if (it.isFocused) { driveFocus[placeKey] = f.id; if (state.library) focusedArt = posterArt(f) } }
+                                .onFocusChanged { if (it.isFocused) { driveFocus[placeKey] = f.id; if (state.library) focusedArt.value = posterArt(f) } }
                             if (state.library) PosterTile(
                                 f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod,
                                 label = if (state.filterable) Library.label(f) else null,
@@ -285,36 +291,56 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
     var focused by remember { mutableStateOf(false) }
     // 0 → 1: how far "up" the tile is; the sway phase runs while it's focused.
     val lift = remember { Animatable(0f) }
-    val phase = remember { Animatable(0f) }
+    // How much it sways: eases in after the lift, so the tile settles first, then starts drifting.
+    val sway = remember { Animatable(0f) }
+    val phase = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     LaunchedEffect(focused) {
         if (focused) {
-            launch { lift.animateTo(1f, tween(260, easing = FastOutSlowInEasing)) }
-            // One slow circle every 7 s, round and round (sin/cos line up again at 2π, so no jump).
-            while (true) {
-                phase.animateTo(2f * Math.PI.toFloat(), tween(((1f - phase.value / (2f * Math.PI.toFloat())) * 7_000).toInt().coerceAtLeast(1), easing = LinearEasing))
-                phase.snapTo(0f)
-            }
+            // A soft spring rather than a timed curve: it rises and settles like something with weight.
+            launch { lift.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)) }
+            launch { sway.animateTo(1f, tween(1_400, delayMillis = 250, easing = FastOutSlowInEasing)) }
+            // The drift follows the frame clock directly (one slow loop every 9 s), so there is no
+            // restart or jump; the sway easing in from zero keeps the start smooth.
+            val start = withFrameMillis { it }
+            while (true) withFrameMillis { t -> phase.floatValue = ((t - start) / 9_000f) * 2f * Math.PI.toFloat() }
         } else {
-            lift.animateTo(0f, tween(220))
+            launch { sway.animateTo(0f, tween(260)) }
+            lift.animateTo(0f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium))
         }
     }
-    // Tilt (degrees) from the sway; eased in and out with the lift.
-    fun tiltX() = sin(phase.value) * 5f * lift.value
-    fun tiltY() = cos(phase.value) * 7f * lift.value
+    // Tilt (degrees): a slow circle, scaled by the sway.
+    fun tiltX() = sin(phase.floatValue) * 4f * sway.value
+    fun tiltY() = cos(phase.floatValue) * 6f * sway.value
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.onMenuKey(onLongClick).aspectRatio(2f / 3f).onFocusChanged { focused = it.isFocused }
+        // Drawn above its neighbours while lifted, so they don't cover its grown edges.
+        modifier = modifier.zIndex(if (focused) 1f else 0f).onMenuKey(onLongClick).aspectRatio(2f / 3f).onFocusChanged { focused = it.isFocused }
+            // The shadow it casts on the page: a soft dark oval below the tile, painted from a
+            // gradient made once (a real elevation shadow re-renders every frame while tilting).
+            .drawWithCache {
+                val shadow = Brush.radialGradient(
+                    listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.25f), Color.Transparent),
+                    center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.62f),
+                    radius = size.maxDimension * 0.7f,
+                )
+                onDrawBehind {
+                    val l = lift.value.coerceIn(0f, 1f)
+                    if (l > 0.01f) drawOval(
+                        shadow, alpha = l,
+                        topLeft = androidx.compose.ui.geometry.Offset(-size.width * 0.22f, size.height * 0.08f + 14.dp.toPx() * l),
+                        size = androidx.compose.ui.geometry.Size(size.width * 1.44f, size.height * 1.08f),
+                    )
+                }
+            }
             .graphicsLayer {
                 rotationX = tiltX()
                 rotationY = tiltY()
                 cameraDistance = 14f * density
-                // Lifted: a little bigger and casting a deep, soft shadow on the backdrop.
+                // Lifted: a little bigger and raised off its shadow.
                 val sc = 1f + 0.12f * lift.value
                 scaleX = sc; scaleY = sc
-                shadowElevation = 34.dp.toPx() * lift.value
-                shape = Shapes.card
-                clip = false
+                translationY = -6.dp.toPx() * lift.value
             },
         shape = CardStyle.shape(),
         colors = CardStyle.colors(),
@@ -327,19 +353,19 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
     ) {
         Box(
             Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))
-                // The glint: a soft highlight that slides across the art opposite to the tilt.
-                .drawWithContent {
-                    drawContent()
-                    val l = lift.value
-                    if (l > 0.01f) {
-                        val cx = size.width * (0.5f - tiltY() / 14f)
-                        val cy = size.height * (0.3f + tiltX() / 12f)
-                        drawRect(
-                            Brush.radialGradient(
-                                listOf(Color.White.copy(alpha = 0.28f * l), Color.Transparent),
-                                center = androidx.compose.ui.geometry.Offset(cx, cy), radius = size.maxDimension * 0.75f,
-                            ),
-                        )
+                // The glint: a soft highlight that slides across the art opposite to the tilt. The
+                // gradient is made once per size and only moved each frame (no allocations while animating).
+                .drawWithCache {
+                    val r = size.maxDimension * 0.75f
+                    val glint = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.3f), Color.Transparent), center = androidx.compose.ui.geometry.Offset.Zero, radius = r)
+                    onDrawWithContent {
+                        drawContent()
+                        val l = sway.value.coerceAtLeast(lift.value * 0.6f).coerceIn(0f, 1f)
+                        if (l > 0.01f) {
+                            val cx = size.width * (0.5f - tiltY() / 12f)
+                            val cy = size.height * (0.28f + tiltX() / 10f)
+                            translate(cx, cy) { drawCircle(glint, radius = r, center = androidx.compose.ui.geometry.Offset.Zero, alpha = l) }
+                        }
                     }
                 },
         ) {
@@ -384,34 +410,35 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
 }
 
 /**
- * Behind Movies / TV Shows: the focused title's art, blown up, blurred and dimmed, so the posters
- * float over their own picture. A tiny image scaled up is already soft (and cheap); Android 12+
- * blurs it properly too. Changes settle for a moment first, so fast scrolling doesn't flicker it.
+ * Behind Movies / TV Shows: the focused title's art, blown up and dimmed, so the posters float
+ * over their own picture. The art is fetched tiny (48×72) and stretched, which makes it soft by
+ * itself, without a full-screen blur effect that slow TV graphics chips stutter on. Changes
+ * settle for a moment first, so fast scrolling doesn't keep swapping it.
  */
 @Composable
-private fun PosterBackdrop(art: String?, token: String?) {
+private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: String?) {
     val context = LocalContext.current
-    var shown by remember { mutableStateOf(art) }
-    LaunchedEffect(art) { kotlinx.coroutines.delay(220); shown = art }
-    androidx.compose.animation.Crossfade(shown, animationSpec = tween(600), label = "backdrop") { url ->
-        Box(Modifier.fillMaxSize()) {
-            if (url != null) {
-                val blur = if (android.os.Build.VERSION.SDK_INT >= 31) Modifier.blur(36.dp) else Modifier
-                val painter = LocalPosterPainter.current
-                if (painter != null) painter(url)?.let {
-                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().then(blur))
-                } else AsyncImage(
-                    model = ImageRequest.Builder(context).data(url)
-                        .apply { if (isGoogle(url) && token != null) addHeader("Authorization", "Bearer $token") }
-                        .size(96, 144).build(),
-                    contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().then(blur),
-                )
-            }
-            // Dim it towards the page color, darker at the top where the header sits.
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.background.copy(alpha = 0.9f), Palette.background.copy(alpha = 0.62f), Palette.background.copy(alpha = 0.85f)))))
+    var shown by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.snapshotFlow { art.value }.collect { kotlinx.coroutines.delay(350); shown = it }
+    }
+    androidx.compose.animation.Crossfade(shown, animationSpec = tween(700, easing = LinearEasing), label = "backdrop") { url ->
+        if (url != null) {
+            val painter = LocalPosterPainter.current
+            if (painter != null) painter(url)?.let {
+                androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else AsyncImage(
+                model = ImageRequest.Builder(context).data(url)
+                    .apply { if (isGoogle(url) && token != null) addHeader("Authorization", "Bearer $token") }
+                    .size(48, 72).build(),
+                contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
+    // Dim it towards the page color, darker at the top where the header sits. Outside the cross-fade,
+    // so only the picture fades, not a second veil.
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.background.copy(alpha = 0.92f), Palette.background.copy(alpha = 0.66f), Palette.background.copy(alpha = 0.88f)))))
 }
 
 /** Only set by the UI gallery, which renders headless and can't wait on Coil: decodes art synchronously. */
