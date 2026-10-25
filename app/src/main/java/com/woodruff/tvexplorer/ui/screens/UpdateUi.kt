@@ -30,7 +30,7 @@ fun updateStatus(s: Updater.State): String = when (s.step) {
     Updater.Step.CHECKING -> "Checking…"
     Updater.Step.UP_TO_DATE -> s.message ?: "Up to date"
     Updater.Step.DOWNLOADING -> "Downloading ${(s.progress * 100).toInt()}%"
-    Updater.Step.READY -> "${s.latestName} ready · Install"
+    Updater.Step.READY -> "${s.latestName} ready · Install" + (s.message?.let { " (last try: $it)" } ?: "")
     Updater.Step.INSTALLING -> "Installing…"
     Updater.Step.ERROR -> s.message ?: "Couldn't check"
 }
@@ -45,10 +45,12 @@ fun UpdatePrompt(vm: MainViewModel) {
     val context = LocalContext.current
     val s by Updater.state.collectAsStateWithLifecycle()
     var dismissed by remember { mutableStateOf<Int?>(null) }
+    var autoTried by remember { mutableStateOf<Int?>(null) }
     if (s.step != Updater.Step.READY || s.latest == null || s.latest == dismissed || Updater.canInstallSilently(context)) return
     // Allowed to install: go straight to Android's own "Update" screen (one press), no dialog of ours.
-    if (Opener.canInstallPackages(context)) {
-        LaunchedEffect(s.latest) { dismissed = s.latest; Updater.install(context) }
+    // Only once per version; if that didn't go through, the dialog below offers it again with the reason.
+    if (Opener.canInstallPackages(context) && autoTried != s.latest) {
+        LaunchedEffect(s.latest) { autoTried = s.latest; Updater.install(context) }
         return
     }
     ConfirmDialog(

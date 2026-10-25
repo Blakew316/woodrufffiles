@@ -231,7 +231,12 @@ fun SettingsScreen(vm: MainViewModel) {
             item {
                 SettingRow(Icons.Rounded.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off (set up in the phone app)") {}
             }
-            item { SettingRow(Icons.Rounded.SystemUpdate, "Updates", updateStatus(update)) { Updater.checkNow(context) } }
+            // Same as the Updates page: installs when an update is ready, otherwise checks.
+            item {
+                SettingRow(Icons.Rounded.SystemUpdate, "Updates", updateStatus(update)) {
+                    if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
+                }
+            }
             otherTvs.drop(1).forEach { t ->
                 item(key = "status-" + t.id) {
                     SettingRow(Icons.Rounded.Tv, t.name, if (t.online) "Online · ${t.version?.let { "version $it" } ?: "older version"}" else "Off or unreachable") {}
