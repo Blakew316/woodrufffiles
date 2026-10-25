@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
@@ -423,9 +425,13 @@ fun SettingsScreen(vm: MainViewModel) {
     )
     var category by rememberSaveable { mutableIntStateOf(0) }
     val pane = remember { FocusRequester() }
-    Row(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 28.dp)) {
-        Column(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Settings", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 6.dp, bottom = 18.dp))
+    Row(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 20.dp)) {
+        // Scrolls (and follows the focus) when the categories don't all fit, so none is ever cut off.
+        Column(
+            Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 6.dp, bottom = 10.dp))
             categories.forEachIndexed { i, c ->
                 ListItem(
                     selected = i == category,
@@ -440,7 +446,7 @@ fun SettingsScreen(vm: MainViewModel) {
                     ),
                     shape = ListItemDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
                     scale = ListItemDefaults.scale(focusedScale = 1.02f),
-                    leadingContent = { TvIcon(c.icon, size = 22.dp) },
+                    leadingContent = { TvIcon(c.icon, size = 20.dp) },
                     headlineContent = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
             }
