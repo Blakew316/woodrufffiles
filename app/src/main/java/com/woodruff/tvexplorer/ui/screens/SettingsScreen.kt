@@ -9,6 +9,16 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddToDrive
@@ -198,226 +208,256 @@ fun SettingsScreen(vm: MainViewModel) {
     val roots by vm.roots.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshRoots() }
 
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 32.dp),
-        contentPadding = PaddingValues(top = 28.dp, bottom = 48.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        item {
-            Text("Settings", style = MaterialTheme.typography.headlineLarge)
-        }
-
-        // Status: everything that can stop working, at a glance, with the reason when it isn't.
-        section("Status")
-        item {
-            SettingRow(Icons.Rounded.Info, "This TV", "Version ${BuildConfig.VERSION_NAME} · phone connection ${if (TransferService.state.value.running) "on" else "off"}") {}
-        }
-        item { SettingRow(Icons.Rounded.AddToDrive, "Google Drive", if (connected) "Connected" else if (configured) "Not signed in" else "Not set up") { vm.show(Screen.DRIVE) } }
-        item {
-            val cams = nestState
-            SettingRow(Icons.Rounded.Videocam, "Cameras", when {
-                cams.step != NestStep.CONNECTED -> "Not connected"
-                cams.error != null -> cams.error
-                cams.loading -> "Loading…"
-                else -> "${cams.cameras.size} camera${if (cams.cameras.size == 1) "" else "s"} · working"
-            }) { vm.show(Screen.CAMERAS) }
-        }
-        item {
-            SettingRow(Icons.Rounded.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off (set up in the phone app)") {}
-        }
-        item { SettingRow(Icons.Rounded.SystemUpdate, "Updates", updateStatus(update)) { Updater.checkNow(context) } }
-        otherTvs.drop(1).forEach { t ->
-            item(key = "status-" + t.id) {
-                SettingRow(Icons.Rounded.Tv, t.name, if (t.online) "Online · ${t.version?.let { "version $it" } ?: "older version"}" else "Off or unreachable") {}
+    // Two panes, like the TV's own settings: categories on the left, that category's settings on
+    // the right. Moving down the left list switches the right side at once; Right or OK goes in.
+    // (One long list of every setting took ages to scroll through.)
+    val categories = listOf(
+        SettingsCategory("Overview", Icons.Rounded.Info) {
+            item {
+                SettingRow(Icons.Rounded.Info, "This TV", "Version ${BuildConfig.VERSION_NAME} · phone connection ${if (TransferService.state.value.running) "on" else "off"}") {}
             }
-        }
-
-        section("Appearance")
-        item {
-            SettingRow(if (Palette.light) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, "Theme", if (Palette.light) "Light" else "Dark") {
-                ThemeSetting.toggle(context)
+            item { SettingRow(Icons.Rounded.AddToDrive, "Google Drive", if (connected) "Connected" else if (configured) "Not signed in" else "Not set up") { vm.show(Screen.DRIVE) } }
+            item {
+                val cams = nestState
+                SettingRow(Icons.Rounded.Videocam, "Cameras", when {
+                    cams.step != NestStep.CONNECTED -> "Not connected"
+                    cams.error != null -> cams.error
+                    cams.loading -> "Loading…"
+                    else -> "${cams.cameras.size} camera${if (cams.cameras.size == 1) "" else "s"} · working"
+                }) { vm.show(Screen.CAMERAS) }
             }
-        }
-
-        section("Storage & apps")
-        roots.forEach { r ->
-            item(key = "root-" + r.dir.path) {
-                SettingRow(
-                    if (r.removable) Icons.Rounded.SdStorage else Icons.Rounded.Storage, r.title,
-                    if (r.totalBytes > 0) "${Format.bytes(r.freeBytes)} free of ${Format.bytes(r.totalBytes)}" else null,
-                ) { vm.openRoot(r.dir, from = Screen.SETTINGS) }
+            item {
+                SettingRow(Icons.Rounded.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off (set up in the phone app)") {}
             }
-        }
-
-        item { SettingRow(Icons.Rounded.FolderOpen, "Browse by type", "Videos, music, photos, documents…") { dialog = SettingsDialog.BrowseTypes } }
-        item { SettingRow(Icons.Rounded.Apps, "Apps", null) { vm.openApps(Screen.SETTINGS) } }
-        item { SettingRow(Icons.Rounded.Cloud, "iCloud", "Mail, Drive and Photos", brand = R.drawable.brand_icloud) { dialog = SettingsDialog.ICloud } }
-
-        section("Screensaver & background")
-
-        item {
-            SettingRow(Icons.Rounded.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None") {
-                if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
-                else vm.say("In Files, press and hold on a photo and choose Set as app background")
-            }
-        }
-        item {
-            SettingRow(Icons.Rounded.PhotoLibrary, "Slideshow photos", Appearance.slideshowFolder?.let { File(it).name } ?: "Pictures & Camera") {
-                if (Appearance.slideshowFolder != null) Appearance.setSlideshowFolder(context, null)
-                else vm.say("In Files, press and hold on a folder and choose Use for photo slideshow")
-            }
-        }
-        item { SettingRow(Icons.Rounded.Timer, "Show each photo for", "${Appearance.seconds} seconds") { Appearance.nextSpeed(context) } }
-        item {
-            SettingRow(Icons.Rounded.Bedtime, "Start slideshow when idle", if (Appearance.idleMinutes == 0) "Off" else "${Appearance.idleMinutes} min") {
-                Appearance.nextIdle(context)
-            }
-        }
-        item { SettingRow(Icons.Rounded.Slideshow, "Start slideshow now", null) { SlideshowActivity.start(context) } }
-        item {
-            SettingRow(Icons.Rounded.Tv, "Use as the TV's screensaver", null) {
-                val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
-                if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
-            }
-        }
-
-        section("Cameras")
-        item {
-            SettingRow(Icons.Rounded.Videocam, "Command center", if (nestConnected) "Connected" else "Not connected", brand = R.drawable.brand_google_home) { vm.show(Screen.CAMERAS) }
-        }
-        item {
-            SettingRow(Icons.Rounded.Key, "Device Access Project ID", nestProject?.let { mask(it, 13) } ?: "Not set") {
-                dialog = SettingsDialog.NestProject
-            }
-        }
-        item {
-            // Turn off on extra TVs if Google starts limiting camera requests.
-            SettingRow(Icons.Rounded.Videocam, "Cameras on Home", Appearance.homeCameras.label) {
-                Appearance.nextHomeCameras(context)
-            }
-        }
-        if (nestConnected) item {
-            SettingRow(Icons.Rounded.Logout, "Disconnect cameras", null) { Nest.signOut { changed() } }
-        }
-
-        section("TVs")
-        item { SettingRow(Icons.Rounded.Tv, "This TV's name", tvName) { dialog = SettingsDialog.TvName } }
-        item { SettingRow(Icons.Rounded.Link, "Link this TV to another", null) { dialog = SettingsDialog.LinkCode } }
-        item { SettingRow(Icons.Rounded.LinkOff, "Stop other TVs seeing this one", null, danger = true) { dialog = SettingsDialog.UnlinkHubs } }
-        item { SettingRow(Icons.Rounded.Add, "Add another TV", if (linkedTvs.isEmpty()) null else "${linkedTvs.size} linked") { dialog = SettingsDialog.AddTv } }
-        linkedTvs.forEach { tv ->
-            item(key = "tv-" + tv.id) { SettingRow(Icons.Rounded.Tv, tv.name, tv.base.removePrefix("http://")) { dialog = SettingsDialog.RemoveTv(tv) } }
-        }
-        item {
-            SettingRow(Icons.Rounded.PlayCircle, "See what other apps are playing", if (seesOtherApps) "On" else "Off") {
-                val r = Opener.firstThatStarts(context, listOf(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")), "")
-                if (r is OpenResult.Failed) dialog = SettingsDialog.MediaAccessHelp
-            }
-        }
-
-        section("Video calls")
-        item { SettingRow(Icons.Rounded.Videocam, "Google Meet", null, brand = R.drawable.brand_google_meet) { Handoff.launch(context, Handoff.MEET) } }
-        item { SettingRow(Icons.Rounded.Cast, "AirScreen (iPhone camera & screen)", null) { Handoff.launch(context, Handoff.AIRSCREEN) } }
-
-        section("Google Calendar")
-        item {
-            SettingRow(Icons.Rounded.Event, "Today's Activities", if (calendar.connected) "Connected" else "Connect", brand = R.drawable.brand_google_calendar) {
-                if (!calendar.connected) showCalendar = true
-            }
-        }
-        if (calendar.connected) item {
-            SettingRow(Icons.Rounded.Logout, "Disconnect Google Calendar", null) { TodayCalendar.signOut { changed() } }
-        }
-
-        section("Google Photos")
-        item {
-            SettingRow(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Add photos & videos" else "Connect", brand = R.drawable.brand_google_photos) {
-                showPhotos = true
-            }
-        }
-        item { SettingRow(Icons.Rounded.PhotoLibrary, "Photos", null) { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }, from = Screen.SETTINGS) } }
-        item { SettingRow(Icons.Rounded.Slideshow, "Videos", null) { vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() }, from = Screen.SETTINGS) } }
-        if (photosConnected) item {
-            SettingRow(Icons.Rounded.Logout, "Disconnect Google Photos", null) { GooglePhotos.signOut { changed() } }
-        }
-
-        section("Movie & show posters")
-        item { SettingRow(Icons.Rounded.Key, "TMDB API key", if (tmdbSet) "•••••••• saved" else "Not set") { dialog = SettingsDialog.TmdbKey } }
-
-        section("Google Drive")
-        item { SettingRow(Icons.Rounded.AddToDrive, "Browse Google Drive", null, brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
-        item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up", brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
-        item { SettingRow(Icons.Rounded.Key, "Client ID", clientId?.let { mask(it, 18) } ?: "Not set") { dialog = SettingsDialog.ClientId } }
-        item { SettingRow(Icons.Rounded.Lock, "Client secret", if (configured) "•••••••• saved" else "Not set") { dialog = SettingsDialog.ClientSecret } }
-        if (connected) item {
-            SettingRow(Icons.Rounded.Logout, "Sign out of Google", null) {
-                scope.launch { GoogleAuth.signOut(context); changed() }
-            }
-        }
-        if (configured) item { SettingRow(Icons.Rounded.Delete, "Remove Google keys", null, danger = true) { dialog = SettingsDialog.RemoveGoogle } }
-
-        section("Mail")
-        accounts.forEach { a ->
-            item(key = a.id) { SettingRow(Icons.Rounded.Email, a.email, a.provider.label) { dialog = SettingsDialog.RemoveMail(a) } }
-        }
-        item { SettingRow(Icons.Rounded.PersonAdd, "Add a mail account", null) { dialog = SettingsDialog.PickProvider } }
-
-        section("Notifications")
-        item {
-            SettingRow(Icons.Rounded.NotificationsActive, "Pop-ups over other apps", if (overlay) "On" else "Off") {
-                if (!overlay) {
-                    val r = Opener.firstThatStarts(
-                        context,
-                        listOf(
-                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")),
-                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION),
-                        ),
-                        "",
-                    )
-                    if (r is OpenResult.Failed) dialog = SettingsDialog.OverlayHelp
+            item { SettingRow(Icons.Rounded.SystemUpdate, "Updates", updateStatus(update)) { Updater.checkNow(context) } }
+            otherTvs.drop(1).forEach { t ->
+                item(key = "status-" + t.id) {
+                    SettingRow(Icons.Rounded.Tv, t.name, if (t.online) "Online · ${t.version?.let { "version $it" } ?: "older version"}" else "Off or unreachable") {}
                 }
             }
-        }
-
-        section("Phones")
-        if (phones.isEmpty()) item { SettingRow(Icons.Rounded.Smartphone, "No phones yet", null) { vm.show(Screen.TRANSFER) } }
-        phones.forEach { p ->
-            item(key = "phone-" + p.id) {
-                SettingRow(Icons.Rounded.Smartphone, p.name, Format.date(p.lastSeen)) {
-                    dialog = SettingsDialog.RemovePhone(p)
+        },
+        SettingsCategory("Google", Icons.Rounded.AddToDrive) {
+            section("Google Drive")
+            item { SettingRow(Icons.Rounded.AddToDrive, "Browse Google Drive", null, brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
+            item { SettingRow(Icons.Rounded.AddToDrive, "Status", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up", brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) } }
+            item { SettingRow(Icons.Rounded.Key, "Client ID", clientId?.let { mask(it, 18) } ?: "Not set") { dialog = SettingsDialog.ClientId } }
+            item { SettingRow(Icons.Rounded.Lock, "Client secret", if (configured) "•••••••• saved" else "Not set") { dialog = SettingsDialog.ClientSecret } }
+            if (connected) item {
+                SettingRow(Icons.Rounded.Logout, "Sign out of Google", null) {
+                    scope.launch { GoogleAuth.signOut(context); changed() }
                 }
             }
-        }
+            if (configured) item { SettingRow(Icons.Rounded.Delete, "Remove Google keys", null, danger = true) { dialog = SettingsDialog.RemoveGoogle } }
+            section("Google Photos")
+            item {
+                SettingRow(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Add photos & videos" else "Connect", brand = R.drawable.brand_google_photos) {
+                    showPhotos = true
+                }
+            }
+            item { SettingRow(Icons.Rounded.PhotoLibrary, "Photos", null) { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }, from = Screen.SETTINGS) } }
+            item { SettingRow(Icons.Rounded.Slideshow, "Videos", null) { vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() }, from = Screen.SETTINGS) } }
+            if (photosConnected) item {
+                SettingRow(Icons.Rounded.Logout, "Disconnect Google Photos", null) { GooglePhotos.signOut { changed() } }
+            }
+            section("Google Calendar")
+            item {
+                SettingRow(Icons.Rounded.Event, "Today's Activities", if (calendar.connected) "Connected" else "Connect", brand = R.drawable.brand_google_calendar) {
+                    if (!calendar.connected) showCalendar = true
+                }
+            }
+            if (calendar.connected) item {
+                SettingRow(Icons.Rounded.Logout, "Disconnect Google Calendar", null) { TodayCalendar.signOut { changed() } }
+            }
+        },
+        SettingsCategory("Mail & posters", Icons.Rounded.Email) {
+            section("Mail")
+            accounts.forEach { a ->
+                item(key = a.id) { SettingRow(Icons.Rounded.Email, a.email, a.provider.label) { dialog = SettingsDialog.RemoveMail(a) } }
+            }
+            item { SettingRow(Icons.Rounded.PersonAdd, "Add a mail account", null) { dialog = SettingsDialog.PickProvider } }
+            section("Movie & show posters")
+            item { SettingRow(Icons.Rounded.Key, "TMDB API key", if (tmdbSet) "•••••••• saved" else "Not set") { dialog = SettingsDialog.TmdbKey } }
+        },
+        SettingsCategory("Cameras", Icons.Rounded.Videocam) {
+            item {
+                SettingRow(Icons.Rounded.Videocam, "Command center", if (nestConnected) "Connected" else "Not connected", brand = R.drawable.brand_google_home) { vm.show(Screen.CAMERAS) }
+            }
+            item {
+                SettingRow(Icons.Rounded.Key, "Device Access Project ID", nestProject?.let { mask(it, 13) } ?: "Not set") {
+                    dialog = SettingsDialog.NestProject
+                }
+            }
+            item {
+                // Turn off on extra TVs if Google starts limiting camera requests.
+                SettingRow(Icons.Rounded.Videocam, "Cameras on Home", Appearance.homeCameras.label) {
+                    Appearance.nextHomeCameras(context)
+                }
+            }
+            if (nestConnected) item {
+                SettingRow(Icons.Rounded.Logout, "Disconnect cameras", null) { Nest.signOut { changed() } }
+            }
+        },
+        SettingsCategory("TVs", Icons.Rounded.Tv) {
+            item { SettingRow(Icons.Rounded.Tv, "This TV's name", tvName) { dialog = SettingsDialog.TvName } }
+            item { SettingRow(Icons.Rounded.Link, "Link this TV to another", null) { dialog = SettingsDialog.LinkCode } }
+            item { SettingRow(Icons.Rounded.LinkOff, "Stop other TVs seeing this one", null, danger = true) { dialog = SettingsDialog.UnlinkHubs } }
+            item { SettingRow(Icons.Rounded.Add, "Add another TV", if (linkedTvs.isEmpty()) null else "${linkedTvs.size} linked") { dialog = SettingsDialog.AddTv } }
+            linkedTvs.forEach { tv ->
+                item(key = "tv-" + tv.id) { SettingRow(Icons.Rounded.Tv, tv.name, tv.base.removePrefix("http://")) { dialog = SettingsDialog.RemoveTv(tv) } }
+            }
+            item {
+                SettingRow(Icons.Rounded.PlayCircle, "See what other apps are playing", if (seesOtherApps) "On" else "Off") {
+                    val r = Opener.firstThatStarts(context, listOf(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")), "")
+                    if (r is OpenResult.Failed) dialog = SettingsDialog.MediaAccessHelp
+                }
+            }
+        },
+        SettingsCategory("Phone", Icons.Rounded.PhoneIphone) {
+            section("Phone connection")
+            item { SettingRow(Icons.Rounded.PhoneIphone, "Connect a phone", TransferService.state.value.base) { vm.show(Screen.TRANSFER) } }
+            item {
+                SettingRow(Icons.Rounded.PowerSettingsNew, "Start when the TV turns on", if (autoStart) "On" else "Off") {
+                    AutoStart.setEnabled(context, !autoStart); changed()
+                }
+            }
+            item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", null, danger = true) { dialog = SettingsDialog.ResetPairing } }
+            section("Phones")
+            if (phones.isEmpty()) item { SettingRow(Icons.Rounded.Smartphone, "No phones yet", null) { vm.show(Screen.TRANSFER) } }
+            phones.forEach { p ->
+                item(key = "phone-" + p.id) {
+                    SettingRow(Icons.Rounded.Smartphone, p.name, Format.date(p.lastSeen)) {
+                        dialog = SettingsDialog.RemovePhone(p)
+                    }
+                }
+            }
+            section("Notifications")
+            item {
+                SettingRow(Icons.Rounded.NotificationsActive, "Pop-ups over other apps", if (overlay) "On" else "Off") {
+                    if (!overlay) {
+                        val r = Opener.firstThatStarts(
+                            context,
+                            listOf(
+                                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")),
+                                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION),
+                            ),
+                            "",
+                        )
+                        if (r is OpenResult.Failed) dialog = SettingsDialog.OverlayHelp
+                    }
+                }
+            }
+        },
+        SettingsCategory("Look & screensaver", Icons.Rounded.Wallpaper) {
+            section("Appearance")
+            item {
+                SettingRow(if (Palette.light) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, "Theme", if (Palette.light) "Light" else "Dark") {
+                    ThemeSetting.toggle(context)
+                }
+            }
+            section("Screensaver & background")
+            item {
+                SettingRow(Icons.Rounded.Wallpaper, "App background", Appearance.background?.let { File(it).name } ?: "None") {
+                    if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
+                    else vm.say("In Files, press and hold on a photo and choose Set as app background")
+                }
+            }
+            item {
+                SettingRow(Icons.Rounded.PhotoLibrary, "Slideshow photos", Appearance.slideshowFolder?.let { File(it).name } ?: "Pictures & Camera") {
+                    if (Appearance.slideshowFolder != null) Appearance.setSlideshowFolder(context, null)
+                    else vm.say("In Files, press and hold on a folder and choose Use for photo slideshow")
+                }
+            }
+            item { SettingRow(Icons.Rounded.Timer, "Show each photo for", "${Appearance.seconds} seconds") { Appearance.nextSpeed(context) } }
+            item {
+                SettingRow(Icons.Rounded.Bedtime, "Start slideshow when idle", if (Appearance.idleMinutes == 0) "Off" else "${Appearance.idleMinutes} min") {
+                    Appearance.nextIdle(context)
+                }
+            }
+            item { SettingRow(Icons.Rounded.Slideshow, "Start slideshow now", null) { SlideshowActivity.start(context) } }
+            item {
+                SettingRow(Icons.Rounded.Tv, "Use as the TV's screensaver", null) {
+                    val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
+                    if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
+                }
+            }
+        },
+        SettingsCategory("Apps & storage", Icons.Rounded.Storage) {
+            section("Storage & apps")
+            roots.forEach { r ->
+                item(key = "root-" + r.dir.path) {
+                    SettingRow(
+                        if (r.removable) Icons.Rounded.SdStorage else Icons.Rounded.Storage, r.title,
+                        if (r.totalBytes > 0) "${Format.bytes(r.freeBytes)} free of ${Format.bytes(r.totalBytes)}" else null,
+                    ) { vm.openRoot(r.dir, from = Screen.SETTINGS) }
+                }
+            }
 
-        section("Phone connection")
-        item { SettingRow(Icons.Rounded.PhoneIphone, "Connect a phone", TransferService.state.value.base) { vm.show(Screen.TRANSFER) } }
-        item {
-            SettingRow(Icons.Rounded.PowerSettingsNew, "Start when the TV turns on", if (autoStart) "On" else "Off") {
-                AutoStart.setEnabled(context, !autoStart); changed()
+            item { SettingRow(Icons.Rounded.FolderOpen, "Browse by type", "Videos, music, photos, documents…") { dialog = SettingsDialog.BrowseTypes } }
+            item { SettingRow(Icons.Rounded.Apps, "Apps", null) { vm.openApps(Screen.SETTINGS) } }
+            item { SettingRow(Icons.Rounded.Cloud, "iCloud", "Mail, Drive and Photos", brand = R.drawable.brand_icloud) { dialog = SettingsDialog.ICloud } }
+            section("Video calls")
+            item { SettingRow(Icons.Rounded.Videocam, "Google Meet", null, brand = R.drawable.brand_google_meet) { Handoff.launch(context, Handoff.MEET) } }
+            item { SettingRow(Icons.Rounded.Cast, "AirScreen (iPhone camera & screen)", null) { Handoff.launch(context, Handoff.AIRSCREEN) } }
+        },
+        SettingsCategory("Updates", Icons.Rounded.SystemUpdate) {
+            section("Updates")
+            item {
+                SettingRow(Icons.Rounded.SystemUpdate, "Woodruff Family ${BuildConfig.VERSION_NAME}", updateStatus(update)) {
+                    if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
+                }
+            }
+            item {
+                SettingRow(Icons.Rounded.Autorenew, "Install updates automatically", if (autoUpdate) "On" else "Off") {
+                    Updater.setAuto(context, !autoUpdate); changed()
+                }
+            }
+            item {
+                // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
+                SettingRow(Icons.Rounded.Science, "Test TV", if (testTv) "On · gets updates first" else "Off · updates a day after the test TV") {
+                    Updater.setTestTv(context, !testTv); changed()
+                }
+            }
+            section("About")
+            item { SettingRow(Icons.Rounded.Info, "Posters", "TMDB (not endorsed by TMDB)") {} }
+        },
+    )
+    var category by rememberSaveable { mutableIntStateOf(0) }
+    val pane = remember { FocusRequester() }
+    Row(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 28.dp)) {
+        Column(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Settings", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 6.dp, bottom = 18.dp))
+            categories.forEachIndexed { i, c ->
+                ListItem(
+                    selected = i == category,
+                    onClick = { runCatching { pane.requestFocus() } },
+                    modifier = Modifier.onFocusChanged { if (it.isFocused) category = i },
+                    colors = ListItemDefaults.colors(
+                        containerColor = Color.Transparent,
+                        selectedContainerColor = Palette.surface,
+                        focusedContainerColor = Palette.surfaceHigh,
+                        focusedContentColor = Palette.text,
+                        selectedContentColor = Palette.text,
+                    ),
+                    shape = ListItemDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
+                    scale = ListItemDefaults.scale(focusedScale = 1.02f),
+                    leadingContent = { TvIcon(c.icon, size = 22.dp) },
+                    headlineContent = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                )
             }
         }
-        item { SettingRow(Icons.Rounded.Refresh, "Reset pairing", null, danger = true) { dialog = SettingsDialog.ResetPairing } }
-
-        section("Updates")
-        item {
-            SettingRow(Icons.Rounded.SystemUpdate, "Woodruff Family ${BuildConfig.VERSION_NAME}", updateStatus(update)) {
-                if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
+        // The chosen category's settings. A fresh scroll position per category, starting at the top.
+        val list = remember(category) { LazyListState() }
+        LazyColumn(
+            Modifier.weight(1f).fillMaxHeight().padding(start = 28.dp).focusRequester(pane).focusGroup(),
+            state = list,
+            contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            item(key = "title-" + category) {
+                Text(categories[category].name, style = MaterialTheme.typography.headlineSmall, color = Palette.muted, modifier = Modifier.padding(start = 14.dp, top = 10.dp, bottom = 10.dp))
             }
+            categories[category].content(this)
         }
-        item {
-            SettingRow(Icons.Rounded.Autorenew, "Install updates automatically", if (autoUpdate) "On" else "Off") {
-                Updater.setAuto(context, !autoUpdate); changed()
-            }
-        }
-        item {
-            // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
-            SettingRow(Icons.Rounded.Science, "Test TV", if (testTv) "On · gets updates first" else "Off · updates a day after the test TV") {
-                Updater.setTestTv(context, !testTv); changed()
-            }
-        }
-
-        section("About")
-        item { SettingRow(Icons.Rounded.Info, "Posters", "TMDB (not endorsed by TMDB)") {} }
     }
 
     if (showCalendar) CalendarConnectDialog(onDismiss = { showCalendar = false })
@@ -594,6 +634,9 @@ private fun badgeColor(icon: ImageVector, danger: Boolean): Color {
         else -> Palette.accent
     }
 }
+
+/** One entry in the Settings list on the left, and the rows it shows on the right. */
+private class SettingsCategory(val name: String, val icon: ImageVector, val content: LazyListScope.() -> Unit)
 
 private fun mask(s: String, keep: Int) = if (s.length <= keep) s else s.take(keep) + "…"
 
