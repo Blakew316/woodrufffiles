@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.focusGroup
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -182,6 +183,10 @@ fun AppRoot(vm: MainViewModel) {
                 // Switch screens in one step, not a cross-fade: during a fade the Command center's
                 // live video views were torn down by the transition, which crashed on some TVs.
                 key(screen) {
+                  // Each screen eases in (a quick fade and a few dp of rise) instead of popping in.
+                  // Only the new screen animates; the old one is gone at once (a cross-fade kept the
+                  // camera views alive during the switch, which crashed on some TVs).
+                  ScreenEnter {
                     when (screen) {
                         Screen.HOME -> HomeScreen(vm, drive)
                         Screen.BROWSER -> BrowserScreen(vm)
@@ -194,6 +199,7 @@ fun AppRoot(vm: MainViewModel) {
                         Screen.TRANSFER -> TransferScreen(vm)
                         Screen.SETTINGS -> SettingsScreen(vm)
                     }
+                  }
                 }
                 MessageBanner(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
                 DriveMessage(drive, Modifier.align(Alignment.BottomCenter))
@@ -202,10 +208,11 @@ fun AppRoot(vm: MainViewModel) {
         // Dim the dashboard while the menu is open over it.
         // Animated values are read only while drawing / laying out, so the 220 ms open and close
         // animations don't recompose the whole window on every frame.
-        val scrim = animateFloatAsState(if (open) 1f else 0f, tween(220), label = "scrim")
+        val scrim = animateFloatAsState(if (open) 1f else 0f, tween(180, easing = FastOutSlowInEasing), label = "scrim")
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim.value }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
         // Side menu: icons only until it has focus, then it opens to full labels over the content.
-        val railWidth = animateDpAsState(if (open) RAIL_OPEN else RAIL_CLOSED, tween(220), label = "rail")
+        // Opens quick and settles softly (no linear robot slide).
+        val railWidth = animateDpAsState(if (open) RAIL_OPEN else RAIL_CLOSED, tween(200, easing = FastOutSlowInEasing), label = "rail")
         Column(
             Modifier
                 .layout { measurable, constraints ->
@@ -304,6 +311,39 @@ fun AppRoot(vm: MainViewModel) {
         runCatching { contentFocus.requestFocus() }
         delay(100)
         if (!contentFocused) runCatching { homeFocus.requestFocus() }
+    }
+}
+
+/** Fade + slight rise for a screen that just opened; runs in the draw layer only. */
+@Composable
+private fun ScreenEnter(content: @Composable () -> Unit) {
+    val p = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { p.animateTo(1f, tween(220, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+    Box(Modifier.fillMaxSize().graphicsLayer { alpha = p.value; translationY = (1f - p.value) * 14.dp.toPx() }) { content() }
+}
+
+/**
+ * How lists and grids scroll to follow the focus. Compose's TV default keeps the focused item
+ * pinned a third of the way in, so every press slides the whole page. This only scrolls when the
+ * focus gets near an edge, keeping a margin so the next row or column is already in view, on a
+ * quick, fully damped spring: moves feel immediate and settle without bounce.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+internal val SmoothBringIntoView = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
+        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 900f)
+
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val margin = containerSize * 0.16f
+        val trailing = offset + size
+        return when {
+            // Too big for the margins: show its start if it can't fit, else center it.
+            size >= containerSize -> offset
+            size > containerSize - 2 * margin -> offset - (containerSize - size) / 2f
+            offset < margin -> offset - margin
+            trailing > containerSize - margin -> trailing - (containerSize - margin)
+            else -> 0f
+        }
     }
 }
 

@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context, intent: Intent) = vm.refreshRoots()
     }
 
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hasAccess = Permissions.hasStorageAccess(this)
@@ -53,8 +54,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             TvExplorerTheme {
                 // No background here: the window and AppRoot's backdrop already paint the whole screen.
-                Box(Modifier.fillMaxSize()) {
-                    if (hasAccess) AppRoot(vm) else PermissionScreen(onRecheck = ::recheck)
+                // Lists and grids follow the focus with a quick, bounce-free scroll (see SmoothBringIntoView).
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.woodruff.tvexplorer.ui.SmoothBringIntoView,
+                ) {
+                    Box(Modifier.fillMaxSize()) {
+                        if (hasAccess) AppRoot(vm) else PermissionScreen(onRecheck = ::recheck)
+                    }
                 }
             }
         }
@@ -95,6 +101,26 @@ class MainActivity : ComponentActivity() {
         val minutes = Appearance.idleMinutes
         if (minutes > 0) idle.postDelayed(startSlideshow, minutes * 60_000L)
     }
+
+    private var lastRepeatAt = 0L
+
+    /**
+     * Holding an arrow: Android repeats it every ~50 ms. When a frame takes longer than that, the
+     * repeats queue up and the focus keeps sliding after the button is let go, which is what makes
+     * scrolling feel laggy. Repeats that are already stale, or arrive faster than the screen can
+     * follow (one per 70 ms), are dropped; single presses always go through.
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount > 0 && isArrow(event.keyCode)) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - event.eventTime > 120 || now - lastRepeatAt < 70) return true
+            lastRepeatAt = now
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun isArrow(code: Int) = code == android.view.KeyEvent.KEYCODE_DPAD_UP || code == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
+        code == android.view.KeyEvent.KEYCODE_DPAD_LEFT || code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
 
     /** The remote's search button (if the TV hands it to apps): voice search. */
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
