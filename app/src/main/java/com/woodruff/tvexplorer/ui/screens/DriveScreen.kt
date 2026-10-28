@@ -103,7 +103,6 @@ import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.R
 import com.woodruff.tvexplorer.ui.components.FileGlyph
 import com.woodruff.tvexplorer.ui.components.TvIcon
-import com.woodruff.tvexplorer.ui.components.color
 import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
