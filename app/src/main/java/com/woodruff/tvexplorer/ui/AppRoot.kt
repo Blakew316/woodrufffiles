@@ -68,6 +68,9 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.runtime.mutableIntStateOf
 import kotlin.math.roundToInt
 import androidx.compose.ui.draw.drawBehind
@@ -148,6 +151,10 @@ fun AppRoot(vm: MainViewModel) {
     var railFocused by remember { mutableStateOf(false) }
     var contentFocused by remember { mutableStateOf(false) }
     var enterContent by remember { mutableIntStateOf(0) }
+    // Asked for the sidebar (Left at the edge, Back on Home): its items become focusable and the
+    // current screen's item takes the focus.
+    var railWanted by remember { mutableStateOf(false) }
+    val railActive = remember { FocusRequester() }
     val open = railFocused || RailPreview.open
 
     // Voice search: the menu's Search item, or the remote's search button. Speech when the TV has a
@@ -184,7 +191,20 @@ fun AppRoot(vm: MainViewModel) {
         // be called once") on pressing Right from the menu. Focus enters the screen at its first item.
         // Content keeps the slim rail's width to its left, so it never reflows when the menu opens:
         // the open menu slides over the dashboard instead.
-        Box(Modifier.fillMaxSize().padding(start = RAIL_CLOSED).onFocusChanged { contentFocused = it.hasFocus }.focusRequester(contentFocus).focusGroup()) {
+        // Full width: the sidebar is hidden until called, like the Apple TV app. Left at a screen's
+        // left edge (where focus has nowhere further to go) slides it in.
+        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+        Box(
+            Modifier.fillMaxSize()
+                .onFocusChanged { contentFocused = it.hasFocus }
+                .onKeyEvent { e ->
+                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft && contentFocused) {
+                        if (!focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)) railWanted = true
+                        true
+                    } else false
+                }
+                .focusRequester(contentFocus).focusGroup(),
+        ) {
                 // Switch screens in one step, not a cross-fade: during a fade the Command center's
                 // live video views were torn down by the transition, which crashed on some TVs.
                 key(screen) {
@@ -225,7 +245,8 @@ fun AppRoot(vm: MainViewModel) {
                 // The rows are measured once at the width the menu is heading to; each animation frame
                 // then only changes how much of it shows (re-measuring 13 rows per frame cost frames).
                 .layout { measurable, constraints ->
-                    val target = (if (open) RAIL_OPEN else RAIL_CLOSED).roundToPx()
+                    // Always measured at its open width (hidden is width 0, which can't hold the rows).
+                    val target = RAIL_OPEN.roundToPx()
                     val closed = RAIL_CLOSED.toPx()
                     val w = (closed + (RAIL_OPEN.toPx() - closed) * reveal.value).roundToInt()
                     val p = measurable.measure(constraints.copy(minWidth = target, maxWidth = target))
@@ -248,6 +269,7 @@ fun AppRoot(vm: MainViewModel) {
                 .padding(vertical = 28.dp, horizontal = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+              CompositionLocalProvider(LocalRailActive provides railActive, LocalRailFocusable provides (open || railWanted)) {
                 Brand(open, Modifier.padding(start = 6.dp, bottom = 24.dp))
                 // Choosing a screen in the menu goes straight into it (the menu closes behind).
                 val go: (() -> Unit) -> Unit = { action -> action(); enterContent++ }
@@ -280,6 +302,7 @@ fun AppRoot(vm: MainViewModel) {
                     go { vm.show(Screen.TRANSFER) }
                 }
                 RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS, open) { go { vm.show(Screen.SETTINGS) } }
+              }
         }
     }
 
@@ -313,6 +336,17 @@ fun AppRoot(vm: MainViewModel) {
             else { com.woodruff.tvexplorer.ui.screens.openCameraAt = i; vm.show(Screen.CAMERAS) }
         }
     }
+    LaunchedEffect(railWanted) {
+        if (!railWanted) return@LaunchedEffect
+        withFrameNanos {}
+        if (runCatching { railActive.requestFocus() }.isFailure || !railFocused) runCatching { homeFocus.requestFocus() }
+        withFrameNanos {}
+        railWanted = false
+    }
+    // Back, as on Apple TV: from Home it brings up the sidebar; from the sidebar it returns to the
+    // screen, except on Home, where it leaves the app as before.
+    androidx.activity.compose.BackHandler(enabled = railFocused && screen != Screen.HOME) { runCatching { contentFocus.requestFocus() } }
+    androidx.activity.compose.BackHandler(enabled = !railFocused && screen == Screen.HOME) { railWanted = true }
     // A screen chosen in the side menu: move into it once it's on screen (two frames: composed and
     // laid out), so the next press acts on the screen, not the menu.
     LaunchedEffect(enterContent) {
@@ -337,7 +371,7 @@ fun AppRoot(vm: MainViewModel) {
         delay(300)
         runCatching { contentFocus.requestFocus() }
         delay(100)
-        if (!contentFocused) runCatching { homeFocus.requestFocus() }
+        if (!contentFocused) railWanted = true
     }
 }
 
@@ -378,7 +412,12 @@ internal val SmoothBringIntoView = object : androidx.compose.foundation.gestures
     }
 }
 
-private val RAIL_CLOSED = 84.dp
+private val RAIL_CLOSED = 0.dp
+
+/** The rail item for the screen on show, which takes the focus when the sidebar is called. */
+private val LocalRailActive = androidx.compose.runtime.staticCompositionLocalOf<FocusRequester?> { null }
+/** False while the sidebar is hidden: its items can't be reached by accident from the screen. */
+private val LocalRailFocusable = androidx.compose.runtime.compositionLocalOf { true }
 private val RAIL_OPEN = 260.dp
 
 /** The remote's search button asks for a voice search (MainActivity forwards it here). */
@@ -426,9 +465,14 @@ private fun RailLabel(text: String, open: Boolean) {
 
 @Composable
 private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Boolean, modifier: Modifier = Modifier, badge: Boolean = false, onClick: () -> Unit) {
+    val activeFocus = LocalRailActive.current
+    val focusable = LocalRailFocusable.current
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .then(if (active && activeFocus != null) Modifier.focusRequester(activeFocus) else Modifier)
+            .focusProperties { canFocus = focusable }
+            .fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (active) Palette.accentSoft else androidx.compose.ui.graphics.Color.Transparent,
