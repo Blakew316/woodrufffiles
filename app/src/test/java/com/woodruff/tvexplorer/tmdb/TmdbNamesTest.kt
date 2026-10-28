@@ -16,6 +16,12 @@ class TmdbNamesTest {
     @Test fun showFolder() = assertEquals("The Office US" to null, folder("The.Office.US.S01.1080p"))
     @Test fun showFolderWithYear() = assertEquals("Doctor Who" to "2005", folder("Doctor Who (2005)"))
 
+    @Test fun bluRayCopyKeepsItsLabelButSearchesAsTheFilm() {
+        val (title, year) = movie("Avengers - Age of Ultron Blu-Ray (2015).mp4")
+        assertEquals("Avengers - Age of Ultron Blu-Ray" to "2015", title to year)
+        assertEquals("Avengers - Age of Ultron", Tmdb.searchTitle(title))
+    }
+
     @Test fun seasons() {
         assertEquals(2, Tmdb.seasonNumber("Season 2"))
         assertEquals(3, Tmdb.seasonNumber("S03"))

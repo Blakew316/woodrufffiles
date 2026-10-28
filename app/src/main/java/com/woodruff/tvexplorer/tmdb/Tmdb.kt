@@ -197,7 +197,10 @@ object Tmdb {
      */
     fun lookupName(name: String): String = name.replace(COPY_PREFIX, "").replace(COPY_NUMBER, "").replace(COPY_SUFFIX, "")
 
-    /** A title as it's searched: without an edition ("Director's Cut", "Special Edition"). Visible for tests. */
+    /**
+     * A title as it's searched: without an edition ("Director's Cut", "Special Edition", "Blu-Ray": a
+     * second copy shows its label but finds the film's poster). Visible for tests.
+     */
     fun searchTitle(title: String): String = title.replace(EDITION, " ").replace(SPACES, " ").trim().ifBlank { title }
 
     private val COPY_PREFIX = Regex("(?i)^copy of\\s+")
@@ -205,7 +208,7 @@ object Tmdb {
     private val COPY_SUFFIX = Regex("(?i)\\s+-\\s+copy(?=\\.[A-Za-z0-9]{2,4}$|$)")
     private val EDITION = Regex(
         "(?i)\\b(director'?s cut|extended (cut|edition|version)|theatrical (cut|edition|version)|special edition|" +
-            "collector'?s edition|anniversary edition|ultimate (cut|edition)|final cut|remastered|redux|open matte|uncut)\\b",
+            "collector'?s edition|anniversary edition|ultimate (cut|edition)|final cut|remastered|redux|open matte|uncut|blu-?ray)\\b",
     )
 
     private val castCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
