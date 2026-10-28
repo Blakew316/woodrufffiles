@@ -5,9 +5,6 @@ import com.woodruff.tvexplorer.nest.CameraStills
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
-import com.woodruff.tvexplorer.notify.AppVisibility
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 import android.view.View
 import androidx.activity.compose.BackHandler
@@ -41,7 +38,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,9 +70,6 @@ import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestState
 import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.nest.Rtc
-import com.woodruff.tvexplorer.calendar.TodayCalendar
-import com.woodruff.tvexplorer.notes.Notes
-import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.ui.MainViewModel
@@ -92,9 +85,6 @@ import com.woodruff.tvexplorer.util.Qr
 import kotlinx.coroutines.delay
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * TVs decode only a few live videos at once, and each live view counts against Google's limits,
@@ -112,8 +102,8 @@ internal var openCameraAt: Int? = null
 internal val cameraRequests = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 1)
 
 /**
- * Command center: live Google Home / Nest cameras, either on their own or next to the clock,
- * notifications and notes ("all on one"). Select a camera for full screen; Left/Right flips
+ * Command center: live Google Home / Nest cameras, either on their own or next to the latest
+ * notifications ("all on one"). Select a camera for full screen; Left/Right flips
  * between cameras and Back returns to the grid.
  */
 @Composable
@@ -172,12 +162,12 @@ fun CommandCenterScreen(vm: MainViewModel) {
                 if (state.loading && cams.isEmpty()) {
                     EmptyState("Loading cameras…")
                 } else if (Appearance.allInOne) {
-                    Row(Modifier.fillMaxSize().padding(top = 16.dp, bottom = 20.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Row(Modifier.fillMaxSize().padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f)) { full = it }
                         SidePanel(Modifier.weight(1f).fillMaxHeight())
                     }
                 } else {
-                    CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 16.dp)) { full = it }
+                    CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp)) { full = it }
                 }
             }
         }
@@ -226,7 +216,9 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, onO
     val first = remember { FocusRequester() }
     // Plain scrolling rows, not a lazy grid: live video is an Android view, and Android views in
     // lazy layouts crashed when the grid closed (leaving the Command center).
-    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    // Room inside the scrolling column for a focused tile to grow: it clips at its top and bottom
+    // edges, which cut the first and last rows' outlines.
+    Column(modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         cams.withIndex().chunked(columns).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 for ((i, cam) in row) key(cam.name) {
@@ -367,68 +359,24 @@ private fun CameraLabel(cam: Camera, modifier: Modifier) {
     )
 }
 
-/** "All on one": the clock, latest notifications and notes beside the cameras. */
+/** "All on one": the latest notifications beside the cameras (the time is at the top right). */
 @Composable
 private fun SidePanel(modifier: Modifier) {
-    val context = LocalContext.current
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(15_000) } }
-    remember { Notes.load(context) }
     val notices by Notices.items.collectAsStateWithLifecycle()
-    val notes by Notes.items.collectAsStateWithLifecycle()
     Column(
         modifier.glassPanel(RoundedCornerShape(26.dp)).padding(20.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now)), style = MaterialTheme.typography.displayMedium)
-        Text(SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(now)), color = Palette.muted)
-        val cal by TodayCalendar.state.collectAsStateWithLifecycle()
-        if (cal.connected) {
-            PanelTitle("Today")
-            if (cal.events.isEmpty()) Text(if (cal.loaded) "Nothing scheduled" else "Loading…", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-            cal.events.take(4).forEach { e ->
-                Column {
-                    Text(e.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                    Text(eventTime(e), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-        // Other linked TVs: what each is playing, refreshed every 10 seconds while this is open.
-        val linked by TvLinks.linked.collectAsStateWithLifecycle()
-        var tvs by remember { mutableStateOf<List<com.woodruff.tvexplorer.tvs.TvStatus>>(emptyList()) }
-        LaunchedEffect(linked.size) {
-            withContext(Dispatchers.IO) { TvLinks.load(context) }
-            while (linked.isNotEmpty()) {
-                if (AppVisibility.foreground) tvs = runCatching { TvLinks.statuses(context) }.getOrDefault(tvs)
-                delay(10_000)
-            }
-        }
-        if (tvs.size > 1) {
-            PanelTitle("TVs")
-            tvs.forEach { t ->
-                Column {
-                    Text(t.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        when { !t.online -> "Off or unreachable"; t.playing != null -> "${if (t.playing.playing) "▶" else "❚❚"} ${t.playing.title} · ${t.playing.app}"; else -> "Nothing playing" },
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, color = Palette.muted, style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        }
         PanelTitle("Notifications")
         if (notices.isEmpty()) Text("Nothing new", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-        notices.take(3).forEach { n ->
+        notices.take(12).forEach { n ->
             Column {
-                Text(n.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                Text(Format.date(n.at), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-        PanelTitle("Notes")
-        if (notes.isEmpty()) Text("No notes", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-        notes.take(3).forEach { n ->
-            Column {
-                Text(n.title.ifBlank { n.body.lineSequence().firstOrNull().orEmpty() }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                if (n.title.isNotBlank() && n.body.isNotBlank()) Text(n.body, maxLines = 2, overflow = TextOverflow.Ellipsis, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    n.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (n.read) null else androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
+                if (n.body.isNotBlank()) Text(n.body, maxLines = 2, overflow = TextOverflow.Ellipsis, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                Text(Format.date(n.at), color = Palette.muted, style = MaterialTheme.typography.labelSmall)
             }
         }
     }

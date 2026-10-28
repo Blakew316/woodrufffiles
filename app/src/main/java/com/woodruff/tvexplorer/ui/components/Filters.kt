@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,6 +86,39 @@ fun TopTabs(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modif
                     modifier = Modifier.padding(horizontal = 22.dp, vertical = 9.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * A search field you can see: a wide pill with a magnifier and the words searched for (or a hint).
+ * OK opens the keyboard; a field that took typing on focus would pop the TV's keyboard up just from
+ * passing over it.
+ */
+@Composable
+fun SearchBar(query: String, hint: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val pill = com.woodruff.tvexplorer.ui.theme.Shapes.pill
+    androidx.tv.material3.Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(pill),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = Palette.surface, contentColor = Palette.text,
+            focusedContainerColor = Palette.text, focusedContentColor = Palette.background,
+        ),
+        border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.5.dp, Palette.rim), shape = pill),
+        ),
+        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+    ) {
+        Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TvIcon(androidx.compose.material.icons.Icons.Rounded.Search, size = 22.dp)
+            Text(
+                query.ifEmpty { hint }, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleSmall,
+                color = androidx.tv.material3.LocalContentColor.current.copy(alpha = if (query.isEmpty()) 0.6f else 1f),
+                modifier = Modifier.padding(start = 12.dp),
+            )
         }
     }
 }

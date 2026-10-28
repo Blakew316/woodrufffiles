@@ -230,7 +230,7 @@ private fun HeroCarousel(
     var index by remember(items) { mutableIntStateOf(0) }
     LaunchedEffect(items) {
         while (items.size > 1) {
-            kotlinx.coroutines.delay(8_000)
+            kotlinx.coroutines.delay(16_000) // a calm pace: half as many changes as at first
             index = (index + 1) % items.size
         }
     }

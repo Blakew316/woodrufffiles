@@ -48,7 +48,7 @@ data class DriveState(
     val library: Boolean get() = stack.firstOrNull() is DrivePlace.Named
     /** The library's own top level gets filters; seasons and episodes don't need them. */
     val filterable: Boolean get() = library && stack.size == 1
-    val filter: LibraryFilter get() = filters[stack.first().title] ?: LibraryFilter()
+    val filter: LibraryFilter get() = filters[stack.first().title] ?: LibraryFilter(overview = true) // Overview first, like Netflix
 }
 
 /**

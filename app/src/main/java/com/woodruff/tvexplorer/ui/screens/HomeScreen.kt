@@ -347,7 +347,7 @@ private fun ContinuePanel(
     onMovies: () -> Unit, onShows: () -> Unit, modifier: Modifier,
 ) {
     val title = if (recent.isEmpty() && added.isNotEmpty()) "Recently added" else "Continue watching"
-    Panel(title, modifier, note = if (recent.size > 1) "${recent.size} in progress" else if (added.isNotEmpty()) "New" else null) {
+    Panel(title, modifier) {
         val r = recent.firstOrNull()
         if (r == null && added.isNotEmpty()) {
             LazyRow(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)) {
@@ -664,8 +664,7 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
             add(GlanceItem(Icons.Rounded.EditNote, Color(0xFFFFB340), n.title.ifBlank { first }, if (n.title.isBlank()) "Note" else first, false) { vm.show(Screen.NOTES) })
         }
     }.take(4)
-    val unread = notices.count { !it.read }
-    Panel("At a glance", modifier, note = if (unread > 0) "$unread new" else null) {
+    Panel("At a glance", modifier) {
         if (items.isEmpty()) Text("All caught up.", color = Palette.muted)
         items.forEach { g -> GlanceRow(g) }
     }

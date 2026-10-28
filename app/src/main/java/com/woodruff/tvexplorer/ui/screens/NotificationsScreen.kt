@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ClearAll
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PhoneIphone
@@ -70,8 +70,11 @@ fun NotificationsScreen(vm: MainViewModel) {
             Column(Modifier.weight(1f)) {
                 Text("Notifications", style = MaterialTheme.typography.headlineLarge)
             }
-            ToolButton(Icons.Rounded.Campaign, "Announce", { announcing = true })
-            if (items.isNotEmpty()) ToolButton(Icons.Rounded.ClearAll, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp))
+            // iOS-style badges: Apple's orange for announcing, red for clearing.
+            ToolButton(Icons.Rounded.Campaign, "Announce", { announcing = true }, badge = androidx.compose.ui.graphics.Color(0xFFFF9F0A))
+            if (items.isNotEmpty()) {
+                ToolButton(Icons.Rounded.Delete, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp), badge = androidx.compose.ui.graphics.Color(0xFFFF453A))
+            }
         }
         if (items.isEmpty()) {
             EmptyState("No notifications")

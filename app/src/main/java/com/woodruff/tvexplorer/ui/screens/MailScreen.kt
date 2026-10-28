@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -72,8 +73,10 @@ fun MailScreen(vm: MainViewModel) {
 
     Column(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 28.dp)) {
         Text("Mail", style = MaterialTheme.typography.headlineLarge)
+        // Scrolls sideways when there are many accounts. The scroll clips at its ends, so the buttons
+        // get room inside it (shifted back into line) or a focused one's outline is cut off.
         Row(
-            Modifier.padding(vertical = 14.dp).horizontalScroll(rememberScrollState()),
+            Modifier.padding(vertical = 14.dp).offset(x = (-16).dp).horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             state.accounts.forEach { a ->
@@ -126,14 +129,19 @@ fun MailScreen(vm: MainViewModel) {
 }
 
 /**
- * Message pane. It's focusable so Up/Down scroll the text with the remote; Left goes back to
- * the list as normal focus movement.
+ * Message pane. It's focusable so Up/Down scroll the message with the remote; Left goes back to
+ * the list as normal focus movement. A message with an HTML version is shown as mail apps show it
+ * (in a web view with scripts and links off); otherwise as text.
  */
 @Composable
 private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolean) {
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     var focused by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Some TVs have no web view installed: those show the text version.
+    val webOk = remember { runCatching { android.webkit.WebSettings.getDefaultUserAgent(context) }.isSuccess }
+    var web by remember { mutableStateOf<android.webkit.WebView?>(null) }
     Box(
         Modifier
             .fillMaxSize()
@@ -143,9 +151,14 @@ private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolea
             .onFocusChanged { focused = it.isFocused }
             .onKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                val w = web
                 when (e.key) {
-                    Key.DirectionDown -> { scope.launch { scroll.animateScrollBy(260f) }; true }
-                    Key.DirectionUp -> if (scroll.value > 0) { scope.launch { scroll.animateScrollBy(-260f) }; true } else false
+                    Key.DirectionDown -> {
+                        if (w != null) w.pageDown(false) else scope.launch { scroll.animateScrollBy(260f) }
+                        true
+                    }
+                    // At the top, Up leaves for the accounts above.
+                    Key.DirectionUp -> if (w != null) w.pageUp(false) else if (scroll.value > 0) { scope.launch { scroll.animateScrollBy(-260f) }; true } else false
                     else -> false
                 }
             }
@@ -158,17 +171,55 @@ private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolea
                 Spacer(Modifier.height(10.dp))
                 Text("Choose a message", color = Palette.muted)
             }
-            else -> Column(Modifier.fillMaxWidth().verticalScroll(scroll).padding(26.dp)) {
-                Text(body.subject, style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(8.dp))
-                Text(body.from, style = MaterialTheme.typography.titleMedium, color = Palette.accent)
-                Text(
-                    listOfNotNull(body.to.takeIf { it.isNotBlank() }?.let { "To $it" }, Format.date(body.date)).joinToString(" · "),
-                    color = Palette.muted, style = MaterialTheme.typography.bodySmall,
+            body.html != null && webOk -> Column(Modifier.fillMaxSize().padding(26.dp)) {
+                MessageHeader(body)
+                Spacer(Modifier.height(16.dp))
+                val html = body.html
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx ->
+                        android.webkit.WebView(ctx).apply {
+                            settings.javaScriptEnabled = false
+                            settings.allowFileAccess = false
+                            settings.allowContentAccess = false
+                            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                            // Links stay put: there's no browser to follow them into here.
+                            webViewClient = object : android.webkit.WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: android.webkit.WebView, request: android.webkit.WebResourceRequest) = true
+                            }
+                            // The pane takes the keys and scrolls this.
+                            isFocusable = false
+                            isFocusableInTouchMode = false
+                            setBackgroundColor(android.graphics.Color.WHITE)
+                            web = this
+                        }
+                    },
+                    update = { w ->
+                        if (w.tag != html) {
+                            w.tag = html
+                            w.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                            w.scrollTo(0, 0)
+                        }
+                    },
+                    onRelease = { w -> if (web === w) web = null; w.destroy() },
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)),
                 )
+            }
+            else -> Column(Modifier.fillMaxWidth().verticalScroll(scroll).padding(26.dp)) {
+                MessageHeader(body)
                 Spacer(Modifier.height(18.dp))
                 Text(body.text, style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
+}
+
+@Composable
+private fun MessageHeader(body: com.woodruff.tvexplorer.mail.MailBody) {
+    Text(body.subject, style = MaterialTheme.typography.headlineSmall)
+    Spacer(Modifier.height(8.dp))
+    Text(body.from, style = MaterialTheme.typography.titleMedium, color = Palette.accent)
+    Text(
+        listOfNotNull(body.to.takeIf { it.isNotBlank() }?.let { "To $it" }, Format.date(body.date)).joinToString(" · "),
+        color = Palette.muted, style = MaterialTheme.typography.bodySmall,
+    )
 }

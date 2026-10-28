@@ -25,7 +25,8 @@ data class MailSummary(
     val seen: Boolean,
 )
 
-data class MailBody(val from: String, val to: String, val subject: String, val date: Long, val text: String)
+/** [html]: the message as mail apps show it, when it has an HTML version (pictures sent inside it included). */
+data class MailBody(val from: String, val to: String, val subject: String, val date: Long, val text: String, val html: String? = null)
 
 /** Read-only IMAP access: list the inbox, read a message, find new mail for notifications. */
 object MailClient {
@@ -46,6 +47,7 @@ object MailClient {
             subject = m.subject ?: "(no subject)",
             date = (m.sentDate ?: m.receivedDate)?.time ?: 0L,
             text = textOf(m).trim().ifEmpty { "(This message has no readable text.)" },
+            html = htmlOf(m)?.let { inlinePictures(m, it) },
         )
     }
 
@@ -98,6 +100,46 @@ object MailClient {
 
     private fun who(addresses: Array<javax.mail.Address>?): String =
         addresses?.joinToString(", ") { (it as? InternetAddress)?.let { ia -> ia.personal ?: ia.address } ?: it.toString() } ?: ""
+
+    /**
+     * The HTML version, if any. Often the plain-text version is only a stub ("this is the text
+     * version of this email…"), so the TV shows this one.
+     */
+    private fun htmlOf(p: Part): String? {
+        if (p.isMimeType("text/html")) return p.content as? String
+        if (p.isMimeType("multipart/*")) {
+            val mp = p.content as Multipart
+            for (i in 0 until mp.count) {
+                val part = mp.getBodyPart(i)
+                if (Part.ATTACHMENT.equals(part.disposition, ignoreCase = true)) continue
+                htmlOf(part)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** Pictures sent inside the message (linked as "cid:…") as data URIs, so they show too. Up to 8 MB in all. */
+    private fun inlinePictures(m: Part, html: String): String {
+        if (!html.contains("cid:", ignoreCase = true)) return html
+        var out = html
+        var budget = 8 * 1024 * 1024
+        fun walk(p: Part) {
+            if (p.isMimeType("multipart/*")) {
+                val mp = p.content as Multipart
+                for (i in 0 until mp.count) walk(mp.getBodyPart(i))
+            } else if (p.isMimeType("image/*")) {
+                val id = (p as? javax.mail.internet.MimeBodyPart)?.contentID?.trim()?.removePrefix("<")?.removeSuffix(">") ?: return
+                if (p.size > budget) return
+                val bytes = p.inputStream.use { it.readBytes() }
+                if (bytes.size > budget) return
+                budget -= bytes.size
+                val type = p.contentType.substringBefore(';').trim().lowercase()
+                out = out.replace("cid:$id", "data:$type;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP), ignoreCase = true)
+            }
+        }
+        runCatching { walk(m) }
+        return out
+    }
 
     /** Prefers text/plain; falls back to HTML converted to text. */
     private fun textOf(p: Part): String {

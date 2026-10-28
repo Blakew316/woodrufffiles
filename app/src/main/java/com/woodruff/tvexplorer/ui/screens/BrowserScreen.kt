@@ -58,14 +58,15 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.OpenResult
 import com.woodruff.tvexplorer.util.Opener
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.foundation.layout.width
+import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.photos.GooglePhotos
 import com.woodruff.tvexplorer.photos.MediaDates
 import com.woodruff.tvexplorer.photos.PhotoFilter
 import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.woodruff.tvexplorer.ui.Screen
 
 @Composable
 fun BrowserScreen(vm: MainViewModel) {
@@ -74,7 +75,6 @@ fun BrowserScreen(vm: MainViewModel) {
     val clipboard by vm.clipboard.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var dialog by remember { mutableStateOf<BrowserDialog?>(null) }
-    var showPhotos by remember { mutableStateOf(false) }
     val location = state.location ?: return
     // Photos / Videos tabs: these folders fill up from Google Photos.
     val photosFolder = state.folder?.path?.let { p ->
@@ -92,17 +92,27 @@ fun BrowserScreen(vm: MainViewModel) {
         value = quick
         if (!complete) value = withContext(Dispatchers.IO) { MediaDates.of(context, files) }
     }
-    val shown = remember(state.items, dates, photoFilter, dateFilterable) {
+    // Family Memories' search field: narrows what's shown as you'd expect, by name.
+    var query by remember(location.key) { mutableStateOf("") }
+    var typing by remember { mutableStateOf(false) }
+    var filtering by remember { mutableStateOf(false) }
+    val shown = remember(state.items, dates, photoFilter, dateFilterable, query) {
         val d = dates
-        if (dateFilterable && d != null) PhotoFilter.apply(state.items, { it.path }, { it.isDirectory }, d, photoFilter) else state.items
+        val dated = if (dateFilterable && d != null) PhotoFilter.apply(state.items, { it.path }, { it.isDirectory }, d, photoFilter) else state.items
+        if (query.isBlank()) dated else dated.filter { it.name.contains(query, ignoreCase = true) }
     }
-    val listKey = if (dateFilterable) "${location.key}|$photoFilter" else location.key
+    val listKey = if (dateFilterable) "${location.key}|$photoFilter|$query" else location.key
     LaunchedEffect(photos.step) { if (photos.step == GooglePhotos.Step.DONE) vm.reload() }
-    if (showPhotos) GooglePhotosDialog(onDismiss = { showPhotos = false }, onSetUpGoogle = { vm.show(Screen.DRIVE) })
 
     // Back goes up a folder; at the top of Family Memories it brings up the sidebar, as on Apple TV.
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
-    BackHandler { if (photosFolder && !vm.canGoBack()) openSidebar() else vm.back() }
+    BackHandler {
+        when {
+            query.isNotEmpty() -> query = "" // first, Back clears a search
+            photosFolder && !vm.canGoBack() -> openSidebar()
+            else -> vm.back()
+        }
+    }
 
     val onOpen: (FileItem) -> Unit = { item ->
         when {
@@ -137,8 +147,11 @@ fun BrowserScreen(vm: MainViewModel) {
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+        // Family Memories' two controls always fit: no scrolling, which would also clip the focused
+        // search field's left edge as it grows.
+        val toolScroll = rememberScrollState()
         Row(
-            Modifier.padding(vertical = 16.dp).horizontalScroll(rememberScrollState()),
+            Modifier.padding(vertical = 16.dp).then(if (photosFolder && !state.selecting) Modifier else Modifier.horizontalScroll(toolScroll)),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -151,9 +164,15 @@ fun BrowserScreen(vm: MainViewModel) {
                 ToolButton(Icons.Rounded.FolderZip, "Zip", { dialog = BrowserDialog.Zip(targets()) })
                 ToolButton(Icons.Rounded.SelectAll, null, vm::selectAll)
                 ToolButton(Icons.Rounded.Close, null, vm::clearSelection)
+            } else if (photosFolder) {
+                // Family Memories: a search field and Filter, nothing else.
+                val inVideos = state.folder?.path?.startsWith(GooglePhotos.videoFolder.path) == true
+                com.woodruff.tvexplorer.ui.components.SearchBar(
+                    query, if (inVideos) "Search videos" else "Search photos", { typing = true }, Modifier.width(520.dp),
+                )
+                if (dateFilterable) RoundButton(Icons.Rounded.Tune, "Filter", { filtering = true }, active = photoFilter != PhotoFilter())
             } else {
                 val folder = state.folder
-                if (photosFolder) ToolButton(Icons.Rounded.AddPhotoAlternate, "Add from Google Photos", { showPhotos = true })
                 if (folder != null) {
                     ToolButton(Icons.Rounded.ArrowUpward, null, vm::up)
                     ToolButton(Icons.Rounded.CreateNewFolder, null, { dialog = BrowserDialog.NewFolder })
@@ -174,17 +193,28 @@ fun BrowserScreen(vm: MainViewModel) {
             }
         }
 
-        val d = dates
-        if (dateFilterable && d != null && d.isNotEmpty()) {
-            PhotoFilters(d.values, photoFilter, { photoFilter = it; photoFilterMemory[location.key] = it }, Modifier.padding(bottom = 10.dp))
+        if (filtering) {
+            PhotoFilterSheet(dates?.values.orEmpty(), photoFilter, { photoFilter = it; photoFilterMemory[location.key] = it }, onDismiss = { filtering = false })
+        }
+        if (typing) {
+            TextInputDialog(
+                if (photosFolder && state.folder?.path?.startsWith(GooglePhotos.videoFolder.path) == true) "Search videos" else "Search photos",
+                query, "Search", onConfirm = { query = it }, onDismiss = { typing = false },
+            )
         }
         Box(Modifier.fillMaxSize()) {
             when {
                 state.loading -> EmptyState("Loading…")
                 state.error != null -> EmptyState(state.error!!)
-                state.items.isEmpty() -> EmptyState(if (location is Location.Search) "No matches" else "This folder is empty")
+                state.items.isEmpty() -> EmptyState(
+                    when {
+                        location is Location.Search -> "No matches"
+                        photosFolder -> "Nothing here yet. Add some in Settings → Accounts → Google Photos."
+                        else -> "This folder is empty"
+                    },
+                )
                 dateFilterable && dates == null -> EmptyState("Loading…")
-                shown.isEmpty() -> EmptyState("Nothing from then")
+                shown.isEmpty() -> EmptyState(if (query.isNotBlank()) "Nothing called \u201c$query\u201d" else "Nothing from then")
                 settings.grid -> FileGrid(vm, listKey, shown, state.selected, onOpen, onMenu)
                 else -> FileList(vm, listKey, shown, state.selected, onOpen, onMenu)
             }

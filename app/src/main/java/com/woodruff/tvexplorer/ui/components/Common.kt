@@ -186,9 +186,9 @@ fun FileKind.color(): Color = when (this) {
     FileKind.OTHER -> Palette.muted
 }
 
-/** Compact toolbar button: icon plus optional label. */
+/** Compact toolbar button: icon plus optional label. With [badge], the icon is an iOS-style app-icon badge of that color. */
 @Composable
-fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, badge: Color? = null) {
     Button(
         onClick = onClick,
         modifier = modifier,
@@ -204,7 +204,7 @@ fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier:
             focusedContentColor = Palette.onAccent,
         ),
     ) {
-        TvIcon(icon, size = 20.dp)
+        if (badge != null) IconBadge(icon, badge, size = 26.dp) else TvIcon(icon, size = 20.dp)
         if (label != null) Text(label, modifier = Modifier.padding(start = 8.dp))
     }
 }

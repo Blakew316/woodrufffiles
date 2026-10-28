@@ -119,7 +119,7 @@ private data class Tab(val label: String, val overview: Boolean = false, val gen
 
 /** A round glass icon button (a pill with its label when it has one); white with dark content when focused. */
 @Composable
-private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String?, onClick: () -> Unit, active: Boolean = false) {
+internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String?, onClick: () -> Unit, active: Boolean = false) {
     Surface(
         onClick = onClick,
         modifier = Modifier.padding(start = 12.dp),
@@ -262,7 +262,7 @@ private fun FilterSheet(
 }
 
 @Composable
-private fun SheetHeading(text: String) {
+internal fun SheetHeading(text: String) {
     Text(
         text.uppercase(), style = MaterialTheme.typography.labelMedium, color = Palette.muted,
         modifier = Modifier.padding(start = 14.dp, top = 16.dp, bottom = 6.dp),
@@ -270,7 +270,7 @@ private fun SheetHeading(text: String) {
 }
 
 @Composable
-private fun SheetOption(label: String, checked: Boolean, modifier: Modifier = Modifier, accent: Boolean = false, onClick: () -> Unit) {
+internal fun SheetOption(label: String, checked: Boolean, modifier: Modifier = Modifier, accent: Boolean = false, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),

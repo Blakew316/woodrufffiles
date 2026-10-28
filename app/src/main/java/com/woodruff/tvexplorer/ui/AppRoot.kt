@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -116,7 +115,6 @@ import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.ui.platform.LocalContext
 import com.woodruff.tvexplorer.ui.components.ActionMenu
 import com.woodruff.tvexplorer.ui.components.MenuAction
@@ -147,9 +145,7 @@ fun AppRoot(vm: MainViewModel) {
     // with every phone request, which would redraw the whole window while the phone app is open.
     val phoneConnected by remember { TransferService.state.map { it.running }.distinctUntilChanged() }
         .collectAsStateWithLifecycle(TransferService.state.value.running)
-    val notices by Notices.items.collectAsStateWithLifecycle()
     val latestNotice by Notices.latest.collectAsStateWithLifecycle()
-    val unread = notices.count { !it.read }
     val homeFocus = remember { FocusRequester() }
     val contentFocus = remember { FocusRequester() }
     var railFocused by remember { mutableStateOf(false) }
@@ -302,14 +298,9 @@ fun AppRoot(vm: MainViewModel) {
                     go { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }) }
                 }
                 // Command Center: cameras, mail, notifications and notes (switched at the top).
-                RailItem(
-                    if (unread > 0) "Command Center · $unread" else "Command Center",
-                    Icons.Rounded.Videocam, screen in COMMAND_SCREENS, open, badge = unread > 0,
-                ) { go { vm.show(Screen.CAMERAS) } }
+                RailItem("Command Center", Icons.Rounded.Videocam, screen in COMMAND_SCREENS, open) { go { vm.show(Screen.CAMERAS) } }
+                // Set apart at the bottom, so it's clear it's Settings you're going to.
                 Spacer(Modifier.weight(1f))
-                RailItem("Search", Icons.Rounded.Mic, false, open) { startSearch() }
-                // Set apart, so it's clear it's Settings you're going to.
-                Spacer(Modifier.height(22.dp))
                 RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS, open) { go { vm.show(Screen.SETTINGS) } }
               }
         }
@@ -458,11 +449,14 @@ private fun CommandHub(screen: Screen, vm: MainViewModel) {
     val tabs = listOf(Screen.CAMERAS to "Cameras", Screen.MAIL to "Mail", Screen.NOTIFICATIONS to "Notifications", Screen.NOTES to "Notes")
     Column(Modifier.fillMaxSize()) {
         if (!com.woodruff.tvexplorer.ui.screens.cameraFullScreen.value) {
-            com.woodruff.tvexplorer.ui.components.TopTabs(
-                tabs.map { it.second }, selected = tabs.indexOfFirst { it.first == screen }.coerceAtLeast(0),
-                onSelect = { i -> vm.show(tabs[i].first) },
-                modifier = Modifier.padding(start = 28.dp, top = 20.dp),
-            )
+            Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 36.dp, top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                com.woodruff.tvexplorer.ui.components.TopTabs(
+                    tabs.map { it.second }, selected = tabs.indexOfFirst { it.first == screen }.coerceAtLeast(0),
+                    onSelect = { i -> vm.show(tabs[i].first) },
+                    modifier = Modifier.weight(1f),
+                )
+                HubClock()
+            }
         }
         Box(Modifier.weight(1f)) {
             when (screen) {
@@ -472,6 +466,18 @@ private fun CommandHub(screen: Screen, vm: MainViewModel) {
                 else -> CommandCenterScreen(vm)
             }
         }
+    }
+}
+
+/** The time and date, at the Command Center's top right. */
+@Composable
+private fun HubClock() {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    // Ticks on each new minute.
+    LaunchedEffect(Unit) { while (true) { delay(60_000 - System.currentTimeMillis() % 60_000); now = System.currentTimeMillis() } }
+    Column(horizontalAlignment = Alignment.End) {
+        Text(java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault()).format(java.util.Date(now)), style = MaterialTheme.typography.headlineMedium)
+        Text(java.text.SimpleDateFormat("EEEE, MMMM d", java.util.Locale.getDefault()).format(java.util.Date(now)), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -525,7 +531,7 @@ private fun RailLabel(text: String, open: Boolean) {
 }
 
 @Composable
-private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Boolean, modifier: Modifier = Modifier, badge: Boolean = false, onClick: () -> Unit) {
+private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val activeFocus = LocalRailActive.current
     val focusable = LocalRailFocusable.current
     Surface(
@@ -544,11 +550,7 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Bo
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box {
-                TvIcon(icon)
-                // Closed menu: a dot stands in for "· 3" or "· Connected".
-                if (badge && !open) Box(Modifier.align(Alignment.TopEnd).size(8.dp).clip(RoundedCornerShape(50)).background(Palette.accent))
-            }
+            TvIcon(icon)
             if (open) {
                 Spacer(Modifier.width(14.dp))
                 Text(label, maxLines = 1, overflow = TextOverflow.Clip, softWrap = false, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
