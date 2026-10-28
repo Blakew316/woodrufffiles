@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -71,6 +73,7 @@ import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.util.Format
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /**
  * A title's page, Apple TV style: its wide art across the screen, the name, year, genres, rating
@@ -196,6 +199,8 @@ private fun TitlePage(
     }
     val primary = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
+    val page = rememberScrollState()
+    val scope = rememberCoroutineScope()
     // Focus the main button once it's there — a show's Resume at once, its Play when the first
     // season's episodes arrive, a folder's Play once its film is found — then leave focus alone.
     val ready = when {
@@ -225,7 +230,7 @@ private fun TitlePage(
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.94f))))
 
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 72.dp, end = 48.dp, top = 120.dp, bottom = 48.dp),
+            Modifier.fillMaxSize().verticalScroll(page).padding(start = 72.dp, end = 48.dp, top = 120.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Column(Modifier.fillMaxWidth(0.6f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -244,7 +249,15 @@ private fun TitlePage(
                 if (cast.isNotEmpty()) Text("Starring " + cast.joinToString(", "), color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             // The buttons, all on one row.
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Back up on the buttons: the whole top of the page shows again (the title and synopsis
+            // above them can't take focus, so a plain scroll-into-view left them off the screen).
+            // A frame later, so this scroll wins over the focus's own.
+            Row(
+                Modifier.padding(top = 6.dp).onFocusChanged {
+                    if (it.hasFocus && page.value > 0) scope.launch { withFrameNanos {}; page.animateScrollTo(0) }
+                },
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 when {
                     isShow && f.isFolder -> {
                         val firstEpisode = firstEps?.firstOrNull()
