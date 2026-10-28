@@ -31,10 +31,10 @@ fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit, icon: Imag
         scale = ButtonDefaults.scale(focusedScale = 1.06f),
         border = ButtonDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = com.woodruff.tvexplorer.ui.theme.Shapes.pill)),
         colors = ButtonDefaults.colors(
-            containerColor = if (selected) Palette.accent.copy(alpha = 0.22f) else Palette.surfaceHigh,
-            contentColor = if (selected) Palette.accent else Palette.text,
-            focusedContainerColor = Palette.accent,
-            focusedContentColor = Palette.onAccent,
+            containerColor = if (selected) Palette.text.copy(alpha = 0.18f) else Palette.surfaceHigh,
+            contentColor = Palette.text,
+            focusedContainerColor = Palette.text,
+            focusedContentColor = Palette.background,
         ),
     ) {
         val shown = if (selected && icon == null) Icons.Rounded.Check else icon

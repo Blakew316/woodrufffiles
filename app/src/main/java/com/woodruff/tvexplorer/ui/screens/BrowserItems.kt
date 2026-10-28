@@ -78,7 +78,7 @@ fun FileRow(
         ),
         scale = ListItemDefaults.scale(focusedScale = 1.01f),
         leadingContent = {
-            if (selecting) TvIcon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked, tint = Palette.accent)
+            if (selecting) TvIcon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked)
             else FileGlyph(item.name, item.kind, size = 34.dp)
         },
         headlineContent = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -130,7 +130,7 @@ fun FileTile(
                 if (selecting) {
                     TvIcon(
                         if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                        tint = Palette.accent,
+                        tint = androidx.compose.ui.graphics.Color.White,
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                     )
                 }

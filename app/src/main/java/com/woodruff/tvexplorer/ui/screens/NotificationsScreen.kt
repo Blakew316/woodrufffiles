@@ -70,11 +70,8 @@ fun NotificationsScreen(vm: MainViewModel) {
             Column(Modifier.weight(1f)) {
                 Text("Notifications", style = MaterialTheme.typography.headlineLarge)
             }
-            // iOS-style badges: Apple's orange for announcing, red for clearing.
-            ToolButton(Icons.Rounded.Campaign, "Announce", { announcing = true }, badge = androidx.compose.ui.graphics.Color(0xFFFF9F0A))
-            if (items.isNotEmpty()) {
-                ToolButton(Icons.Rounded.Delete, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp), badge = androidx.compose.ui.graphics.Color(0xFFFF453A))
-            }
+            ToolButton(Icons.Rounded.Campaign, "Announce", { announcing = true })
+            if (items.isNotEmpty()) ToolButton(Icons.Rounded.Delete, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp))
         }
         if (items.isEmpty()) {
             EmptyState("No notifications")
@@ -98,7 +95,6 @@ fun NotificationsScreen(vm: MainViewModel) {
                     leadingContent = {
                         TvIcon(
                             when (n.source) { NoticeSource.PHONE -> Icons.Rounded.PhoneIphone; NoticeSource.MAIL -> Icons.Rounded.Email; NoticeSource.SYSTEM -> Icons.Rounded.Info },
-                            tint = Palette.accent,
                         )
                     },
                     headlineContent = { Text(n.title, maxLines = 2) },
@@ -148,14 +144,14 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                 ListItem(
                     selected = on,
                     onClick = { chosen = if (on) chosen - p.id else chosen + p.id },
-                    leadingContent = { TvIcon(if (on) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank, tint = Palette.accent) },
+                    leadingContent = { TvIcon(if (on) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank) },
                     headlineContent = { Text(p.name) },
                 )
             }
             item {
                 ListItem(
                     selected = onTv, onClick = { onTv = !onTv },
-                    leadingContent = { TvIcon(if (onTv) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank, tint = Palette.accent) },
+                    leadingContent = { TvIcon(if (onTv) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank) },
                     headlineContent = { Text("Also show it on this TV") },
                 )
             }

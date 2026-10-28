@@ -15,6 +15,7 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Settings as SettingsIcon
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.VideoCall
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.input.key.KeyEventType
@@ -56,7 +57,6 @@ import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.SdStorage
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.tmdb.Tmdb
@@ -125,10 +125,7 @@ import com.woodruff.tvexplorer.ui.components.ButtonRow
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Button
 import com.woodruff.tvexplorer.BuildConfig
-import com.woodruff.tvexplorer.R
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.res.painterResource
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.mail.MailAccount
 import com.woodruff.tvexplorer.mail.MailAccounts
@@ -143,7 +140,6 @@ import com.woodruff.tvexplorer.ui.components.ActionMenu
 import com.woodruff.tvexplorer.ui.components.ConfirmDialog
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
-import com.woodruff.tvexplorer.ui.components.IconBadge
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.ThemeSetting
@@ -254,12 +250,12 @@ fun SettingsScreen(vm: MainViewModel) {
             )
         }
         SettingsPage.ACCOUNTS -> listOf(
-            SettingItem(Icons.Rounded.AddToDrive, "Google Drive", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up", brand = R.drawable.brand_google_drive) { vm.show(Screen.DRIVE) },
-            SettingItem(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Connected" else "Connect", brand = R.drawable.brand_google_photos) { showPhotos = true },
-            SettingItem(Icons.Rounded.Event, "Google Calendar", if (calendar.connected) "Connected" else "Connect", brand = R.drawable.brand_google_calendar) {
+            SettingItem(Icons.Rounded.AddToDrive, "Google Drive", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up") { vm.show(Screen.DRIVE) },
+            SettingItem(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Connected" else "Connect") { showPhotos = true },
+            SettingItem(Icons.Rounded.Event, "Google Calendar", if (calendar.connected) "Connected" else "Connect") {
                 if (!calendar.connected) showCalendar = true
             },
-            SettingItem(Icons.Rounded.Videocam, "Cameras", if (nestConnected) "Connected" else "Not connected", brand = R.drawable.brand_google_home) { vm.show(Screen.CAMERAS) },
+            SettingItem(Icons.Rounded.Videocam, "Cameras", if (nestConnected) "Connected" else "Not connected") { vm.show(Screen.CAMERAS) },
             opener(SettingsPage.MAIL, count(accounts.size, "account", "None")),
             opener(SettingsPage.KEYS, null, spaced = true),
         )
@@ -336,8 +332,8 @@ fun SettingsScreen(vm: MainViewModel) {
         } + listOf(
             SettingItem(Icons.Rounded.FolderOpen, "Browse by type", "Videos, music, photos…", spaced = roots.isNotEmpty()) { dialog = SettingsDialog.BrowseTypes },
             SettingItem(Icons.Rounded.Apps, "Apps") { vm.openApps(Screen.SETTINGS) },
-            SettingItem(Icons.Rounded.Cloud, "iCloud", brand = R.drawable.brand_icloud) { dialog = SettingsDialog.ICloud },
-            SettingItem(Icons.Rounded.Videocam, "Google Meet", brand = R.drawable.brand_google_meet, spaced = true) { Handoff.launch(context, Handoff.MEET) },
+            SettingItem(Icons.Rounded.Cloud, "iCloud") { dialog = SettingsDialog.ICloud },
+            SettingItem(Icons.Rounded.VideoCall, "Google Meet", spaced = true) { Handoff.launch(context, Handoff.MEET) },
             SettingItem(Icons.Rounded.Cast, "AirScreen", "iPhone camera & screen") { Handoff.launch(context, Handoff.AIRSCREEN) },
         )
         SettingsPage.UPDATES -> listOf(
@@ -377,11 +373,10 @@ fun SettingsScreen(vm: MainViewModel) {
     }
 
     Row(Modifier.fillMaxSize().padding(start = 40.dp, end = 64.dp)) {
-        // Where you are: the page's badge and name (the app's own logo on the first page).
+        // Where you are: the page's symbol and name.
         Crossfade(here, Modifier.width(360.dp).fillMaxHeight(), animationSpec = tween(260), label = "settings-where") { p ->
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                if (p == SettingsPage.HOME) Image(painterResource(R.drawable.brand_logo), contentDescription = null, modifier = Modifier.size(168.dp))
-                else IconBadge(p.icon, badgeColor(p.icon, false), size = 168.dp)
+                TvIcon(p.icon, size = 132.dp, tint = Palette.text)
                 Text(p.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 22.dp))
                 if (p == SettingsPage.HOME) {
                     Text("Version ${BuildConfig.VERSION_NAME}", color = Palette.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
@@ -566,30 +561,6 @@ private fun addMail(
     }
 }
 
-/** iOS Settings-style badge colors (Apple's system palette), picked by what the row is about. */
-private fun badgeColor(icon: ImageVector, danger: Boolean): Color {
-    if (danger) return Color(0xFFFF453A)
-    return when (icon) {
-        Icons.Rounded.LightMode, Icons.Rounded.DarkMode, Icons.Rounded.Bedtime -> Color(0xFF5E5CE6)
-        Icons.Rounded.Wallpaper, Icons.Rounded.Slideshow -> Color(0xFFBF5AF2)
-        Icons.Rounded.PhotoLibrary -> Color(0xFFFF375F)
-        Icons.Rounded.Timer, Icons.Rounded.Refresh -> Color(0xFFFF9F0A)
-        Icons.Rounded.Videocam, Icons.Rounded.NotificationsActive -> Color(0xFFFF453A)
-        Icons.Rounded.Dashboard, Icons.Rounded.Tv -> Color(0xFF40C8E0)
-        Icons.Rounded.PhoneIphone, Icons.Rounded.Smartphone -> Color(0xFF30D158)
-        Icons.Rounded.Key, Icons.Rounded.Lock, Icons.Rounded.Logout, Icons.Rounded.Info -> Color(0xFF8E8E93)
-        Icons.Rounded.Storage, Icons.Rounded.SdStorage -> Color(0xFF636366)
-        Icons.Rounded.Apps -> Color(0xFF34C759)
-        Icons.Rounded.Link, Icons.Rounded.Add -> Color(0xFF5E5CE6)
-        Icons.Rounded.PlayCircle -> Color(0xFFFF9F0A)
-        Icons.Rounded.Cast -> Color(0xFF0A84FF)
-        Icons.Rounded.Email, Icons.Rounded.PersonAdd -> Color(0xFF0A84FF)
-        Icons.Rounded.AccountCircle, Icons.Rounded.SystemUpdate, Icons.Rounded.Autorenew -> Color(0xFF0A84FF)
-        Icons.Rounded.Tune, Icons.Rounded.SettingsIcon, Icons.Rounded.Speed -> Color(0xFF8E8E93)
-        else -> Palette.accent
-    }
-}
-
 /** The pages of Settings: the first, and the ones opened from it. */
 private enum class SettingsPage(val title: String, val icon: ImageVector) {
     HOME("Settings", Icons.Rounded.SettingsIcon),
@@ -609,7 +580,7 @@ private enum class SettingsPage(val title: String, val icon: ImageVector) {
 /** One row. A row that [opens] a page shows a chevron; any other runs [onClick]. [spaced]: a gap above it. */
 private class SettingItem(
     val icon: ImageVector, val title: String, val value: String? = null,
-    val detail: String? = null, val danger: Boolean = false, val brand: Int? = null,
+    val detail: String? = null, val danger: Boolean = false,
     val opens: SettingsPage? = null, val spaced: Boolean = false, val onClick: () -> Unit = {},
 )
 
@@ -677,10 +648,8 @@ private fun SettingRow(item: SettingItem, modifier: Modifier, onClick: () -> Uni
         ),
         shape = ListItemDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
         scale = ListItemDefaults.scale(focusedScale = 1.03f),
-        leadingContent = {
-            if (item.brand != null) Image(painterResource(item.brand), contentDescription = null, modifier = Modifier.size(30.dp))
-            else IconBadge(item.icon, badgeColor(item.icon, item.danger), size = 30.dp)
-        },
+        // Plain symbols in the row's color (dark on the white focus), Apple style.
+        leadingContent = { TvIcon(item.icon, size = 26.dp) },
         headlineContent = {
             Text(item.title, color = if (item.danger) Palette.danger else Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },

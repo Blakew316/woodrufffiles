@@ -206,10 +206,10 @@ private fun PinnedMessage() {
     val pin by Board.pin.collectAsStateWithLifecycle()
     val p = pin ?: return
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.accentSoft).padding(horizontal = 18.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.text.copy(alpha = 0.08f)).padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TvIcon(Icons.Rounded.PushPin, size = 22.dp, tint = Palette.accent)
+        TvIcon(Icons.Rounded.PushPin, size = 22.dp)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(p.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = listOfNotNull(p.body.takeIf { it.isNotBlank() }, p.from?.let { "from $it" }).joinToString(" · ")
@@ -326,7 +326,7 @@ private fun PanelButton(label: String, icon: ImageVector, onClick: () -> Unit) {
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Palette.surfaceHigh, contentColor = Palette.text,
-            focusedContainerColor = Palette.accent, focusedContentColor = Palette.onAccent,
+            focusedContainerColor = Palette.text, focusedContentColor = Palette.background,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {
@@ -421,9 +421,9 @@ private fun ResumeArt(r: RecentItem, main: Boolean) {
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f))))
         val size = if (main) 44.dp else 36.dp
         Box(
-            Modifier.align(Alignment.Center).offset(y = (-16).dp).size(size).clip(RoundedCornerShape(50)).background(Palette.accent),
+            Modifier.align(Alignment.Center).offset(y = (-16).dp).size(size).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.92f)),
             contentAlignment = Alignment.Center,
-        ) { TvIcon(Icons.Rounded.PlayArrow, size = size * 0.64f, tint = Palette.onAccent) }
+        ) { TvIcon(Icons.Rounded.PlayArrow, size = size * 0.64f, tint = Color.Black) }
     }
 }
 
@@ -479,7 +479,7 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
                 )
             } else {
                 Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Palette.surfaceHigh), contentAlignment = Alignment.Center) {
-                    TvIcon(Icons.Rounded.Tv, size = 24.dp, tint = if (sel.online) Palette.accent else Palette.muted)
+                    TvIcon(Icons.Rounded.Tv, size = 24.dp, tint = if (sel.online) Palette.text else Palette.muted)
                 }
             }
             Column(Modifier.weight(1f)) {
@@ -634,7 +634,7 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
 
 // ---- At a glance: today, notifications, notes -------------------------------------------------
 
-private data class GlanceItem(val icon: ImageVector, val color: Color, val title: String, val sub: String, val unread: Boolean, val onClick: (() -> Unit)?)
+private data class GlanceItem(val icon: ImageVector, val title: String, val sub: String, val unread: Boolean, val onClick: (() -> Unit)?)
 
 @Composable
 private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
@@ -648,20 +648,20 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
         value = withContext(Dispatchers.IO) { runCatching { Memories.forToday(context) { Appearance.photos(context) }.size }.getOrDefault(0) }
     }
     val items = buildList {
-        if (memories > 0) add(GlanceItem(Icons.Rounded.PhotoLibrary, Color(0xFFFF9F0A), "On this day", "$memories photo${if (memories == 1) "" else "s"} from earlier years", false) {
+        if (memories > 0) add(GlanceItem(Icons.Rounded.PhotoLibrary, "On this day", "$memories photo${if (memories == 1) "" else "s"} from earlier years", false) {
             com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(context, memories = true)
         })
         if (cal.connected) {
             val next = cal.events.firstOrNull { (it.end ?: it.start ?: Long.MAX_VALUE) > now }
-            add(GlanceItem(Icons.Rounded.Event, Palette.danger, next?.title ?: "Nothing else today", next?.let { eventTime(it) } ?: "Calendar", false, null))
+            add(GlanceItem(Icons.Rounded.Event, next?.title ?: "Nothing else today", next?.let { eventTime(it) } ?: "Calendar", false, null))
         }
         notices.take(2).forEach { n ->
             val icon = when (n.source) { NoticeSource.PHONE -> Icons.Rounded.PhoneIphone; NoticeSource.MAIL -> Icons.Rounded.Email; NoticeSource.SYSTEM -> Icons.Rounded.Notifications }
-            add(GlanceItem(icon, Palette.accent, n.title, Format.date(n.at), !n.read) { vm.show(Screen.NOTIFICATIONS) })
+            add(GlanceItem(icon, n.title, Format.date(n.at), !n.read) { vm.show(Screen.NOTIFICATIONS) })
         }
         (notes.firstOrNull { it.pinned } ?: notes.firstOrNull())?.let { n ->
             val first = n.body.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
-            add(GlanceItem(Icons.Rounded.EditNote, Color(0xFFFFB340), n.title.ifBlank { first }, if (n.title.isBlank()) "Note" else first, false) { vm.show(Screen.NOTES) })
+            add(GlanceItem(Icons.Rounded.EditNote, n.title.ifBlank { first }, if (n.title.isBlank()) "Note" else first, false) { vm.show(Screen.NOTES) })
         }
     }.take(4)
     Panel("At a glance", modifier) {
@@ -674,9 +674,7 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
 private fun GlanceRow(g: GlanceItem) {
     val content: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(26.dp).clip(RoundedCornerShape(7.dp)).background(g.color), contentAlignment = Alignment.Center) {
-                TvIcon(g.icon, size = 16.dp, tint = Color.White)
-            }
+            Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) { TvIcon(g.icon, size = 20.dp) }
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
                 Text(g.title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(g.sub, style = MaterialTheme.typography.labelSmall, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)

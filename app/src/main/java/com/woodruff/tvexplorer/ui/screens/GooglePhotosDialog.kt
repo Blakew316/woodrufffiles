@@ -20,14 +20,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import com.woodruff.tvexplorer.ui.components.TvIcon
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
-import com.woodruff.tvexplorer.R
 import com.woodruff.tvexplorer.photos.GooglePhotos
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.ui.components.ButtonRow
@@ -60,7 +61,7 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
                     Image(bitmap, contentDescription = "QR code", modifier = Modifier.size(230.dp))
                 }
             } else {
-                Image(painterResource(R.drawable.brand_google_photos), contentDescription = null, modifier = Modifier.size(96.dp))
+                TvIcon(Icons.Rounded.PhotoLibrary, size = 96.dp)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (state.step) {

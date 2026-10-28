@@ -114,7 +114,7 @@ private fun NoteCard(n: Note, onClick: () -> Unit) {
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (n.pinned) TvIcon(Icons.Rounded.PushPin, size = 18.dp, tint = Palette.accent)
+                if (n.pinned) TvIcon(Icons.Rounded.PushPin, size = 18.dp)
             }
             Spacer(Modifier.height(6.dp))
             Text(

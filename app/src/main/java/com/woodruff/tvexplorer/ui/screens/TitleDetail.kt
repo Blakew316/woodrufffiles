@@ -247,7 +247,7 @@ private fun TitlePage(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (meta.isNotEmpty()) Text(meta.joinToString("  ·  "), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
                     info.rating?.let { r ->
-                        TvIcon(Icons.Rounded.Star, size = 18.dp, tint = Color(0xFFFFC857), modifier = Modifier.padding(start = 14.dp, end = 4.dp))
+                        TvIcon(Icons.Rounded.Star, size = 18.dp, modifier = Modifier.padding(start = 14.dp, end = 4.dp))
                         Text(String.format("%.1f", r), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
                     }
                 }

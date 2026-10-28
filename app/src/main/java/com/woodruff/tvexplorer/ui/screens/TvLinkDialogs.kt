@@ -90,7 +90,7 @@ fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
             items(found, key = { it.base }) { f ->
                 ListItem(
                     selected = false, onClick = { chosen = f },
-                    leadingContent = { TvIcon(Icons.Rounded.Tv, tint = Palette.accent) },
+                    leadingContent = { TvIcon(Icons.Rounded.Tv) },
                     headlineContent = { Text(f.name) },
                     supportingContent = { Text(f.base.removePrefix("http://"), color = Palette.muted) },
                 )

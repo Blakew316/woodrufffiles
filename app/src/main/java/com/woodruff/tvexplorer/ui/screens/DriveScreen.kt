@@ -189,7 +189,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(painterResource(R.drawable.brand_google_drive), contentDescription = null, modifier = Modifier.size(32.dp))
+                TvIcon(Icons.Rounded.AddToDrive, size = 32.dp) // a plain symbol, not the colored logo
                 Text(state.place.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(
@@ -713,7 +713,7 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(painterResource(R.drawable.brand_google_drive), contentDescription = null, modifier = Modifier.size(32.dp))
+                TvIcon(Icons.Rounded.AddToDrive, size = 32.dp) // a plain symbol, not the colored logo
                 Text(
                     if (setup) "Set up Google Drive" else "Sign in with your phone",
                     style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 12.dp),

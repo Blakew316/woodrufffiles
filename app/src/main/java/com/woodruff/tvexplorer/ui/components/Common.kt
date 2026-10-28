@@ -70,97 +70,26 @@ fun TvIcon(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 24.dp, t
 }
 
 /**
- * iOS-style app-icon badge: a white glyph on a rounded square ("squircle") filled with a soft
- * top-to-bottom gradient of [color], like icons on the Home Screen and in iOS Settings.
+ * A well-known folder's own symbol (as the Mac's Finder shows Movies, Pictures, Music…), else a
+ * plain folder.
  */
-@Composable
-fun IconBadge(icon: ImageVector, color: Color, modifier: Modifier = Modifier, size: Dp = 32.dp) {
-    Box(
-        modifier
-            .size(size)
-            .clip(RoundedCornerShape(size * 0.24f))
-            .background(Brush.verticalGradient(listOf(lighten(color, 0.22f), color))),
-        contentAlignment = Alignment.Center,
-    ) {
-        Image(icon, contentDescription = null, modifier = Modifier.size(size * 0.62f), colorFilter = ColorFilter.tint(Color.White))
-    }
-}
-
-private fun lighten(c: Color, amount: Float) = Color(
-    red = c.red + (1f - c.red) * amount,
-    green = c.green + (1f - c.green) * amount,
-    blue = c.blue + (1f - c.blue) * amount,
-    alpha = c.alpha,
-)
-
-/**
- * A blue folder drawn like the iOS Files app (tab, gradient body), with a white symbol for the
- * well-known folders (Movies, Pictures, Camera, Music, Downloads, Documents).
- */
-@Composable
-fun AppleFolder(name: String, modifier: Modifier = Modifier, size: Dp = 32.dp) {
-    val glyph = folderGlyph(name)
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val w = this.size.width
-            val h = this.size.height
-            val top = h * 0.16f
-            val tab = Path().apply {
-                moveTo(w * 0.06f, top + h * 0.08f)
-                lineTo(w * 0.06f, top + h * 0.02f)
-                quadraticBezierTo(w * 0.06f, top - h * 0.04f, w * 0.13f, top - h * 0.04f)
-                lineTo(w * 0.38f, top - h * 0.04f)
-                lineTo(w * 0.46f, top + h * 0.04f)
-                lineTo(w * 0.88f, top + h * 0.04f)
-                quadraticBezierTo(w * 0.94f, top + h * 0.04f, w * 0.94f, top + h * 0.11f)
-                lineTo(w * 0.94f, top + h * 0.2f)
-                lineTo(w * 0.06f, top + h * 0.2f)
-                close()
-            }
-            drawPath(tab, Color(0xFF4A9BE0))
-            drawRoundRect(
-                brush = Brush.verticalGradient(listOf(Color(0xFF8FCBF9), Color(0xFF5AA9E6)), startY = top + h * 0.12f, endY = h * 0.86f),
-                topLeft = Offset(w * 0.06f, top + h * 0.12f),
-                size = Size(w * 0.88f, h * 0.86f - (top + h * 0.12f)),
-                cornerRadius = CornerRadius(w * 0.08f),
-            )
-        }
-        if (glyph != null) {
-            Image(
-                glyph, contentDescription = null, colorFilter = ColorFilter.tint(Color.White.copy(alpha = 0.92f)),
-                modifier = Modifier.padding(top = size * 0.2f).size(size * 0.36f),
-            )
-        }
-    }
-}
-
-private fun folderGlyph(name: String): ImageVector? = when (name.lowercase()) {
+private fun folderGlyph(name: String): ImageVector = when (name.lowercase()) {
     "movies", "videos", "movie", "video", "tv shows" -> Icons.Rounded.Movie
     "pictures", "photos", "screenshots", "wallpapers" -> Icons.Rounded.Image
     "dcim", "camera" -> Icons.Rounded.PhotoCamera
     "music", "podcasts", "audiobooks", "ringtones" -> Icons.Rounded.MusicNote
     "download", "downloads" -> Icons.Rounded.Download
     "documents", "docs" -> Icons.Rounded.Description
-    else -> null
-}
-
-/** iOS system colors for file badges, by type. */
-fun FileKind.badgeColor(): Color = when (this) {
-    FileKind.FOLDER -> Color(0xFF5AA9E6)
-    FileKind.IMAGE -> Color(0xFF30B0C7)
-    FileKind.VIDEO -> Color(0xFF5E5CE6)
-    FileKind.AUDIO -> Color(0xFFFF2D55)
-    FileKind.DOCUMENT, FileKind.TEXT -> Color(0xFF0A84FF)
-    FileKind.ARCHIVE -> Color(0xFF8E8E93)
-    FileKind.APK -> Color(0xFF34C759)
-    FileKind.OTHER -> Color(0xFF8E8E93)
+    else -> Icons.Rounded.Folder
 }
 
 /** The icon for any file or folder: an iOS-style folder, or a colored badge for files. */
 @Composable
 fun FileGlyph(name: String, kind: FileKind, modifier: Modifier = Modifier, size: Dp = 32.dp) {
-    if (kind == FileKind.FOLDER) AppleFolder(name, modifier, size)
-    else IconBadge(kind.icon(), kind.badgeColor(), modifier, size)
+    // Plain symbols in the content color, Apple style (no colored badges); a little inside [size].
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        TvIcon(if (kind == FileKind.FOLDER) folderGlyph(name) else kind.icon(), size = size * 0.8f)
+    }
 }
 
 fun FileKind.icon(): ImageVector = when (this) {
@@ -175,36 +104,26 @@ fun FileKind.icon(): ImageVector = when (this) {
     FileKind.OTHER -> Icons.Rounded.InsertDriveFile
 }
 
-fun FileKind.color(): Color = when (this) {
-    FileKind.FOLDER -> Palette.folder
-    FileKind.IMAGE -> Palette.image
-    FileKind.VIDEO -> Palette.video
-    FileKind.AUDIO -> Palette.audio
-    FileKind.DOCUMENT, FileKind.TEXT -> Palette.document
-    FileKind.ARCHIVE -> Palette.archive
-    FileKind.APK -> Palette.apk
-    FileKind.OTHER -> Palette.muted
-}
 
-/** Compact toolbar button: icon plus optional label. With [badge], the icon is an iOS-style app-icon badge of that color. */
+/** Compact toolbar button: icon plus optional label. */
 @Composable
-fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, badge: Color? = null) {
+fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Button(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
         contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
         scale = ButtonDefaults.scale(focusedScale = 1.06f),
-        // Glass pill: tinted fill with the lit rim; solid accent when focused.
+        // Glass pill with the lit rim; white with dark content when focused, as on Apple TV.
         border = ButtonDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = com.woodruff.tvexplorer.ui.theme.Shapes.pill)),
         colors = ButtonDefaults.colors(
             containerColor = Palette.surfaceHigh,
             contentColor = Palette.text,
-            focusedContainerColor = Palette.accent,
-            focusedContentColor = Palette.onAccent,
+            focusedContainerColor = Palette.text,
+            focusedContentColor = Palette.background,
         ),
     ) {
-        if (badge != null) IconBadge(icon, badge, size = 26.dp) else TvIcon(icon, size = 20.dp)
+        TvIcon(icon, size = 20.dp)
         if (label != null) Text(label, modifier = Modifier.padding(start = 8.dp))
     }
 }

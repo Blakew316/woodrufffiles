@@ -83,7 +83,7 @@ fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDi
                     selected = false,
                     onClick = { onDismiss(); a.run() },
                     modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
-                    leadingContent = { TvIcon(a.icon, tint = if (a.destructive) Palette.danger else androidx.tv.material3.LocalContentColor.current) },
+                    leadingContent = { TvIcon(a.icon) },
                     headlineContent = { Text(a.label, color = if (a.destructive) Palette.danger else androidx.compose.ui.graphics.Color.Unspecified) },
                 )
             }

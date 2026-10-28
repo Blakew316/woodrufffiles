@@ -125,7 +125,7 @@ internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
         modifier = Modifier.padding(start = 12.dp),
         shape = ClickableSurfaceDefaults.shape(Shapes.pill),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (active) Palette.accent.copy(alpha = 0.3f) else Palette.surfaceHigh,
+            containerColor = if (active) Palette.text.copy(alpha = 0.22f) else Palette.surfaceHigh,
             contentColor = Palette.text,
             focusedContainerColor = Color.White,
             focusedContentColor = Color(0xFF0B1220),

@@ -44,7 +44,7 @@ fun PermissionScreen(onRecheck: () -> Unit) {
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(Modifier.width(640.dp), verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            TvIcon(Icons.Rounded.FolderOpen, size = 72.dp, tint = Palette.accent)
+            TvIcon(Icons.Rounded.FolderOpen, size = 72.dp, tint = Palette.text)
             Text("Allow access to your files", style = MaterialTheme.typography.headlineMedium)
             Text(
                 if (Build.VERSION.SDK_INT >= 30)

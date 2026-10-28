@@ -542,10 +542,11 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Bo
             .fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (active) Palette.accentSoft else androidx.compose.ui.graphics.Color.Transparent,
-            contentColor = if (active) Palette.accent else Palette.text,
-            focusedContainerColor = Palette.accent,
-            focusedContentColor = Palette.onAccent,
+            // Monochrome, as on Apple TV: the current screen sits in soft glass, the focused item turns white.
+            containerColor = if (active) Palette.text.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent,
+            contentColor = Palette.text,
+            focusedContainerColor = Palette.text,
+            focusedContentColor = Palette.background,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
     ) {
