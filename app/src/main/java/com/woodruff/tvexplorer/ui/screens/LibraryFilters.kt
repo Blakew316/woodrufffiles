@@ -53,13 +53,12 @@ import com.woodruff.tvexplorer.cloud.LibrarySort
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
-import kotlinx.coroutines.delay
 
 /*
  * Movies / TV Shows browsing, Apple TV style:
  *   - a header with the title and three round glass buttons: Search, Filter and More;
- *   - a row of category tabs under it (All + genres, or decades without TMDB genres) that
- *     re-filter the grid as the focus rests on them, like the TV app's own tabs;
+ *   - a row of category tabs under it (All + genres, or decades without TMDB genres), chosen
+ *     with OK;
  *   - Filter opens a panel on the right with Sort, Decade and Genre as plain lists, applied
  *     instantly so the posters behind change as you go;
  *   - Search opens its own full screen (see LibrarySearch in DriveScreen.kt).
@@ -125,16 +124,11 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 
 /**
  * Text tabs, Apple TV style: the chosen one sits in a glass capsule, the focused one turns white.
- * Resting on a tab for a moment selects it (the grid below follows), as on the TV app.
+ * Only pressing OK on a tab chooses it; moving across them changes nothing.
  */
 @Composable
 private fun <T> CategoryTabs(options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
     val select by rememberUpdatedState(onSelect)
-    var resting by remember { mutableStateOf<Any?>(Unset) }
-    LaunchedEffect(resting) {
-        val r = resting
-        if (r !== Unset) { delay(350); @Suppress("UNCHECKED_CAST") select(r as T) }
-    }
     LazyRow(
         Modifier.fillMaxWidth().padding(top = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -144,7 +138,6 @@ private fun <T> CategoryTabs(options: List<T>, selected: T, label: (T) -> String
             val isSelected = o == selected
             Surface(
                 onClick = { select(o) },
-                modifier = Modifier.onFocusChanged { if (it.isFocused && o != selected) resting = o },
                 shape = ClickableSurfaceDefaults.shape(Shapes.pill),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (isSelected) Palette.surfaceHigh else Color.Transparent,
@@ -163,8 +156,6 @@ private fun <T> CategoryTabs(options: List<T>, selected: T, label: (T) -> String
         }
     }
 }
-
-private object Unset
 
 /**
  * Filter panel on the right: Sort, Decade and Genre as three short lists. Every choice applies at

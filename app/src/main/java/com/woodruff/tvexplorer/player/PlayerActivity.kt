@@ -152,22 +152,22 @@ class PlayerActivity : ComponentActivity() {
             setBackgroundColor(android.graphics.Color.BLACK)
             clipToOutline = true
             outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(v: android.view.View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, 14 * d) }
+                override fun getOutline(v: android.view.View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, 8 * d) }
             }
         }
         previewTime = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
-            textSize = 20f
+            textSize = 14f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = android.view.Gravity.CENTER
-            setPadding(0, (8 * d).toInt(), 0, 0)
+            setPadding(0, (4 * d).toInt(), 0, 0)
         }
         previewBox = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
-            val pad = (5 * d).toInt()
+            val pad = (4 * d).toInt()
             setPadding(pad, pad, pad, pad)
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xE6101820.toInt()); cornerRadius = 18 * d; setStroke((2 * d).toInt(), android.graphics.Color.WHITE)
+                setColor(0xE6101820.toInt()); cornerRadius = 11 * d; setStroke((2 * d).toInt(), android.graphics.Color.WHITE)
             }
             addView(previewImage, android.widget.LinearLayout.LayoutParams((PREVIEW_W * d).toInt(), (PREVIEW_H * d).toInt()))
             addView(previewTime, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -216,7 +216,7 @@ class PlayerActivity : ComponentActivity() {
         // Centered over the scrub point, kept on screen, just above the bar.
         val d = resources.displayMetrics.density
         val boxW = (PREVIEW_W + 10) * d
-        val boxH = (PREVIEW_H + 10 + 40) * d
+        val boxH = (PREVIEW_H + 10 + 26) * d
         val bar = IntArray(2).also(timeBar::getLocationInWindow)
         val rootPos = IntArray(2).also(rootView::getLocationInWindow)
         val x = bar[0] - rootPos[0] + timeBar.width * (position.toFloat() / duration) - boxW / 2
@@ -622,8 +622,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     companion object {
-        private const val PREVIEW_W = 288
-        private const val PREVIEW_H = 162
+        // Half the first size: big enough to recognise a scene, small enough not to cover the film.
+        private const val PREVIEW_W = 144
+        private const val PREVIEW_H = 81
         private const val EXTRA_KEYS = "keys"
         private const val EXTRA_TITLES = "titles"
         private const val EXTRA_START = "start"

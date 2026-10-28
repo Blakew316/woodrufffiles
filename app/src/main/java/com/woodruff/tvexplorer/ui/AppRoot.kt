@@ -68,6 +68,9 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.mutableIntStateOf
+import kotlin.math.roundToInt
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -144,6 +147,7 @@ fun AppRoot(vm: MainViewModel) {
     val contentFocus = remember { FocusRequester() }
     var railFocused by remember { mutableStateOf(false) }
     var contentFocused by remember { mutableStateOf(false) }
+    var enterContent by remember { mutableIntStateOf(0) }
     val open = railFocused || RailPreview.open
 
     // Voice search: the menu's Search item, or the remote's search button. Speech when the TV has a
@@ -209,24 +213,28 @@ fun AppRoot(vm: MainViewModel) {
         // Dim the dashboard while the menu is open over it.
         // Animated values are read only while drawing / laying out, so the 220 ms open and close
         // animations don't recompose the whole window on every frame.
-        val scrim = animateFloatAsState(if (open) 1f else 0f, tween(180, easing = FastOutSlowInEasing), label = "scrim")
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim.value }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
+        // One fully damped spring drives the menu's width, its colour, its labels and this dimming
+        // together: it starts quickly, eases to a stop without overshoot, and picks up smoothly if
+        // the menu reverses half-way (a timed curve restarts and jerks).
+        val reveal = animateFloatAsState(if (open) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 420f), label = "rail")
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
         // Side menu: icons only until it has focus, then it opens to full labels over the content.
         // Opens quick and settles softly (no linear robot slide).
-        val railWidth = animateDpAsState(if (open) RAIL_OPEN else RAIL_CLOSED, tween(200, easing = FastOutSlowInEasing), label = "rail")
         Column(
             Modifier
                 // The rows are measured once at the width the menu is heading to; each animation frame
                 // then only changes how much of it shows (re-measuring 13 rows per frame cost frames).
                 .layout { measurable, constraints ->
                     val target = (if (open) RAIL_OPEN else RAIL_CLOSED).roundToPx()
-                    val w = railWidth.value.roundToPx()
+                    val closed = RAIL_CLOSED.toPx()
+                    val w = (closed + (RAIL_OPEN.toPx() - closed) * reveal.value).roundToInt()
                     val p = measurable.measure(constraints.copy(minWidth = target, maxWidth = target))
                     layout(w, p.height) { p.place(0, 0) }
                 }
                 .clipToBounds()
                 .fillMaxHeight()
-                .background(if (open) Palette.glass else Palette.surface)
+                // Fades from the slim tint to the open menu's frosted glass with the slide (drawn, not recomposed).
+                .drawBehind { drawRect(androidx.compose.ui.graphics.lerp(Palette.surface, Palette.glass, reveal.value)) }
                 .onFocusChanged { railFocused = it.hasFocus }
                 // Right goes into the content (the open menu covers its left edge, so a plain geometric
                 // search would skip the first column).
@@ -241,35 +249,37 @@ fun AppRoot(vm: MainViewModel) {
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
                 Brand(open, Modifier.padding(start = 6.dp, bottom = 24.dp))
-                RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, open, Modifier.focusRequester(homeFocus)) { vm.show(Screen.HOME) }
+                // Choosing a screen in the menu goes straight into it (the menu closes behind).
+                val go: (() -> Unit) -> Unit = { action -> action(); enterContent++ }
+                RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, open, Modifier.focusRequester(homeFocus)) { go { vm.show(Screen.HOME) } }
                 RailItem("Search", Icons.Rounded.Mic, false, open) { startSearch() }
-                RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS, open) { vm.show(Screen.CAMERAS) }
+                RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS, open) { go { vm.show(Screen.CAMERAS) } }
                 // Library: Movies and TV Shows stream from those Drive folders; Photos and Videos are
                 // what was picked from Google Photos, saved on the TV.
                 RailItem("Movies", Icons.Rounded.Movie, screen == Screen.DRIVE && driveTop == DrivePlace.Movies, open) {
-                    drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE)
+                    go { drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE) }
                 }
                 RailItem("TV Shows", Icons.Rounded.Tv, screen == Screen.DRIVE && driveTop == DrivePlace.TvShows, open) {
-                    drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE)
+                    go { drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE) }
                 }
                 val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browser.folder?.path?.startsWith(dir.path) == true }
                 RailItem("Photos", Icons.Rounded.PhotoLibrary, inFolder(GooglePhotos.folder), open) {
-                    vm.openRoot(GooglePhotos.folder.apply { mkdirs() })
+                    go { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }) }
                 }
                 RailItem("Videos", Icons.Rounded.VideoLibrary, inFolder(GooglePhotos.videoFolder), open) {
-                    vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() })
+                    go { vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() }) }
                 }
-                RailItem("Mail", Icons.Rounded.Email, screen == Screen.MAIL, open) { vm.show(Screen.MAIL) }
+                RailItem("Mail", Icons.Rounded.Email, screen == Screen.MAIL, open) { go { vm.show(Screen.MAIL) } }
                 RailItem(
                     if (unread > 0) "Notifications · $unread" else "Notifications",
                     Icons.Rounded.Notifications, screen == Screen.NOTIFICATIONS, open, badge = unread > 0,
-                ) { vm.show(Screen.NOTIFICATIONS) }
-                RailItem("Notes", Icons.Rounded.EditNote, screen == Screen.NOTES, open) { vm.show(Screen.NOTES) }
+                ) { go { vm.show(Screen.NOTIFICATIONS) } }
+                RailItem("Notes", Icons.Rounded.EditNote, screen == Screen.NOTES, open) { go { vm.show(Screen.NOTES) } }
                 RailLabel("Connect", open)
                 RailItem(if (phoneConnected) "Phone · Connected" else "Phone", Icons.Rounded.PhoneIphone, screen == Screen.TRANSFER, open, badge = phoneConnected) {
-                    vm.show(Screen.TRANSFER)
+                    go { vm.show(Screen.TRANSFER) }
                 }
-                RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS, open) { vm.show(Screen.SETTINGS) }
+                RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS, open) { go { vm.show(Screen.SETTINGS) } }
         }
     }
 
@@ -302,6 +312,14 @@ fun AppRoot(vm: MainViewModel) {
             if (vm.screen.value == Screen.CAMERAS) com.woodruff.tvexplorer.ui.screens.cameraRequests.tryEmit(i)
             else { com.woodruff.tvexplorer.ui.screens.openCameraAt = i; vm.show(Screen.CAMERAS) }
         }
+    }
+    // A screen chosen in the side menu: move into it once it's on screen (two frames: composed and
+    // laid out), so the next press acts on the screen, not the menu.
+    LaunchedEffect(enterContent) {
+        if (enterContent == 0) return@LaunchedEffect
+        withFrameNanos {}
+        withFrameNanos {}
+        runCatching { contentFocus.requestFocus() }
     }
     // A screen changed from inside the content (Back to Home, a dashboard shortcut): the focused
     // item went away with the old screen, so put focus in the new one unless it took it itself.
