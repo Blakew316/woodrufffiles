@@ -103,6 +103,16 @@ class PlayerActivity : ComponentActivity() {
             background = android.graphics.drawable.GradientDrawable().apply { setColor(0xE6101820.toInt()); cornerRadius = 36f }
             visibility = android.view.View.GONE
         }
+        // "Next episode" during the end credits, like Netflix: OK skips them.
+        nextEp = android.widget.TextView(this).apply {
+            setTextColor(0xFF0B1220.toInt())
+            textSize = 20f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            text = "Next episode  ▸  OK"
+            setPadding(48, 26, 48, 26)
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(android.graphics.Color.WHITE); cornerRadius = 36f }
+            visibility = android.view.View.GONE
+        }
         // "Up next" card, bottom right, shown when an episode ends and there's another queued.
         upNext = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
@@ -138,6 +148,10 @@ class PlayerActivity : ComponentActivity() {
             android.view.Gravity.TOP,
         ))
         root.addView(upNext, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.END,
+        ).apply { setMargins(0, 0, 72, 72) })
+        root.addView(nextEp, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.END,
         ).apply { setMargins(0, 0, 72, 72) })
@@ -189,6 +203,12 @@ class PlayerActivity : ComponentActivity() {
         })
     }
 
+    /** Watched to the end: out of Continue watching, and marked ✓ on its poster / episode row. */
+    private fun finished(key: String) {
+        recent.remove(key)
+        Watched.mark(this, key)
+    }
+
     // ---- Scrubbing preview ----------------------------------------------------------------------
 
     private lateinit var rootView: android.widget.FrameLayout
@@ -229,6 +249,9 @@ class PlayerActivity : ComponentActivity() {
 
     private lateinit var skip: android.widget.TextView
     private lateinit var titleBar: android.widget.TextView
+    private lateinit var nextEp: android.widget.TextView
+    /** The episode whose "Next episode" button was waved away with Back (don't show it again for it). */
+    private var nextDismissedFor: String? = null
 
     // ---- Watch together ----------------------------------------------------------------------
     /** This TV started a watch-together: it leads, the linked TVs follow. */
@@ -317,6 +340,13 @@ class PlayerActivity : ComponentActivity() {
         val end = introEnd
         val pos = p.currentPosition
         skip.visibility = if (end > 0 && pos in 1_000 until end - 2_000 && upNext.visibility != android.view.View.VISIBLE) android.view.View.VISIBLE else android.view.View.GONE
+        // The last 40 s of an episode with another queued: the credits, roughly. Video only.
+        val left = p.duration - pos
+        val key = p.currentMediaItem?.mediaId
+        nextEp.visibility = if (
+            p.hasNextMediaItem() && p.duration > 60_000 && left in 1..40_000 && p.pauseAtEndOfMediaItems &&
+            upNext.visibility != android.view.View.VISIBLE && key != nextDismissedFor
+        ) android.view.View.VISIBLE else android.view.View.GONE
     }
 
     /** This show's audio / subtitle choice, applied when an episode starts. */
@@ -409,7 +439,7 @@ class PlayerActivity : ComponentActivity() {
         cancelUpNext()
         val p = player ?: return
         // Finished: drop it from Continue watching, then on to the next one.
-        p.currentMediaItem?.mediaId?.let(recent::remove)
+        p.currentMediaItem?.mediaId?.let(::finished)
         if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.play() }
     }
 
@@ -493,14 +523,14 @@ class PlayerActivity : ComponentActivity() {
 
                 override fun onPlaybackStateChanged(state: Int) {
                     // Last item of a music queue (no pause at the end): leave like a video does.
-                    if (state == Player.STATE_ENDED) { p.currentMediaItem?.mediaId?.let(recent::remove); finish() }
+                    if (state == Player.STATE_ENDED) { p.currentMediaItem?.mediaId?.let(::finished); finish() }
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     if (playWhenReady || reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) return
                     if (sleepAtEnd) { sleepNow(); return }
                     if (p.hasNextMediaItem()) startUpNext()
-                    else { p.currentMediaItem?.mediaId?.let(recent::remove); finish() }
+                    else { p.currentMediaItem?.mediaId?.let(::finished); finish() }
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -509,7 +539,7 @@ class PlayerActivity : ComponentActivity() {
                     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                         // Finished the previous one: drop it from Continue watching.
                         val prev = p.previousMediaItemIndex.takeIf { it >= 0 }?.let { p.getMediaItemAt(it) }
-                        prev?.mediaId?.let(recent::remove)
+                        prev?.mediaId?.let(::finished)
                     }
                 }
             })
@@ -544,7 +574,7 @@ class PlayerActivity : ComponentActivity() {
             }
             p.currentMediaItem?.let { item ->
                 // Watched to the end: it stays out of Continue watching instead of coming back at its last second.
-                if (p.duration > 0 && p.duration - p.currentPosition < 5_000) recent.remove(item.mediaId)
+                if (p.duration > 0 && p.duration - p.currentPosition < 5_000) finished(item.mediaId)
                 else recent.save(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0))
             }
             p.release()
@@ -609,6 +639,12 @@ class PlayerActivity : ComponentActivity() {
         if (event.action == KeyEvent.ACTION_DOWN && (event.keyCode == KeyEvent.KEYCODE_MENU || event.keyCode == KeyEvent.KEYCODE_INFO)) {
             showOptions(); return true
         }
+        if (nextEp.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { nextEp.visibility = android.view.View.GONE; playNext(); return true }
+                KeyEvent.KEYCODE_BACK -> { nextDismissedFor = player?.currentMediaItem?.mediaId; nextEp.visibility = android.view.View.GONE; return true }
+            }
+        }
         if (skip.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
@@ -619,7 +655,7 @@ class PlayerActivity : ComponentActivity() {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { playNext(); return true }
                 KeyEvent.KEYCODE_BACK -> {
                     // Stop: this one is finished, so leave rather than sit paused on its last frame.
-                    cancelUpNext(); player?.currentMediaItem?.mediaId?.let(recent::remove); finish(); return true
+                    cancelUpNext(); player?.currentMediaItem?.mediaId?.let(::finished); finish(); return true
                 }
             }
         }

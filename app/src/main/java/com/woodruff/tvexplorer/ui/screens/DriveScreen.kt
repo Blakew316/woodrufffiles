@@ -1,6 +1,8 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import android.content.Context
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.rounded.Check
 import com.woodruff.tvexplorer.ui.theme.ambientBackdrop
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.ui.zIndex
@@ -187,6 +189,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     val target = remember(state.place) { driveFocus[placeKey]?.takeIf { id -> shown.any { it.id == id } } ?: shown.first().id }
                     val first = remember(state.place) { FocusRequester() }
                     val grid = remember(state.place) { LazyGridState() }
+                    // How far through each title is, read once per visit and on coming back from the player (not per tile).
+                    var resumes by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+                    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { resumes++ }
+                    val progressOf = remember(state.place, resumes) {
+                        com.woodruff.tvexplorer.player.RecentStore(context).all().filter { it.progress < 0.97f }.associate { it.key to it.progress }
+                    }
                     // Load the posters a couple of rows past the focus into the image cache, so they're
                     // already there when the grid scrolls to them instead of popping in.
                     val positions = remember(shown) { shown.withIndex().associate { (i, f) -> f.id to i } }
@@ -215,6 +223,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                             if (state.library) PosterTile(
                                 f, state.token, onClick = { choose(f) }, onLongClick = { menuFor = f }, modifier = mod,
                                 label = if (state.filterable) Library.label(f) else null,
+                                progress = progressOf[MediaRef.Drive(f.id).key],
+                                watched = !f.isFolder && com.woodruff.tvexplorer.player.Watched.isWatched(context, MediaRef.Drive(f.id).key),
                             )
                             else DriveTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
                         }
@@ -327,7 +337,13 @@ internal fun posterArt(f: DriveFile): String? = f.posterUrl ?: f.thumbnailLink?.
  * Without artwork, a title card in the brand colors.
  */
 @Composable
-internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier, label: String? = null) {
+internal fun PosterTile(
+    f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier, label: String? = null,
+    /** How far through it is (0..1), for the bar along the bottom; null when not started. */
+    progress: Float? = null,
+    /** Watched to the end: a ✓ in the corner. */
+    watched: Boolean = false,
+) {
     val context = LocalContext.current
     val title = label ?: f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
     // Posters already show their title, so the label only appears on focus; frames and title cards always have it.
@@ -430,6 +446,15 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
             ) {
                 Text(title, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
+            // Part-watched: a bar along the bottom edge, Netflix style.
+            if (progress != null && progress > 0.01f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {
+                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Palette.accent))
+            }
+            // Watched: a ✓ badge top right.
+            if (watched) Box(
+                Modifier.align(Alignment.TopEnd).padding(8.dp).size(26.dp).background(Color.White, androidx.compose.foundation.shape.CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { TvIcon(Icons.Rounded.Check, size = 18.dp, tint = Color(0xFF0B1220)) }
         }
     }
 }
