@@ -350,7 +350,7 @@ private fun ContinuePanel(
     Panel(title, modifier, note = if (recent.size > 1) "${recent.size} in progress" else if (added.isNotEmpty()) "New" else null) {
         val r = recent.firstOrNull()
         if (r == null && added.isNotEmpty()) {
-            LazyRow(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(4.dp)) {
+            LazyRow(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)) {
                 items(added, key = { "new-" + it.second.id }) { a ->
                     PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
                 }
@@ -367,10 +367,11 @@ private fun ContinuePanel(
             }
             return@Panel
         }
-        // The latest one large with a play button; the rest as square tiles beside it.
+        // The latest one large with a play button; the rest as square tiles beside it. A row clips
+        // at its ends, so it leaves room there for a focused tile's grown edge and outline.
         LazyRow(
             Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(4.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
         ) {
             item(key = r.key) {
                 ResumeTile(r, play, onMenu, Modifier.width(196.dp).fillMaxHeight(), main = true)
@@ -446,7 +447,7 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
     Panel("TVs", modifier, note = if (tvs.size > 1) "${tvs.count { it.online }} on" else null) {
         if (sel == null) { Text("Looking…", color = Palette.muted); return@Panel }
         if (tvs.size > 1) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 10.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 10.dp)) {
                 items(tvs, key = { it.id }) { t -> FilterPill(t.name, t.id == sel.id, { selected = t.id }) }
             }
         }
@@ -606,11 +607,12 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
     ) {
-        Box(Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF0B0E13))) {
+        // Edge to edge, in the tile's own rounded shape: the picture fills the whole tile.
+        Box(Modifier.fillMaxSize().clip(com.woodruff.tvexplorer.ui.theme.Shapes.card).background(Color(0xFF0B0E13))) {
             val stills by CameraStills.stills.collectAsStateWithLifecycle()
             val still = cam?.let { stills[it.name] }
             val stillImage = remember(still) { still?.bitmap?.asImageBitmap() }
-            if (live && cam != null) LiveVideo(cam, audio = false)
+            if (live && cam != null) LiveVideo(cam, audio = false, fill = true)
             else if (stillImage != null) Image(stillImage, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 TvIcon(Icons.Rounded.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))

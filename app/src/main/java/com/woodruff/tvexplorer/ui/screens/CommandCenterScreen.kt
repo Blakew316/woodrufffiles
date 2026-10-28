@@ -280,26 +280,40 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
  * or another app on top, the stream stops (it was decoding underneath) and resumes on return.
  */
 @Composable
-internal fun LiveVideo(cam: Camera, audio: Boolean) {
+internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false) {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio)
+    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio, fill)
     else Placeholder("Paused")
 }
 
-/** One WebRTC live view. The renderer and stream live exactly as long as this composable. */
+/** A video view, what it renders into, and how to take a frame from it and let it go. */
+private class Renderer(
+    val view: View,
+    val sink: org.webrtc.VideoSink,
+    val grab: (org.webrtc.EglRenderer.FrameListener) -> Unit,
+    val release: () -> Unit,
+)
+
+/**
+ * One WebRTC live view. The renderer and stream live exactly as long as this composable.
+ * [fill]: a tile — the picture fills it and takes its rounded corners (a TextureView); otherwise
+ * the whole frame is shown, letterboxed if need be (a SurfaceView, the cheapest to draw).
+ */
 @Composable
-private fun LiveStream(cam: Camera, audio: Boolean) {
+private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean) {
     val context = LocalContext.current
     val renderer = remember {
-        SurfaceViewRenderer(context).apply {
+        if (fill) com.woodruff.tvexplorer.nest.TextureRenderer(context, Rtc.egl.eglBaseContext).let { t ->
+            Renderer(t, t, { l -> t.addFrameListener(l, 0.3f) }, { t.release() })
+        } else SurfaceViewRenderer(context).apply {
             init(Rtc.egl.eglBaseContext, null)
             setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
             setEnableHardwareScaler(true)
             isFocusable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
+        }.let { s -> Renderer(s, s, { l -> s.addFrameListener(l, 0.3f) }, { s.release() }) }
     }
-    val stream = remember { CameraStream(context, cam, renderer) }
+    val stream = remember { CameraStream(context, cam, renderer.sink) }
     DisposableEffect(Unit) {
         stream.start()
         onDispose {
@@ -313,12 +327,12 @@ private fun LiveStream(cam: Camera, audio: Boolean) {
     LaunchedEffect(status) {
         while (status == CameraStream.Status.Live) {
             delay(1_500)
-            runCatching { renderer.addFrameListener({ bmp -> CameraStills.put(cam.name, bmp) }, 0.3f) }
+            runCatching { renderer.grab(org.webrtc.EglRenderer.FrameListener { bmp -> CameraStills.put(cam.name, bmp) }) }
             delay(20_000)
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(factory = { renderer }, modifier = Modifier.fillMaxSize())
+        AndroidView(factory = { renderer.view }, modifier = Modifier.fillMaxSize())
         when (val s = status) {
             CameraStream.Status.Live -> Unit
             CameraStream.Status.Connecting -> Placeholder("Connecting…")
