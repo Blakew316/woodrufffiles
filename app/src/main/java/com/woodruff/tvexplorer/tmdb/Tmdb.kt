@@ -82,7 +82,7 @@ object Tmdb {
                         posterUrl = f.posterUrl ?: hit.poster,
                         info = if (mode == Mode.SEASONS) f.info else parsed.copy(
                             year = parsed.year ?: hit.year, genres = hit.genres, rating = hit.rating,
-                            overview = hit.overview, backdrop = hit.backdrop,
+                            overview = hit.overview, backdrop = hit.backdrop, tmdbId = hit.id, tv = hit.tv,
                         ),
                     )
                 }
@@ -92,15 +92,30 @@ object Tmdb {
         out
     }
 
+    private val castCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
+    /** The main cast ("Name as Character" is too long for a TV line: just names), for a title's page. */
+    suspend fun cast(c: Context, id: Int, tv: Boolean): List<String> = withContext(Dispatchers.IO) {
+        val k = "${if (tv) "tv" else "movie"}/$id"
+        castCache[k]?.let { return@withContext it }
+        val key = key(c) ?: return@withContext emptyList()
+        runCatching {
+            val arr = get(key, if (tv) "tv/$id/aggregate_credits" else "movie/$id/credits").optJSONArray("cast")
+            (0 until minOf(arr?.length() ?: 0, 6)).mapNotNull { arr!!.optJSONObject(it)?.optString("name")?.ifBlank { null } }
+        }.getOrDefault(emptyList()).also { if (it.isNotEmpty()) castCache[k] = it }
+    }
+
     /** One TMDB match, as cached: poster URL, release year, genre names, rating out of 10. */
     internal data class Hit(
         val poster: String?, val year: Int?, val genres: List<String>, val rating: Double?,
         /** The synopsis and a wide background image, for the title's detail page. */
         val overview: String? = null, val backdrop: String? = null,
+        /** TMDB's id and whether it's a TV show, for the cast list. */
+        val id: Int? = null, val tv: Boolean = false,
     ) {
         fun toJson(): String = JSONObject().put("p", poster ?: "").put("y", year ?: 0)
             .put("g", org.json.JSONArray(genres)).put("r", rating ?: 0.0)
-            .put("o", overview ?: "").put("b", backdrop ?: "").toString()
+            .put("o", overview ?: "").put("b", backdrop ?: "").put("i", id ?: 0).put("tv", tv).toString()
 
         companion object {
             fun fromJson(s: String): Hit? = runCatching {
@@ -111,6 +126,7 @@ object Tmdb {
                     g?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
                     o.optDouble("r", 0.0).takeIf { it > 0 },
                     o.optString("o").ifBlank { null }, o.optString("b").ifBlank { null },
+                    o.optInt("i").takeIf { it > 0 }, o.optBoolean("tv"),
                 )
             }.getOrNull()
         }
@@ -169,6 +185,7 @@ object Tmdb {
             names, rating,
             o.optString("overview").ifBlank { null }?.take(700),
             o.optString("backdrop_path").ifBlank { null }?.let { BACKDROP + it },
+            o.optInt("id").takeIf { it > 0 }, dateField == "first_air_date",
         )
     }
 
@@ -248,7 +265,7 @@ object Tmdb {
     }
 
     // v2 holds full matches; the old file (posters only) is dropped so titles get their genres.
-    private fun cacheFile(c: Context) = File(c.applicationContext.filesDir, "tmdb_cache3.json") // 3: adds synopsis + backdrop
+    private fun cacheFile(c: Context) = File(c.applicationContext.filesDir, "tmdb_cache4.json") // 4: adds synopsis, backdrop and TMDB id
 
     @Synchronized
     private fun load(c: Context) {
@@ -256,6 +273,7 @@ object Tmdb {
         loaded = true
         File(c.applicationContext.filesDir, "tmdb_cache.json").delete()
         File(c.applicationContext.filesDir, "tmdb_cache2.json").delete()
+        File(c.applicationContext.filesDir, "tmdb_cache3.json").delete()
         runCatching {
             val o = JSONObject(cacheFile(c).readText())
             o.keys().forEach { k -> cache[k] = o.getString(k) }

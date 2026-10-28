@@ -85,6 +85,7 @@ import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveState
 import com.woodruff.tvexplorer.cloud.DriveViewModel
 import com.woodruff.tvexplorer.cloud.Library
+import com.woodruff.tvexplorer.cloud.LibrarySort
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.cloud.SignInStep
 import com.woodruff.tvexplorer.util.Qr
@@ -133,6 +134,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, shown, drive::open, onOther = { menuFor = it }) }
 
     var moreOpen by remember { mutableStateOf(false) }
+    // Rows (featured title, Continue watching, genres) or the full grid, remembered.
+    val viewPrefs = remember { context.getSharedPreferences("library_view", Context.MODE_PRIVATE) }
+    var rowsView by remember { mutableStateOf(viewPrefs.getBoolean("rows", true)) }
     // A title's detail page (Movies / TV Shows top level): choosing a poster opens it first, as on Apple TV.
     var detailFor by remember { mutableStateOf<DriveFile?>(null) }
     val choose: (DriveFile) -> Unit = { f -> if (state.filterable) detailFor = f else onOpen(f) }
@@ -182,6 +186,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 state.error != null -> EmptyState(state.error!!)
                 state.files.isEmpty() -> EmptyState("Nothing here")
                 shown.isEmpty() -> EmptyState("No matches")
+                state.filterable && rowsView && !filter.narrowed && filter.sort == LibrarySort.TITLE && state.files.size >= 12 -> LibraryRows(
+                    state.files, state.token, onChoose = choose, onPlay = onOpen, onMenu = { menuFor = it },
+                    onFocusArt = { focusedArt.value = it },
+                )
                 else -> {
                     // Back to a list you've been in: the item you left from is focused (and scrolled to)
                     // again, instead of the first one.
@@ -243,7 +251,11 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     if (moreOpen) {
         ActionMenu(
             title = "Google Drive", subtitle = null, onDismiss = { moreOpen = false },
-            actions = listOf(
+            actions = listOfNotNull(
+                if (state.filterable) MenuAction(if (rowsView) "Show as a grid" else "Show as rows", Icons.Rounded.Movie) {
+                    rowsView = !rowsView
+                    viewPrefs.edit().putBoolean("rows", rowsView).apply()
+                } else null,
                 MenuAction("Refresh", Icons.Rounded.Refresh, run = drive::refresh),
                 MenuAction("My Drive", Icons.Rounded.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
                 MenuAction("All videos", Icons.Rounded.Movie) { drive.openRoot(DrivePlace.Videos()) },
@@ -262,14 +274,24 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
 
     detailFor?.let { f ->
         val token = state.token
+        val isShow = state.stack.firstOrNull() == DrivePlace.TvShows
         TitleDetail(
-            f, posterArt(f),
+            f, posterArt(f), token, all = state.files, isShow = isShow,
             artHeaders = { url -> if (isGoogle(url) && token != null) mapOf("Authorization" to "Bearer $token") else emptyMap() },
             onPlay = { fromStart ->
                 detailFor = null
                 if (fromStart) playFromStart(context, f, shown) else onOpen(f)
             },
-            openLabel = if (state.stack.firstOrNull() == DrivePlace.TvShows) "Seasons & episodes" else "Open",
+            onPlayEpisode = { ep, queue, fromStart ->
+                detailFor = null
+                context.startActivity(PlayerActivity.intent(context, queue.map { MediaRef.Drive(it.id).key }, queue.map { it.name }, MediaRef.Drive(ep.id).key, positionMs = if (fromStart) 0L else null))
+            },
+            onPlayKey = { key, title ->
+                detailFor = null
+                context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(title), key))
+            },
+            openLabel = if (isShow) "All folders" else "Open",
+            onChoose = { detailFor = it },
             onOpen = { detailFor = null; onOpen(f) },
             onDismiss = { detailFor = null },
         )
@@ -548,7 +570,7 @@ private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, o
 /** Only set by the UI gallery, which renders headless and can't wait on Coil: decodes art synchronously. */
 internal val LocalPosterPainter = androidx.compose.runtime.staticCompositionLocalOf<((String) -> androidx.compose.ui.graphics.painter.Painter?)?> { null }
 
-private fun isGoogle(url: String): Boolean {
+internal fun isGoogle(url: String): Boolean {
     val host = android.net.Uri.parse(url).host.orEmpty()
     return host.endsWith(".googleusercontent.com") || host.endsWith(".google.com") || host.endsWith(".googleapis.com")
 }

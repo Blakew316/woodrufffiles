@@ -45,7 +45,8 @@ object ListingCache {
         .apply {
             d.info?.let { i ->
                 put("i", JSONObject().put("ti", i.title).put("y", i.year ?: 0).put("g", JSONArray(i.genres))
-                    .put("r", i.rating ?: 0.0).put("o", i.overview ?: "").put("b", i.backdrop ?: ""))
+                    .put("r", i.rating ?: 0.0).put("o", i.overview ?: "").put("b", i.backdrop ?: "")
+                    .put("id", i.tmdbId ?: 0).put("tv", i.tv))
             }
         }
 
@@ -62,6 +63,7 @@ object ListingCache {
                     g?.let { a -> (0 until a.length()).map { k -> a.getString(k) } }.orEmpty(),
                     it.optDouble("r", 0.0).takeIf { r -> r > 0 },
                     it.optString("o").ifBlank { null }, it.optString("b").ifBlank { null },
+                    it.optInt("id").takeIf { n -> n > 0 }, it.optBoolean("tv"),
                 )
             },
         )

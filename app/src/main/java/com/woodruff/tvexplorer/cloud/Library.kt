@@ -12,6 +12,7 @@ data class MediaInfo(
     val title: String, val year: Int?, val genres: List<String> = emptyList(), val rating: Double? = null,
     /** From TMDB, for the detail page: the synopsis and a wide background image URL. */
     val overview: String? = null, val backdrop: String? = null,
+    val tmdbId: Int? = null, val tv: Boolean = false,
 ) {
     // Worked out on first use, then kept with the listing: filter changes don't redo them.
     internal val sortKey: String by lazy { Library.sortKey(title) }
