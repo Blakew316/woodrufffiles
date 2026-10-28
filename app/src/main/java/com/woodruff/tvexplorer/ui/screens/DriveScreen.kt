@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -191,7 +192,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp),
             )
-            Row(Modifier.padding(top = 18.dp, bottom = 18.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // The scroll clips at its ends, so the buttons get room inside it (shifted back into line),
+            // or the focused first or last one's outline is cut off.
+            Row(
+                Modifier.padding(top = 18.dp, bottom = 18.dp).offset(x = (-12).dp).horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 if (state.stack.size > 1) ToolButton(Sym.ArrowBack, null, { drive.back() })
                 ToolButton(Sym.AddToDrive, "My Drive", { drive.openRoot(DrivePlace.MyDrive) })
                 ToolButton(Sym.Movie, "All videos", { drive.openRoot(DrivePlace.Videos()) })
@@ -443,10 +449,13 @@ internal fun PosterTile(
             // The shadow it casts on the page: a soft dark oval below the tile, painted from a
             // gradient made once (cheaper than a real elevation shadow while it animates).
             .drawWithCache {
+                // Centred on the oval (as lifted) and clear at its sides, so it fades out instead of
+                // ending in a hard edge across the posters beside it. The middle stop sits about where
+                // it comes out from under the tile, keeping it as dark there as before.
                 val shadow = Brush.radialGradient(
-                    listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.25f), Color.Transparent),
-                    center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.62f),
-                    radius = size.maxDimension * 0.7f,
+                    0f to Color.Black.copy(alpha = 0.6f), 0.75f to Color.Black.copy(alpha = 0.25f), 1f to Color.Transparent,
+                    center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.62f + 14.dp.toPx()),
+                    radius = size.width * 0.72f, // the oval's half-width
                 )
                 onDrawBehind {
                     val l = lift.value.coerceIn(0f, 1f)

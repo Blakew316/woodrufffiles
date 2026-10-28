@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -48,7 +49,6 @@ import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.photos.GooglePhotos
 import com.woodruff.tvexplorer.photos.MediaDates
 import com.woodruff.tvexplorer.photos.PhotoFilter
-import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -68,13 +68,19 @@ fun BrowserScreen(vm: MainViewModel) {
     // Photos / Videos: filter and sort by when each was taken (read in the background, then cached).
     val dateFilterable = photosFolder && location is Location.Folder && !state.selecting
     var photoFilter by remember(location.key) { mutableStateOf(photoFilterMemory[location.key] ?: PhotoFilter()) }
-    val dates by produceState<Map<String, Long>?>(null, dateFilterable, state.items) {
-        if (!dateFilterable) { value = null; return@produceState }
+    // Each folder's own: with the last folder's dates (or the empty list's while it loads), a new
+    // folder showed in the wrong order for a moment, then reshuffled.
+    var dates by remember(location.key) { mutableStateOf<Map<String, Long>?>(null) }
+    LaunchedEffect(dateFilterable, state.items, state.loading) {
+        if (!dateFilterable) { dates = null; return@LaunchedEffect }
+        // The empty list shown while it loads: nothing to date yet (a folder that's really empty
+        // still gets its empty dates once loaded, or it would say "Loading…" for good).
+        if (state.loading) return@LaunchedEffect
         val files = state.items.filter { !it.isDirectory }.map { it.file }
         // Show the folder at once (known dates, else file dates), then the exact capture times.
         val (quick, complete) = withContext(Dispatchers.IO) { MediaDates.quick(context, files) }
-        value = quick
-        if (!complete) value = withContext(Dispatchers.IO) { MediaDates.of(context, files) }
+        dates = quick
+        if (!complete) dates = withContext(Dispatchers.IO) { MediaDates.of(context, files) }
     }
     // Family Memories' search field: narrows what's shown as you'd expect, by name.
     var query by remember(location.key) { mutableStateOf("") }
@@ -110,14 +116,22 @@ fun BrowserScreen(vm: MainViewModel) {
         }
     }
     val onMenu: (FileItem) -> Unit = { dialog = BrowserDialog.Menu(it) }
+    // A folder chosen on the Photos / Videos tabs doesn't take the focus when it shows: it stays up
+    // there (on the tabs, or the search or Filter you moved down to), as on Streaming. Only after a
+    // tab: coming in from the sidebar also lands on the tabs while the folder loads, and the folder
+    // takes the focus then.
+    var chosenOnTabs by remember { mutableStateOf(false) }
+    // The grid or list takes the focus as it shows, except the once after a tab was chosen.
+    val canTakeFocus = { if (chosenOnTabs) { chosenOnTabs = false; false } else true }
 
-    Column(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 24.dp)) {
+    // Moving out to the sidebar cancels [chosenOnTabs].
+    Column(Modifier.fillMaxSize().onFocusChanged { if (!it.hasFocus) chosenOnTabs = false }.padding(start = 32.dp, end = 32.dp, top = 24.dp)) {
         if (photosFolder) {
             // Family Memories: Photos / Videos across the top, Netflix style.
             val inVideos = state.folder?.path?.startsWith(GooglePhotos.videoFolder.path) == true
             com.woodruff.tvexplorer.ui.components.TopTabs(
                 listOf("Photos", "Videos"), selected = if (inVideos) 1 else 0,
-                onSelect = { i -> vm.openRoot((if (i == 0) GooglePhotos.folder else GooglePhotos.videoFolder).apply { mkdirs() }) },
+                onSelect = { i -> chosenOnTabs = true; vm.openRoot((if (i == 0) GooglePhotos.folder else GooglePhotos.videoFolder).apply { mkdirs() }) },
             )
         } else {
             Text(location.title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -132,10 +146,15 @@ fun BrowserScreen(vm: MainViewModel) {
             )
         }
         // Family Memories' two controls always fit: no scrolling, which would also clip the focused
-        // search field's left edge as it grows.
+        // search field's left edge as it grows. Elsewhere the scroll clips at its ends too, so the
+        // buttons get room inside it (shifted back into line), or the focused first or last one's
+        // outline is cut off.
         val toolScroll = rememberScrollState()
         Row(
-            Modifier.padding(vertical = 16.dp).then(if (photosFolder && !state.selecting) Modifier else Modifier.horizontalScroll(toolScroll)),
+            Modifier.padding(vertical = 16.dp).then(
+                if (photosFolder && !state.selecting) Modifier
+                else Modifier.offset(x = (-12).dp).horizontalScroll(toolScroll).padding(horizontal = 12.dp),
+            ),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -199,8 +218,8 @@ fun BrowserScreen(vm: MainViewModel) {
                 )
                 dateFilterable && dates == null -> EmptyState("Loading…")
                 shown.isEmpty() -> EmptyState(if (query.isNotBlank()) "Nothing called \u201c$query\u201d" else "Nothing from then")
-                settings.grid -> FileGrid(vm, listKey, shown, state.selected, onOpen, onMenu)
-                else -> FileList(vm, listKey, shown, state.selected, onOpen, onMenu)
+                settings.grid -> FileGrid(vm, listKey, shown, state.selected, onOpen, onMenu, canTakeFocus)
+                else -> FileList(vm, listKey, shown, state.selected, onOpen, onMenu, canTakeFocus)
             }
         }
     }
@@ -212,17 +231,17 @@ fun BrowserScreen(vm: MainViewModel) {
 private val photoFilterMemory = HashMap<String, PhotoFilter>()
 
 /**
- * Returns to the item you were on when you come back to a folder: scrolls to it, then focuses it.
- * Without this, TV users lose their place every time they press Back.
+ * Returns to the item you were on when you come back to a folder: scrolls to it, then focuses it
+ * (when [canTakeFocus]). Without this, TV users lose their place every time they press Back.
  */
 @Composable
-private fun rememberRestoredFocus(vm: MainViewModel, key: String, count: Int, scrollTo: suspend (Int) -> Unit): Pair<Int, FocusRequester> {
+private fun rememberRestoredFocus(vm: MainViewModel, key: String, count: Int, canTakeFocus: () -> Boolean, scrollTo: suspend (Int) -> Unit): Pair<Int, FocusRequester> {
     val target = remember(key) { vm.focusFor(key).coerceIn(0, (count - 1).coerceAtLeast(0)) }
     val requester = remember(key) { FocusRequester() }
     LaunchedEffect(key) {
         scrollTo(target)
         withFrameNanos { }
-        runCatching { requester.requestFocus() }
+        if (canTakeFocus()) runCatching { requester.requestFocus() }
     }
     return target to requester
 }
@@ -230,13 +249,14 @@ private fun rememberRestoredFocus(vm: MainViewModel, key: String, count: Int, sc
 @Composable
 private fun FileList(
     vm: MainViewModel, key: String, items: List<FileItem>, selected: Set<String>,
-    onOpen: (FileItem) -> Unit, onMenu: (FileItem) -> Unit,
+    onOpen: (FileItem) -> Unit, onMenu: (FileItem) -> Unit, canTakeFocus: () -> Boolean,
 ) {
     val listState = rememberLazyListState()
-    val (target, requester) = rememberRestoredFocus(vm, key, items.size) { listState.scrollToItem(it) }
+    val (target, requester) = rememberRestoredFocus(vm, key, items.size, canTakeFocus) { listState.scrollToItem(it) }
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(bottom = 48.dp),
+        // Room above the first row: the list clips at its top, which cut off its focused outline.
+        contentPadding = PaddingValues(top = 6.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         itemsIndexed(items, key = { _, it -> it.path }) { i, item ->
@@ -257,10 +277,10 @@ private fun FileList(
 @Composable
 private fun FileGrid(
     vm: MainViewModel, key: String, items: List<FileItem>, selected: Set<String>,
-    onOpen: (FileItem) -> Unit, onMenu: (FileItem) -> Unit,
+    onOpen: (FileItem) -> Unit, onMenu: (FileItem) -> Unit, canTakeFocus: () -> Boolean,
 ) {
     val gridState = rememberLazyGridState()
-    val (target, requester) = rememberRestoredFocus(vm, key, items.size) { gridState.scrollToItem(it) }
+    val (target, requester) = rememberRestoredFocus(vm, key, items.size, canTakeFocus) { gridState.scrollToItem(it) }
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Adaptive(220.dp),
