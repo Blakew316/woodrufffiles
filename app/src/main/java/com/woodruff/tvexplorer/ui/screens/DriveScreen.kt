@@ -131,6 +131,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, shown, drive::open, onOther = { menuFor = it }) }
 
     var moreOpen by remember { mutableStateOf(false) }
+    // A title's detail page (Movies / TV Shows top level): choosing a poster opens it first, as on Apple TV.
+    var detailFor by remember { mutableStateOf<DriveFile?>(null) }
+    val choose: (DriveFile) -> Unit = { f -> if (state.filterable) detailFor = f else onOpen(f) }
     // The focused poster's art, for the backdrop.
     // Held as a State and read only inside the backdrop: moving between posters then redraws the
     // backdrop alone, not the whole screen and grid.
@@ -198,7 +201,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                             val mod = (if (f.id == target) Modifier.focusRequester(first) else Modifier)
                                 .onFocusChanged { if (it.isFocused) { driveFocus[placeKey] = f.id; if (state.library) focusedArt.value = posterArt(f) } }
                             if (state.library) PosterTile(
-                                f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod,
+                                f, state.token, onClick = { choose(f) }, onLongClick = { menuFor = f }, modifier = mod,
                                 label = if (state.filterable) Library.label(f) else null,
                             )
                             else DriveTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
@@ -229,11 +232,26 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 
     if (searching) {
-        LibrarySearch(state.place.title, state.files, state.token, onOpen = { f -> searching = false; onOpen(f) }, onDismiss = { searching = false })
+        LibrarySearch(state.place.title, state.files, state.token, onOpen = { f -> searching = false; choose(f) }, onDismiss = { searching = false })
     }
     // Searching used to narrow the grid itself; it has its own screen now, so an old search left in
     // the saved filter would hide titles with nothing on screen saying why.
     LaunchedEffect(state.place, filter.query) { if (state.filterable && filter.query.isNotBlank()) drive.setFilter(filter.copy(query = "")) }
+
+    detailFor?.let { f ->
+        val token = state.token
+        TitleDetail(
+            f, posterArt(f),
+            artHeaders = { url -> if (isGoogle(url) && token != null) mapOf("Authorization" to "Bearer $token") else emptyMap() },
+            onPlay = { fromStart ->
+                detailFor = null
+                if (fromStart) playFromStart(context, f, shown) else onOpen(f)
+            },
+            openLabel = if (state.stack.firstOrNull() == DrivePlace.TvShows) "Seasons & episodes" else "Open",
+            onOpen = { detailFor = null; onOpen(f) },
+            onDismiss = { detailFor = null },
+        )
+    }
 
     menuFor?.let { f ->
         ActionMenu(
@@ -249,6 +267,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             },
         )
     }
+}
+
+/** "Start over" on a detail page: the same queue as playing it, but from the beginning. */
+private fun playFromStart(context: Context, f: DriveFile, all: List<DriveFile>) {
+    val queue = all.filter { it.kind == FileKind.VIDEO || it.kind == FileKind.AUDIO }.take(300).ifEmpty { listOf(f) }
+    context.startActivity(PlayerActivity.intent(context, queue.map { MediaRef.Drive(it.id).key }, queue.map { it.name }, MediaRef.Drive(f.id).key, positionMs = 0L))
 }
 
 /** Folders navigate, media streams in the built-in player/viewer, anything else offers its menu. */

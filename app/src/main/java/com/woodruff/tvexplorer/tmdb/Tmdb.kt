@@ -36,6 +36,7 @@ object Tmdb {
     private const val API = "https://api.themoviedb.org/3/"
     // w342 is plenty for a ~150dp poster tile and about 40% smaller to download than w500.
     private const val IMG = "https://image.tmdb.org/t/p/w342"
+    private const val BACKDROP = "https://image.tmdb.org/t/p/w1280"
     private val cache = ConcurrentHashMap<String, String>() // query -> Hit JSON ("" = no match)
     @Volatile private var loaded = false
     private val gate = Semaphore(6)
@@ -81,6 +82,7 @@ object Tmdb {
                         posterUrl = f.posterUrl ?: hit.poster,
                         info = if (mode == Mode.SEASONS) f.info else parsed.copy(
                             year = parsed.year ?: hit.year, genres = hit.genres, rating = hit.rating,
+                            overview = hit.overview, backdrop = hit.backdrop,
                         ),
                     )
                 }
@@ -91,9 +93,14 @@ object Tmdb {
     }
 
     /** One TMDB match, as cached: poster URL, release year, genre names, rating out of 10. */
-    internal data class Hit(val poster: String?, val year: Int?, val genres: List<String>, val rating: Double?) {
+    internal data class Hit(
+        val poster: String?, val year: Int?, val genres: List<String>, val rating: Double?,
+        /** The synopsis and a wide background image, for the title's detail page. */
+        val overview: String? = null, val backdrop: String? = null,
+    ) {
         fun toJson(): String = JSONObject().put("p", poster ?: "").put("y", year ?: 0)
-            .put("g", org.json.JSONArray(genres)).put("r", rating ?: 0.0).toString()
+            .put("g", org.json.JSONArray(genres)).put("r", rating ?: 0.0)
+            .put("o", overview ?: "").put("b", backdrop ?: "").toString()
 
         companion object {
             fun fromJson(s: String): Hit? = runCatching {
@@ -103,6 +110,7 @@ object Tmdb {
                     o.optString("p").ifBlank { null }, o.optInt("y").takeIf { it > 0 },
                     g?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
                     o.optDouble("r", 0.0).takeIf { it > 0 },
+                    o.optString("o").ifBlank { null }, o.optString("b").ifBlank { null },
                 )
             }.getOrNull()
         }
@@ -159,6 +167,8 @@ object Tmdb {
             o.optString("poster_path").ifBlank { null }?.let { IMG + it },
             o.optString(dateField).take(4).toIntOrNull()?.takeIf { it in 1870..2100 },
             names, rating,
+            o.optString("overview").ifBlank { null }?.take(700),
+            o.optString("backdrop_path").ifBlank { null }?.let { BACKDROP + it },
         )
     }
 
@@ -238,13 +248,14 @@ object Tmdb {
     }
 
     // v2 holds full matches; the old file (posters only) is dropped so titles get their genres.
-    private fun cacheFile(c: Context) = File(c.applicationContext.filesDir, "tmdb_cache2.json")
+    private fun cacheFile(c: Context) = File(c.applicationContext.filesDir, "tmdb_cache3.json") // 3: adds synopsis + backdrop
 
     @Synchronized
     private fun load(c: Context) {
         if (loaded) return
         loaded = true
         File(c.applicationContext.filesDir, "tmdb_cache.json").delete()
+        File(c.applicationContext.filesDir, "tmdb_cache2.json").delete()
         runCatching {
             val o = JSONObject(cacheFile(c).readText())
             o.keys().forEach { k -> cache[k] = o.getString(k) }

@@ -8,7 +8,11 @@ import java.text.Normalizer
  * rating from TMDB when a key is set. The year in the file name wins over TMDB's, since a TMDB
  * match can be the wrong film.
  */
-data class MediaInfo(val title: String, val year: Int?, val genres: List<String> = emptyList(), val rating: Double? = null) {
+data class MediaInfo(
+    val title: String, val year: Int?, val genres: List<String> = emptyList(), val rating: Double? = null,
+    /** From TMDB, for the detail page: the synopsis and a wide background image URL. */
+    val overview: String? = null, val backdrop: String? = null,
+) {
     // Worked out on first use, then kept with the listing: filter changes don't redo them.
     internal val sortKey: String by lazy { Library.sortKey(title) }
     internal val searchText: String by lazy { Library.normalize(title) }
