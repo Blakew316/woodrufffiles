@@ -229,11 +229,18 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     }
                     // Load the posters a couple of rows past the focus into the image cache, so they're
                     // already there when the grid scrolls to them instead of popping in.
+                    // Only once the focus rests: on every press of a held key, a dozen poster loads
+                    // competed with the scrolling for the TV's processor.
                     val positions = remember(shown) { shown.withIndex().associate { (i, f) -> f.id to i } }
-                    val prefetch: (String) -> Unit = { id ->
-                        val at = positions[id]
-                        if (at != null) prefetchPosters(context, shown, at + 1, 14, state.token)
+                    val prefetchFrom = remember(state.place) { androidx.compose.runtime.mutableIntStateOf(-1) }
+                    LaunchedEffect(shown) {
+                        androidx.compose.runtime.snapshotFlow { prefetchFrom.intValue }.collectLatest { at ->
+                            if (at < 0) return@collectLatest
+                            kotlinx.coroutines.delay(250)
+                            prefetchPosters(context, shown, at + 1, 10, state.token)
+                        }
                     }
+                    val prefetch: (String) -> Unit = { id -> positions[id]?.let { prefetchFrom.intValue = it } }
                     LazyVerticalGrid(
                         state = grid,
                         // Movies / TV Shows: tall poster tiles, more per row.

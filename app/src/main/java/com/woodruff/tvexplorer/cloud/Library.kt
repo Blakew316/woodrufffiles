@@ -58,6 +58,13 @@ object Library {
     fun showMatchKey(name: String): String =
         normalize(Tmdb.parse(com.woodruff.tvexplorer.player.ShowPrefs.showKey(name), stripExtension = false).first)
 
+    /**
+     * Works out each title's sort and search keys now, on the calling (background) thread, so
+     * sorting and filtering on screen only compare ready-made strings. Left to first use, they were
+     * worked out for the whole library in the middle of drawing a frame — a stutter on every open.
+     */
+    fun prepare(files: List<DriveFile>): List<DriveFile> = files.onEach { f -> f.info?.let { i -> i.sortKey; i.searchText } }
+
     /** "The Matrix (1999)"; just the title when the year is unknown. */
     fun label(f: DriveFile): String = info(f).let { i -> if (i.year != null) "${i.title} (${i.year})" else i.title }
 

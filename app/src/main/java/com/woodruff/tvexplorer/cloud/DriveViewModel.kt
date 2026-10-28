@@ -248,7 +248,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun tmdb(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> =
-        Tmdb.fill(ctx, files, tmdbMode(stack), show = stack.getOrNull(1)?.title).also { warmPosters(token, it) }
+        Tmdb.fill(ctx, files, tmdbMode(stack), show = stack.getOrNull(1)?.title)
+            .let { withContext(Dispatchers.Default) { Library.prepare(it) } }
+            .also { warmPosters(token, it) }
 
     /**
      * Downloads the first screenfuls of poster images into Coil's caches ahead of time, so tiles
@@ -267,7 +269,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Movies / TV Shows top level: titles and years parsed once, on a background thread. */
-    private suspend fun parse(files: List<DriveFile>) = withContext(Dispatchers.Default) { Library.withInfo(files) }
+    private suspend fun parse(files: List<DriveFile>) = withContext(Dispatchers.Default) { Library.prepare(Library.withInfo(files)) }
 
     private fun load() {
         loadJob?.cancel()
@@ -283,7 +285,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             var shownSaved = false
             var saved: List<DriveFile>? = null
             if (cached == null && library) {
-                saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place) }
+                saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place)?.let(Library::prepare) }
                 if (!saved.isNullOrEmpty()) {
                     cache[place] = saved
                     shownSaved = true
