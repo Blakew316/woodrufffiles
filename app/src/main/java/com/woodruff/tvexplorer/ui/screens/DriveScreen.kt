@@ -144,6 +144,14 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 
     var moreOpen by remember { mutableStateOf(false) }
+    // In the Filter panel at a library's top; the More menu in a show's folders.
+    val driveActions = listOf(
+        MenuAction("Refresh", Sym.Refresh, run = drive::refresh),
+        MenuAction("My Drive", Sym.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
+        MenuAction("All videos", Sym.Movie) { drive.openRoot(DrivePlace.Videos()) },
+        MenuAction("Shared with me", Sym.FolderShared) { drive.openRoot(DrivePlace.SharedWithMe) },
+        MenuAction("Sign out of Google Drive", Sym.Logout, destructive = true, run = drive::signOut),
+    )
     // A title's detail page (Movies / TV Shows top level): choosing a poster opens it first, as on Apple TV.
     var detailFor by remember { mutableStateOf<DriveFile?>(null) }
     val choose: (DriveFile) -> Unit = { f -> if (state.filterable) detailFor = f else onOpen(f) }
@@ -160,10 +168,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             // Movies / TV Shows: title, filters and the Drive buttons share one short row, so the
             // posters start near the top of the screen.
             if (state.filterable) {
-                // The library's top level: title, Search / Filter / More, and category tabs.
+                // The library's top level: Movies / TV Shows, the search field and Filter (with everything else).
                 Box(Modifier.onFocusChanged { headerFocused.value = it.hasFocus }) {
                     LibraryHeader(
-                        state.place.title, state.files, filter, drive::setFilter, onSearch = { searching = true }, onMore = { moreOpen = true },
+                        state.place.title, state.files, filter, drive::setFilter, onSearch = { searching = true }, more = driveActions,
                         // Streaming: Movies / TV Shows across the top, Netflix style.
                         switcher = {
                             com.woodruff.tvexplorer.ui.components.TopTabs(
@@ -305,16 +313,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 
     if (moreOpen) {
-        ActionMenu(
-            title = "Google Drive", subtitle = null, onDismiss = { moreOpen = false },
-            actions = listOfNotNull(
-                MenuAction("Refresh", Sym.Refresh, run = drive::refresh),
-                MenuAction("My Drive", Sym.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
-                MenuAction("All videos", Sym.Movie) { drive.openRoot(DrivePlace.Videos()) },
-                MenuAction("Shared with me", Sym.FolderShared) { drive.openRoot(DrivePlace.SharedWithMe) },
-                MenuAction("Sign out of Google Drive", Sym.Logout, destructive = true, run = drive::signOut),
-            ),
-        )
+        ActionMenu(title = "Google Drive", subtitle = null, onDismiss = { moreOpen = false }, actions = driveActions)
     }
 
     if (searching) {

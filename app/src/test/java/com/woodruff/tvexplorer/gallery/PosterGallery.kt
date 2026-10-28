@@ -90,7 +90,7 @@ class PosterGallery {
                   BitmapFactory.decodeFile(url.removePrefix("file://"))?.let { BitmapPainter(it.asImageBitmap()) }
               }) {
                 Column(Modifier.fillMaxSize().background(Palette.backdrop).padding(start = 40.dp, end = 40.dp, top = 32.dp)) {
-                    LibraryHeader(page.first, page.second, LibraryFilter(), onChange = {}, onSearch = {}, onMore = {})
+                    LibraryHeader(page.first, page.second, LibraryFilter(), onChange = {}, onSearch = {})
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(150.dp),
                         contentPadding = PaddingValues(bottom = 48.dp),

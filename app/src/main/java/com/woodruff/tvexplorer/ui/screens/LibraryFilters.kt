@@ -6,19 +6,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -28,7 +26,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,21 +46,22 @@ import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
+import com.woodruff.tvexplorer.ui.components.MenuAction
+import com.woodruff.tvexplorer.ui.components.SearchBar
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
 
 /*
  * Movies / TV Shows browsing, Apple TV style:
- *   - a header with the title and three round glass buttons: Search, Filter and More;
- *   - a row of category tabs under it (All + genres, or decades without TMDB genres), chosen
- *     with OK;
- *   - Filter opens a panel on the right with Sort, Decade and Genre as plain lists, applied
- *     instantly so the posters behind change as you go;
- *   - Search opens its own full screen (see LibrarySearch in DriveScreen.kt).
+ *   - one row: Movies / TV Shows (or the title), a search field you can see, and Filter;
+ *   - Filter opens a panel on the right with everything else as plain lists: Overview or All,
+ *     Sort, Genre and Decade (applied instantly, so the posters behind change as you go), then the
+ *     Drive actions (Refresh, My Drive, Sign out…);
+ *   - OK on the search field opens its own full screen (see LibrarySearch in DriveScreen.kt).
  */
 
-/** Title, Search / Filter / More buttons, then the category tabs. */
+/** The library's one row: Movies / TV Shows (or the title), the search field, and Filter. */
 @Composable
 fun LibraryHeader(
     title: String,
@@ -71,48 +69,31 @@ fun LibraryHeader(
     filter: LibraryFilter,
     onChange: (LibraryFilter) -> Unit,
     onSearch: () -> Unit,
-    onMore: () -> Unit,
+    /** The library's other actions (Refresh, My Drive, Sign out…): at the end of the Filter panel. */
+    more: List<MenuAction> = emptyList(),
     /** In place of the title: a switch between libraries (Streaming's Movies / TV Shows). */
     switcher: (@Composable () -> Unit)? = null,
 ) {
     var filtering by remember { mutableStateOf(false) }
     val genres = remember(all) { Library.genres(all) }
     val decades = remember(all) { Library.decades(all) }
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (switcher != null) Box(Modifier.weight(1f)) { switcher() }
-            else Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
-            // What the grid is narrowed to, so it's never a mystery why something's missing.
-            val summary = listOfNotNull(filter.genre, filter.decade?.let { "${it}s" }, filter.sort.label.takeIf { filter.sort != LibrarySort.TITLE })
-            if (summary.isNotEmpty()) Text(summary.joinToString(" · "), color = Palette.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 18.dp))
-            RoundButton(Sym.Search, "Search", onSearch)
-            RoundButton(Sym.Tune, "Filter", { filtering = true }, active = filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)
-            RoundButton(Sym.MoreHoriz, null, onMore)
-        }
-        // Tabs: Overview (featured title and rows), All (A–Z), then the genres when TMDB has tagged
-        // the titles, otherwise the decades.
-        val tabs = remember(genres, decades) {
-            listOf(Tab("Overview", overview = true), Tab("All")) + (
-                if (genres.isNotEmpty()) genres.map { Tab(it, genre = it) }
-                else if (decades.size > 1) decades.map { Tab("${it}s", decade = it) }
-                else emptyList()
-            )
-        }
-        val selected = when {
-            filter.overview -> tabs[0]
-            else -> tabs.firstOrNull { !it.overview && it.genre == filter.genre && it.decade == filter.decade } ?: tabs[1]
-        }
-        CategoryTabs(
-            tabs, selected = selected, label = { it.label },
-            onSelect = { t -> onChange(filter.copy(overview = t.overview, genre = t.genre, decade = t.decade)) },
-        )
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (switcher != null) switcher()
+        else Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        // A field you can see and press OK on, not just a magnifier.
+        SearchBar("", "Search $title", onSearch, Modifier.weight(1f).padding(start = 24.dp))
+        // Says what the posters are narrowed to ("Action · Newest"), so nothing's missing without a reason.
+        RoundButton(Sym.Tune, filterLabel(filter), { filtering = true }, active = !filter.overview)
     }
-    // Choosing a sort or a category in the panel leaves the Overview for the grid it describes.
-    if (filtering) FilterSheet(all, genres, decades, filter, { onChange(it.copy(overview = false)) }, onDismiss = { filtering = false })
+    if (filtering) FilterSheet(all, genres, decades, filter, onChange, more, onDismiss = { filtering = false })
 }
 
-/** A category tab: the Overview, All, or one genre / decade. */
-private data class Tab(val label: String, val overview: Boolean = false, val genre: String? = null, val decade: Int? = null)
+/** "Filter" on the Overview; otherwise what the grid shows: "All", "Action · 1990s", "All · Newest". */
+private fun filterLabel(f: LibraryFilter): String {
+    if (f.overview) return "Filter"
+    val shown = listOfNotNull(f.genre, f.decade?.let { "${it}s" }).ifEmpty { listOf("All") }
+    return (shown + listOfNotNull(f.sort.label.takeIf { f.sort != LibrarySort.TITLE })).joinToString(" · ")
+}
 
 /** A round glass icon button (a pill with its label when it has one); white with dark content when focused. */
 @Composable
@@ -132,51 +113,18 @@ internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
     ) {
         Row(Modifier.padding(horizontal = if (label != null) 20.dp else 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
             TvIcon(icon, size = 22.dp)
-            if (label != null) Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 8.dp))
+            if (label != null) Text(
+                label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 8.dp).widthIn(max = 260.dp),
+            )
         }
     }
 }
 
 /**
- * Text tabs, Apple TV style: the chosen one sits in a glass capsule, the focused one turns white.
- * Only pressing OK on a tab chooses it; moving across them changes nothing.
- */
-@Composable
-private fun <T> CategoryTabs(options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
-    val select by rememberUpdatedState(onSelect)
-    // The row clips at its ends, and a focused tab grows past them (a long genre's by several dp):
-    // the tabs get room inside it, shifted back into line.
-    LazyRow(
-        Modifier.fillMaxWidth().padding(top = 10.dp).offset(x = (-8).dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-    ) {
-        items(options, key = { it.toString() }) { o ->
-            val isSelected = o == selected
-            Surface(
-                onClick = { select(o) },
-                shape = ClickableSurfaceDefaults.shape(Shapes.pill),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (isSelected) Palette.surfaceHigh else Color.Transparent,
-                    contentColor = if (isSelected) Palette.text else Palette.muted,
-                    focusedContainerColor = Palette.text,
-                    focusedContentColor = Palette.background,
-                ),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-            ) {
-                Text(
-                    label(o), style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                )
-            }
-        }
-    }
-}
-
-/**
- * Filter panel on the right: Sort, Decade and Genre as three short lists. Every choice applies at
- * once (the posters behind update), Back closes it.
+ * Filter panel on the right: Overview or All, then Sort, Genre and Decade as short lists, every
+ * choice applied at once (the posters behind update); then the library's other actions [more]. Back
+ * closes it.
  */
 @Composable
 private fun FilterSheet(
@@ -185,6 +133,7 @@ private fun FilterSheet(
     decades: List<Int>,
     filter: LibraryFilter,
     onChange: (LibraryFilter) -> Unit,
+    more: List<MenuAction>,
     onDismiss: () -> Unit,
 ) {
     val sorts = remember(all) {
@@ -224,27 +173,45 @@ private fun FilterSheet(
                         Text("Filter", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                     }
                 }
+                // The Overview (a featured title and rows) or the whole library as a grid.
+                item { SheetHeading("Show") }
+                item(key = "overview") {
+                    SheetOption("Overview", filter.overview, Modifier.focusRequester(first)) {
+                        onChange(filter.copy(overview = true, genre = null, decade = null))
+                    }
+                }
+                item(key = "all") {
+                    SheetOption("All titles", !filter.overview && filter.genre == null && filter.decade == null) {
+                        onChange(filter.copy(overview = false, genre = null, decade = null))
+                    }
+                }
+                // A sort, genre or decade describes the grid: choosing one leaves the Overview for it.
                 item { SheetHeading("Sort by") }
                 items(sorts, key = { "s-" + it.name }) { s ->
-                    SheetOption(s.label, filter.sort == s, Modifier.then(if (s == sorts.first()) Modifier.focusRequester(first) else Modifier)) {
-                        onChange(filter.copy(sort = s))
-                    }
+                    SheetOption(s.label, !filter.overview && filter.sort == s) { onChange(filter.copy(sort = s, overview = false)) }
                 }
                 if (genres.isNotEmpty()) {
                     item { SheetHeading("Genre") }
-                    item(key = "g-all") { SheetOption("All genres", filter.genre == null) { onChange(filter.copy(genre = null)) } }
-                    items(genres, key = { "g-$it" }) { g -> SheetOption(g, filter.genre == g) { onChange(filter.copy(genre = g)) } }
+                    item(key = "g-all") { SheetOption("All genres", !filter.overview && filter.genre == null) { onChange(filter.copy(genre = null, overview = false)) } }
+                    items(genres, key = { "g-$it" }) { g -> SheetOption(g, filter.genre == g) { onChange(filter.copy(genre = g, overview = false)) } }
                 }
                 if (decades.isNotEmpty()) {
                     item { SheetHeading("Decade") }
-                    item(key = "d-all") { SheetOption("Any decade", filter.decade == null) { onChange(filter.copy(decade = null)) } }
-                    items(decades, key = { "d-$it" }) { d -> SheetOption("${d}s", filter.decade == d) { onChange(filter.copy(decade = d)) } }
+                    item(key = "d-all") { SheetOption("Any decade", !filter.overview && filter.decade == null) { onChange(filter.copy(decade = null, overview = false)) } }
+                    items(decades, key = { "d-$it" }) { d -> SheetOption("${d}s", filter.decade == d) { onChange(filter.copy(decade = d, overview = false)) } }
+                }
+                if (more.isNotEmpty()) {
+                    item { SheetHeading("Google Drive") }
+                    items(more, key = { "a-" + it.label }) { a ->
+                        SheetOption(a.label, false, destructive = a.destructive) { onDismiss(); a.run() }
+                    }
                 }
                 if (filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE) {
                     item { Spacer(Modifier.size(10.dp)) }
                     item(key = "clear") {
                         SheetOption("Clear filters", false, accent = true) {
-                            onChange(LibraryFilter())
+                            // Back to how the library opens: the Overview.
+                            onChange(LibraryFilter(overview = true))
                             // This option goes away with the filters: put the focus back at the top
                             // rather than leaving it nowhere.
                             scope.launch {
@@ -268,15 +235,18 @@ internal fun SheetHeading(text: String) {
     )
 }
 
+/** [destructive]: red (Sign out), dark like the rest once focused on the white highlight. */
 @Composable
-internal fun SheetOption(label: String, checked: Boolean, modifier: Modifier = Modifier, accent: Boolean = false, onClick: () -> Unit) {
+internal fun SheetOption(
+    label: String, checked: Boolean, modifier: Modifier = Modifier, accent: Boolean = false, destructive: Boolean = false, onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
-            contentColor = if (accent) Palette.accent else Palette.text,
+            contentColor = if (destructive) Palette.danger else if (accent) Palette.accent else Palette.text,
             focusedContainerColor = Palette.text,
             focusedContentColor = Palette.background,
         ),
