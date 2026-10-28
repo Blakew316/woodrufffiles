@@ -89,17 +89,30 @@ fun LibraryHeader(
             RoundButton(Icons.Rounded.Tune, "Filter", { filtering = true }, active = filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)
             RoundButton(Icons.Rounded.MoreHoriz, null, onMore)
         }
-        // Tabs: genres when TMDB has tagged the titles, otherwise decades.
-        if (genres.isNotEmpty()) CategoryTabs(
-            listOf<String?>(null) + genres, selected = filter.genre, label = { it ?: "All" },
-            onSelect = { onChange(filter.copy(genre = it)) },
-        ) else if (decades.size > 1) CategoryTabs(
-            listOf<Int?>(null) + decades, selected = filter.decade, label = { it?.let { d -> "${d}s" } ?: "All" },
-            onSelect = { onChange(filter.copy(decade = it)) },
+        // Tabs: Overview (featured title and rows), All (A–Z), then the genres when TMDB has tagged
+        // the titles, otherwise the decades.
+        val tabs = remember(genres, decades) {
+            listOf(Tab("Overview", overview = true), Tab("All")) + (
+                if (genres.isNotEmpty()) genres.map { Tab(it, genre = it) }
+                else if (decades.size > 1) decades.map { Tab("${it}s", decade = it) }
+                else emptyList()
+            )
+        }
+        val selected = when {
+            filter.overview -> tabs[0]
+            else -> tabs.firstOrNull { !it.overview && it.genre == filter.genre && it.decade == filter.decade } ?: tabs[1]
+        }
+        CategoryTabs(
+            tabs, selected = selected, label = { it.label },
+            onSelect = { t -> onChange(filter.copy(overview = t.overview, genre = t.genre, decade = t.decade)) },
         )
     }
-    if (filtering) FilterSheet(all, genres, decades, filter, onChange, onDismiss = { filtering = false })
+    // Choosing a sort or a category in the panel leaves the Overview for the grid it describes.
+    if (filtering) FilterSheet(all, genres, decades, filter, { onChange(it.copy(overview = false)) }, onDismiss = { filtering = false })
 }
+
+/** A category tab: the Overview, All, or one genre / decade. */
+private data class Tab(val label: String, val overview: Boolean = false, val genre: String? = null, val decade: Int? = null)
 
 /** A round glass icon button (a pill with its label when it has one); white with dark content when focused. */
 @Composable

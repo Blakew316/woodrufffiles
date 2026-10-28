@@ -147,11 +147,6 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, if (state.filterable) listOf(f) else shown, drive::open, onOther = { menuFor = it }) }
 
     var moreOpen by remember { mutableStateOf(false) }
-    // "All" is the whole library A–Z, as a grid of posters. The rows view (featured title,
-    // Continue watching, a row per genre) is there to choose in More; remembered. (A new key:
-    // the old one defaulted to rows.)
-    val viewPrefs = remember { context.getSharedPreferences("library_view", Context.MODE_PRIVATE) }
-    var rowsView by remember { mutableStateOf(viewPrefs.getBoolean("rowsView", false)) }
     // A title's detail page (Movies / TV Shows top level): choosing a poster opens it first, as on Apple TV.
     var detailFor by remember { mutableStateOf<DriveFile?>(null) }
     val choose: (DriveFile) -> Unit = { f -> if (state.filterable) detailFor = f else onOpen(f) }
@@ -206,7 +201,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 state.error != null -> EmptyState(state.error!!)
                 state.files.isEmpty() -> EmptyState("Nothing here")
                 shown.isEmpty() -> EmptyState("No matches")
-                state.filterable && rowsView && !filter.narrowed && filter.sort == LibrarySort.TITLE && state.files.size >= 12 -> key(state.place) {
+                // The Overview tab: a featured title and rows. ("All" is the whole library A–Z.)
+                state.filterable && filter.overview -> key(state.place) {
                     // One per library: Movies and TV Shows each open at their own place, with their own focus.
                     LibraryRows(
                         state.files, state.token, placeKey = state.place.toString(),
@@ -283,10 +279,6 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         ActionMenu(
             title = "Google Drive", subtitle = null, onDismiss = { moreOpen = false },
             actions = listOfNotNull(
-                if (state.filterable) MenuAction(if (rowsView) "Show as a grid" else "Show as rows", Icons.Rounded.Movie) {
-                    rowsView = !rowsView
-                    viewPrefs.edit().putBoolean("rowsView", rowsView).apply()
-                } else null,
                 MenuAction("Refresh", Icons.Rounded.Refresh, run = drive::refresh),
                 MenuAction("My Drive", Icons.Rounded.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
                 MenuAction("All videos", Icons.Rounded.Movie) { drive.openRoot(DrivePlace.Videos()) },

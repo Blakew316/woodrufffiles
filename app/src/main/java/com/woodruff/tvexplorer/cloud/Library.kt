@@ -27,6 +27,8 @@ data class LibraryFilter(
     /** 1990 for the 1990s. */
     val decade: Int? = null,
     val query: String = "",
+    /** The Overview tab: a featured title and rows (Continue watching, genres) instead of the A–Z grid. */
+    val overview: Boolean = false,
 ) {
     val narrowed: Boolean get() = genre != null || decade != null || query.isNotBlank()
 }
