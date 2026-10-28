@@ -18,6 +18,10 @@ object ShowPrefs {
             .replace(EPISODE_PART, "")
             .replace(SPACES, " ").trim().lowercase().ifBlank { title.lowercase() }
 
+    /** Whether [title] names its show ("Show S01E02"), not just the episode ("S01E013_Pilot"). */
+    fun namesShow(title: String): Boolean =
+        title.replace(EXTENSION, "").replace(SEPARATORS, " ").replace(EPISODE_PART, "").isNotBlank()
+
     // Compiled once: the library matches every show against what's been watched with these.
     private val EXTENSION = Regex("""\.[A-Za-z0-9]{2,4}$""")
     private val SEPARATORS = Regex("""[._]+""")

@@ -133,7 +133,14 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
     // A film in Movies / TV Shows plays on its own: no rolling on into the next title (and the
     // queue is never cut short of the one chosen). In a folder, the media around it queue up after it.
-    val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, if (state.filterable) listOf(f) else shown, drive::open, onOther = { menuFor = it }) }
+    val onOpen: (DriveFile) -> Unit = { f ->
+        // An episode opened inside a show's folders: remember the show for the ones queued with it.
+        val showFolder = (state.stack.getOrNull(1) as? DrivePlace.Folder)?.takeIf { state.stack.firstOrNull() == DrivePlace.TvShows }
+        if (showFolder != null && f.kind == FileKind.VIDEO) {
+            com.woodruff.tvexplorer.cloud.EpisodeShows.remember(context, shown.filter { it.kind == FileKind.VIDEO }.associate { MediaRef.Drive(it.id).key to showFolder.id })
+        }
+        openDriveFile(context, f, if (state.filterable) listOf(f) else shown, drive::open, onOther = { menuFor = it })
+    }
 
     var moreOpen by remember { mutableStateOf(false) }
     // A title's detail page (Movies / TV Shows top level): choosing a poster opens it first, as on Apple TV.

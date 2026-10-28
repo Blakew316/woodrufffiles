@@ -77,6 +77,7 @@ class PlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         recent = RecentStore(this)
+        com.woodruff.tvexplorer.cloud.EpisodeShows.load(this) // which show name-less episodes belong to
         view = PlayerView(this).apply {
             useController = true
             controllerAutoShow = true
@@ -307,11 +308,19 @@ class PlayerActivity : ComponentActivity() {
     private fun show(): String {
         val id = player?.currentMediaItem?.mediaId
         if (showCache.first != id) {
-            showCache = id to ShowPrefs.showKey(player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: "")
+            showCache = id to showFor(id, player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: "")
             introEnd = ShowPrefs.introEnd(this, showCache.second)
         }
         return showCache.second
     }
+
+    /**
+     * Which show an item belongs to: from its name ("Show S01E02"), else, when the name only has
+     * the episode ("S01E013_Pilot"), the show it was found under ([EpisodeShows]).
+     */
+    private fun showFor(key: String?, title: String): String =
+        if (ShowPrefs.namesShow(title)) ShowPrefs.showKey(title)
+        else key?.let { com.woodruff.tvexplorer.cloud.EpisodeShows.map.value[it] }?.let { "show:$it" } ?: ShowPrefs.showKey(title)
 
     /** Stop for the night: pause, leave the player, and let the slideshow take over the screen. */
     private fun sleepNow() {
@@ -356,10 +365,11 @@ class PlayerActivity : ComponentActivity() {
         val left = p.duration - pos
         val key = p.currentMediaItem?.mediaId
         val title = p.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty()
-        val nextTitle = if (p.hasNextMediaItem()) p.getMediaItemAt(p.nextMediaItemIndex).mediaMetadata.title?.toString().orEmpty() else ""
+        val next = if (p.hasNextMediaItem()) p.getMediaItemAt(p.nextMediaItemIndex) else null
+        val nextTitle = next?.mediaMetadata?.title?.toString().orEmpty()
         nextEp.visibility = if (
             p.hasNextMediaItem() && p.duration > 60_000 && left in 1..40_000 && p.pauseAtEndOfMediaItems && free &&
-            key != nextDismissedFor && ShowPrefs.isEpisode(title) && ShowPrefs.showKey(nextTitle) == show()
+            key != nextDismissedFor && ShowPrefs.isEpisode(title) && showFor(next?.mediaId, nextTitle) == show()
         ) android.view.View.VISIBLE else android.view.View.GONE
     }
 
