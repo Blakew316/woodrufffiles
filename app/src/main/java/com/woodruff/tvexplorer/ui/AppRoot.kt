@@ -473,7 +473,7 @@ private fun DriveMessage(drive: DriveViewModel, modifier: Modifier) {
     MessageBanner(message, drive::dismissMessage, modifier)
 }
 
-/** Top-left brand: the Woodruff Family reel emblem (transparent outside the ring) and the wordmark. */
+/** Top-left brand: the Woodruff Family app-icon tile (the triangle emblem) and the wordmark. */
 @Composable
 private fun Brand(open: Boolean, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
