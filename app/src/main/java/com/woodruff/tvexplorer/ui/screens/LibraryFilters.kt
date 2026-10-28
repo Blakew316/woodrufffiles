@@ -46,6 +46,7 @@ import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
+import com.woodruff.tvexplorer.ui.components.ConfirmDialog
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.SearchBar
 import com.woodruff.tvexplorer.ui.components.TvIcon
@@ -146,6 +147,7 @@ private fun FilterSheet(
         }
     }
     val first = remember { FocusRequester() }
+    var confirming by remember { mutableStateOf<MenuAction?>(null) }
     val list = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // Glides in from the right edge, as Apple TV's side panels do.
@@ -176,9 +178,8 @@ private fun FilterSheet(
                 // The Overview (a featured title and rows) or the whole library as a grid.
                 item { SheetHeading("Show") }
                 item(key = "overview") {
-                    SheetOption("Overview", filter.overview, Modifier.focusRequester(first)) {
-                        onChange(filter.copy(overview = true, genre = null, decade = null))
-                    }
+                    // How the library opens, nothing narrowed or re-sorted behind it (the rows don't show a sort).
+                    SheetOption("Overview", filter.overview, Modifier.focusRequester(first)) { onChange(LibraryFilter(overview = true)) }
                 }
                 item(key = "all") {
                     SheetOption("All titles", !filter.overview && filter.genre == null && filter.decade == null) {
@@ -200,13 +201,8 @@ private fun FilterSheet(
                     item(key = "d-all") { SheetOption("Any decade", !filter.overview && filter.decade == null) { onChange(filter.copy(decade = null, overview = false)) } }
                     items(decades, key = { "d-$it" }) { d -> SheetOption("${d}s", filter.decade == d) { onChange(filter.copy(decade = d, overview = false)) } }
                 }
-                if (more.isNotEmpty()) {
-                    item { SheetHeading("Google Drive") }
-                    items(more, key = { "a-" + it.label }) { a ->
-                        SheetOption(a.label, false, destructive = a.destructive) { onDismiss(); a.run() }
-                    }
-                }
-                if (filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE) {
+                // Right after the filters it clears, and before the Drive actions: never reached through Sign out.
+                if (!filter.overview && (filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)) {
                     item { Spacer(Modifier.size(10.dp)) }
                     item(key = "clear") {
                         SheetOption("Clear filters", false, accent = true) {
@@ -222,7 +218,20 @@ private fun FilterSheet(
                         }
                     }
                 }
+                if (more.isNotEmpty()) {
+                    item { SheetHeading("Google Drive") }
+                    items(more, key = { "a-" + it.label }) { a ->
+                        // Sign out asks first: it's one row past the filters, and one stray OK would undo the sign-in.
+                        SheetOption(a.label, false, destructive = a.destructive) { if (a.destructive) confirming = a else { onDismiss(); a.run() } }
+                    }
+                }
             }
+        }
+        confirming?.let { a ->
+            ConfirmDialog(
+                "${a.label}?", "Movies and TV Shows will need Google sign-in again: one QR scan on your phone.", "Sign out",
+                onConfirm = { onDismiss(); a.run() }, onDismiss = { confirming = null },
+            )
         }
     }
 }
