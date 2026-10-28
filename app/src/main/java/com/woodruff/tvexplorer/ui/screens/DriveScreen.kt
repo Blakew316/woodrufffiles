@@ -323,6 +323,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             },
             onPlayEpisode = { ep, queue, fromStart ->
                 detailFor = null
+                // So Continue watching shows this title's poster for these, whatever the files are called.
+                com.woodruff.tvexplorer.cloud.EpisodeShows.remember(context, queue.associate { MediaRef.Drive(it.id).key to f.id })
                 context.startActivity(PlayerActivity.intent(context, queue.map { MediaRef.Drive(it.id).key }, queue.map { it.name }, MediaRef.Drive(ep.id).key, positionMs = if (fromStart) 0L else null))
             },
             onPlayKey = { key, title ->

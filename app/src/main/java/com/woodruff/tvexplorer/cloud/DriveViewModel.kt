@@ -128,6 +128,50 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // Videos found not to sit under any Movies / TV Shows entry (asked again next launch).
+    private val unplaced = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    private var placing: Job? = null
+
+    /**
+     * Works out, once, which Movies / TV Shows entry each in-progress Drive video sits under (an
+     * episode's show, a film's folder) by walking up its folders on Drive, so its poster is the
+     * right one even when the file name doesn't say. Remembered in [EpisodeShows].
+     */
+    fun resolveShows(keys: List<String>) {
+        val tops = listOf(DrivePlace.Movies, DrivePlace.TvShows).flatMap { cache[it].orEmpty() }.mapTo(HashSet()) { it.id }
+        if (tops.isEmpty() || placing?.isActive == true) return
+        EpisodeShows.load(ctx)
+        val known = EpisodeShows.map.value
+        val todo = keys.filter { it.startsWith("drive:") && it !in known && it !in unplaced && it.removePrefix("drive:") !in tops }
+        if (todo.isEmpty()) return
+        placing = viewModelScope.launch {
+            val token = GoogleAuth.token(ctx) ?: return@launch
+            // Folder -> the entry it's under (null: none); siblings in one season share the walk.
+            val under = HashMap<String, String?>()
+            val found = HashMap<String, String>()
+            for (key in todo) {
+                var id = key.removePrefix("drive:")
+                val walked = ArrayList<String>()
+                var entry: String? = null
+                var failed = false
+                // Episode -> season -> show, or film -> its folder: a few levels at most.
+                for (level in 0 until 4) {
+                    val parent = try { DriveApi.parentOf(token, id) } catch (e: CancellationException) { throw e } catch (e: Exception) { failed = true; break }
+                    if (parent == null) break
+                    if (parent in tops) { entry = parent; break }
+                    if (under.containsKey(parent)) { entry = under[parent]; break }
+                    walked += parent
+                    id = parent
+                }
+                if (failed) continue // the network failed: try again another time
+                val result = entry
+                walked.forEach { under[it] = result }
+                if (result != null) found[key] = result else unplaced += key
+            }
+            if (found.isNotEmpty()) EpisodeShows.remember(ctx, found)
+        }
+    }
+
     /**
      * Movies and TV Shows whose title matches every word of [query] (accents and case ignored),
      * from the listings already loaded; for voice search.
@@ -211,6 +255,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         artworkJob?.cancel()
         _artwork.value = emptyMap()
         _recentlyAdded.value = emptyList()
+        placing?.cancel()
+        unplaced.clear()
+        EpisodeShows.clear(ctx)
         DriveApi.forgetFolders()
         viewModelScope.launch(Dispatchers.IO) { ListingCache.clear(ctx) }
     }
@@ -409,9 +456,11 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 }
 
 /**
- * The Movies / TV Shows entry whose poster fits something being watched: by its Drive id (a film
- * at the top of Movies), else by its film or show name (an episode, or a film inside its folder).
+ * The Movies / TV Shows entry whose poster fits something being watched: the entry it's known to
+ * sit under ([shows], from [EpisodeShows]: an episode's show, a film's folder), else by its own
+ * Drive id (a film at the top of Movies), else by its film or show name.
  */
-fun artworkFor(index: Map<String, DriveFile>, key: String, title: String): DriveFile? =
-    (if (key.startsWith("drive:")) index["id:" + key.removePrefix("drive:")] else null)
+fun artworkFor(index: Map<String, DriveFile>, key: String, title: String, shows: Map<String, String>): DriveFile? =
+    shows[key]?.let { index["id:$it"] }
+        ?: (if (key.startsWith("drive:")) index["id:" + key.removePrefix("drive:")] else null)
         ?: Library.showMatchKey(title).takeIf { it.isNotBlank() }?.let { index[it] }

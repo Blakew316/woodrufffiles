@@ -131,7 +131,11 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     val added by drive.recentlyAdded.collectAsStateWithLifecycle()
     // Posters for what's in progress, from the Movies / TV Shows entries they belong to.
     val artwork by drive.artwork.collectAsStateWithLifecycle()
-    val arts = remember(recent, artwork) { recent.associate { it.key to com.woodruff.tvexplorer.cloud.artworkFor(artwork, it.key, it.title) } }
+    remember { com.woodruff.tvexplorer.cloud.EpisodeShows.load(context) }
+    val shows by com.woodruff.tvexplorer.cloud.EpisodeShows.map.collectAsStateWithLifecycle()
+    val arts = remember(recent, artwork, shows) { recent.associate { it.key to com.woodruff.tvexplorer.cloud.artworkFor(artwork, it.key, it.title, shows) } }
+    // Which show (or film folder) each one sits under, looked up once on Drive.
+    LaunchedEffect(recent, artwork) { if (artwork.isNotEmpty()) drive.resolveShows(recent.map { it.key }) }
     val driveToken by remember(drive) { drive.state.map { it.token }.distinctUntilChanged() }.collectAsStateWithLifecycle(drive.state.value.token)
     val openAdded = { (place, f): Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile> ->
         if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
@@ -355,17 +359,17 @@ private fun ContinuePanel(
             }
             return@Panel
         }
-        // Posters, like the libraries: the latest first with the time left. A row clips at its
+        // Posters, like the libraries, newest first; a bar shows how far through. A row clips at its
         // ends, so it leaves room there for a focused tile's grown edge and outline.
         LazyRow(
             Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
         ) {
             item(key = r.key) {
-                ResumeTile(r, arts[r.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f), main = true)
+                ResumeTile(r, arts[r.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
             }
             items(recent.drop(1).take(8), key = { it.key }) { m ->
-                ResumeTile(m, arts[m.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f), main = false)
+                ResumeTile(m, arts[m.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
             }
             // Then what's new in Movies and TV Shows.
             items(added, key = { "new-" + it.second.id }) { a ->
@@ -378,7 +382,7 @@ private fun ContinuePanel(
 @Composable
 private fun ResumeTile(
     r: RecentItem, art: com.woodruff.tvexplorer.cloud.DriveFile?, token: String?,
-    play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit, modifier: Modifier, main: Boolean,
+    play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit, modifier: Modifier,
 ) {
     Surface(
         onClick = { play(r) }, onLongClick = { onMenu(r) },
@@ -393,15 +397,12 @@ private fun ResumeTile(
                 // A poster carries its own title; an episode still says which one it is.
                 val label = if (poster == null) r.title else episodeCode(r.title)
                 if (label != null) Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (main) Text(timeLeft(r), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f), maxLines = 1)
                 UsageBar(r.progress, Modifier.padding(top = 4.dp))
             }
         }
     }
 }
 
-private fun timeLeft(r: RecentItem): String =
-    if (r.durationMs > 0) "${Format.duration(r.durationMs - r.positionMs)} left" else "Resume"
 
 /**
  * Artwork for a resume tile: the film's or show's poster when the library has one, else the
