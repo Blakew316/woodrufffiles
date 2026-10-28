@@ -53,6 +53,8 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,6 +122,15 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         drive.start()
         onDispose { drive.stop() }
     }
+    // Google's access tokens last an hour: keep the screen's current (its art, a show's episodes),
+    // on coming back from the player and while the screen stays open.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { drive.refreshToken() }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(5 * 60_000L)
+            drive.refreshToken()
+        }
+    }
 
     if (!state.connected) {
         ConnectPanel(state, onReset = drive::resetSetup)
@@ -131,7 +142,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val shown = remember(state.files, state.filterable, filter) {
         if (state.filterable) Library.apply(state.files, filter) else state.files
     }
-    val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, shown, drive::open, onOther = { menuFor = it }) }
+    // A film in Movies / TV Shows plays on its own: no rolling on into the next title (and the
+    // queue is never cut short of the one chosen). In a folder, the media around it queue up after it.
+    val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, if (state.filterable) listOf(f) else shown, drive::open, onOther = { menuFor = it }) }
 
     var moreOpen by remember { mutableStateOf(false) }
     // Rows (featured title, Continue watching, genres) or the full grid, remembered.
@@ -144,6 +157,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Held as a State and read only inside the backdrop: moving between posters then redraws the
     // backdrop alone, not the whole screen and grid.
     val focusedArt = remember(state.place) { mutableStateOf<String?>(null) }
+    // Whether the focus is in the header (choosing a category): the posters or rows that the choice
+    // brings up then don't take it. Read only when they open, so no redraws when it changes.
+    val headerFocused = remember { mutableStateOf(false) }
     if (state.library) PosterBackdrop(focusedArt, state.token)
     Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = if (state.library) 18.dp else 32.dp)) {
         if (state.library) {
@@ -151,7 +167,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             // posters start near the top of the screen.
             if (state.filterable) {
                 // The library's top level: title, Search / Filter / More, and category tabs.
-                LibraryHeader(state.place.title, state.files, filter, drive::setFilter, onSearch = { searching = true }, onMore = { moreOpen = true })
+                Box(Modifier.onFocusChanged { headerFocused.value = it.hasFocus }) {
+                    LibraryHeader(state.place.title, state.files, filter, drive::setFilter, onSearch = { searching = true }, onMore = { moreOpen = true })
+                }
             } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
                 // A show's folder (seasons, episodes): back, its name, More.
                 if (state.stack.size > 1) ToolButton(Icons.Rounded.ArrowBack, null, { drive.back() }, modifier = Modifier.padding(end = 14.dp))
@@ -186,10 +204,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 state.error != null -> EmptyState(state.error!!)
                 state.files.isEmpty() -> EmptyState("Nothing here")
                 shown.isEmpty() -> EmptyState("No matches")
-                state.filterable && rowsView && !filter.narrowed && filter.sort == LibrarySort.TITLE && state.files.size >= 12 -> LibraryRows(
-                    state.files, state.token, onChoose = choose, onPlay = onOpen, onMenu = { menuFor = it },
-                    onFocusArt = { focusedArt.value = it },
-                )
+                state.filterable && rowsView && !filter.narrowed && filter.sort == LibrarySort.TITLE && state.files.size >= 12 -> key(state.place) {
+                    // One per library: Movies and TV Shows each open at their own place, with their own focus.
+                    LibraryRows(
+                        state.files, state.token, placeKey = state.place.toString(),
+                        isShows = state.stack.firstOrNull() == DrivePlace.TvShows,
+                        canTakeFocus = { !headerFocused.value },
+                        onChoose = choose, onPlay = onOpen, onMenu = { menuFor = it },
+                        onFocusArt = { focusedArt.value = it },
+                    )
+                }
                 else -> {
                     // Back to a list you've been in: the item you left from is focused (and scrolled to)
                     // again, instead of the first one.
@@ -199,7 +223,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     val grid = remember(state.place) { LazyGridState() }
                     // How far through each title is, read once per visit and on coming back from the player (not per tile).
                     var resumes by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-                    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { resumes++ }
+                    // (The first resume arrives with the first frame, when it was just read: skip it.)
+                    var resumedOnce by remember { mutableStateOf(false) }
+                    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { if (resumedOnce) resumes++ else resumedOnce = true }
                     val progressOf = remember(state.place, resumes) {
                         com.woodruff.tvexplorer.player.RecentStore(context).all().filter { it.progress < 0.97f }.associate { it.key to it.progress }
                     }
@@ -241,7 +267,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         val i = shown.indexOfFirst { it.id == target }
                         if (i > 0) runCatching { grid.scrollToItem(i) }
                         withFrameNanos {}
-                        runCatching { first.requestFocus() }
+                        // Not while choosing a category in the header: the focus stays on the tabs.
+                        if (!headerFocused.value) runCatching { first.requestFocus() }
                     }
                 }
             }
@@ -280,7 +307,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             artHeaders = { url -> if (isGoogle(url) && token != null) mapOf("Authorization" to "Bearer $token") else emptyMap() },
             onPlay = { fromStart ->
                 detailFor = null
-                if (fromStart) playFromStart(context, f, shown) else onOpen(f)
+                if (fromStart) playFromStart(context, f, listOf(f)) else onOpen(f)
             },
             onPlayEpisode = { ep, queue, fromStart ->
                 detailFor = null
@@ -329,8 +356,17 @@ private fun prefetchPosters(context: Context, files: List<DriveFile>, from: Int,
 
 /** "Start over" on a detail page: the same queue as playing it, but from the beginning. */
 private fun playFromStart(context: Context, f: DriveFile, all: List<DriveFile>) {
-    val queue = all.filter { it.kind == FileKind.VIDEO || it.kind == FileKind.AUDIO }.take(300).ifEmpty { listOf(f) }
+    val queue = around(f, all.filter { it.kind == FileKind.VIDEO || it.kind == FileKind.AUDIO })
     context.startActivity(PlayerActivity.intent(context, queue.map { MediaRef.Drive(it.id).key }, queue.map { it.name }, MediaRef.Drive(f.id).key, positionMs = 0L))
+}
+
+/**
+ * Up to 300 of [items] around [f], always including it. (The first 300 of a long folder left out
+ * anything further down, and the player then started the first item instead of the one chosen.)
+ */
+private fun around(f: DriveFile, items: List<DriveFile>): List<DriveFile> {
+    val at = items.indexOfFirst { it.id == f.id }
+    return if (at < 0) listOf(f) else items.subList(maxOf(0, at - 150), minOf(items.size, at + 150))
 }
 
 /** Folders navigate, media streams in the built-in player/viewer, anything else offers its menu. */
@@ -338,11 +374,11 @@ private fun openDriveFile(context: Context, f: DriveFile, all: List<DriveFile>, 
     when (f.kind) {
         FileKind.FOLDER -> openFolder(DrivePlace.Folder(f.id, f.name))
         FileKind.VIDEO, FileKind.AUDIO -> {
-            val queue = all.filter { it.kind == FileKind.VIDEO || it.kind == FileKind.AUDIO }.take(300)
+            val queue = around(f, all.filter { it.kind == FileKind.VIDEO || it.kind == FileKind.AUDIO })
             context.startActivity(PlayerActivity.intent(context, queue.map { MediaRef.Drive(it.id).key }, queue.map { it.name }, MediaRef.Drive(f.id).key))
         }
         FileKind.IMAGE -> {
-            val images = all.filter { it.kind == FileKind.IMAGE }.take(300)
+            val images = around(f, all.filter { it.kind == FileKind.IMAGE })
             context.startActivity(ImageViewerActivity.intent(context, images.map { MediaRef.Drive(it.id).key }, MediaRef.Drive(f.id).key, images.map { it.name }))
         }
         else -> onOther(f)
@@ -491,8 +527,11 @@ internal fun PosterTile(
 private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: String?) {
     val context = LocalContext.current
     var shown by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        androidx.compose.runtime.snapshotFlow { art.value }.collect { kotlinx.coroutines.delay(350); shown = it }
+    // Keyed by the State: each place has its own (keyed on Unit, it kept watching the first one and
+    // the backdrop froze after the first folder). collectLatest: it changes once the focus rests,
+    // not every 350 ms while you scroll (each change decodes and cross-fades a full-screen image).
+    LaunchedEffect(art) {
+        androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { kotlinx.coroutines.delay(350); shown = it }
     }
     androidx.compose.animation.Crossfade(shown, animationSpec = tween(450, easing = LinearEasing), label = "backdrop") { url ->
         if (url != null) {
@@ -527,6 +566,7 @@ private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, o
         else Library.apply(all, com.woodruff.tvexplorer.cloud.LibraryFilter(query = query.text.trim()))
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        com.woodruff.tvexplorer.ui.components.FocusWhenReady(field)
         Box(Modifier.fillMaxSize().ambientBackdrop()) {
             Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -564,16 +604,12 @@ private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, o
             }
         }
     }
-    LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
 }
 
 /** Only set by the UI gallery, which renders headless and can't wait on Coil: decodes art synchronously. */
 internal val LocalPosterPainter = androidx.compose.runtime.staticCompositionLocalOf<((String) -> androidx.compose.ui.graphics.painter.Painter?)?> { null }
 
-internal fun isGoogle(url: String): Boolean {
-    val host = android.net.Uri.parse(url).host.orEmpty()
-    return host.endsWith(".googleusercontent.com") || host.endsWith(".google.com") || host.endsWith(".googleapis.com")
-}
+internal fun isGoogle(url: String): Boolean = com.woodruff.tvexplorer.cloud.isGoogleUrl(url)
 
 @Composable
 private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
@@ -593,9 +629,10 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
                 contentAlignment = Alignment.Center,
             ) {
                 FileGlyph(f.name, f.kind, size = 64.dp)
-                if (f.thumbnailLink != null && token != null) {
+                val thumb = f.thumbnailLink
+                if (thumb != null && token != null && isGoogle(thumb)) {
                     AsyncImage(
-                        model = ImageRequest.Builder(context).data(f.thumbnailLink).addHeader("Authorization", "Bearer $token").build(),
+                        model = ImageRequest.Builder(context).data(thumb).addHeader("Authorization", "Bearer $token").build(),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),

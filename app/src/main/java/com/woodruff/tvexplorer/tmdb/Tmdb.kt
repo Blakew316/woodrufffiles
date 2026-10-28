@@ -245,15 +245,20 @@ object Tmdb {
     /** "The.Matrix.1999.1080p.BluRay.mkv" → ("The Matrix", "1999"). Visible for tests. */
     fun parse(name: String, stripExtension: Boolean): Pair<String, String?> {
         var s = if (stripExtension) name.substringBeforeLast('.', name) else name
-        s = s.replace(Regex("[\\[{].*?[\\]}]"), " ") // [release group], {tags}
+        s = s.replace(BRACKETS, " ") // [release group], {tags}
             .replace('.', ' ').replace('_', ' ')
-            .replace(Regex("\\s+"), " ").trim()
+            .replace(SPACES, " ").trim()
         val year = YEAR.findAll(s).firstOrNull { it.range.first > 0 }
         var title = if (year != null) s.substring(0, year.range.first) else s
         JUNK.find(title)?.let { if (it.range.first > 0) title = title.substring(0, it.range.first) }
-        title = title.replace(Regex("[(\\-–:,\\s]+$"), "").replace("(", "").replace(")", "").trim()
+        title = title.replace(TRAILING, "").replace("(", "").replace(")", "").trim()
         return title to year?.value
     }
+
+    // Compiled once: every title in a library is parsed with these.
+    private val BRACKETS = Regex("[\\[{].*?[\\]}]")
+    private val SPACES = Regex("\\s+")
+    private val TRAILING = Regex("[(\\-–:,\\s]+$")
 
     /** "Season 2", "S02", "Series 3" → 2 / 2 / 3; "Specials" → 0. Visible for tests. */
     fun seasonNumber(folder: String): Int? {

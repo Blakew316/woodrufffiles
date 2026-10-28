@@ -180,7 +180,7 @@ fun AppRoot(vm: MainViewModel) {
     }
     LaunchedEffect(Unit) { VoiceSearch.requests.collect { startSearch() } }
 
-    Box(Modifier.fillMaxSize().ambientBackdrop()) {
+    Box(Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background))) {
         // Optional background photo (Settings → Screensaver & background), dimmed so text stays readable.
         Appearance.background?.let { path ->
             AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -199,7 +199,9 @@ fun AppRoot(vm: MainViewModel) {
                 .onFocusChanged { contentFocused = it.hasFocus }
                 .onKeyEvent { e ->
                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft && contentFocused) {
-                        if (!focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)) railWanted = true
+                        // Only a fresh press opens the menu: holding Left to run back along a row
+                        // stops at its first item instead of overshooting into the menu.
+                        if (!focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left) && e.nativeKeyEvent.repeatCount == 0) railWanted = true
                         true
                     } else false
                 }
@@ -237,11 +239,15 @@ fun AppRoot(vm: MainViewModel) {
         // together: it starts quickly, eases to a stop without overshoot, and picks up smoothly if
         // the menu reverses half-way (a timed curve restarts and jerks).
         val reveal = animateFloatAsState(if (open) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 420f), label = "rail")
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
         // Side menu: icons only until it has focus, then it opens to full labels over the content.
         // Opens quick and settles softly (no linear robot slide).
         Column(
             Modifier
+                // Clipped to the width the layout below reports, so the closed menu (width 0) draws
+                // nothing. (Placed after the layout, the clip used the full open width it measures,
+                // and the "hidden" menu stayed painted over the left of every screen.)
+                .clipToBounds()
                 // The rows are measured once at the width the menu is heading to; each animation frame
                 // then only changes how much of it shows (re-measuring 13 rows per frame cost frames).
                 .layout { measurable, constraints ->
@@ -252,7 +258,6 @@ fun AppRoot(vm: MainViewModel) {
                     val p = measurable.measure(constraints.copy(minWidth = target, maxWidth = target))
                     layout(w, p.height) { p.place(0, 0) }
                 }
-                .clipToBounds()
                 .fillMaxHeight()
                 // Fades from the slim tint to the open menu's frosted glass with the slide (drawn, not recomposed).
                 .drawBehind { drawRect(androidx.compose.ui.graphics.lerp(Palette.surface, Palette.glass, reveal.value)) }
@@ -260,10 +265,21 @@ fun AppRoot(vm: MainViewModel) {
                 // Right goes into the content (the open menu covers its left edge, so a plain geometric
                 // search would skip the first column).
                 .onPreviewKeyEvent { e ->
-                    if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight) {
-                        runCatching { contentFocus.requestFocus() }
-                        contentFocused
-                    } else false
+                    when {
+                        e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight -> {
+                            runCatching { contentFocus.requestFocus() }
+                            contentFocused
+                        }
+                        // Back from the menu returns to the screen (on Home it leaves the app, as
+                        // before). Handled here, where the key arrives, not with a BackHandler: each
+                        // screen adds its own BackHandler when it opens, after AppRoot's, and that one
+                        // won — Back went Home or up a folder behind the menu, and then out of the app.
+                        e.key == Key.Back && screen != Screen.HOME -> {
+                            if (e.type == KeyEventType.KeyUp) runCatching { contentFocus.requestFocus() }
+                            true
+                        }
+                        else -> false
+                    }
                 }
                 .verticalScroll(rememberScrollState())
                 .padding(vertical = 28.dp, horizontal = 14.dp),
@@ -343,9 +359,7 @@ fun AppRoot(vm: MainViewModel) {
         withFrameNanos {}
         railWanted = false
     }
-    // Back, as on Apple TV: from Home it brings up the sidebar; from the sidebar it returns to the
-    // screen, except on Home, where it leaves the app as before.
-    androidx.activity.compose.BackHandler(enabled = railFocused && screen != Screen.HOME) { runCatching { contentFocus.requestFocus() } }
+    // Back, as on Apple TV: from Home it brings up the sidebar (from the sidebar, see its key handler).
     androidx.activity.compose.BackHandler(enabled = !railFocused && screen == Screen.HOME) { railWanted = true }
     // A screen chosen in the side menu: move into it once it's on screen (two frames: composed and
     // laid out), so the next press acts on the screen, not the menu.
@@ -353,19 +367,24 @@ fun AppRoot(vm: MainViewModel) {
         if (enterContent == 0) return@LaunchedEffect
         withFrameNanos {}
         withFrameNanos {}
-        runCatching { contentFocus.requestFocus() }
+        // Unless the screen already put the focus somewhere itself (the title you left from, say).
+        if (!contentFocused) runCatching { contentFocus.requestFocus() }
     }
     // A screen changed from inside the content (Back to Home, a dashboard shortcut): the focused
     // item went away with the old screen, so put focus in the new one unless it took it itself.
     LaunchedEffect(screen) {
-        com.woodruff.tvexplorer.util.FrameStats.screen = when (screen) {
-            Screen.DRIVE -> drive.state.value.stack.firstOrNull()?.title ?: "Google Drive"
-            else -> screen.name.lowercase().replaceFirstChar { it.uppercase() }
-        }
         withFrameNanos {}
         withFrameNanos {}
         if (!railFocused && !contentFocused) runCatching { contentFocus.requestFocus() }
     }
+    // The smoothness meter's name for what's on screen: Movies and TV Shows apart, and set again on
+    // coming back from the player (which counts its frames as "Player").
+    val frameLabel = when (screen) {
+        Screen.DRIVE -> driveTop?.title ?: "Google Drive"
+        else -> screen.name.lowercase().replaceFirstChar { it.uppercase() }
+    }
+    LaunchedEffect(frameLabel) { com.woodruff.tvexplorer.util.FrameStats.screen = frameLabel }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { com.woodruff.tvexplorer.util.FrameStats.screen = frameLabel }
     LaunchedEffect(Unit) {
         // Start in the content with the menu closed; fall back to the menu if nothing there takes focus.
         delay(300)

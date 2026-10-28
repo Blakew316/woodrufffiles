@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,8 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -57,24 +60,24 @@ import coil.request.ImageRequest
 import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
+import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.RecentStore
-import com.woodruff.tvexplorer.player.ShowPrefs
 import com.woodruff.tvexplorer.player.Watched
+import com.woodruff.tvexplorer.tmdb.Tmdb
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.util.Format
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 
 /**
  * A title's page, Apple TV style: its wide art across the screen, the name, year, genres, rating
- * and cast, the synopsis, and the buttons — Play / Resume / Start over for a film. A show gets
- * Resume (the episode you were in), Play from the first episode, then season tabs over a row of
- * episode cards with progress bars and ✓s. "More like this" lists titles from your own library
- * that share its genres. Back returns to the grid.
+ * and cast, the synopsis, and the buttons — Play / Resume / Start over for a film (also one kept in
+ * its own folder). A show gets Resume (the episode you were in), Play from its first episode, then
+ * season tabs over a row of episode cards with progress bars and ✓s. "More like this" lists titles
+ * from your own library that share its genres. Back returns to the grid.
  *
  * [artHeaders] adds the Google token for Drive-hosted art (never sent to TMDB).
  */
@@ -97,43 +100,90 @@ fun TitleDetail(
     onChoose: (DriveFile) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // One page per title: a title picked from "More like this" starts afresh, with nothing (cast,
+        // seasons, the first episode, scroll, focus) carried over from the one before.
+        key(f.id) {
+            TitlePage(f, art, token, all, isShow, artHeaders, onPlay, onPlayEpisode, onPlayKey, openLabel, onOpen, onChoose)
+        }
+    }
+}
+
+@Composable
+private fun TitlePage(
+    f: DriveFile,
+    art: String?,
+    token: String?,
+    all: List<DriveFile>,
+    isShow: Boolean,
+    artHeaders: (String) -> Map<String, String>,
+    onPlay: (fromStart: Boolean) -> Unit,
+    onPlayEpisode: (episode: DriveFile, queue: List<DriveFile>, fromStart: Boolean) -> Unit,
+    onPlayKey: (key: String, title: String) -> Unit,
+    openLabel: String,
+    onOpen: () -> Unit,
+    onChoose: (DriveFile) -> Unit,
+) {
     val context = LocalContext.current
-    val info = remember(f) { Library.info(f) }
-    val recent = remember(f) { RecentStore(context).all() }
-    val resumeMs = remember(f) { if (f.isFolder) 0L else RecentStore(context).resumePosition(MediaRef.Drive(f.id).key) }
-    // A show: the episode last watched (by title, so it's found whichever season it's in).
-    val showKey = remember(f) { ShowPrefs.showKey(info.title) }
-    val resumeEpisode = remember(f) {
-        if (!isShow) null else recent.firstOrNull { ShowPrefs.showKey(it.title) == showKey && it.progress in 0.02f..0.97f }
+    val info = remember { Library.info(f) }
+    val recent = remember { RecentStore(context).all() }
+    val resumeMs = remember { if (f.isFolder) 0L else RecentStore(context).resumePosition(MediaRef.Drive(f.id).key) }
+    // A show: the episode last watched, matched by the show's name, so it's found whichever season
+    // folder it's in and however its file is named ("Show (2008) - S02E04.mkv", "Show.S02E04…").
+    val resumeEpisode = remember {
+        if (!isShow) null
+        else Library.showMatchKey(f.name).let { show ->
+            recent.firstOrNull { it.progress in 0.02f..0.97f && Library.showMatchKey(it.title) == show }
+        }
     }
-    val cast by produceState(emptyList<String>(), f) {
+    val cast by produceState(emptyList<String>()) {
         val id = info.tmdbId ?: return@produceState
-        value = com.woodruff.tvexplorer.tmdb.Tmdb.cast(context, id, info.tv)
+        value = Tmdb.cast(context, id, info.tv)
     }
-    // Seasons (folders in the show's folder) or, without season folders, the episodes themselves.
-    val seasons by produceState<List<Pair<String, DriveFile?>>?>(null, f, token) {
-        if (!isShow || !f.isFolder || token == null) { value = emptyList(); return@produceState }
-        value = runCatching {
-            val inside = DriveApi.list(token, DrivePlace.Folder(f.id, f.name))
-            val folders = inside.filter { it.isFolder }
-            if (folders.isNotEmpty()) folders.map { it.name to it } else listOf("Episodes" to null)
-        }.getOrDefault(emptyList())
+    // What's in the folder: a show's seasons (or its episodes), or the film kept in it.
+    val inside by produceState<List<DriveFile>?>(null) {
+        value = if (f.isFolder) listing(context, token, f).orEmpty() else emptyList()
     }
-    var season by remember(f) { mutableStateOf(0) }
-    val episodes by produceState<List<DriveFile>?>(null, seasons, season, token) {
+    // Season folders, or one "Episodes" tab when the episodes sit in the show's folder itself.
+    val seasons = remember(inside) {
+        inside?.let { list ->
+            if (!isShow) emptyList<Pair<String, DriveFile?>>()
+            else list.filter { it.isFolder }.map<DriveFile, Pair<String, DriveFile?>> { it.name to it }
+                .ifEmpty { if (list.any { it.kind == FileKind.VIDEO }) listOf<Pair<String, DriveFile?>>("Episodes" to null) else emptyList() }
+        }
+    }
+    // Where a show starts: its first numbered season ("Specials", "Extras" and "Season 0" sort first).
+    val firstSeason = remember(seasons) {
+        seasons.orEmpty().withIndex()
+            .filter { (_, s) -> (Tmdb.seasonNumber(s.first) ?: 1) >= 1 }
+            .minByOrNull { (_, s) -> Tmdb.seasonNumber(s.first) ?: Int.MAX_VALUE }?.index ?: 0
+    }
+    var chosenSeason by remember { mutableIntStateOf(-1) }
+    val season = if (chosenSeason >= 0) chosenSeason else firstSeason
+    // The season's episodes, tagged with the season they're from: switching seasons never shows
+    // (or plays) the previous one's while the next loads.
+    val loaded by produceState<Pair<Int, List<DriveFile>>?>(null, seasons, season) {
         val list = seasons ?: return@produceState
-        if (list.isEmpty() || token == null) { value = emptyList(); return@produceState }
-        value = null
         val folder = list.getOrNull(season)?.second
-        value = runCatching {
-            DriveApi.list(token, if (folder != null) DrivePlace.Folder(folder.id, folder.name) else DrivePlace.Folder(f.id, f.name))
-                .filter { it.kind == FileKind.VIDEO }
-        }.getOrDefault(emptyList())
+        value = season to when {
+            list.isEmpty() -> emptyList<DriveFile>()
+            folder == null -> inside.orEmpty().filter { it.kind == FileKind.VIDEO }
+            else -> listing(context, token, folder).orEmpty().filter { it.kind == FileKind.VIDEO }
+        }
     }
+    val episodes = loaded?.takeIf { it.first == season }?.second
     // The first season's episodes, kept so "Play S1 E1" stays put while you browse other seasons.
-    var firstEps by remember(f) { mutableStateOf<List<DriveFile>?>(null) }
-    LaunchedEffect(episodes) { if (season == 0 && episodes != null) firstEps = episodes }
-    val similar = remember(f, all) {
+    var firstEps by remember { mutableStateOf<List<DriveFile>?>(null) }
+    LaunchedEffect(loaded) {
+        val l = loaded
+        if (firstEps == null && l != null && l.first == firstSeason) firstEps = l.second
+    }
+    // A film kept in its own folder (Plex style): the biggest video in it is the film.
+    val film = remember(inside) {
+        if (isShow || !f.isFolder) null else inside?.filter { it.kind == FileKind.VIDEO }?.maxByOrNull { it.size }
+    }
+    val filmResumeMs = remember(film) { film?.let { RecentStore(context).resumePosition(MediaRef.Drive(it.id).key) } ?: 0L }
+    val similar = remember {
         if (info.genres.isEmpty()) emptyList()
         else all.asSequence().filter { it.id != f.id }
             .map { it to Library.info(it).genres.count { g -> g in info.genres } }
@@ -142,107 +192,133 @@ fun TitleDetail(
             .take(14).map { it.first }.toList()
     }
     val primary = remember { FocusRequester() }
-    var focused by remember(f) { mutableStateOf(false) }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        // Focus the main button once it's there — a show's Resume at once, its Play when the first
-        // season's episodes arrive — then leave focus alone. Here, inside the dialog, because its
-        // window composes a frame or two after the page that opens it.
-        val ready = !isShow || !f.isFolder || resumeEpisode != null || firstEps != null || seasons?.isEmpty() == true
-        LaunchedEffect(f, ready) {
-            if (focused || !ready) return@LaunchedEffect
-            repeat(10) {
-                withFrameNanos {}
-                if (runCatching { primary.requestFocus() }.isSuccess) { focused = true; return@LaunchedEffect }
-            }
+    var focused by remember { mutableStateOf(false) }
+    // Focus the main button once it's there — a show's Resume at once, its Play when the first
+    // season's episodes arrive, a folder's Play once its film is found — then leave focus alone.
+    val ready = when {
+        !f.isFolder -> true
+        isShow -> resumeEpisode != null || firstEps != null || seasons?.isEmpty() == true
+        else -> inside != null
+    }
+    LaunchedEffect(ready) {
+        if (focused || !ready) return@LaunchedEffect
+        repeat(10) {
+            withFrameNanos {}
+            if (runCatching { primary.requestFocus() }.isSuccess) { focused = true; return@LaunchedEffect }
         }
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
-            val wide = info.backdrop ?: art
-            if (wide != null) {
-                val request = remember(wide) {
-                    ImageRequest.Builder(context).data(wide)
-                        .apply { artHeaders(wide).forEach { (k, v) -> addHeader(k, v) } }
-                        .size(1280, 720).crossfade(250).build()
-                }
-                AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        val wide = info.backdrop ?: art
+        if (wide != null) {
+            val request = remember(wide) {
+                ImageRequest.Builder(context).data(wide)
+                    .apply { artHeaders(wide).forEach { (k, v) -> addHeader(k, v) } }
+                    .size(1280, 720).crossfade(250).build()
             }
-            // Darken the left and the bottom, where the text and rows sit, so they read on any picture.
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.92f), 0.55f to Color.Black.copy(alpha = 0.5f), 1f to Color.Transparent)))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.94f))))
+            AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        // Darken the left and the bottom, where the text and rows sit, so they read on any picture.
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.92f), 0.55f to Color.Black.copy(alpha = 0.5f), 1f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.94f))))
 
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 72.dp, end = 48.dp, top = 120.dp, bottom = 48.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Column(Modifier.fillMaxWidth(0.6f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(info.title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    val meta = listOfNotNull(info.year?.toString(), info.genres.take(3).joinToString(", ").ifBlank { null })
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (meta.isNotEmpty()) Text(meta.joinToString("  ·  "), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
-                        info.rating?.let { r ->
-                            TvIcon(Icons.Rounded.Star, size = 18.dp, tint = Color(0xFFFFC857), modifier = Modifier.padding(start = 14.dp, end = 4.dp))
-                            Text(String.format("%.1f", r), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
-                        }
-                    }
-                    info.overview?.let {
-                        Text(it, color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyLarge, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (cast.isNotEmpty()) Text("Starring " + cast.joinToString(", "), color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
-                // The buttons, all on one row.
-                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    when {
-                        isShow && f.isFolder -> {
-                            val firstEpisode = firstEps?.firstOrNull()
-                            if (resumeEpisode != null) {
-                                val label = episodeCode(resumeEpisode.title)?.let { "Resume $it" } ?: "Resume"
-                                DetailButton(Icons.Rounded.PlayArrow, label, primary = true, Modifier.focusRequester(primary)) { onPlayKey(resumeEpisode.key, resumeEpisode.title) }
-                                if (firstEpisode != null) DetailButton(Icons.Rounded.Replay, "Play from the start", primary = false) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
-                            } else if (firstEpisode != null) {
-                                DetailButton(Icons.Rounded.PlayArrow, "Play " + (episodeCode(firstEpisode.name) ?: "first episode"), primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
-                            }
-                            DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = resumeEpisode == null && firstEpisode == null, if (resumeEpisode == null && firstEpisode == null) Modifier.focusRequester(primary) else Modifier, onOpen)
-                        }
-                        f.isFolder -> DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
-                        resumeMs > 60_000 -> {
-                            DetailButton(Icons.Rounded.PlayArrow, "Resume from ${Format.duration(resumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
-                            DetailButton(Icons.Rounded.Replay, "Start over", primary = false) { onPlay(true) }
-                        }
-                        else -> DetailButton(Icons.Rounded.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 72.dp, end = 48.dp, top = 120.dp, bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Column(Modifier.fillMaxWidth(0.6f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(info.title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val meta = listOfNotNull(info.year?.toString(), info.genres.take(3).joinToString(", ").ifBlank { null })
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (meta.isNotEmpty()) Text(meta.joinToString("  ·  "), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
+                    info.rating?.let { r ->
+                        TvIcon(Icons.Rounded.Star, size = 18.dp, tint = Color(0xFFFFC857), modifier = Modifier.padding(start = 14.dp, end = 4.dp))
+                        Text(String.format("%.1f", r), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
                     }
                 }
-                // A show's seasons and episodes.
-                val seasonList = seasons
-                if (isShow && f.isFolder && seasonList != null && seasonList.isNotEmpty()) {
-                    if (seasonList.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
-                        items(seasonList.size) { i ->
-                            SeasonTab(seasonList[i].first, selected = i == season) { season = i }
+                info.overview?.let {
+                    Text(it, color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyLarge, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                }
+                if (cast.isNotEmpty()) Text("Starring " + cast.joinToString(", "), color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            // The buttons, all on one row.
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                when {
+                    isShow && f.isFolder -> {
+                        val firstEpisode = firstEps?.firstOrNull()
+                        if (resumeEpisode != null) {
+                            val label = episodeCode(resumeEpisode.title)?.let { "Resume $it" } ?: "Resume"
+                            DetailButton(Icons.Rounded.PlayArrow, label, primary = true, Modifier.focusRequester(primary)) { onPlayKey(resumeEpisode.key, resumeEpisode.title) }
+                            if (firstEpisode != null) DetailButton(Icons.Rounded.Replay, "Play from the start", primary = false) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
+                        } else if (firstEpisode != null) {
+                            DetailButton(Icons.Rounded.PlayArrow, "Play " + (episodeCode(firstEpisode.name) ?: "first episode"), primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
                         }
+                        val openIsMain = resumeEpisode == null && firstEpisode == null
+                        DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = openIsMain, if (openIsMain) Modifier.focusRequester(primary) else Modifier, onOpen)
                     }
-                    val eps = episodes
-                    if (eps == null) Text("Loading episodes…", color = Color.White.copy(alpha = 0.6f))
-                    else LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 4.dp)) {
-                        items(eps, key = { it.id }) { ep ->
-                            val key = MediaRef.Drive(ep.id).key
-                            EpisodeCard(
-                                ep, token,
-                                progress = recent.firstOrNull { it.key == key }?.progress,
-                                watched = Watched.isWatched(context, key),
-                            ) { onPlayEpisode(ep, eps, false) }
+                    film != null -> {
+                        if (filmResumeMs > 60_000) {
+                            DetailButton(Icons.Rounded.PlayArrow, "Resume from ${Format.duration(filmResumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(film, listOf(film), false) }
+                            DetailButton(Icons.Rounded.Replay, "Start over", primary = false) { onPlayEpisode(film, listOf(film), true) }
+                        } else {
+                            DetailButton(Icons.Rounded.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(film, listOf(film), false) }
                         }
+                        DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = false, Modifier, onOpen)
+                    }
+                    f.isFolder -> DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
+                    resumeMs > 60_000 -> {
+                        DetailButton(Icons.Rounded.PlayArrow, "Resume from ${Format.duration(resumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
+                        DetailButton(Icons.Rounded.Replay, "Start over", primary = false) { onPlay(true) }
+                    }
+                    else -> DetailButton(Icons.Rounded.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
+                }
+            }
+            // A show's seasons and episodes.
+            val seasonList = seasons
+            if (isShow && f.isFolder && seasonList != null && seasonList.isNotEmpty()) {
+                if (seasonList.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                    items(seasonList.size) { i ->
+                        SeasonTab(seasonList[i].first, selected = i == season) { chosenSeason = i }
                     }
                 }
-                // More like this, from your own library.
-                if (similar.isNotEmpty()) {
-                    Text("More like this", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.padding(top = 10.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 8.dp)) {
-                        items(similar, key = { it.id }) { s ->
-                            PosterTile(s, token, onClick = { onChoose(s) }, onLongClick = { onChoose(s) }, modifier = Modifier.width(130.dp), label = Library.label(s))
-                        }
+                val eps = episodes
+                if (eps == null) Text("Loading episodes…", color = Color.White.copy(alpha = 0.6f))
+                else if (eps.isEmpty()) Text("No episodes in this folder", color = Color.White.copy(alpha = 0.6f))
+                else LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 4.dp)) {
+                    items(eps, key = { it.id }) { ep ->
+                        val key = MediaRef.Drive(ep.id).key
+                        EpisodeCard(
+                            ep, token,
+                            progress = recent.firstOrNull { it.key == key }?.progress,
+                            watched = Watched.isWatched(context, key),
+                        ) { onPlayEpisode(ep, eps, false) }
+                    }
+                }
+            }
+            // More like this, from your own library.
+            if (similar.isNotEmpty()) {
+                Text("More like this", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.padding(top = 10.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 8.dp)) {
+                    items(similar, key = { it.id }) { s ->
+                        PosterTile(s, token, onClick = { onChoose(s) }, onLongClick = { onChoose(s) }, modifier = Modifier.width(130.dp), label = Library.label(s))
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * A folder's files, listed with a current token (the screen's can be an hour old after a long
+ * film); null when it can't be listed. A cancelled request stays cancelled rather than reporting
+ * "nothing here" over the newer one's result.
+ */
+private suspend fun listing(context: Context, token: String?, folder: DriveFile): List<DriveFile>? = try {
+    val t = GoogleAuth.token(context) ?: token
+    if (t == null) null else DriveApi.list(t, DrivePlace.Folder(folder.id, folder.name))
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    null
 }
 
 /** "S02E04" / "1x05" in a file name → "S2 E4"; null when there isn't one. */

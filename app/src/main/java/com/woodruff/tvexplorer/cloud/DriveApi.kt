@@ -76,6 +76,9 @@ object DriveApi {
     /** Folder ids already found for [DrivePlace.Named], so each library opens with one request. */
     private val namedIds = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    /** Signing out: another account's Movies / TV Shows folders are found afresh. */
+    fun forgetFolders() = namedIds.clear()
+
     suspend fun list(token: String, place: DrivePlace): List<DriveFile> = withContext(Dispatchers.IO) {
         val (q, order) = when (place) {
             is DrivePlace.Named -> {

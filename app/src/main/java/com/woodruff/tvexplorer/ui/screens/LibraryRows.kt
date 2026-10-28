@@ -13,7 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -51,11 +53,13 @@ import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.RecentStore
-import com.woodruff.tvexplorer.player.ShowPrefs
 import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import java.util.Calendar
+
+/** Where the focus was in each library's rows (row name to title id), to put it back on return. */
+private val rowsFocus = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
 
 /**
  * Movies / TV Shows as a streaming service shows them: a featured title across the top, then rows
@@ -66,6 +70,12 @@ import java.util.Calendar
 internal fun LibraryRows(
     files: List<DriveFile>,
     token: String?,
+    /** Which library this is, for putting the focus back where it was. */
+    placeKey: String,
+    /** TV Shows (its folders are shows) rather than Movies. */
+    isShows: Boolean,
+    /** Whether to take the focus on opening: not while it's in the header (choosing a category). */
+    canTakeFocus: () -> Boolean,
     onChoose: (DriveFile) -> Unit,
     /** Play a film straight away (the featured title's Play). */
     onPlay: (DriveFile) -> Unit,
@@ -74,16 +84,22 @@ internal fun LibraryRows(
     onFocusArt: (String?) -> Unit,
 ) {
     val context = LocalContext.current
+    // What's being watched, as of opening: the rows keep their titles while you're here, so a film
+    // finished meanwhile doesn't pull its tile (and the focus) out from under you...
+    val recentAtOpen = remember { RecentStore(context).all().filter { it.progress in 0.02f..0.97f } }
+    // ...while the progress bars and ✓s refresh on coming back from the player. (The first resume
+    // arrives with the first frame: nothing has changed by then.)
     var resumes by remember { mutableIntStateOf(0) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resumes++ }
-    val recent = remember(resumes) { RecentStore(context).all().filter { it.progress in 0.02f..0.97f } }
-    val progressOf = remember(recent) { recent.associate { it.key to it.progress } }
+    var resumedOnce by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { if (resumedOnce) resumes++ else resumedOnce = true }
+    val progressOf = remember(resumes) { RecentStore(context).all().filter { it.progress < 0.97f }.associate { it.key to it.progress } }
 
-    val rows = remember(files, recent) {
+    val rows = remember(files) {
         val byKey = files.associateBy { MediaRef.Drive(it.id).key }
-        val byShow = files.filter { it.isFolder }.associateBy { ShowPrefs.showKey(Library.info(it).title) }
-        // A film you're part-way through, or a show one of whose episodes you are — most recent first.
-        val continuing = recent.mapNotNull { r -> byKey[r.key] ?: byShow[ShowPrefs.showKey(r.title)] }.distinctBy { it.id }
+        // A film you're part-way through, or a show (or a film in its own folder) by name — the
+        // folders' names are only worked out if something isn't found by its own key.
+        val byName by lazy { files.filter { it.isFolder }.associateBy { Library.showMatchKey(it.name) } }
+        val continuing = recentAtOpen.mapNotNull { r -> byKey[r.key] ?: byName[Library.showMatchKey(r.title)] }.distinctBy { it.id }
         val recentlyAdded = files.sortedByDescending { it.modified }.take(20)
         val rated = files.filter { Library.info(it).rating != null }.sortedByDescending { Library.info(it).rating }
         buildList {
@@ -103,32 +119,65 @@ internal fun LibraryRows(
             ?: files.filter { Library.info(it).backdrop != null }.sortedByDescending { Library.info(it).rating ?: 0.0 }.take(7)
                 .let { top -> top.getOrNull(Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % top.size.coerceAtLeast(1)) }
     }
+    // Coming back (from a show's folders, say): the row and title you left from.
+    val restore = remember {
+        rowsFocus[placeKey]?.let { (row, id) ->
+            val r = rows.indexOfFirst { it.first == row }
+            val c = rows.getOrNull(r)?.second?.indexOfFirst { it.id == id } ?: -1
+            if (r >= 0 && c >= 0) r to c else null
+        }
+    }
     val heroFocus = remember { FocusRequester() }
     val firstTile = remember { FocusRequester() }
+    val restoreTile = remember { FocusRequester() }
+    val heroRows = if (featured != null) 1 else 0
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = restore?.let { it.first + heroRows } ?: 0)
+    // Each row's scroll position, kept while it's off screen.
+    val rowStates = remember { HashMap<String, LazyListState>() }
     LazyColumn(
-        state = rememberLazyListState(),
+        state = list,
         contentPadding = PaddingValues(top = 8.dp, bottom = 56.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         if (featured != null) item(key = "hero") {
-            Hero(featured, token, heroFocus, onPlay = { if (featured.isFolder) onChoose(featured) else onPlay(featured) }, onDetails = { onChoose(featured) })
+            Box(Modifier.onFocusChanged { if (it.hasFocus) rowsFocus.remove(placeKey) }) {
+                Hero(
+                    featured, token, isShows, heroFocus,
+                    onPlay = { if (featured.isFolder) onChoose(featured) else onPlay(featured) },
+                    onDetails = { onChoose(featured) },
+                )
+            }
         }
-        rows.forEachIndexed { r, (title, list) ->
+        rows.forEachIndexed { r, (title, items) ->
             item(key = "row:$title") {
+                val rowState = rowStates.getOrPut(title) {
+                    LazyListState(firstVisibleItemIndex = if (restore != null && restore.first == r) (restore.second - 1).coerceAtLeast(0) else 0)
+                }
                 Column {
                     Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 18.dp, bottom = 2.dp))
                     LazyRow(
+                        state = rowState,
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(26.dp),
                     ) {
-                        items(list, key = { it.id }) { f ->
+                        itemsIndexed(items, key = { _, f -> f.id }) { c, f ->
                             val key = MediaRef.Drive(f.id).key
+                            val requester = when {
+                                restore != null && restore.first == r && restore.second == c -> restoreTile
+                                r == 0 && c == 0 -> firstTile
+                                else -> null
+                            }
                             PosterTile(
                                 f, token, onClick = { onChoose(f) }, onLongClick = { onMenu(f) },
                                 modifier = Modifier.width(150.dp)
-                                    .then(if (featured == null && r == 0 && f == list.first()) Modifier.focusRequester(firstTile) else Modifier)
-                                    .onFocusChanged { if (it.isFocused) onFocusArt(posterArt(f)) },
+                                    .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
+                                    .onFocusChanged {
+                                        if (it.isFocused) {
+                                            rowsFocus[placeKey] = title to f.id
+                                            onFocusArt(posterArt(f))
+                                        }
+                                    },
                                 label = Library.label(f),
                                 progress = progressOf[key],
                                 watched = !f.isFolder && Watched.isWatched(context, key),
@@ -140,14 +189,25 @@ internal fun LibraryRows(
         }
     }
     LaunchedEffect(Unit) {
-        withFrameNanos {}
-        runCatching { if (featured != null) heroFocus.requestFocus() else firstTile.requestFocus() }
+        if (!canTakeFocus()) return@LaunchedEffect
+        val target = when {
+            restore != null -> restoreTile
+            featured != null -> heroFocus
+            else -> firstTile
+        }
+        repeat(10) {
+            withFrameNanos {}
+            if (runCatching { target.requestFocus() }.isSuccess) return@LaunchedEffect
+        }
     }
 }
 
-/** The featured title: its wide art in a rounded glass frame, name, year and genres, synopsis, and Play / Details. */
+/**
+ * The featured title: its wide art in a rounded frame, name, year and genres, synopsis, and its
+ * buttons — Play and Details for a film; for a show (or a film in its own folder) one button to its page.
+ */
 @Composable
-private fun Hero(f: DriveFile, token: String?, focus: FocusRequester, onPlay: () -> Unit, onDetails: () -> Unit) {
+private fun Hero(f: DriveFile, token: String?, isShows: Boolean, focus: FocusRequester, onPlay: () -> Unit, onDetails: () -> Unit) {
     val context = LocalContext.current
     val info = remember(f) { Library.info(f) }
     val art = info.backdrop ?: posterArt(f)
@@ -167,8 +227,8 @@ private fun Hero(f: DriveFile, token: String?, focus: FocusRequester, onPlay: ()
             if (meta.isNotEmpty()) Text(meta.joinToString("  ·  "), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyLarge)
             info.overview?.let { Text(it, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                HeroButton(Icons.Rounded.PlayArrow, if (f.isFolder) "Episodes" else "Play", Modifier.focusRequester(focus), onPlay)
-                HeroButton(Icons.Rounded.Info, "Details", Modifier, onDetails)
+                HeroButton(Icons.Rounded.PlayArrow, if (f.isFolder && isShows) "Episodes" else "Play", Modifier.focusRequester(focus), onPlay)
+                if (!f.isFolder) HeroButton(Icons.Rounded.Info, "Details", Modifier, onDetails)
             }
         }
     }

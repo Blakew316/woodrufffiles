@@ -22,12 +22,16 @@ object ListingCache {
         return File(dir(c), key.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json")
     }
 
+    // Synchronized: a listing that's still being saved (from a load that was since replaced) and the
+    // next one would otherwise write the same temporary file at once.
+    @Synchronized
     fun read(c: Context, place: DrivePlace): List<DriveFile>? = runCatching {
         val f = file(c, place)?.takeIf { it.exists() } ?: return null
         val arr = JSONArray(f.readText())
         (0 until arr.length()).map { i -> fromJson(arr.getJSONObject(i)) }
     }.getOrNull()
 
+    @Synchronized
     fun write(c: Context, place: DrivePlace, files: List<DriveFile>) {
         val f = file(c, place) ?: return
         runCatching {
@@ -37,6 +41,12 @@ object ListingCache {
             tmp.writeText(arr.toString())
             tmp.renameTo(f)
         }
+    }
+
+    /** Signing out: the old account's titles and synopses don't stay on the TV. */
+    @Synchronized
+    fun clear(c: Context) {
+        File(c.applicationContext.cacheDir, "listings").deleteRecursively()
     }
 
     private fun toJson(d: DriveFile) = JSONObject()

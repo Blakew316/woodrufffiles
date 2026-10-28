@@ -99,8 +99,15 @@ object Updater {
         if (!autoEnabled(app)) return
         scope.launch {
             val p = prefs(app)
+            // After a restart: an update downloaded and checked earlier is ready again at once,
+            // instead of after the next check (up to an hour, or a day's wait on other TVs).
+            if (_state.value.step == Step.IDLE) restoreReady(app)
             val every = if (opening) CHECK_ON_OPEN_MS else CHECK_EVERY_MS
-            if (System.currentTimeMillis() - p.getLong("lastCheck", 0) >= every || _state.value.step == Step.ERROR) {
+            val now = System.currentTimeMillis()
+            // After a failed check, try again sooner — but not on every pass: GitHub allows 60 checks
+            // an hour for the whole home connection, shared by every TV.
+            val retryError = _state.value.step == Step.ERROR && now - lastAttempt >= ERROR_RETRY_MS
+            if (now - p.getLong("lastCheck", 0) >= every || retryError) {
                 checkAndDownload(app)
             }
             if (_state.value.step == Step.READY && canInstallSilently(app) && idle() && System.currentTimeMillis() >= retryAt) {
@@ -127,6 +134,15 @@ object Updater {
     /** Settings → Check for updates. */
     fun checkNow(c: Context) { val app = c.applicationContext; scope.launch { checkAndDownload(app, manual = true) } }
 
+    /** When the last check started (successful or not). */
+    @Volatile private var lastAttempt = 0L
+    private const val ERROR_RETRY_MS = 15 * 60_000L
+
+    private fun restoreReady(c: Context) {
+        val version = verify(c, apkFile(c)) ?: return
+        _state.compareAndSet(State(), State(Step.READY, version))
+    }
+
     /** After a failed silent install, the next try waits (5 min, doubling, up to 6 h) instead of looping. */
     @Volatile private var retryAt = 0L
     @Volatile private var failures = 0
@@ -138,6 +154,7 @@ object Updater {
     private suspend fun checkAndDownload(c: Context, manual: Boolean = false) { lock.withLock {
         if (_state.value.step == Step.DOWNLOADING || _state.value.step == Step.INSTALLING) return@withLock
         val before = _state.value
+        lastAttempt = System.currentTimeMillis()
         _state.update { it.copy(step = Step.CHECKING, message = null) }
         try {
             val release = JSONObject(get(API))
@@ -173,10 +190,15 @@ object Updater {
                 val version = verify(c, file)
                 if (version != latest) { file.delete(); throw IOException("The download wasn't a valid Woodruff update") }
             }
+            // A different build than the one that failed to install: start the install backoff afresh.
+            if (before.latest != latest) { failures = 0; retryAt = 0 }
             _state.value = State(Step.READY, latest)
         } catch (e: Exception) {
             Log.w("Updater", "update check failed", e)
-            _state.update { State(Step.ERROR, it.latest, message = e.message ?: "Couldn't check for updates") }
+            // An update already downloaded and checked stays ready: a failed check (no network,
+            // GitHub's hourly limit) mustn't take away its install.
+            if (before.step == Step.READY && apkFile(c).exists()) _state.value = before
+            else _state.update { State(Step.ERROR, it.latest, message = e.message ?: "Couldn't check for updates") }
         }
         Unit
     } }
@@ -211,7 +233,10 @@ object Updater {
     fun install(c: Context) {
         val app = c.applicationContext
         val file = apkFile(app)
-        if (_state.value.step != Step.READY || !file.exists()) return
+        if (_state.value.step != Step.READY) return
+        // Android can clear the app's cache, update and all: fetch it again (Install then works
+        // once it's back) rather than doing nothing.
+        if (!file.exists()) { checkNow(app); return }
         _state.update { it.copy(step = Step.INSTALLING) }
         scope.launch {
             try {

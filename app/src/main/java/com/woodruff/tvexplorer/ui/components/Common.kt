@@ -48,6 +48,21 @@ import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.ui.theme.Palette
 
+/**
+ * Focuses [requester] as soon as its item is on screen, trying for a few frames. Use it inside a
+ * dialog's content: the dialog's window composes a frame or two after the code that opens it, so a
+ * request made from outside (or at once) can find nothing attached yet and silently do nothing.
+ */
+@Composable
+fun FocusWhenReady(requester: androidx.compose.ui.focus.FocusRequester, key: Any? = Unit) {
+    androidx.compose.runtime.LaunchedEffect(requester, key) {
+        repeat(10) {
+            androidx.compose.runtime.withFrameNanos {}
+            if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
+        }
+    }
+}
+
 /** Tinted vector icon; follows the surrounding content color (which flips when focused). */
 @Composable
 fun TvIcon(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 24.dp, tint: Color = LocalContentColor.current) {

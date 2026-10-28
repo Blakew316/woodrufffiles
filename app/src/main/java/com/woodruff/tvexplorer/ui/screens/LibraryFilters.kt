@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -180,10 +181,14 @@ private fun FilterSheet(
         }
     }
     val first = remember { FocusRequester() }
+    val list = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        com.woodruff.tvexplorer.ui.components.FocusWhenReady(first)
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
             LazyColumn(
-                Modifier.width(400.dp).fillMaxHeight().padding(vertical = 28.dp, horizontal = 28.dp)
+                state = list,
+                modifier = Modifier.width(400.dp).fillMaxHeight().padding(vertical = 28.dp, horizontal = 28.dp)
                     .background(Palette.glass, RoundedCornerShape(30.dp))
                     .border(1.dp, Palette.rim, RoundedCornerShape(30.dp)),
                 contentPadding = PaddingValues(18.dp),
@@ -212,12 +217,22 @@ private fun FilterSheet(
                 }
                 if (filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE) {
                     item { Spacer(Modifier.size(10.dp)) }
-                    item(key = "clear") { SheetOption("Clear filters", false, accent = true) { onChange(LibraryFilter()) } }
+                    item(key = "clear") {
+                        SheetOption("Clear filters", false, accent = true) {
+                            onChange(LibraryFilter())
+                            // This option goes away with the filters: put the focus back at the top
+                            // rather than leaving it nowhere.
+                            scope.launch {
+                                list.scrollToItem(0)
+                                androidx.compose.runtime.withFrameNanos {}
+                                runCatching { first.requestFocus() }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 }
 
 @Composable

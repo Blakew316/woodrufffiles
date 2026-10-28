@@ -21,6 +21,14 @@ class LibraryTest {
         assertEquals("Doctor Who (2005)", Library.label(DriveFile("d", "Doctor Who (2005)", DriveFile.FOLDER_MIME, 0, 0, null)))
     }
 
+    @Test fun showMatchKeyPairsFoldersWithTheirEpisodes() {
+        val k = Library.showMatchKey("Breaking Bad (2008)")
+        assertEquals("breaking bad", k)
+        assertEquals(k, Library.showMatchKey("Breaking Bad (2008) - S01E01 - Pilot.mkv"))
+        assertEquals(k, Library.showMatchKey("Breaking.Bad.2008.S01E01.mkv"))
+        assertEquals(Library.showMatchKey("The Office (US)"), Library.showMatchKey("The Office (US) - S02E04.mkv"))
+    }
+
     @Test fun titleSortIgnoresArticlesAndAccents() =
         assertEquals(listOf("Amélie", "Dune Part Two", "Finding Nemo", "The Matrix"), titles(Library.apply(all, LibraryFilter())))
 

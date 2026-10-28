@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -168,6 +172,7 @@ private sealed interface SettingsDialog {
  * on the TV, survive restarts and updates, and can be typed here or, more comfortably, from the
  * phone (Phone → Settings tab).
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) // focusProperties.exit
 @Composable
 fun SettingsScreen(vm: MainViewModel) {
     val context = LocalContext.current
@@ -442,18 +447,40 @@ fun SettingsScreen(vm: MainViewModel) {
     var resting by remember { mutableIntStateOf(-1) }
     LaunchedEffect(resting) { if (resting >= 0) { kotlinx.coroutines.delay(200); category = resting } }
     val pane = remember { FocusRequester() }
+    // Each category, so Left from the settings goes back to the one they belong to (a plain
+    // geometric move landed on whichever category was level with the row, and switched to it).
+    val catFocus = remember(categories.size) { List(categories.size) { FocusRequester() } }
+    // Into the settings once the chosen category is drawn there (straight away, they'd still be the
+    // previous category's rows, swapped out from under the focus a moment later).
+    val enterPane: () -> Unit = {
+        scope.launch {
+            androidx.compose.runtime.withFrameNanos {}
+            runCatching { pane.requestFocus() }
+        }
+    }
     Row(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 20.dp)) {
         // Scrolls (and follows the focus) when the categories don't all fit, so none is ever cut off.
         Column(
-            Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(bottom = 32.dp),
+            Modifier.width(300.dp).fillMaxHeight()
+                // Right: the category the focus is on, even within the 200 ms before it would switch.
+                .onPreviewKeyEvent { e ->
+                    if (e.key == androidx.compose.ui.input.key.Key.DirectionRight) {
+                        if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+                            if (resting >= 0) category = resting
+                            enterPane()
+                        }
+                        true
+                    } else false
+                }
+                .verticalScroll(rememberScrollState()).padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 6.dp, bottom = 10.dp))
             categories.forEachIndexed { i, c ->
                 ListItem(
                     selected = i == category,
-                    onClick = { category = i; runCatching { pane.requestFocus() } },
-                    modifier = Modifier.onFocusChanged { if (it.isFocused) resting = i },
+                    onClick = { category = i; resting = i; enterPane() },
+                    modifier = Modifier.focusRequester(catFocus[i]).onFocusChanged { if (it.isFocused) resting = i },
                     colors = ListItemDefaults.colors(
                         containerColor = Color.Transparent,
                         selectedContainerColor = Palette.surface,
@@ -471,7 +498,11 @@ fun SettingsScreen(vm: MainViewModel) {
         // The chosen category's settings. A fresh scroll position per category, starting at the top.
         val list = remember(category) { LazyListState() }
         LazyColumn(
-            Modifier.weight(1f).fillMaxHeight().padding(start = 28.dp).focusRequester(pane).focusGroup(),
+            Modifier.weight(1f).fillMaxHeight().padding(start = 28.dp).focusRequester(pane)
+                .focusProperties {
+                    exit = { d -> if (d == androidx.compose.ui.focus.FocusDirection.Left) catFocus[category] else FocusRequester.Default }
+                }
+                .focusGroup(),
             state = list,
             contentPadding = PaddingValues(top = 4.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),

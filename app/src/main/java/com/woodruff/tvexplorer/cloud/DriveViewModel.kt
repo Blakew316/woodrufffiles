@@ -172,14 +172,40 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     fun signOut() {
         viewModelScope.launch {
             GoogleAuth.signOut(ctx)
+            forgetLibrary()
             _state.value = DriveState(step = SignInStep.SIGN_IN)
             prepareSignIn()
+        }
+    }
+
+    /**
+     * Nothing of the signed-out account's library stays: not in memory, not the folders found, not
+     * the listings saved on disk (the next account would see them first, and keep seeing them
+     * while its own folders fail to load).
+     */
+    private fun forgetLibrary() {
+        loadJob?.cancel()
+        cache.clear()
+        DriveApi.forgetFolders()
+        viewModelScope.launch(Dispatchers.IO) { ListingCache.clear(ctx) }
+    }
+
+    /**
+     * Keeps [DriveState.token] current. Google's access tokens last an hour, and the screen uses
+     * this one for its art and a show's episode list — after a long film it had expired.
+     */
+    fun refreshToken() {
+        if (_state.value.step != SignInStep.CONNECTED) return
+        viewModelScope.launch {
+            val t = runCatching { GoogleAuth.token(ctx) }.getOrNull() ?: return@launch
+            _state.update { if (it.token != t) it.copy(token = t) else it }
         }
     }
 
     /** Forgets the Google Cloud keys too (e.g. after creating a new OAuth client). */
     fun resetSetup() {
         GoogleAuth.resetClient(ctx)
+        forgetLibrary()
         _state.value = DriveState(step = SignInStep.SETUP)
         prepareSignIn()
     }
@@ -231,7 +257,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private fun warmPosters(token: String, files: List<DriveFile>) {
         val loader = coil.Coil.imageLoader(ctx)
         files.asSequence().mapNotNull { it.posterUrl }.take(12).forEach { url ->
-            val google = android.net.Uri.parse(url).host.orEmpty().let { it.endsWith("googleusercontent.com") || it.endsWith("google.com") }
+            val google = isGoogleUrl(url)
             loader.enqueue(
                 coil.request.ImageRequest.Builder(ctx).data(url).size(320, 480) // same size as the tiles: a memory-cache hit
                     .apply { if (google) addHeader("Authorization", "Bearer $token") }
@@ -255,8 +281,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             // Nothing in memory yet (first visit since the app started): show the saved listing at
             // once, then refresh it from Drive behind the scenes.
             var shownSaved = false
+            var saved: List<DriveFile>? = null
             if (cached == null && library) {
-                val saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place) }
+                saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place) }
                 if (!saved.isNullOrEmpty()) {
                     cache[place] = saved
                     shownSaved = true
@@ -274,12 +301,19 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 // Show the listing (with the owner's own art) right away; TMDB posters follow.
                 val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
                     .let { if (filterable) parse(it) else it }
-                cache[place] = files
+                // What was on screen (the copy in memory or the saved listing) already has TMDB's
+                // details; this fresh listing only gets them when the lookup below finishes. Until
+                // then it borrows them, so the posters, genres, rows and featured title don't
+                // vanish for a moment — taking the focus with them.
+                val before = if (library && tmdbMode(stack) != Tmdb.Mode.NONE) (cached ?: saved)?.associateBy { it.id } else null
+                val interim = carryOver(files, before)
+                cache[place] = interim
                 // Only apply if the viewer is still on this place.
-                _state.update { if (it.place == place) it.copy(token = token, files = files, busy = false) else it }
+                _state.update { if (it.place == place) it.copy(token = token, files = interim, busy = false) else it }
                 if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
                 if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
-                    val withTmdb = tmdb(token, stack, files)
+                    // A lookup that failed this time (TMDB unreachable) keeps what was found before.
+                    val withTmdb = carryOver(tmdb(token, stack, files), before)
                     cache[place] = withTmdb
                     _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
                     withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb) }
@@ -293,6 +327,23 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /**
+     * [fresh] with what [before] knew about the same titles (same id and name): TMDB's details
+     * where the fresh copy has none, and a poster where it has none.
+     */
+    private fun carryOver(fresh: List<DriveFile>, before: Map<String, DriveFile>?): List<DriveFile> =
+        if (before.isNullOrEmpty()) fresh else fresh.map { f ->
+            val old = before[f.id]
+            if (old == null || old.name != f.name) f
+            else f.copy(
+                info = if (!f.hasTmdb && old.hasTmdb) old.info else f.info,
+                posterUrl = f.posterUrl ?: old.posterUrl,
+            )
+        }
+
+    private val DriveFile.hasTmdb: Boolean
+        get() = info?.let { it.tmdbId != null || it.genres.isNotEmpty() || it.rating != null } == true
 
     fun download(file: DriveFile) {
         if (opJob?.isActive == true) return say("A download is already running")

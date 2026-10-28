@@ -538,7 +538,13 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     // Where the focus is right now; it only becomes the live tile once it rests there, so passing
     // across the tiles doesn't tear down and start a camera stream on every press.
     var focusRaw by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(focusRaw) { val r = focusRaw ?: return@LaunchedEffect; delay(600); focusedCam = r }
+    LaunchedEffect(focusRaw) {
+        val r = focusRaw
+        // Focus left the tiles: back to rotating (in "one at a time" mode) instead of keeping the last one live.
+        if (r == null) { focusedCam = null; return@LaunchedEffect }
+        delay(600)
+        focusedCam = r
+    }
     // "One at a time" (and low-memory TVs): one tile streams, moving on every 20 s; the others
     // show their last frame. The tile you're on always plays.
     val mode = Appearance.homeCameras

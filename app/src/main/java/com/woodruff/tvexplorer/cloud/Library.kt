@@ -47,6 +47,15 @@ object Library {
      */
     fun withInfo(files: List<DriveFile>): List<DriveFile> = files.map { if (it.info == null) it.copy(info = parsed(it.name, it.isFolder)) else it }
 
+    /**
+     * The show a folder or an episode's file name belongs to, for matching the two: "Breaking Bad
+     * (2008)", "Breaking.Bad.2008.S01E01.mkv" and "Breaking Bad (2008) - S01E01 - Pilot.mkv" all
+     * give "breaking bad". (The player's per-show key keeps the year, so it can't be compared with
+     * a folder's title.)
+     */
+    fun showMatchKey(name: String): String =
+        normalize(Tmdb.parse(com.woodruff.tvexplorer.player.ShowPrefs.showKey(name), stripExtension = false).first)
+
     /** "The Matrix (1999)"; just the title when the year is unknown. */
     fun label(f: DriveFile): String = info(f).let { i -> if (i.year != null) "${i.title} (${i.year})" else i.title }
 
