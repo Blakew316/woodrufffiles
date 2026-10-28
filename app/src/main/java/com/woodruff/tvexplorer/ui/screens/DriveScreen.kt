@@ -1,6 +1,8 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import android.content.Context
+import com.woodruff.tvexplorer.ui.theme.ambientBackdrop
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.draw.drawWithCache
@@ -138,17 +140,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         if (state.library) {
             // Movies / TV Shows: title, filters and the Drive buttons share one short row, so the
             // posters start near the top of the screen.
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+            if (state.filterable) {
+                // The library's top level: title, Search / Filter / More, and category tabs.
+                LibraryHeader(state.place.title, state.files, filter, drive::setFilter, onSearch = { searching = true }, onMore = { moreOpen = true })
+            } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                // A show's folder (seasons, episodes): back, its name, More.
                 if (state.stack.size > 1) ToolButton(Icons.Rounded.ArrowBack, null, { drive.back() }, modifier = Modifier.padding(end = 14.dp))
                 Text(
                     state.place.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(end = 18.dp).then(if (state.filterable) Modifier else Modifier.weight(1f)),
+                    modifier = Modifier.padding(end = 18.dp).weight(1f),
                 )
-                // Filters on the library's top level only (a season folder just lists its episodes).
-                if (state.filterable) {
-                    if (state.files.isNotEmpty()) LibraryFilters(state.files, filter, drive::setFilter, onSearch = { searching = true }, modifier = Modifier.weight(1f))
-                    else Spacer(Modifier.weight(1f))
-                }
                 ToolButton(Icons.Rounded.MoreHoriz, null, { moreOpen = true }, modifier = Modifier.padding(start = 10.dp))
             }
         } else {
@@ -228,12 +229,11 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 
     if (searching) {
-        TextInputDialog(
-            "Search ${state.place.title}", filter.query, "Search",
-            onConfirm = { q -> drive.setFilter(filter.copy(query = q.trim())); searching = false },
-            onDismiss = { searching = false },
-        )
+        LibrarySearch(state.place.title, state.files, state.token, onOpen = { f -> searching = false; onOpen(f) }, onDismiss = { searching = false })
     }
+    // Searching used to narrow the grid itself; it has its own screen now, so an old search left in
+    // the saved filter would hide titles with nothing on screen saying why.
+    LaunchedEffect(state.place, filter.query) { if (state.filterable && filter.query.isNotBlank()) drive.setFilter(filter.copy(query = "")) }
 
     menuFor?.let { f ->
         ActionMenu(
@@ -410,6 +410,60 @@ private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: 
     // Dim it towards the page color, darker at the top where the header sits. Outside the cross-fade,
     // so only the picture fades, not a second veil.
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.background.copy(alpha = 0.92f), Palette.background.copy(alpha = 0.66f), Palette.background.copy(alpha = 0.88f)))))
+}
+
+/**
+ * Search, Apple TV style: its own full screen with a big search field at the top and the matching
+ * posters below, updating with every letter (TV keyboard or the phone's Keyboard page). Down goes
+ * from the field into the results; OK opens one; Back closes.
+ */
+@Composable
+private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, onOpen: (DriveFile) -> Unit, onDismiss: () -> Unit) {
+    var query by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
+    val field = remember { FocusRequester() }
+    val results = remember(all, query.text) {
+        if (query.text.isBlank()) emptyList()
+        else Library.apply(all, com.woodruff.tvexplorer.cloud.LibraryFilter(query = query.text.trim()))
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().ambientBackdrop()) {
+            Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TvIcon(Icons.Rounded.Search, size = 34.dp, tint = Palette.muted)
+                    com.woodruff.tvexplorer.ui.components.RemoteTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = "Search $title",
+                        placeholder = "Search $title",
+                        onSubmit = {},
+                        modifier = Modifier.weight(1f).padding(start = 16.dp),
+                        textModifier = Modifier.focusRequester(field),
+                    )
+                }
+                Text(
+                    when {
+                        query.text.isBlank() -> "Type a title or a year. You can also type on your phone (Phone → Keyboard)."
+                        results.isEmpty() -> "Nothing in $title matches \u201c${query.text.trim()}\u201d"
+                        else -> "${results.size} result${if (results.size == 1) "" else "s"}"
+                    },
+                    color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 14.dp, start = 4.dp),
+                )
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(150.dp),
+                    contentPadding = PaddingValues(top = 22.dp, bottom = 56.dp, start = 18.dp, end = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(30.dp),
+                    verticalArrangement = Arrangement.spacedBy(30.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(results, key = { it.id }) { f ->
+                        PosterTile(f, token, onClick = { onOpen(f) }, onLongClick = { onOpen(f) }, modifier = Modifier, label = Library.label(f))
+                    }
+                }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
 }
 
 /** Only set by the UI gallery, which renders headless and can't wait on Coil: decodes art synchronously. */

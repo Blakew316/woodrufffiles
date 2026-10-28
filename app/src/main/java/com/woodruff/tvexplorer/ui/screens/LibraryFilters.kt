@@ -1,39 +1,185 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
+import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
-import com.woodruff.tvexplorer.ui.components.ActionMenu
-import com.woodruff.tvexplorer.ui.components.FilterPill
-import com.woodruff.tvexplorer.ui.components.MenuAction
-import com.woodruff.tvexplorer.ui.components.FilterRow
+import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.Shapes
+import kotlinx.coroutines.delay
 
-/**
- * Movies / TV Shows filters in one short row: sort, search, a decade picker and a genre picker
- * (genres need a TMDB key; that pill only appears when the titles have some). Decades and genres
- * open a list instead of spreading every option across the screen, so the posters get the room.
- * [all] is the unfiltered listing.
+/*
+ * Movies / TV Shows browsing, Apple TV style:
+ *   - a header with the title and three round glass buttons: Search, Filter and More;
+ *   - a row of category tabs under it (All + genres, or decades without TMDB genres) that
+ *     re-filter the grid as the focus rests on them, like the TV app's own tabs;
+ *   - Filter opens a panel on the right with Sort, Decade and Genre as plain lists, applied
+ *     instantly so the posters behind change as you go;
+ *   - Search opens its own full screen (see LibrarySearch in DriveScreen.kt).
  */
+
+/** Title, Search / Filter / More buttons, then the category tabs. */
 @Composable
-fun LibraryFilters(all: List<DriveFile>, filter: LibraryFilter, onChange: (LibraryFilter) -> Unit, onSearch: () -> Unit, modifier: Modifier = Modifier) {
+fun LibraryHeader(
+    title: String,
+    all: List<DriveFile>,
+    filter: LibraryFilter,
+    onChange: (LibraryFilter) -> Unit,
+    onSearch: () -> Unit,
+    onMore: () -> Unit,
+) {
+    var filtering by remember { mutableStateOf(false) }
     val genres = remember(all) { Library.genres(all) }
     val decades = remember(all) { Library.decades(all) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+            // What the grid is narrowed to, so it's never a mystery why something's missing.
+            val summary = listOfNotNull(filter.genre, filter.decade?.let { "${it}s" }, filter.sort.label.takeIf { filter.sort != LibrarySort.TITLE })
+            if (summary.isNotEmpty()) Text(summary.joinToString(" · "), color = Palette.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 18.dp))
+            RoundButton(Icons.Rounded.Search, "Search", onSearch)
+            RoundButton(Icons.Rounded.Tune, "Filter", { filtering = true }, active = filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)
+            RoundButton(Icons.Rounded.MoreHoriz, null, onMore)
+        }
+        // Tabs: genres when TMDB has tagged the titles, otherwise decades.
+        if (genres.isNotEmpty()) CategoryTabs(
+            listOf<String?>(null) + genres, selected = filter.genre, label = { it ?: "All" },
+            onSelect = { onChange(filter.copy(genre = it)) },
+        ) else if (decades.size > 1) CategoryTabs(
+            listOf<Int?>(null) + decades, selected = filter.decade, label = { it?.let { d -> "${d}s" } ?: "All" },
+            onSelect = { onChange(filter.copy(decade = it)) },
+        )
+    }
+    if (filtering) FilterSheet(all, genres, decades, filter, onChange, onDismiss = { filtering = false })
+}
+
+/** A round glass icon button (a pill with its label when it has one); white with dark content when focused. */
+@Composable
+private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String?, onClick: () -> Unit, active: Boolean = false) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.padding(start = 12.dp),
+        shape = ClickableSurfaceDefaults.shape(Shapes.pill),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (active) Palette.accent.copy(alpha = 0.3f) else Palette.surfaceHigh,
+            contentColor = Palette.text,
+            focusedContainerColor = Color.White,
+            focusedContentColor = Color(0xFF0B1220),
+        ),
+        border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Palette.rim), shape = Shapes.pill)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+    ) {
+        Row(Modifier.padding(horizontal = if (label != null) 20.dp else 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            TvIcon(icon, size = 22.dp)
+            if (label != null) Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 8.dp))
+        }
+    }
+}
+
+/**
+ * Text tabs, Apple TV style: the chosen one sits in a glass capsule, the focused one turns white.
+ * Resting on a tab for a moment selects it (the grid below follows), as on the TV app.
+ */
+@Composable
+private fun <T> CategoryTabs(options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
+    val select by rememberUpdatedState(onSelect)
+    var resting by remember { mutableStateOf<Any?>(Unset) }
+    LaunchedEffect(resting) {
+        val r = resting
+        if (r !== Unset) { delay(350); @Suppress("UNCHECKED_CAST") select(r as T) }
+    }
+    LazyRow(
+        Modifier.fillMaxWidth().padding(top = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+    ) {
+        items(options, key = { it.toString() }) { o ->
+            val isSelected = o == selected
+            Surface(
+                onClick = { select(o) },
+                modifier = Modifier.onFocusChanged { if (it.isFocused && o != selected) resting = o },
+                shape = ClickableSurfaceDefaults.shape(Shapes.pill),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (isSelected) Palette.surfaceHigh else Color.Transparent,
+                    contentColor = if (isSelected) Palette.text else Palette.muted,
+                    focusedContainerColor = Color.White,
+                    focusedContentColor = Color(0xFF0B1220),
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+            ) {
+                Text(
+                    label(o), style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+private object Unset
+
+/**
+ * Filter panel on the right: Sort, Decade and Genre as three short lists. Every choice applies at
+ * once (the posters behind update), Back closes it.
+ */
+@Composable
+private fun FilterSheet(
+    all: List<DriveFile>,
+    genres: List<String>,
+    decades: List<Int>,
+    filter: LibraryFilter,
+    onChange: (LibraryFilter) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val sorts = remember(all) {
-        // "Top rated" only when there are ratings to sort by; "Newest" only with years.
         LibrarySort.entries.filter { s ->
             when (s) {
                 LibrarySort.RATING -> all.any { Library.info(it).rating != null }
@@ -42,24 +188,72 @@ fun LibraryFilters(all: List<DriveFile>, filter: LibraryFilter, onChange: (Libra
             }
         }
     }
-    var picking by remember { mutableStateOf<String?>(null) }
-    FilterRow(modifier) {
-        FilterPill(filter.sort.label, false, {
-            onChange(filter.copy(sort = sorts[(sorts.indexOf(filter.sort) + 1) % sorts.size]))
-        }, icon = Icons.Rounded.Sort)
-        FilterPill(filter.query.ifBlank { "Search" }, filter.query.isNotBlank(), onSearch, icon = Icons.Rounded.Search)
-        if (decades.isNotEmpty()) FilterPill(filter.decade?.let { "${it}s" } ?: "Decade", filter.decade != null, { picking = "decade" }, icon = Icons.Rounded.CalendarMonth)
-        if (genres.isNotEmpty()) FilterPill(filter.genre ?: "Genre", filter.genre != null, { picking = "genre" }, icon = Icons.Rounded.Category)
-        if (filter.narrowed) FilterPill("Clear", false, { onChange(LibraryFilter(sort = filter.sort)) }, icon = Icons.Rounded.Close)
+    val first = remember { FocusRequester() }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+            LazyColumn(
+                Modifier.width(400.dp).fillMaxHeight().padding(vertical = 28.dp, horizontal = 28.dp)
+                    .background(Palette.glass, RoundedCornerShape(30.dp))
+                    .border(1.dp, Palette.rim, RoundedCornerShape(30.dp)),
+                contentPadding = PaddingValues(18.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 10.dp, bottom = 8.dp)) {
+                        Text("Filter", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    }
+                }
+                item { SheetHeading("Sort by") }
+                items(sorts, key = { "s-" + it.name }) { s ->
+                    SheetOption(s.label, filter.sort == s, Modifier.then(if (s == sorts.first()) Modifier.focusRequester(first) else Modifier)) {
+                        onChange(filter.copy(sort = s))
+                    }
+                }
+                if (genres.isNotEmpty()) {
+                    item { SheetHeading("Genre") }
+                    item(key = "g-all") { SheetOption("All genres", filter.genre == null) { onChange(filter.copy(genre = null)) } }
+                    items(genres, key = { "g-$it" }) { g -> SheetOption(g, filter.genre == g) { onChange(filter.copy(genre = g)) } }
+                }
+                if (decades.isNotEmpty()) {
+                    item { SheetHeading("Decade") }
+                    item(key = "d-all") { SheetOption("Any decade", filter.decade == null) { onChange(filter.copy(decade = null)) } }
+                    items(decades, key = { "d-$it" }) { d -> SheetOption("${d}s", filter.decade == d) { onChange(filter.copy(decade = d)) } }
+                }
+                if (filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE) {
+                    item { Spacer(Modifier.size(10.dp)) }
+                    item(key = "clear") { SheetOption("Clear filters", false, accent = true) { onChange(LibraryFilter()) } }
+                }
+            }
+        }
     }
-    when (picking) {
-        "decade" -> ActionMenu("Decade", null, onDismiss = { picking = null }, actions = buildList {
-            add(MenuAction("Any decade", Icons.Rounded.CalendarMonth) { onChange(filter.copy(decade = null)) })
-            decades.forEach { d -> add(MenuAction("${d}s", if (filter.decade == d) Icons.Rounded.Check else Icons.Rounded.CalendarMonth) { onChange(filter.copy(decade = d)) }) }
-        })
-        "genre" -> ActionMenu("Genre", null, onDismiss = { picking = null }, actions = buildList {
-            add(MenuAction("All genres", Icons.Rounded.Category) { onChange(filter.copy(genre = null)) })
-            genres.forEach { g -> add(MenuAction(g, if (filter.genre == g) Icons.Rounded.Check else Icons.Rounded.Category) { onChange(filter.copy(genre = g)) }) }
-        })
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+}
+
+@Composable
+private fun SheetHeading(text: String) {
+    Text(
+        text.uppercase(), style = MaterialTheme.typography.labelMedium, color = Palette.muted,
+        modifier = Modifier.padding(start = 14.dp, top = 16.dp, bottom = 6.dp),
+    )
+}
+
+@Composable
+private fun SheetOption(label: String, checked: Boolean, modifier: Modifier = Modifier, accent: Boolean = false, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = if (accent) Palette.accent else Palette.text,
+            focusedContainerColor = Color.White,
+            focusedContentColor = Color(0xFF0B1220),
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (checked) TvIcon(Icons.Rounded.Check, size = 22.dp)
+        }
     }
 }

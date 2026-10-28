@@ -82,12 +82,18 @@ class PlayerActivity : ComponentActivity() {
         // Our own button next to them: sleep timer and "Skip intro" setup.
         runCatching {
             val bar = view.findViewById<android.view.ViewGroup>(androidx.media3.ui.R.id.exo_basic_controls)
+            val px = (60 * resources.displayMetrics.density).toInt()
+            val pad = (14 * resources.displayMetrics.density).toInt()
             bar?.addView(android.widget.ImageButton(this).apply {
                 setImageResource(android.R.drawable.ic_menu_recent_history)
-                background = null
+                // Same look and focus ring as the player's own buttons.
+                setBackgroundResource(com.woodruff.tvexplorer.R.drawable.player_button_bg)
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                setPadding(pad, pad, pad, pad)
+                imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
                 contentDescription = "Sleep timer and intro"
                 setOnClickListener { showOptions() }
-            }, 0)
+            }, 0, android.widget.LinearLayout.LayoutParams(px, px).apply { setMargins(pad / 2, 0, pad / 2, 0) })
         }
         skip = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
@@ -107,8 +113,30 @@ class PlayerActivity : ComponentActivity() {
             }
             visibility = android.view.View.GONE
         }
+        // What's playing, big at the top whenever the controls are up (they had no title at all).
+        titleBar = android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 30f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(88, 56, 88, 120)
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(0xCC000000.toInt(), 0x00000000),
+            )
+            visibility = android.view.View.GONE
+        }
+        view.setControllerVisibilityListener(androidx.media3.ui.PlayerView.ControllerVisibilityListener { v ->
+            titleBar.text = player?.currentMediaItem?.mediaMetadata?.title ?: ""
+            titleBar.visibility = v
+        })
         val root = android.widget.FrameLayout(this)
         root.addView(view)
+        root.addView(titleBar, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.TOP,
+        ))
         root.addView(upNext, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.END,
@@ -123,6 +151,7 @@ class PlayerActivity : ComponentActivity() {
     // ---- Sleep timer, skip intro, remembered tracks ----------------------------------------
 
     private lateinit var skip: android.widget.TextView
+    private lateinit var titleBar: android.widget.TextView
 
     // ---- Watch together ----------------------------------------------------------------------
     /** This TV started a watch-together: it leads, the linked TVs follow. */
