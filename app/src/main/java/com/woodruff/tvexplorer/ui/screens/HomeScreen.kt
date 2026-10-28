@@ -444,11 +444,6 @@ private fun ResumeArt(r: RecentItem, poster: String?, token: String?) {
     }
 }
 
-private val EPISODE_CODE = Regex("""(?i)\bs(\d{1,2})\s*e(\d{1,3})""")
-
-/** "S1 E2" from an episode's name, or null for a film. */
-private fun episodeCode(title: String): String? =
-    EPISODE_CODE.find(title)?.let { "S${it.groupValues[1].toInt()} E${it.groupValues[2].toInt()}" }
 
 // ---- TVs ------------------------------------------------------------------------------------
 
