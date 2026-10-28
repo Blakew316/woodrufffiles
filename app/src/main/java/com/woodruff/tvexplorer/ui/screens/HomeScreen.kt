@@ -144,6 +144,9 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     val play = { r: RecentItem -> context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key)) }
     // Recently added movies and shows, after what's in progress.
     val added by drive.recentlyAdded.collectAsStateWithLifecycle()
+    // Posters for what's in progress, from the Movies / TV Shows entries they belong to.
+    val artwork by drive.artwork.collectAsStateWithLifecycle()
+    val arts = remember(recent, artwork) { recent.associate { it.key to com.woodruff.tvexplorer.cloud.artworkFor(artwork, it.key, it.title) } }
     val driveToken by remember(drive) { drive.state.map { it.token }.distinctUntilChanged() }.collectAsStateWithLifecycle(drive.state.value.token)
     val openAdded = { (place, f): Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile> ->
         if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
@@ -160,7 +163,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         PinnedMessage()
         Row(Modifier.fillMaxWidth().height(196.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ContinuePanel(
-                recent, play, onMenu = { removeFor = it },
+                recent, arts, play, onMenu = { removeFor = it },
                 added = added, token = driveToken, openAdded = openAdded,
                 onMovies = { drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE) },
                 onShows = { drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE) },
@@ -341,7 +344,7 @@ private fun PanelButton(label: String, icon: ImageVector, onClick: () -> Unit) {
 
 @Composable
 private fun ContinuePanel(
-    recent: List<RecentItem>, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit,
+    recent: List<RecentItem>, arts: Map<String, com.woodruff.tvexplorer.cloud.DriveFile?>, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit,
     added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>, token: String?,
     openAdded: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
     onMovies: () -> Unit, onShows: () -> Unit, modifier: Modifier,
@@ -367,17 +370,17 @@ private fun ContinuePanel(
             }
             return@Panel
         }
-        // The latest one large with a play button; the rest as square tiles beside it. A row clips
-        // at its ends, so it leaves room there for a focused tile's grown edge and outline.
+        // Posters, like the libraries: the latest first with the time left. A row clips at its
+        // ends, so it leaves room there for a focused tile's grown edge and outline.
         LazyRow(
             Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
         ) {
             item(key = r.key) {
-                ResumeTile(r, play, onMenu, Modifier.width(196.dp).fillMaxHeight(), main = true)
+                ResumeTile(r, arts[r.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f), main = true)
             }
             items(recent.drop(1).take(8), key = { it.key }) { m ->
-                ResumeTile(m, play, onMenu, Modifier.fillMaxHeight().aspectRatio(1f), main = false)
+                ResumeTile(m, arts[m.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f), main = false)
             }
             // Then what's new in Movies and TV Shows.
             items(added, key = { "new-" + it.second.id }) { a ->
@@ -388,7 +391,10 @@ private fun ContinuePanel(
 }
 
 @Composable
-private fun ResumeTile(r: RecentItem, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit, modifier: Modifier, main: Boolean) {
+private fun ResumeTile(
+    r: RecentItem, art: com.woodruff.tvexplorer.cloud.DriveFile?, token: String?,
+    play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit, modifier: Modifier, main: Boolean,
+) {
     Surface(
         onClick = { play(r) }, onLongClick = { onMenu(r) },
         modifier = modifier.onMenuKey { onMenu(r) },
@@ -396,11 +402,14 @@ private fun ResumeTile(r: RecentItem, play: (RecentItem) -> Unit, onMenu: (Recen
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
     ) {
         Box(Modifier.fillMaxSize()) {
-            ResumeArt(r, main)
-            Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
-                Text(r.title, style = if (main) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelLarge, color = Color.White, maxLines = if (main) 1 else 2, overflow = TextOverflow.Ellipsis)
-                if (main) Text(timeLeft(r), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f), maxLines = 1)
-                UsageBar(r.progress, Modifier.padding(top = 5.dp))
+            val poster = art?.posterUrl?.takeIf { token != null || !isGoogle(it) }
+            ResumeArt(r, poster, token)
+            Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp)) {
+                // A poster carries its own title; an episode still says which one it is.
+                val label = if (poster == null) r.title else episodeCode(r.title)
+                if (label != null) Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (main) Text(timeLeft(r), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f), maxLines = 1)
+                UsageBar(r.progress, Modifier.padding(top = 4.dp))
             }
         }
     }
@@ -409,23 +418,37 @@ private fun ResumeTile(r: RecentItem, play: (RecentItem) -> Unit, onMenu: (Recen
 private fun timeLeft(r: RecentItem): String =
     if (r.durationMs > 0) "${Format.duration(r.durationMs - r.positionMs)} left" else "Resume"
 
-/** Artwork for a resume tile: the video's own frame when it's on the TV, else a tinted card; always the same blue play button. */
+/**
+ * Artwork for a resume tile: the film's or show's poster when the library has one, else the
+ * video's own frame when it's on the TV, else a plain card with a play symbol.
+ */
 @Composable
-private fun ResumeArt(r: RecentItem, main: Boolean) {
+private fun ResumeArt(r: RecentItem, poster: String?, token: String?) {
+    val context = LocalContext.current
     val ref = MediaRef.parse(r.key)
-    Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Palette.accent.copy(alpha = 0.35f), Palette.background)))) {
-        if (ref is MediaRef.Local) {
-            AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))) {
+        when {
+            poster != null -> {
+                val request = remember(poster, token) {
+                    coil.request.ImageRequest.Builder(context).data(poster)
+                        .apply { if (isGoogle(poster) && token != null) addHeader("Authorization", "Bearer $token") }
+                        .size(300, 450).crossfade(150).build()
+                }
+                AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            }
+            ref is MediaRef.Local -> AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            else -> TvIcon(Icons.Rounded.PlayArrow, size = 34.dp, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.align(Alignment.Center).offset(y = (-14).dp))
         }
-        // Darken only the bottom, under the title; the play button sits above it, fully lit.
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f))))
-        val size = if (main) 44.dp else 36.dp
-        Box(
-            Modifier.align(Alignment.Center).offset(y = (-16).dp).size(size).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.92f)),
-            contentAlignment = Alignment.Center,
-        ) { TvIcon(Icons.Rounded.PlayArrow, size = size * 0.64f, tint = Color.Black) }
+        // Darken only the bottom, under the label and the bar.
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.8f))))
     }
 }
+
+private val EPISODE_CODE = Regex("""(?i)\bs(\d{1,2})\s*e(\d{1,3})""")
+
+/** "S1 E2" from an episode's name, or null for a film. */
+private fun episodeCode(title: String): String? =
+    EPISODE_CODE.find(title)?.let { "S${it.groupValues[1].toInt()} E${it.groupValues[2].toInt()}" }
 
 // ---- TVs ------------------------------------------------------------------------------------
 

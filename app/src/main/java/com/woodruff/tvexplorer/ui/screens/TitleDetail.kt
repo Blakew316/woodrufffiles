@@ -406,7 +406,7 @@ internal fun EpisodeCard(
                     AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 } else TvIcon(Icons.Rounded.PlayArrow, size = 40.dp, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Center))
                 if (progress != null && progress > 0.01f && !watched) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {
-                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Color.White))
+                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(com.woodruff.tvexplorer.ui.theme.Palette.accent))
                 }
                 if (watched) Box(
                     Modifier.align(Alignment.TopEnd).padding(8.dp).size(26.dp).clip(CircleShape).background(Color.White),

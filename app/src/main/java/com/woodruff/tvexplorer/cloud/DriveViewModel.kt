@@ -10,6 +10,7 @@ import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.ui.Operation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,6 +70,18 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val cache = java.util.concurrent.ConcurrentHashMap<DrivePlace, List<DriveFile>>()
 
+    // Declared before init: the libraries start loading from there.
+    private val _recentlyAdded = MutableStateFlow<List<Pair<DrivePlace, DriveFile>>>(emptyList())
+    /** Newest Movies and TV Shows entries (by Drive's modified time), for Home. */
+    val recentlyAdded: StateFlow<List<Pair<DrivePlace, DriveFile>>> = _recentlyAdded.asStateFlow()
+    private var artworkJob: Job? = null
+    private val _artwork = MutableStateFlow<Map<String, DriveFile>>(emptyMap())
+    /**
+     * Movies and TV Shows entries that have a poster, by "id:" + Drive id and by film or show name
+     * ([Library.showMatchKey]), so Home's Continue watching can show posters (see [artworkFor]).
+     */
+    val artwork: StateFlow<Map<String, DriveFile>> = _artwork.asStateFlow()
+
     init {
         viewModelScope.launch { CompanionHub.googleCodes.collect { (code, attempt) -> if (attempt.grant == GoogleAuth.Grant.DRIVE) finishSignIn(code, attempt) } }
         // Keys saved from the phone or the Settings screen: move on to the sign-in step.
@@ -95,15 +108,24 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private val _recentlyAdded = MutableStateFlow<List<Pair<DrivePlace, DriveFile>>>(emptyList())
-    /** Newest Movies and TV Shows entries (by Drive's modified time), for Home. */
-    val recentlyAdded: StateFlow<List<Pair<DrivePlace, DriveFile>>> = _recentlyAdded.asStateFlow()
 
     private fun updateRecentlyAdded() {
         _recentlyAdded.value = listOf(DrivePlace.Movies, DrivePlace.TvShows)
             .flatMap { place -> cache[place].orEmpty().map { place to it } }
             .sortedByDescending { it.second.modified }
             .take(10)
+        // Off the main thread: the name matching runs a few regexes per title.
+        val entries = listOf(DrivePlace.Movies, DrivePlace.TvShows).flatMap { cache[it].orEmpty() }.filter { it.posterUrl != null }
+        artworkJob?.cancel()
+        artworkJob = viewModelScope.launch(Dispatchers.Default) {
+            val index = HashMap<String, DriveFile>()
+            for (f in entries) {
+                index["id:" + f.id] = f
+                Library.showMatchKey(f.name).takeIf { it.isNotBlank() }?.let { index.putIfAbsent(it, f) }
+            }
+            ensureActive()
+            _artwork.value = index
+        }
     }
 
     /**
@@ -186,6 +208,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private fun forgetLibrary() {
         loadJob?.cancel()
         cache.clear()
+        artworkJob?.cancel()
+        _artwork.value = emptyMap()
+        _recentlyAdded.value = emptyList()
         DriveApi.forgetFolders()
         viewModelScope.launch(Dispatchers.IO) { ListingCache.clear(ctx) }
     }
@@ -382,3 +407,11 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         else -> e.message ?: "Something went wrong talking to Google Drive."
     }
 }
+
+/**
+ * The Movies / TV Shows entry whose poster fits something being watched: by its Drive id (a film
+ * at the top of Movies), else by its film or show name (an episode, or a film inside its folder).
+ */
+fun artworkFor(index: Map<String, DriveFile>, key: String, title: String): DriveFile? =
+    (if (key.startsWith("drive:")) index["id:" + key.removePrefix("drive:")] else null)
+        ?: Library.showMatchKey(title).takeIf { it.isNotBlank() }?.let { index[it] }

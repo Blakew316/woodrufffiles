@@ -167,7 +167,8 @@ fun UsageBar(fraction: Float, modifier: Modifier = Modifier) {
             Modifier
                 .fillMaxHeight()
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .background(if (fraction > 0.9f) Palette.danger else Palette.accent),
+                // Always blue: near the end of a film is not a warning.
+                .background(Palette.accent),
         )
     }
 }
