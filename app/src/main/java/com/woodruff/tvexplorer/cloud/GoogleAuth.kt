@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Base64
 import com.woodruff.tvexplorer.settings.SecretStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
@@ -58,6 +61,14 @@ object GoogleAuth {
 
     private fun s(c: Context) = SecretStore.get(c)
 
+    private val _driveSignOuts = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+    /**
+     * The Drive sign-in was ended on this TV: signed out, or the keys changed or removed (from the
+     * Drive screen, Settings or the phone), so the Drive library forgets that account. Not when
+     * Google ends it (an approval that expired): the same account usually signs back in then.
+     */
+    val driveSignOuts: SharedFlow<Unit> = _driveSignOuts.asSharedFlow()
+
     /** One-time move from the 1.2–1.4 plain prefs into encrypted storage, so nobody re-enters keys. */
     fun migrate(c: Context) {
         val old = c.getSharedPreferences("google_oauth", Context.MODE_PRIVATE)
@@ -89,7 +100,10 @@ object GoogleAuth {
         st.put(K_CLIENT_ID, id.trim())
         st.put(K_CLIENT_SECRET, secret.trim())
         // Tokens belong to a client; a different client means signing in again.
-        if (changed) st.remove(*allTokens())
+        if (changed) {
+            st.remove(*allTokens())
+            _driveSignOuts.tryEmit(Unit)
+        }
     }
 
     /** Separate setters for editing one value at a time on the TV. */
@@ -182,6 +196,7 @@ object GoogleAuth {
     suspend fun signOut(c: Context, grant: Grant = Grant.DRIVE) = withContext(Dispatchers.IO) {
         val refresh = s(c).get(grant.refreshKey)
         s(c).remove(grant.refreshKey, grant.accessKey, grant.expiresKey)
+        if (grant == Grant.DRIVE) _driveSignOuts.tryEmit(Unit)
         if (refresh != null) runCatching {
             (URL("https://oauth2.googleapis.com/revoke?token=${enc(refresh)}").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"; doOutput = true; outputStream.close(); responseCode; disconnect()
@@ -189,7 +204,10 @@ object GoogleAuth {
         }
     }
 
-    fun resetClient(c: Context) = s(c).remove(K_CLIENT_ID, K_CLIENT_SECRET, *allTokens())
+    fun resetClient(c: Context) {
+        s(c).remove(K_CLIENT_ID, K_CLIENT_SECRET, *allTokens())
+        _driveSignOuts.tryEmit(Unit)
+    }
 
     private fun storeAccess(c: Context, json: JSONObject, grant: Grant) {
         s(c).put(grant.accessKey, json.getString("access_token"))

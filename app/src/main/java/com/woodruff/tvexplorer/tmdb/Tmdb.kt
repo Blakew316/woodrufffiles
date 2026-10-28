@@ -167,8 +167,9 @@ object Tmdb {
     /**
      * A title kept twice (a copy, another version) that still found nothing borrows its twin's
      * poster and details: the same title (and year, when both have one) in the same library.
+     * Visible for tests.
      */
-    private fun shareWithTwins(files: List<DriveFile>): List<DriveFile> {
+    internal fun shareWithTwins(files: List<DriveFile>): List<DriveFile> {
         fun twinKey(f: DriveFile): String {
             val (t, _) = parse(lookupName(f.name), stripExtension = !f.isFolder)
             return Library.normalize(searchTitle(t))
@@ -179,9 +180,11 @@ object Tmdb {
             if (f.posterUrl != null) return@map f
             val candidates = donors[twinKey(f)] ?: return@map f
             val year = f.info?.year
-            val twin = candidates.firstOrNull { year != null && it.info?.year == year }
-                ?: candidates.takeIf { c -> c.mapNotNull { it.info?.year }.distinct().size <= 1 }?.first()
-                ?: return@map f
+            val twin = when {
+                // Another year's film of the same name is a different film, not a twin.
+                year != null -> candidates.firstOrNull { it.info?.year == year } ?: candidates.firstOrNull { it.info?.year == null }
+                else -> candidates.takeIf { c -> c.mapNotNull { it.info?.year }.distinct().size <= 1 }?.first()
+            } ?: return@map f
             val mine = f.info
             val theirs = twin.info
             f.copy(

@@ -63,6 +63,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private var loadJob: Job? = null
     private var opJob: Job? = null
     private var prepJob: Job? = null
+    private var prefetchJob: Job? = null
 
     /**
      * Last listing per place. Opening a place shows this instantly while a fresh copy loads
@@ -84,6 +85,15 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { CompanionHub.googleCodes.collect { (code, attempt) -> if (attempt.grant == GoogleAuth.Grant.DRIVE) finishSignIn(code, attempt) } }
+        // Signed out, or the keys changed or removed — here, in Settings or from the phone: the
+        // next account starts clean.
+        viewModelScope.launch {
+            GoogleAuth.driveSignOuts.collect {
+                forgetLibrary()
+                _state.value = DriveState(step = initialStep())
+                prepareSignIn()
+            }
+        }
         // Keys saved from the phone or the Settings screen: move on to the sign-in step.
         viewModelScope.launch {
             CompanionHub.changes.collect {
@@ -97,13 +107,17 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Warm Movies and TV Shows in the background at launch, so the sidebar opens them instantly. */
     private fun prefetchLibraries() {
-        viewModelScope.launch {
+        prefetchJob?.cancel()
+        prefetchJob = viewModelScope.launch {
             // Let the first screen settle (focus, cameras, dashboard) before the Drive and TMDB work.
             delay(4_000)
             val token = GoogleAuth.token(ctx) ?: return@launch
+            // Home's Google-hosted posters need it too, before Streaming is ever opened.
+            _state.update { if (it.connected && it.token != token) it.copy(token = token) else it }
             for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
                 runCatching { posters(token, listOf(place), parse(DriveApi.list(token, place))) }.onSuccess { cache[place] = it }
             }
+            ensureActive() // cancelled (signed out, or a newer prefetch): leave Recently added alone
             updateRecentlyAdded()
         }
     }
@@ -234,23 +248,23 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Signs out of Google on this TV; the saved keys stay so signing in again is one QR scan. */
+    /**
+     * Signs out of Google on this TV; the saved keys stay so signing in again is one QR scan. The
+     * library is forgotten as the sign-in ends ([GoogleAuth.driveSignOuts]).
+     */
     fun signOut() {
-        viewModelScope.launch {
-            GoogleAuth.signOut(ctx)
-            forgetLibrary()
-            _state.value = DriveState(step = SignInStep.SIGN_IN)
-            prepareSignIn()
-        }
+        viewModelScope.launch { GoogleAuth.signOut(ctx) }
     }
 
     /**
      * Nothing of the signed-out account's library stays: not in memory, not the folders found, not
      * the listings saved on disk (the next account would see them first, and keep seeing them
-     * while its own folders fail to load).
+     * while its own folders fail to load). Continue watching stays: it's where the family left off,
+     * and signing out and back in (an expired approval, new keys) is far likelier than a new account.
      */
     private fun forgetLibrary() {
         loadJob?.cancel()
+        prefetchJob?.cancel()
         cache.clear()
         artworkJob?.cancel()
         _artwork.value = emptyMap()
@@ -274,13 +288,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Forgets the Google Cloud keys too (e.g. after creating a new OAuth client). */
-    fun resetSetup() {
-        GoogleAuth.resetClient(ctx)
-        forgetLibrary()
-        _state.value = DriveState(step = SignInStep.SETUP)
-        prepareSignIn()
-    }
+    /** Forgets the Google Cloud keys too (e.g. after creating a new OAuth client), and the library with them. */
+    fun resetSetup() = GoogleAuth.resetClient(ctx)
 
     fun open(place: DrivePlace) {
         _state.update { it.copy(stack = it.stack + place) }

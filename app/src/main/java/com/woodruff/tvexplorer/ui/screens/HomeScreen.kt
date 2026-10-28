@@ -124,8 +124,9 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     val store = remember { RecentStore(context) }
     var recent by remember { mutableStateOf(store.continueWatching()) }
     var removeFor by remember { mutableStateOf<RecentItem?>(null) }
-    // Coming back from the player: pick up the position it just saved.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching() }
+    // Coming back from the player: pick up the position it just saved (and a fresh token for the
+    // Google-hosted posters: the one from start-up lasts an hour).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching(); drive.refreshToken() }
     val play = { r: RecentItem -> context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key)) }
     // Recently added movies and shows, after what's in progress.
     val added by drive.recentlyAdded.collectAsStateWithLifecycle()
