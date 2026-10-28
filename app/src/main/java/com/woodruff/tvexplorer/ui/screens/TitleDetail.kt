@@ -57,6 +57,7 @@ import coil.request.ImageRequest
 import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
+import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.data.FileKind
@@ -130,11 +131,14 @@ private fun TitlePage(
     val recent = remember { RecentStore(context).all() }
     val resumeMs = remember { if (f.isFolder) 0L else RecentStore(context).resumePosition(MediaRef.Drive(f.id).key) }
     // A show: the episode last watched, matched by the show's name, so it's found whichever season
-    // folder it's in and however its file is named ("Show (2008) - S02E04.mkv", "Show.S02E04…").
+    // folder it's in and however its file is named ("Show (2008) - S02E04.mkv", "Show.S02E04…"),
+    // or known to sit under this show ([EpisodeShows]) when its name doesn't say ("S01E013_Pilot").
     val resumeEpisode = remember {
         if (!isShow) null
         else Library.showMatchKey(f.name).let { show ->
-            recent.firstOrNull { it.progress in 0.02f..0.97f && Library.showMatchKey(it.title) == show }
+            EpisodeShows.load(context)
+            val known = EpisodeShows.map.value
+            recent.firstOrNull { it.progress in 0.02f..0.97f && (known[it.key] == f.id || Library.showMatchKey(it.title) == show) }
         }
     }
     val cast by produceState(emptyList<String>()) {
@@ -159,15 +163,9 @@ private fun TitlePage(
             .filter { (_, s) -> (Tmdb.seasonNumber(s.first) ?: 1) >= 1 }
             .minByOrNull { (_, s) -> Tmdb.seasonNumber(s.first) ?: Int.MAX_VALUE }?.index ?: 0
     }
+    // Only OK on a tab chooses a season: the focus crossing the tabs on its way to the episodes (or
+    // back up to the buttons) mustn't swap the row out from under it.
     var chosenSeason by remember { mutableIntStateOf(-1) }
-    // The season tab the focus is on: its episodes come up once it rests there a moment (passing
-    // across the tabs doesn't load every season on the way).
-    var restingSeason by remember { mutableIntStateOf(-1) }
-    LaunchedEffect(restingSeason) {
-        if (restingSeason < 0) return@LaunchedEffect
-        kotlinx.coroutines.delay(250)
-        chosenSeason = restingSeason
-    }
     val season = if (chosenSeason >= 0) chosenSeason else firstSeason
     // The season's episodes, tagged with the season they're from: switching seasons never shows
     // (or plays) the previous one's while the next loads.
@@ -187,9 +185,9 @@ private fun TitlePage(
         val l = loaded
         if (firstEps == null && l != null && l.first == firstSeason) firstEps = l.second
     }
-    // A film kept in its own folder (Plex style): the biggest video in it is the film.
+    // A film kept in its own folder (Plex style); a collection or a film in parts opens instead.
     val film = remember(inside) {
-        if (isShow || !f.isFolder) null else inside?.filter { it.kind == FileKind.VIDEO }?.maxByOrNull { it.size }
+        if (isShow || !f.isFolder) null else inside?.let(::folderFilm)
     }
     val filmResumeMs = remember(film) { film?.let { RecentStore(context).resumePosition(MediaRef.Drive(it.id).key) } ?: 0L }
     val similar = remember {
@@ -242,7 +240,8 @@ private fun TitlePage(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (meta.isNotEmpty()) Text(meta.joinToString("  ·  "), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
                     info.rating?.let { r ->
-                        TvIcon(Sym.Star, size = 18.dp, modifier = Modifier.padding(start = 14.dp, end = 4.dp))
+                        // White like its number: the page is always dark, whatever the theme's text color.
+                        TvIcon(Sym.Star, size = 18.dp, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(start = 14.dp, end = 4.dp))
                         Text(String.format("%.1f", r), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
                     }
                 }
@@ -300,11 +299,13 @@ private fun TitlePage(
                 // (a row clips there).
                 if (seasonList.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
                     items(seasonList.size) { i ->
-                        SeasonTab(seasonList[i].first, selected = i == season, onFocused = { restingSeason = i }) { chosenSeason = i }
+                        SeasonTab(seasonList[i].first, selected = i == season) { chosenSeason = i }
                     }
                 }
                 val eps = episodes
-                if (eps == null) Text("Loading episodes…", color = Color.White.copy(alpha = 0.6f))
+                // While a season loads, its row keeps its room (a card's 16:9 picture and a line of
+                // its name), so the page below doesn't jump up and back down.
+                if (eps == null) Box(Modifier.height(208.dp), contentAlignment = Alignment.CenterStart) { Text("Loading episodes…", color = Color.White.copy(alpha = 0.6f)) }
                 else if (eps.isEmpty()) Text("No episodes in this folder", color = Color.White.copy(alpha = 0.6f))
                 else LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 16.dp)) {
                     items(eps, key = { it.id }) { ep ->
@@ -313,6 +314,7 @@ private fun TitlePage(
                             ep, token,
                             progress = recent.firstOrNull { it.key == key }?.progress,
                             watched = Watched.isWatched(context, key),
+                            fg = Color.White,
                         ) { onPlayEpisode(ep, eps, false) }
                     }
                 }
@@ -351,11 +353,21 @@ internal fun episodeCode(name: String): String? {
     return null
 }
 
+/**
+ * The film in a folder of its own: its one video, or one at least twice the size of any other (a
+ * trailer or a sample beside it). Null for a collection ("Back to the Future Trilogy") or a film in
+ * parts ("CD1", "CD2"), where playing the biggest would start the wrong film or the wrong half.
+ */
+internal fun folderFilm(files: List<DriveFile>): DriveFile? {
+    val videos = files.filter { it.kind == FileKind.VIDEO }.sortedByDescending { it.size }
+    val biggest = videos.firstOrNull() ?: return null
+    return biggest.takeIf { videos.size == 1 || it.size >= 2 * videos[1].size }
+}
+
 @Composable
-private fun SeasonTab(label: String, selected: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
+private fun SeasonTab(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.onFocusChanged { if (it.isFocused) onFocused() },
         shape = ClickableSurfaceDefaults.shape(Shapes.pill),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) Color.White.copy(alpha = 0.22f) else Color.Transparent,
@@ -371,12 +383,15 @@ private fun SeasonTab(label: String, selected: Boolean, onFocused: () -> Unit, o
 
 /**
  * An episode: its picture (TMDB's, else Drive's frame from the video), the code and name, a
- * progress bar or a ✓. Used in a show's row of episodes and in a season's folder.
+ * progress bar or a ✓. Used in a show's row of episodes and in a season's folder. [fg] colors its
+ * name, focus outline and placeholder symbol: the theme's text color in a season's folder, white on
+ * the always-dark title page.
  */
 @Composable
 internal fun EpisodeCard(
     ep: DriveFile, token: String?, progress: Float?, watched: Boolean,
     modifier: Modifier = Modifier.width(280.dp),
+    fg: Color = com.woodruff.tvexplorer.ui.theme.Palette.text,
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -385,7 +400,7 @@ internal fun EpisodeCard(
             onClick = onClick,
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
             colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = 0.1f), focusedContainerColor = Color.White.copy(alpha = 0.2f)),
-            border = ClickableSurfaceDefaults.border(focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(3.dp, Color.White), shape = RoundedCornerShape(18.dp))),
+            border = ClickableSurfaceDefaults.border(focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(3.dp, fg), shape = RoundedCornerShape(18.dp))),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
         ) {
@@ -399,7 +414,7 @@ internal fun EpisodeCard(
                             .size(400, 225).crossfade(150).build()
                     }
                     AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                } else TvIcon(Sym.PlayArrow, size = 40.dp, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Center))
+                } else TvIcon(Sym.PlayArrow, size = 40.dp, tint = fg.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Center))
                 if (progress != null && progress > 0.01f && !watched) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {
                     Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(com.woodruff.tvexplorer.ui.theme.Palette.accent))
                 }
@@ -416,7 +431,7 @@ internal fun EpisodeCard(
                 ?.replace(Regex("""[._]"""), " ")?.replace(Regex("""(?i)\b(\d{3,4}p|x26[45]|h\.?26[45]|web[- ]?dl|webrip|bluray|hdtv|aac|ddp?5\.1)\b.*"""), "")?.trim()
                 ?.ifBlank { null } ?: n
         }
-        Text(listOfNotNull(code, name.takeIf { it != code }).joinToString(" · "), color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp, start = 4.dp))
+        Text(listOfNotNull(code, name.takeIf { it != code }).joinToString(" · "), color = fg, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp, start = 4.dp))
     }
 }
 
