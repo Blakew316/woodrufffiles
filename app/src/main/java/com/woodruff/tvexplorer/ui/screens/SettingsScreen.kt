@@ -250,68 +250,87 @@ fun SettingsScreen(vm: MainViewModel) {
             )
         }
         SettingsPage.ACCOUNTS -> listOf(
-            SettingItem(Icons.Rounded.AddToDrive, "Google Drive", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up") { vm.show(Screen.DRIVE) },
-            SettingItem(Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Connected" else "Connect") { showPhotos = true },
-            SettingItem(Icons.Rounded.Event, "Google Calendar", if (calendar.connected) "Connected" else "Connect") {
-                if (!calendar.connected) showCalendar = true
-            },
-            SettingItem(Icons.Rounded.Videocam, "Cameras", if (nestConnected) "Connected" else "Not connected") { vm.show(Screen.CAMERAS) },
+            SettingItem(
+                Icons.Rounded.AddToDrive, "Google Drive", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up",
+                about = "Movies, TV Shows and files from your Google Drive. OK opens it.",
+            ) { vm.show(Screen.DRIVE) },
+            SettingItem(
+                Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Connected" else "Connect",
+                about = "Brings photos and videos into Family Memories.",
+            ) { showPhotos = true },
+            SettingItem(
+                Icons.Rounded.Event, "Google Calendar", if (calendar.connected) "Connected" else "Connect",
+                about = "Today's events on Home.",
+            ) { if (!calendar.connected) showCalendar = true },
+            SettingItem(
+                Icons.Rounded.Videocam, "Cameras", if (nestConnected) "Connected" else "Not connected",
+                about = "Live Google Home cameras in the Command Center. OK opens them.",
+            ) { vm.show(Screen.CAMERAS) },
             opener(SettingsPage.MAIL, count(accounts.size, "account", "None")),
             opener(SettingsPage.KEYS, null, spaced = true),
         )
         SettingsPage.MAIL -> accounts.map { a ->
-            SettingItem(Icons.Rounded.Email, a.email, a.provider.label) { dialog = SettingsDialog.RemoveMail(a) }
-        } + SettingItem(Icons.Rounded.PersonAdd, "Add a mail account", spaced = accounts.isNotEmpty()) { dialog = SettingsDialog.PickProvider }
+            SettingItem(Icons.Rounded.Email, a.email, a.provider.label, about = "OK removes this account from the TV.") { dialog = SettingsDialog.RemoveMail(a) }
+        } + SettingItem(
+            Icons.Rounded.PersonAdd, "Add a mail account", spaced = accounts.isNotEmpty(),
+            about = "iCloud, Gmail, Outlook and others. You'll need an app-specific password, not your usual one.",
+        ) { dialog = SettingsDialog.PickProvider }
         SettingsPage.KEYS -> buildList {
-            add(SettingItem(Icons.Rounded.Key, "Google Client ID", clientId?.let { mask(it, 18) } ?: "Not set") { dialog = SettingsDialog.ClientId })
-            add(SettingItem(Icons.Rounded.Lock, "Google Client secret", if (configured) "Saved" else "Not set") { dialog = SettingsDialog.ClientSecret })
-            add(SettingItem(Icons.Rounded.Key, "Cameras project ID", nestProject?.let { mask(it, 13) } ?: "Not set") { dialog = SettingsDialog.NestProject })
-            add(SettingItem(Icons.Rounded.Key, "TMDB key (posters)", if (tmdbSet) "Saved" else "Not set") { dialog = SettingsDialog.TmdbKey })
+            add(SettingItem(Icons.Rounded.Key, "Google Client ID", clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it.") { dialog = SettingsDialog.ClientId })
+            add(SettingItem(Icons.Rounded.Lock, "Google Client secret", if (configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted on this TV.") { dialog = SettingsDialog.ClientSecret })
+            add(SettingItem(Icons.Rounded.Key, "Cameras project ID", nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it.") { dialog = SettingsDialog.NestProject })
+            add(SettingItem(Icons.Rounded.Key, "TMDB key", if (tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures.") { dialog = SettingsDialog.TmdbKey })
             // Signing out, set apart from the keys.
             var gap = true
-            fun out(on: Boolean, title: String, action: () -> Unit) {
-                if (on) { add(SettingItem(Icons.Rounded.Logout, title, spaced = gap, onClick = action)); gap = false }
+            fun out(on: Boolean, title: String, about: String, action: () -> Unit) {
+                if (on) { add(SettingItem(Icons.Rounded.Logout, title, spaced = gap, about = about, onClick = action)); gap = false }
             }
-            out(connected, "Sign out of Google") { scope.launch { GoogleAuth.signOut(context); changed() } }
-            out(photosConnected, "Disconnect Google Photos") { GooglePhotos.signOut { changed() } }
-            out(calendar.connected, "Disconnect Google Calendar") { TodayCalendar.signOut { changed() } }
-            out(nestConnected, "Disconnect cameras") { Nest.signOut { changed() } }
-            if (configured) add(SettingItem(Icons.Rounded.Delete, "Remove Google keys", danger = true, spaced = gap) { dialog = SettingsDialog.RemoveGoogle })
+            out(connected, "Sign out of Google", "Signs this TV out of Google Drive.") { scope.launch { GoogleAuth.signOut(context); changed() } }
+            out(photosConnected, "Disconnect Google Photos", "Stops adding from Google Photos. Photos already here stay.") { GooglePhotos.signOut { changed() } }
+            out(calendar.connected, "Disconnect Google Calendar", "Stops showing today's events.") { TodayCalendar.signOut { changed() } }
+            out(nestConnected, "Disconnect cameras", "Stops showing the cameras on this TV.") { Nest.signOut { changed() } }
+            if (configured) add(SettingItem(Icons.Rounded.Delete, "Remove Google keys", danger = true, spaced = gap, about = "Signs out and deletes the saved Client ID and secret from this TV.") { dialog = SettingsDialog.RemoveGoogle })
         }
         SettingsPage.LOOK -> listOf(
-            SettingItem(if (Palette.light) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, "Theme", if (Palette.light) "Light" else "Dark") { ThemeSetting.toggle(context) },
-            SettingItem(Icons.Rounded.Wallpaper, "Background photo", Appearance.background?.let { File(it).name } ?: "None") {
+            SettingItem(if (Palette.light) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, "Theme", if (Palette.light) "Light" else "Dark", about = "OK switches between light and dark.") { ThemeSetting.toggle(context) },
+            SettingItem(
+                Icons.Rounded.Wallpaper, "Background photo", Appearance.background?.let { File(it).name } ?: "None",
+                about = "To choose one, press and hold a photo in Files and pick Set as app background. OK removes it.",
+            ) {
                 if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
                 else vm.say("In Files, press and hold on a photo and choose Set as app background")
             },
             // Turn off on extra TVs if Google starts limiting camera requests.
-            SettingItem(Icons.Rounded.Videocam, "Cameras on Home", Appearance.homeCameras.label) { Appearance.nextHomeCameras(context) },
+            SettingItem(Icons.Rounded.Videocam, "Cameras on Home", Appearance.homeCameras.label, about = "What Home shows of the cameras. OK changes it.") { Appearance.nextHomeCameras(context) },
         )
         SettingsPage.SCREENSAVER -> listOf(
-            SettingItem(Icons.Rounded.Bedtime, "Start when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min") { Appearance.nextIdle(context) },
-            SettingItem(Icons.Rounded.PhotoLibrary, "Photos", Appearance.slideshowFolder?.let { File(it).name } ?: "Pictures & Camera") {
+            SettingItem(Icons.Rounded.Bedtime, "Start when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min", about = "How long the TV sits unused before the slideshow starts. OK changes it.") { Appearance.nextIdle(context) },
+            SettingItem(
+                Icons.Rounded.PhotoLibrary, "Photos", Appearance.slideshowFolder?.let { File(it).name } ?: "Pictures & Camera",
+                about = "To choose a folder, press and hold it in Files and pick Use for photo slideshow. OK goes back to Pictures & Camera.",
+            ) {
                 if (Appearance.slideshowFolder != null) Appearance.setSlideshowFolder(context, null)
                 else vm.say("In Files, press and hold on a folder and choose Use for photo slideshow")
             },
-            SettingItem(Icons.Rounded.Timer, "Each photo for", "${Appearance.seconds} seconds") { Appearance.nextSpeed(context) },
-            SettingItem(Icons.Rounded.Slideshow, "Start now", spaced = true) { SlideshowActivity.start(context) },
-            SettingItem(Icons.Rounded.Tv, "Use as the TV's screensaver") {
+            SettingItem(Icons.Rounded.Timer, "Each photo for", "${Appearance.seconds} seconds", about = "How long each photo stays up. OK changes it.") { Appearance.nextSpeed(context) },
+            SettingItem(Icons.Rounded.Slideshow, "Start now", spaced = true, about = "Starts the slideshow.") { SlideshowActivity.start(context) },
+            SettingItem(Icons.Rounded.Tv, "Use as the TV's screensaver", about = "Opens the TV's own screensaver settings to choose Woodruff Family.") {
                 val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
             },
         )
         SettingsPage.DEVICES -> listOf(
-            SettingItem(Icons.Rounded.Tv, "This TV's name", tvName) { dialog = SettingsDialog.TvName },
-            SettingItem(Icons.Rounded.PhoneIphone, "Connect a phone") { vm.show(Screen.TRANSFER) },
+            SettingItem(Icons.Rounded.Tv, "This TV's name", tvName, about = "Shown to your other TVs and on your phone.") { dialog = SettingsDialog.TvName },
+            SettingItem(Icons.Rounded.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) },
             opener(SettingsPage.PHONES, count(phones.size, "phone", "None yet")),
             opener(SettingsPage.TVS, if (linkedTvs.isEmpty()) "None linked" else "${linkedTvs.size} linked"),
-            SettingItem(Icons.Rounded.PowerSettingsNew, "Start when the TV turns on", onOff(autoStart)) { AutoStart.setEnabled(context, !autoStart); changed() },
+            SettingItem(Icons.Rounded.PowerSettingsNew, "Start when the TV turns on", onOff(autoStart), about = "Opens Woodruff Family when the TV starts. OK turns it on or off.") { AutoStart.setEnabled(context, !autoStart); changed() },
         )
         SettingsPage.PHONES ->
-            if (phones.isEmpty()) listOf(SettingItem(Icons.Rounded.PhoneIphone, "Connect a phone") { vm.show(Screen.TRANSFER) })
-            else phones.map { p -> SettingItem(Icons.Rounded.Smartphone, p.name, Format.date(p.lastSeen)) { dialog = SettingsDialog.RemovePhone(p) } }
+            if (phones.isEmpty()) listOf(SettingItem(Icons.Rounded.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) })
+            else phones.map { p -> SettingItem(Icons.Rounded.Smartphone, p.name, Format.date(p.lastSeen), about = "Last seen ${Format.date(p.lastSeen)}. OK forgets this phone.") { dialog = SettingsDialog.RemovePhone(p) } }
         SettingsPage.TVS -> buildList {
-            add(SettingItem(Icons.Rounded.Add, "Add another TV") { dialog = SettingsDialog.AddTv })
+            add(SettingItem(Icons.Rounded.Add, "Add another TV", about = "Enter the code the other TV shows in its Settings.") { dialog = SettingsDialog.AddTv })
             linkedTvs.forEach { tv ->
                 val s = otherTvs.firstOrNull { it.id == tv.id }
                 val status = when {
@@ -319,38 +338,41 @@ fun SettingsScreen(vm: MainViewModel) {
                     s.online -> "Online" + (s.version?.let { " · $it" } ?: "")
                     else -> "Off or unreachable"
                 }
-                add(SettingItem(Icons.Rounded.Tv, tv.name, status) { dialog = SettingsDialog.RemoveTv(tv) })
+                add(SettingItem(Icons.Rounded.Tv, tv.name, status, about = "OK unlinks this TV.") { dialog = SettingsDialog.RemoveTv(tv) })
             }
-            add(SettingItem(Icons.Rounded.Link, "Link this TV to another", spaced = true) { dialog = SettingsDialog.LinkCode })
-            add(SettingItem(Icons.Rounded.LinkOff, "Stop other TVs seeing this one", danger = true) { dialog = SettingsDialog.UnlinkHubs })
+            add(SettingItem(Icons.Rounded.Link, "Link this TV to another", spaced = true, about = "Shows a code to enter on the other TV.") { dialog = SettingsDialog.LinkCode })
+            add(SettingItem(Icons.Rounded.LinkOff, "Stop other TVs seeing this one", danger = true, about = "Every linked TV loses access. Link again with a new code.") { dialog = SettingsDialog.UnlinkHubs })
         }
         SettingsPage.STORAGE -> roots.map { r ->
             SettingItem(
                 if (r.removable) Icons.Rounded.SdStorage else Icons.Rounded.Storage, r.title,
-                if (r.totalBytes > 0) "${Format.bytes(r.freeBytes)} free of ${Format.bytes(r.totalBytes)}" else null,
+                if (r.totalBytes > 0) "${Format.bytes(r.freeBytes)} free" else null,
+                about = (if (r.totalBytes > 0) "${Format.bytes(r.freeBytes)} free of ${Format.bytes(r.totalBytes)}. " else "") + "OK opens it.",
             ) { vm.openRoot(r.dir, from = Screen.SETTINGS) }
         } + listOf(
-            SettingItem(Icons.Rounded.FolderOpen, "Browse by type", "Videos, music, photos…", spaced = roots.isNotEmpty()) { dialog = SettingsDialog.BrowseTypes },
-            SettingItem(Icons.Rounded.Apps, "Apps") { vm.openApps(Screen.SETTINGS) },
-            SettingItem(Icons.Rounded.Cloud, "iCloud") { dialog = SettingsDialog.ICloud },
-            SettingItem(Icons.Rounded.VideoCall, "Google Meet", spaced = true) { Handoff.launch(context, Handoff.MEET) },
-            SettingItem(Icons.Rounded.Cast, "AirScreen", "iPhone camera & screen") { Handoff.launch(context, Handoff.AIRSCREEN) },
+            SettingItem(Icons.Rounded.FolderOpen, "Browse by type", spaced = roots.isNotEmpty(), about = "Every video, song, photo or document on this TV and attached drives.") { dialog = SettingsDialog.BrowseTypes },
+            SettingItem(Icons.Rounded.Apps, "Apps", about = "Open the apps on this TV.") { vm.openApps(Screen.SETTINGS) },
+            SettingItem(Icons.Rounded.Cloud, "iCloud", about = "How to bring iCloud mail, files and photos to this TV.") { dialog = SettingsDialog.ICloud },
+            SettingItem(Icons.Rounded.VideoCall, "Google Meet", spaced = true, about = "Video calls on the TV.") { Handoff.launch(context, Handoff.MEET) },
+            SettingItem(Icons.Rounded.Cast, "AirScreen", about = "Show an iPhone's camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
         )
         SettingsPage.UPDATES -> listOf(
-            SettingItem(Icons.Rounded.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update)) {
+            SettingItem(Icons.Rounded.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update), about = "OK checks for an update, or installs one that's ready.") {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
-            SettingItem(Icons.Rounded.Autorenew, "Install updates automatically", onOff(autoUpdate)) { Updater.setAuto(context, !autoUpdate); changed() },
+            SettingItem(Icons.Rounded.Autorenew, "Install updates automatically", onOff(autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !autoUpdate); changed() },
             // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
-            SettingItem(Icons.Rounded.Science, "Test TV", if (testTv) "On · gets updates first" else "Off") { Updater.setTestTv(context, !testTv); changed() },
+            SettingItem(Icons.Rounded.Science, "Test TV", onOff(testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !testTv); changed() },
         )
         SettingsPage.ADVANCED -> listOf(
-            // OK starts counting afresh.
-            SettingItem(Icons.Rounded.Speed, "Smoothness", "Start over", detail = smoothness) {
+            SettingItem(Icons.Rounded.Speed, "Smoothness", detail = smoothness, about = "Slow frames on each screen since the app started, and what they were spent on. OK starts counting again.") {
                 com.woodruff.tvexplorer.util.FrameStats.reset(); smoothness = com.woodruff.tvexplorer.util.FrameStats.summary()
             },
-            SettingItem(Icons.Rounded.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Set up in the phone app"),
-            SettingItem(Icons.Rounded.NotificationsActive, "Pop-ups over other apps", onOff(overlay)) {
+            SettingItem(
+                Icons.Rounded.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off",
+                about = "Doorbell presses pop up on this TV. Set it up in the phone app.",
+            ),
+            SettingItem(Icons.Rounded.NotificationsActive, "Pop-ups over other apps", onOff(overlay), about = "Lets alerts show while another app is open.") {
                 if (!overlay) {
                     val r = Opener.firstThatStarts(
                         context,
@@ -363,48 +385,54 @@ fun SettingsScreen(vm: MainViewModel) {
                     if (r is OpenResult.Failed) dialog = SettingsDialog.OverlayHelp
                 }
             },
-            SettingItem(Icons.Rounded.PlayCircle, "See what other apps are playing", onOff(seesOtherApps)) {
+            SettingItem(Icons.Rounded.PlayCircle, "See what other apps are playing", onOff(seesOtherApps), about = "Lets Home and your other TVs show what's playing in other apps.") {
                 val r = Opener.firstThatStarts(context, listOf(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.MediaAccessHelp
             },
-            SettingItem(Icons.Rounded.Refresh, "Reset phone pairing", danger = true, spaced = true) { dialog = SettingsDialog.ResetPairing },
-            SettingItem(Icons.Rounded.Info, "Posters", "From TMDB (not endorsed by TMDB)", spaced = true),
+            SettingItem(Icons.Rounded.Refresh, "Reset phone pairing", danger = true, spaced = true, about = "Every phone, bookmark and Shortcut will need to scan a new QR code.") { dialog = SettingsDialog.ResetPairing },
+            SettingItem(Icons.Rounded.Info, "Posters", "TMDB", spaced = true, about = "Movie and show details and pictures come from TMDB. This app is not endorsed by TMDB."),
         )
     }
 
-    Row(Modifier.fillMaxSize().padding(start = 40.dp, end = 64.dp)) {
-        // Where you are: the page's symbol and name.
-        Crossfade(here, Modifier.width(360.dp).fillMaxHeight(), animationSpec = tween(260), label = "settings-where") { p ->
-            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                TvIcon(p.icon, size = 132.dp, tint = Palette.text)
-                Text(p.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 22.dp))
-                if (p == SettingsPage.HOME) {
-                    Text("Version ${BuildConfig.VERSION_NAME}", color = Palette.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
-                }
+    // The row the focus is on (and its page), for the panel on the right.
+    var hovered by remember { mutableStateOf<Pair<SettingsPage, Int>?>(null) }
+
+    Row(Modifier.fillMaxSize().padding(start = 40.dp, end = 56.dp)) {
+        // The list, on the left.
+        Column(Modifier.width(480.dp).fillMaxHeight()) {
+            Crossfade(here, animationSpec = tween(220), label = "settings-title") { p ->
+                Text(p.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 16.dp, top = 30.dp, bottom = 10.dp))
+            }
+            AnimatedContent(
+                path,
+                Modifier.weight(1f).fillMaxWidth()
+                    // Left goes back a page (on the first page it brings up the sidebar, as everywhere).
+                    .onPreviewKeyEvent { e ->
+                        if (e.key == androidx.compose.ui.input.key.Key.DirectionLeft && path.isNotEmpty()) {
+                            if (e.type == KeyEventType.KeyDown) back()
+                            true
+                        } else false
+                    },
+                transitionSpec = {
+                    val dir = if (targetState.size >= initialState.size) 1 else -1
+                    (fadeIn(tween(220, delayMillis = 60)) + slideInHorizontally(tween(320, easing = SmoothEase)) { dir * it / 10 }) togetherWith
+                        (fadeOut(tween(120)) + slideOutHorizontally(tween(320, easing = SmoothEase)) { -dir * it / 10 }) using
+                        SizeTransform(clip = false)
+                },
+                label = "settings-page",
+            ) { shown ->
+                val page = shown.lastOrNull() ?: SettingsPage.HOME
+                val items = rows(page)
+                // The first row of a page just opened; after Back, the row that opened the page left.
+                val focusOn = if (shown != path || moves == 0) null else items.indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0)
+                SettingsList(items, focusOn, moves, open, onFocused = { i -> hovered = page to i })
             }
         }
-        AnimatedContent(
-            path,
-            Modifier.weight(1f).fillMaxHeight()
-                // Left goes back a page (on the first page it brings up the sidebar, as everywhere).
-                .onPreviewKeyEvent { e ->
-                    if (e.key == androidx.compose.ui.input.key.Key.DirectionLeft && path.isNotEmpty()) {
-                        if (e.type == KeyEventType.KeyDown) back()
-                        true
-                    } else false
-                },
-            transitionSpec = {
-                val dir = if (targetState.size >= initialState.size) 1 else -1
-                (fadeIn(tween(220, delayMillis = 60)) + slideInHorizontally(tween(320, easing = SmoothEase)) { dir * it / 10 }) togetherWith
-                    (fadeOut(tween(120)) + slideOutHorizontally(tween(320, easing = SmoothEase)) { -dir * it / 10 }) using
-                    SizeTransform(clip = false)
-            },
-            label = "settings-page",
-        ) { shown ->
-            val items = rows(shown.lastOrNull() ?: SettingsPage.HOME)
-            // The first row of a page just opened; after Back, the row that opened the page left.
-            val focusOn = if (shown != path || moves == 0) null else items.indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0)
-            SettingsList(items, focusOn, moves, open)
+        // On the right: what the focused row is about, following the focus (OK still does the choosing).
+        val showing = hovered?.takeIf { it.first == here } ?: (here to 0)
+        Crossfade(showing, Modifier.weight(1f).fillMaxHeight().padding(start = 56.dp), animationSpec = tween(220), label = "settings-about") { (p, i) ->
+            val item = rows(p).getOrNull(i)
+            if (item != null) SettingAbout(item, item.opens?.let { rows(it) })
         }
     }
 
@@ -562,31 +590,34 @@ private fun addMail(
 }
 
 /** The pages of Settings: the first, and the ones opened from it. */
-private enum class SettingsPage(val title: String, val icon: ImageVector) {
-    HOME("Settings", Icons.Rounded.SettingsIcon),
-    ACCOUNTS("Accounts", Icons.Rounded.AccountCircle),
-    MAIL("Mail", Icons.Rounded.Email),
-    KEYS("Keys & sign-out", Icons.Rounded.Key),
-    LOOK("Appearance", Icons.Rounded.DarkMode),
-    SCREENSAVER("Screensaver", Icons.Rounded.Slideshow),
-    DEVICES("TVs & phones", Icons.Rounded.Tv),
-    PHONES("Phones", Icons.Rounded.Smartphone),
-    TVS("Other TVs", Icons.Rounded.Link),
-    STORAGE("Storage & apps", Icons.Rounded.Storage),
-    UPDATES("Updates", Icons.Rounded.SystemUpdate),
-    ADVANCED("Advanced", Icons.Rounded.Tune),
+private enum class SettingsPage(val title: String, val icon: ImageVector, val about: String) {
+    HOME("Settings", Icons.Rounded.SettingsIcon, ""),
+    ACCOUNTS("Accounts", Icons.Rounded.AccountCircle, "Google Drive, Photos, Calendar, cameras and mail."),
+    MAIL("Mail", Icons.Rounded.Email, "The mail accounts the Command Center shows."),
+    KEYS("Keys & sign-out", Icons.Rounded.Key, "The keys from Google and TMDB, and signing out."),
+    LOOK("Appearance", Icons.Rounded.DarkMode, "Light or dark, a background photo, and the cameras on Home."),
+    SCREENSAVER("Screensaver", Icons.Rounded.Slideshow, "A slideshow of your photos when the TV sits idle."),
+    DEVICES("TVs & phones", Icons.Rounded.Tv, "This TV's name, your phones and the other TVs in the house."),
+    PHONES("Phones", Icons.Rounded.Smartphone, "Phones connected to this TV."),
+    TVS("Other TVs", Icons.Rounded.Link, "Link TVs to see what each one is playing and watch together."),
+    STORAGE("Storage & apps", Icons.Rounded.Storage, "Drives, files by type, apps, iCloud and video calls."),
+    UPDATES("Updates", Icons.Rounded.SystemUpdate, "New versions of Woodruff Family."),
+    ADVANCED("Advanced", Icons.Rounded.Tune, "Smoothness, permissions, pairing and credits."),
 }
 
-/** One row. A row that [opens] a page shows a chevron; any other runs [onClick]. [spaced]: a gap above it. */
+/**
+ * One row. A row that [opens] a page shows a chevron; any other runs [onClick]. [spaced]: a gap
+ * above it. [about] and [detail] show on the right while the row has the focus.
+ */
 private class SettingItem(
     val icon: ImageVector, val title: String, val value: String? = null,
     val detail: String? = null, val danger: Boolean = false,
-    val opens: SettingsPage? = null, val spaced: Boolean = false, val onClick: () -> Unit = {},
+    val opens: SettingsPage? = null, val spaced: Boolean = false, val about: String? = null, val onClick: () -> Unit = {},
 )
 
 /** The row that opens [page], named and pictured like the page. */
 private fun opener(page: SettingsPage, value: String?, spaced: Boolean = false) =
-    SettingItem(page.icon, page.title, value, opens = page, spaced = spaced)
+    SettingItem(page.icon, page.title, value, opens = page, spaced = spaced, about = page.about)
 
 private fun onOff(on: Boolean) = if (on) "On" else "Off"
 
@@ -600,7 +631,7 @@ private fun mask(s: String, keep: Int) = if (s.length <= keep) s else s.take(kee
 
 /** One page's rows. [focusOn]: the row that takes the focus as the page appears after a move. */
 @Composable
-private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, onOpen: (SettingsPage) -> Unit) {
+private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, onOpen: (SettingsPage) -> Unit, onFocused: (Int) -> Unit) {
     val focus = remember(items.size) { List(items.size) { FocusRequester() } }
     var focused by remember { mutableIntStateOf(0) }
     LaunchedEffect(moves) {
@@ -619,7 +650,8 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
                 } else false
             }
             .verticalScroll(rememberScrollState())
-            .padding(top = 72.dp, bottom = 48.dp),
+            // A little room above the first row: the scrolling column clips at its top edge.
+            .padding(top = 8.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items.forEachIndexed { i, item ->
@@ -627,8 +659,49 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
                 item,
                 Modifier.padding(top = if (item.spaced) 22.dp else 0.dp)
                     .focusRequester(focus[i])
-                    .onFocusChanged { if (it.isFocused) focused = i },
+                    .onFocusChanged { if (it.isFocused) { focused = i; onFocused(i) } },
             ) { item.opens?.let(onOpen) ?: item.onClick() }
+        }
+    }
+}
+
+/**
+ * The right side: what the focused row is about, Apple TV style. Its symbol, name and value, what
+ * OK does, and for a group what's inside it (read only; the group opens with OK or Right).
+ */
+@Composable
+private fun SettingAbout(item: SettingItem, inside: List<SettingItem>?) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+        TvIcon(item.icon, size = 72.dp, tint = Palette.text)
+        Text(item.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 18.dp))
+        if (item.value != null) {
+            Text(item.value, style = MaterialTheme.typography.titleMedium, color = Palette.muted, modifier = Modifier.padding(top = 4.dp))
+        }
+        if (item.about != null) {
+            Text(item.about, style = MaterialTheme.typography.bodyLarge, color = Palette.muted, modifier = Modifier.padding(top = 14.dp).widthIn(max = 460.dp))
+        }
+        if (item.detail != null) {
+            Text(item.detail, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 16.dp).widthIn(max = 460.dp))
+        }
+        if (!inside.isNullOrEmpty()) {
+            Column(Modifier.padding(top = 26.dp).widthIn(max = 460.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                inside.take(7).forEach { sub ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TvIcon(sub.icon, size = 20.dp, tint = Palette.muted)
+                        Text(
+                            sub.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(start = 12.dp),
+                        )
+                        if (sub.value != null) {
+                            Text(
+                                sub.value, style = MaterialTheme.typography.bodyMedium, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 12.dp).widthIn(max = 200.dp),
+                            )
+                        }
+                    }
+                }
+                if (inside.size > 7) Text("and ${inside.size - 7} more", style = MaterialTheme.typography.labelMedium, color = Palette.muted)
+            }
         }
     }
 }
@@ -653,16 +726,13 @@ private fun SettingRow(item: SettingItem, modifier: Modifier, onClick: () -> Uni
         headlineContent = {
             Text(item.title, color = if (item.danger) Palette.danger else Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
-        supportingContent = if (item.detail != null) {
-            { Text(item.detail, style = MaterialTheme.typography.bodySmall, color = LocalContentColor.current.copy(alpha = 0.7f), maxLines = 4) }
-        } else null,
         trailingContent = if (item.value != null || item.opens != null) {
             {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (item.value != null) {
                         Text(
                             item.value, color = LocalContentColor.current.copy(alpha = 0.62f), style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 380.dp),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp),
                         )
                     }
                     if (item.opens != null) {

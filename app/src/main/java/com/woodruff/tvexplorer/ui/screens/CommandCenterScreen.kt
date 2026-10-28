@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -129,20 +130,23 @@ fun CommandCenterScreen(vm: MainViewModel) {
     }
 
     Column(Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 24.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Command center", style = MaterialTheme.typography.headlineLarge)
+        // The title over the cameras; the controls over the notifications column, exactly as wide as
+        // it (the same weights and gap as the row below).
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            Text("Command center", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(2.2f))
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (state.step == NestStep.CONNECTED) {
+                    val ctx = LocalContext.current
+                    HubTile(
+                        if (Appearance.allInOne) Icons.Rounded.GridView else Icons.Rounded.Dashboard,
+                        if (Appearance.allInOne) "Cameras only" else "All on one", Modifier.weight(1f),
+                    ) { Appearance.toggleAllInOne(ctx) }
+                    HubTile(Icons.Rounded.Refresh, "Refresh", Modifier.weight(1f)) { Nest.refresh() }
+                } else {
+                    Spacer(Modifier.weight(2f))
+                }
+                HubTile(Icons.Rounded.Home, "Home", Modifier.weight(1f)) { vm.show(Screen.HOME) }
             }
-            if (state.step == NestStep.CONNECTED) {
-                val ctx = LocalContext.current
-                ToolButton(
-                    if (Appearance.allInOne) Icons.Rounded.GridView else Icons.Rounded.Dashboard,
-                    if (Appearance.allInOne) "Cameras only" else "All on one",
-                    { Appearance.toggleAllInOne(ctx) },
-                )
-                ToolButton(Icons.Rounded.Refresh, null, { Nest.refresh() }, Modifier.padding(start = 10.dp))
-            }
-            ToolButton(Icons.Rounded.Home, "Home", { vm.show(Screen.HOME) }, Modifier.padding(start = 10.dp))
         }
         state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
 
@@ -378,6 +382,29 @@ private fun SidePanel(modifier: Modifier) {
                 if (n.body.isNotBlank()) Text(n.body, maxLines = 2, overflow = TextOverflow.Ellipsis, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
                 Text(Format.date(n.at), color = Palette.muted, style = MaterialTheme.typography.labelSmall)
             }
+        }
+    }
+}
+
+/** A Command Center control: a symbol over a short label in a glass tile, white when focused. */
+@Composable
+private fun HubTile(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(64.dp),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Palette.surfaceHigh, contentColor = Palette.text,
+            focusedContainerColor = Palette.text, focusedContentColor = Palette.background,
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+    ) {
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            TvIcon(icon, size = 22.dp)
+            Text(
+                label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp, start = 6.dp, end = 6.dp),
+            )
         }
     }
 }
