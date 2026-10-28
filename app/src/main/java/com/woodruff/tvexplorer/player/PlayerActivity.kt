@@ -43,11 +43,13 @@ class PlayerActivity : ComponentActivity() {
     private var savedQueue: Pair<List<String>, List<String>>? = null
     /** One retry with a fresh Google token after a sign-in error, per item. */
     private var retriedKey: String? = null
-
-    // Drive requests need a bearer token. Play services caches it, but asking costs an IPC,
-    // so reuse it for a while; tokens live for about an hour.
-    @Volatile private var driveToken: String? = null
-    @Volatile private var driveTokenAt = 0L
+    /** Waiting for the connection (or Google) to come back, on this item: retries without skipping it. */
+    private val retry = android.os.Handler(android.os.Looper.getMainLooper())
+    private var stalledKey: String? = null
+    /** The item playing a moment ago and where it was, saved when Next / Previous moves on from it. */
+    private var lastSeen: RecentItem? = null
+    /** The key whose OK / Back press was handled here: its release is ours too (PlayerView would pop the controls up). */
+    private var swallowUp: Int? = null
 
     /** Shares title / play state / position with other TVs and the phone (see NowPlaying). */
     private val reporter = android.os.Handler(android.os.Looper.getMainLooper())
@@ -60,7 +62,12 @@ class PlayerActivity : ComponentActivity() {
                     positionMs = p.currentPosition.coerceAtLeast(0), durationMs = p.duration.coerceAtLeast(0),
                 )
             }
-            player?.let { updateSkip(it) }
+            player?.let { p ->
+                updateSkip(p)
+                p.currentMediaItem?.let { item ->
+                    lastSeen = RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0)
+                }
+            }
             if (leader && ++syncTicks % 10 == 0) sendSync()
             reporter.postDelayed(this, 1_000)
         }
@@ -140,6 +147,9 @@ class PlayerActivity : ComponentActivity() {
         view.setControllerVisibilityListener(androidx.media3.ui.PlayerView.ControllerVisibilityListener { v ->
             titleBar.text = player?.currentMediaItem?.mediaMetadata?.title ?: ""
             titleBar.visibility = v
+            // The corner buttons would cover the controls' own (and OK goes to the controls then).
+            if (v == android.view.View.VISIBLE) { skip.visibility = android.view.View.GONE; nextEp.visibility = android.view.View.GONE }
+            else player?.let { updateSkip(it) }
         })
         val root = android.widget.FrameLayout(this)
         root.addView(view)
@@ -339,13 +349,17 @@ class PlayerActivity : ComponentActivity() {
         show() // refreshes introEnd when the episode changed
         val end = introEnd
         val pos = p.currentPosition
-        skip.visibility = if (end > 0 && pos in 1_000 until end - 2_000 && upNext.visibility != android.view.View.VISIBLE) android.view.View.VISIBLE else android.view.View.GONE
-        // The last 40 s of an episode with another queued: the credits, roughly. Video only.
+        val free = upNext.visibility != android.view.View.VISIBLE && !view.isControllerFullyVisible
+        skip.visibility = if (end > 0 && pos in 1_000 until end - 2_000 && free) android.view.View.VISIBLE else android.view.View.GONE
+        // The last 40 s of an episode with the next one of the same show queued: the credits,
+        // roughly. Not for films or home videos (it said "Next episode" over the end of a movie).
         val left = p.duration - pos
         val key = p.currentMediaItem?.mediaId
+        val title = p.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty()
+        val nextTitle = if (p.hasNextMediaItem()) p.getMediaItemAt(p.nextMediaItemIndex).mediaMetadata.title?.toString().orEmpty() else ""
         nextEp.visibility = if (
-            p.hasNextMediaItem() && p.duration > 60_000 && left in 1..40_000 && p.pauseAtEndOfMediaItems &&
-            upNext.visibility != android.view.View.VISIBLE && key != nextDismissedFor
+            p.hasNextMediaItem() && p.duration > 60_000 && left in 1..40_000 && p.pauseAtEndOfMediaItems && free &&
+            key != nextDismissedFor && ShowPrefs.isEpisode(title) && ShowPrefs.showKey(nextTitle) == show()
         ) android.view.View.VISIBLE else android.view.View.GONE
     }
 
@@ -354,61 +368,107 @@ class PlayerActivity : ComponentActivity() {
         val s = show()
         val audio = ShowPrefs.audio(this, s)
         val text = ShowPrefs.text(this, s)
-        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().apply {
+        val textType = androidx.media3.common.C.TRACK_TYPE_TEXT
+        setOwnParams(p, p.trackSelectionParameters.buildUpon().apply {
+            // A new episode starts from the show's choices, not the last one's picks.
+            clearOverridesOfType(textType)
+            setTrackTypeDisabled(textType, false)
             if (audio != null) setPreferredAudioLanguage(audio)
             when (text) {
-                null -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false)
-                ShowPrefs.OFF -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true)
-                else -> setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(text)
+                null -> setIgnoredTextSelectionFlags(0).setPreferredTextLanguage(null)
+                // Like the menu's own "Off": no subtitles, but signs-only ("forced") ones still show.
+                ShowPrefs.OFF -> setIgnoredTextSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_FORCED.inv()).setPreferredTextLanguage(null)
+                else -> setIgnoredTextSelectionFlags(0).setPreferredTextLanguage(text)
             }
-        }.build().also { ownParams = it }
+        }.build())
     }
 
-    /** The episode English subtitles were last switched on for, so it happens once per episode. */
-    private var autoSubsFor: String? = null
+    /** Applies track settings as the player's own (not the viewer's choice), and notes them. */
+    private fun setOwnParams(p: ExoPlayer, params: androidx.media3.common.TrackSelectionParameters) {
+        ownParams = params
+        p.trackSelectionParameters = params
+        lastParams = p.trackSelectionParameters
+    }
+
+    /** English subtitles were switched on here (not by the viewer) for the current item. */
+    private var autoSubsOn = false
 
     /**
-     * Speech that isn't English: turn on English subtitles when the file has them, without
-     * asking. A choice made for the show in the subtitles menu (including Off) still wins.
+     * Subtitles follow the speech while the show has no subtitle choice of its own: English ones
+     * come on (without asking) when it isn't English, and go off again if the speech is switched
+     * to English. A choice made in the subtitles menu (including Off) is kept for the show and wins.
      */
     private fun englishSubtitlesIfForeign(p: ExoPlayer, tracks: androidx.media3.common.Tracks) {
-        val key = p.currentMediaItem?.mediaId ?: return
-        if (autoSubsFor == key || ShowPrefs.text(this, show()) != null) return
+        if (ShowPrefs.text(this, show()) != null) return
         val text = androidx.media3.common.C.TRACK_TYPE_TEXT
         val audio = tracks.groups.firstOrNull { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO && it.isSelected }
             ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).language } }
-        if (!ShowPrefs.isForeign(audio)) return
+        if (!ShowPrefs.isForeign(audio)) {
+            if (autoSubsOn && ShowPrefs.isEnglish(audio)) {
+                autoSubsOn = false
+                setOwnParams(p, p.trackSelectionParameters.buildUpon().clearOverridesOfType(text).build())
+            }
+            return
+        }
         // English subtitles in the file: full ones before "forced" (signs-only) ones.
         val choices = tracks.groups.filter { it.type == text }.flatMap { g -> (0 until g.length).map { g to it } }
             .filter { (g, i) -> g.isTrackSupported(i) && ShowPrefs.isEnglish(g.getTrackFormat(i).language) }
         val (group, index) = choices.firstOrNull { (g, i) -> g.getTrackFormat(i).selectionFlags and androidx.media3.common.C.SELECTION_FLAG_FORCED == 0 }
             ?: choices.firstOrNull() ?: return
-        autoSubsFor = key
         if (group.isTrackSelected(index)) return
-        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(text, false)
-            .setOverrideForType(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, index))
-            .build().also { ownParams = it }
+        autoSubsOn = true
+        setOwnParams(
+            p,
+            p.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(text, false)
+                .setOverrideForType(androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, index))
+                .build(),
+        )
     }
 
     /** The track settings this activity applied itself; anything else came from the viewer's menus. */
     private var ownParams: androidx.media3.common.TrackSelectionParameters? = null
-    private var userPickedTracks = false
+    /** The settings before the latest change, to tell what the viewer changed. */
+    private var lastParams: androidx.media3.common.TrackSelectionParameters? = null
+    /** Track types (audio, text) the viewer changed in the menus, not yet remembered. */
+    private var userChanged: Set<Int> = emptySet()
 
-    /** Remember what's playing (picked in the settings / subtitles menus) for the rest of the show. */
-    private fun rememberTracks(tracks: androidx.media3.common.Tracks) {
-        var audio: String? = null
-        var text: String? = ShowPrefs.OFF
-        for (g in tracks.groups) {
-            if (!g.isSelected) continue
-            for (i in 0 until g.length) if (g.isTrackSelected(i)) {
-                val lang = g.getTrackFormat(i).language ?: continue
-                if (g.type == androidx.media3.common.C.TRACK_TYPE_AUDIO) audio = lang
-                if (g.type == androidx.media3.common.C.TRACK_TYPE_TEXT) text = lang
+    /** The audio or subtitle types that differ between two sets of track settings. */
+    private fun changedTypes(a: androidx.media3.common.TrackSelectionParameters, b: androidx.media3.common.TrackSelectionParameters): Set<Int> {
+        fun of(p: androidx.media3.common.TrackSelectionParameters, type: Int): List<Any?> = listOf(
+            p.overrides.values.filter { it.type == type },
+            type in p.disabledTrackTypes,
+            if (type == androidx.media3.common.C.TRACK_TYPE_TEXT) p.ignoredTextSelectionFlags else 0,
+            if (type == androidx.media3.common.C.TRACK_TYPE_TEXT) p.preferredTextLanguages else p.preferredAudioLanguages,
+        )
+        return setOf(androidx.media3.common.C.TRACK_TYPE_AUDIO, androidx.media3.common.C.TRACK_TYPE_TEXT).filter { of(a, it) != of(b, it) }.toSet()
+    }
+
+    /**
+     * Remember what the viewer picked in the menus for the rest of the show — only what they
+     * changed. (Switching just the audio used to save "subtitles off" too, which then kept English
+     * subtitles away from every later episode.)
+     */
+    private fun rememberTracks(p: ExoPlayer, tracks: androidx.media3.common.Tracks, changed: Set<Int>) {
+        val audioType = androidx.media3.common.C.TRACK_TYPE_AUDIO
+        val textType = androidx.media3.common.C.TRACK_TYPE_TEXT
+        fun selectedLanguage(type: Int): String? = tracks.groups.filter { it.type == type && it.isSelected }
+            .firstNotNullOfOrNull { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).language } }
+        val audio = if (audioType in changed) selectedLanguage(audioType) else null
+        val text = when {
+            textType !in changed -> null
+            tracks.groups.none { it.type == textType } -> null // nothing to choose
+            else -> {
+                val params = p.trackSelectionParameters
+                // The menu's "Off" (only signs-only subtitles allowed), or text switched off outright.
+                val off = textType in params.disabledTrackTypes ||
+                    (params.overrides.values.none { it.type == textType } &&
+                        (params.ignoredTextSelectionFlags and androidx.media3.common.C.SELECTION_FLAG_FORCED.inv()) != 0)
+                if (off) ShowPrefs.OFF else selectedLanguage(textType)
             }
         }
-        if (tracks.groups.none { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }) text = null // nothing to choose
-        ShowPrefs.setLanguages(this, show(), audio, text)
+        if (textType in changed) autoSubsOn = false // the viewer's choice now, not ours
+        if (audio != null || text != null) ShowPrefs.setLanguages(this, show(), audio, text)
     }
 
     /** End of an episode with another one queued: count down 10 s, then play it. OK plays now, Back stops. */
@@ -425,6 +485,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun startUpNext() {
         secondsLeft = 10
+        nextEp.visibility = android.view.View.GONE
+        skip.visibility = android.view.View.GONE
         upNext.visibility = android.view.View.VISIBLE
         countdown.removeCallbacks(tick)
         countdown.post(tick)
@@ -438,8 +500,10 @@ class PlayerActivity : ComponentActivity() {
     private fun playNext() {
         cancelUpNext()
         val p = player ?: return
-        // Finished: drop it from Continue watching, then on to the next one.
+        // Finished: drop it from Continue watching, then on to the next one. (Not "left part-way":
+        // Next episode can be pressed with the credits still running.)
         p.currentMediaItem?.mediaId?.let(::finished)
+        lastSeen = null
         if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.play() }
     }
 
@@ -449,10 +513,17 @@ class PlayerActivity : ComponentActivity() {
         com.woodruff.tvexplorer.util.FrameStats.attach(this)
         preview = ScrubPreview(::previewSource)
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
-        val keys = savedQueue?.first ?: intent.getStringArrayListExtra(EXTRA_KEYS).orEmpty()
-        val titles = savedQueue?.second ?: intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
+        var keys: List<String> = savedQueue?.first ?: intent.getStringArrayListExtra(EXTRA_KEYS).orEmpty()
+        var titles: List<String> = savedQueue?.second ?: intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
+        // The item chosen must be in the queue: if a caller's list left it out, it goes first (the
+        // player used to start the list's first item instead — a different film).
+        val chosen = intent.getStringExtra(EXTRA_START)
+        if (savedQueue == null && chosen != null && chosen !in keys) { keys = listOf(chosen) + keys; titles = listOf("") + titles }
         if (keys.isEmpty()) { finish(); return }
-        val start = savedIndex ?: keys.indexOf(intent.getStringExtra(EXTRA_START)).coerceAtLeast(0)
+        val start = savedIndex ?: keys.indexOf(chosen).coerceAtLeast(0)
+        // A new player: no subtitles switched on by this activity yet, nothing stalled.
+        autoSubsOn = false
+        stalledKey = null
         val startPos = savedPosition ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
 
         val items = keys.mapIndexed { i, key ->
@@ -460,7 +531,7 @@ class PlayerActivity : ComponentActivity() {
             MediaItem.Builder()
                 .setMediaId(key)
                 .setUri(ref.uri)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(titles.getOrNull(i) ?: ref.uri.lastPathSegment).build())
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(titles.getOrNull(i)?.ifBlank { null } ?: ref.uri.lastPathSegment).build())
                 .build()
         }
 
@@ -473,20 +544,36 @@ class PlayerActivity : ComponentActivity() {
                     .build(),
             )
             .build().also { p ->
+            // Known before its first events: the show's track choices are looked up through it (a
+            // null player here applied show ""'s, so the first episode ignored the saved choice).
+            player = p
             p.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     val key = p.currentMediaItem?.mediaId
                     val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
-                    // Google Drive turned the request down (sign-in ran out, a hiccup): get a fresh
-                    // token and try this episode again once, from where it was, before giving up on it.
-                    if (key != null && key.startsWith("drive:") && retriedKey != key &&
-                        (http == 401 || http == 403 || http == 429 || (http ?: 0) in 500..599 ||
-                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)
-                    ) {
+                    // The connection or Google, not this file: every other item would fail the same way.
+                    val passing = http == 401 || http == 403 || http == 429 || (http ?: 0) in 500..599 ||
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                        error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT
+                    // Google Drive turned the request down (sign-in ran out, a hiccup): try this episode
+                    // again at once, from where it was, with a current token.
+                    if (key != null && key.startsWith("drive:") && retriedKey != key && passing) {
                         retriedKey = key
-                        driveToken = null
                         p.prepare()
+                        return
+                    }
+                    if (passing) {
+                        // Stay on it and try again shortly (it used to skip ahead, item after item, until
+                        // the Wi-Fi came back many episodes later). Said once, not on every try.
+                        if (stalledKey != key) {
+                            stalledKey = key
+                            val msg = if (http == 401 || http == 403) "Google Drive turned it down. Trying again… (if this keeps happening, sign in to Google Drive again in Settings)"
+                            else "Lost the connection. Trying again…"
+                            Toast.makeText(this@PlayerActivity, msg, Toast.LENGTH_LONG).show()
+                        }
+                        retry.removeCallbacksAndMessages(null)
+                        retry.postDelayed({ if (player === p) p.prepare() }, 10_000)
                         return
                     }
                     // Unsupported codec etc.: say so and move on rather than sitting on a black screen.
@@ -501,7 +588,7 @@ class PlayerActivity : ComponentActivity() {
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying) retriedKey = null
+                    if (isPlaying) { retriedKey = null; stalledKey = null }
                     if (leader) sendSync()
                 }
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -513,12 +600,17 @@ class PlayerActivity : ComponentActivity() {
                     // Music runs straight on; only video pauses at the end for the Up next countdown.
                     p.pauseAtEndOfMediaItems = tracks.containsType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
                     // Remember tracks only when the viewer picked them, not the player's automatic choice.
-                    if (userPickedTracks) { userPickedTracks = false; rememberTracks(tracks) }
-                    else englishSubtitlesIfForeign(p, tracks)
+                    val changed = userChanged
+                    userChanged = emptySet()
+                    if (changed.isNotEmpty()) rememberTracks(p, tracks, changed)
+                    // Unless they chose the subtitles themselves, those follow the speech.
+                    if (androidx.media3.common.C.TRACK_TYPE_TEXT !in changed) englishSubtitlesIfForeign(p, tracks)
                 }
 
                 override fun onTrackSelectionParametersChanged(parameters: androidx.media3.common.TrackSelectionParameters) {
-                    if (parameters != ownParams) userPickedTracks = true
+                    val before = lastParams
+                    lastParams = parameters
+                    if (parameters != ownParams && before != null) userChanged = userChanged + changedTypes(before, parameters)
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
@@ -535,12 +627,19 @@ class PlayerActivity : ComponentActivity() {
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     cancelUpNext()
+                    autoSubsOn = false
                     applyShowTracks(p)
+                    titleBar.text = mediaItem?.mediaMetadata?.title ?: ""
                     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                         // Finished the previous one: drop it from Continue watching.
                         val prev = p.previousMediaItemIndex.takeIf { it >= 0 }?.let { p.getMediaItemAt(it) }
                         prev?.mediaId?.let(::finished)
+                    } else {
+                        // Next / Previous (or a skip past a bad file) from part-way through: keep where
+                        // that one was, as stopping would.
+                        lastSeen?.takeIf { it.key != mediaItem?.mediaId }?.let(::keepPlace)
                     }
+                    lastSeen = null
                 }
             })
             // Pause at the end of each item so the "Up next" countdown can run (and be cancelled).
@@ -562,6 +661,7 @@ class PlayerActivity : ComponentActivity() {
         if (::previewBox.isInitialized) previewBox.visibility = android.view.View.GONE
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         reporter.removeCallbacks(report)
+        retry.removeCallbacksAndMessages(null)
         followJob?.cancel(); followJob = null
         cancelUpNext()
         countdown.removeCallbacks(sleep)
@@ -573,14 +673,23 @@ class PlayerActivity : ComponentActivity() {
                 items.map { it.mediaId } to items.map { it.mediaMetadata.title?.toString() ?: "" }
             }
             p.currentMediaItem?.let { item ->
-                // Watched to the end: it stays out of Continue watching instead of coming back at its last second.
-                if (p.duration > 0 && p.duration - p.currentPosition < 5_000) finished(item.mediaId)
-                else recent.save(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0))
+                keepPlace(RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0))
             }
             p.release()
         }
         player = null
         super.onStop()
+    }
+
+    /**
+     * Where [item] was left: saved for Continue watching, or — watched into the credits (the last
+     * 5 %, or the last few seconds) — finished, so it's marked ✓ instead of offered again from there.
+     */
+    private fun keepPlace(item: RecentItem) {
+        val pos = item.positionMs
+        val dur = item.durationMs
+        if (dur > 0 && (dur - pos < 5_000 || pos >= dur * 0.95)) finished(item.key)
+        else if (pos > 0) recent.save(item.key, item.title, pos, dur)
     }
 
     /**
@@ -615,42 +724,52 @@ class PlayerActivity : ComponentActivity() {
     private fun dataSources(): DefaultDataSource.Factory {
         val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
         val authed = ResolvingDataSource.Factory(http) { spec ->
-            // Only Google's own hosts over https get the token: never a look-alike or a plain-http redirect.
-            val host = spec.uri.host.orEmpty()
-            if (spec.uri.scheme == "https" && (host == "googleapis.com" || host.endsWith(".googleapis.com"))) {
+            // Only Drive's own file URLs get the token: https, Google's API host, the Drive path —
+            // not any other googleapis.com address (a link sent from the phone, say).
+            val uri = spec.uri
+            if (uri.scheme == "https" && uri.host == "www.googleapis.com" && uri.path.orEmpty().startsWith("/drive/")) {
                 spec.withAdditionalHeaders(mapOf("Authorization" to "Bearer ${token()}"))
             } else spec
         }
         return DefaultDataSource.Factory(this, authed)
     }
 
-    /** Runs on ExoPlayer's loading thread, so blocking here is fine. */
-    private fun token(): String {
-        val now = System.currentTimeMillis()
-        driveToken?.takeIf { now - driveTokenAt < 30 * 60_000 }?.let { return it }
-        val t = GoogleAuth.blockingToken(applicationContext) ?: ""
-        driveToken = t
-        driveTokenAt = now
-        return t
-    }
+    /**
+     * Runs on ExoPlayer's loading thread, so blocking here is fine. GoogleAuth keeps the token in
+     * memory until a minute before it runs out and then fetches a new one, so it's always current
+     * (a copy kept here for 30 minutes could outlive it, and kept "" after a failed refresh).
+     */
+    private fun token(): String = GoogleAuth.blockingToken(applicationContext).orEmpty()
 
     /** OK shows the controls; everything else (media keys, D-pad seeking) PlayerView handles. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && (event.keyCode == KeyEvent.KEYCODE_MENU || event.keyCode == KeyEvent.KEYCODE_INFO)) {
+        // The release of a press handled below: PlayerView would take it as a press of its own and
+        // pop the controls up over what just happened (after Next episode or Skip intro).
+        if (event.action == KeyEvent.ACTION_UP && event.keyCode == swallowUp) { swallowUp = null; return true }
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val handled = handleKey(event)
+            if (handled) { swallowUp = event.keyCode; return true }
+        }
+        return view.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
+    }
+
+    /** The presses this activity acts on itself (before PlayerView sees them). */
+    private fun handleKey(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_MENU || event.keyCode == KeyEvent.KEYCODE_INFO) {
             showOptions(); return true
         }
-        if (nextEp.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN) {
+        if (nextEp.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { nextEp.visibility = android.view.View.GONE; playNext(); return true }
                 KeyEvent.KEYCODE_BACK -> { nextDismissedFor = player?.currentMediaItem?.mediaId; nextEp.visibility = android.view.View.GONE; return true }
             }
         }
-        if (skip.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
+        if (skip.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
             show(); player?.seekTo(introEnd); skip.visibility = android.view.View.GONE; return true
         }
-        if (upNext.visibility == android.view.View.VISIBLE && event.action == KeyEvent.ACTION_DOWN) {
+        if (upNext.visibility == android.view.View.VISIBLE) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { playNext(); return true }
                 KeyEvent.KEYCODE_BACK -> {
@@ -659,13 +778,13 @@ class PlayerActivity : ComponentActivity() {
                 }
             }
         }
-        if (!view.isControllerFullyVisible && event.action == KeyEvent.ACTION_DOWN &&
+        if (!view.isControllerFullyVisible &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
             view.showController()
             return true
         }
-        return view.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
+        return false
     }
 
     companion object {
