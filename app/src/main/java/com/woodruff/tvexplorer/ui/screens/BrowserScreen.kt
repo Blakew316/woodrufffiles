@@ -100,7 +100,9 @@ fun BrowserScreen(vm: MainViewModel) {
     LaunchedEffect(photos.step) { if (photos.step == GooglePhotos.Step.DONE) vm.reload() }
     if (showPhotos) GooglePhotosDialog(onDismiss = { showPhotos = false }, onSetUpGoogle = { vm.show(Screen.DRIVE) })
 
-    BackHandler { vm.back() }
+    // Back goes up a folder; at the top of Family Memories it brings up the sidebar, as on Apple TV.
+    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    BackHandler { if (photosFolder && !vm.canGoBack()) openSidebar() else vm.back() }
 
     val onOpen: (FileItem) -> Unit = { item ->
         when {
@@ -116,16 +118,25 @@ fun BrowserScreen(vm: MainViewModel) {
     val onMenu: (FileItem) -> Unit = { dialog = BrowserDialog.Menu(it) }
 
     Column(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 24.dp)) {
-        Text(location.title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(
-            when (location) {
-                is Location.Folder -> location.dir.absolutePath
-                is Location.Category -> "All ${location.title.lowercase()} on this TV and attached drives"
-                is Location.Search -> "In ${location.root.absolutePath}"
-            },
-            color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-        )
+        if (photosFolder) {
+            // Family Memories: Photos / Videos across the top, Netflix style.
+            val inVideos = state.folder?.path?.startsWith(GooglePhotos.videoFolder.path) == true
+            com.woodruff.tvexplorer.ui.components.TopTabs(
+                listOf("Photos", "Videos"), selected = if (inVideos) 1 else 0,
+                onSelect = { i -> vm.openRoot((if (i == 0) GooglePhotos.folder else GooglePhotos.videoFolder).apply { mkdirs() }) },
+            )
+        } else {
+            Text(location.title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                when (location) {
+                    is Location.Folder -> location.dir.absolutePath
+                    is Location.Category -> "All ${location.title.lowercase()} on this TV and attached drives"
+                    is Location.Search -> "In ${location.root.absolutePath}"
+                },
+                color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         Row(
             Modifier.padding(vertical = 16.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(10.dp),

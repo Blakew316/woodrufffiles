@@ -113,6 +113,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun openDownloads() = openFolder(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
 
     /** Back key inside the browser: leave selection mode, then step back, then return Home. */
+    /** Whether Back has somewhere to go within the browser (a selection to clear, a folder to go up from). */
+    fun canGoBack(): Boolean = _browser.value.selecting || history.isNotEmpty()
+
     fun back() {
         if (_browser.value.selecting) return clearSelection()
         val prev = history.removeLastOrNull()

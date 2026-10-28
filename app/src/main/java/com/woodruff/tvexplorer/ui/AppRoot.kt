@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -139,6 +140,9 @@ fun AppRoot(vm: MainViewModel) {
     // progress tick and would redraw the whole window with it.
     val driveTop by remember(drive) { drive.state.map { it.stack.firstOrNull() }.distinctUntilChanged() }
         .collectAsStateWithLifecycle(drive.state.value.stack.firstOrNull())
+    // The library Streaming last showed (Movies or TV Shows), to open it again.
+    var lastLibrary by remember { mutableStateOf<DrivePlace>(DrivePlace.Movies) }
+    LaunchedEffect(driveTop) { driveTop?.takeIf { it == DrivePlace.Movies || it == DrivePlace.TvShows }?.let { lastLibrary = it } }
     // Only whether the phone connection is up: its state also carries a request log that changes
     // with every phone request, which would redraw the whole window while the phone app is open.
     val phoneConnected by remember { TransferService.state.map { it.running }.distinctUntilChanged() }
@@ -210,7 +214,7 @@ fun AppRoot(vm: MainViewModel) {
                 // Switch screens in one step, not a cross-fade: during a fade the Command center's
                 // live video views were torn down by the transition, which crashed on some TVs.
                 CompositionLocalProvider(LocalOpenSidebar provides { railWanted = true }) {
-                key(screen) {
+                key(if (screen in COMMAND_SCREENS) Screen.CAMERAS else screen) {
                   // Each screen eases in (a quick fade and a few dp of rise) instead of popping in.
                   // Only the new screen animates; the old one is gone at once (a cross-fade kept the
                   // camera views alive during the switch, which crashed on some TVs).
@@ -219,10 +223,7 @@ fun AppRoot(vm: MainViewModel) {
                         Screen.HOME -> HomeScreen(vm, drive)
                         Screen.BROWSER -> BrowserScreen(vm)
                         Screen.DRIVE -> DriveScreen(vm, drive)
-                        Screen.MAIL -> MailScreen(vm)
-                        Screen.NOTIFICATIONS -> NotificationsScreen(vm)
-                        Screen.NOTES -> NotesScreen(vm)
-                    Screen.CAMERAS -> CommandCenterScreen(vm)
+                        Screen.MAIL, Screen.NOTIFICATIONS, Screen.NOTES, Screen.CAMERAS -> CommandHub(screen, vm)
                         Screen.APPS -> AppsScreen(vm)
                         Screen.TRANSFER -> TransferScreen(vm)
                         Screen.SETTINGS -> SettingsScreen(vm)
@@ -283,7 +284,6 @@ fun AppRoot(vm: MainViewModel) {
                         else -> false
                     }
                 }
-                .verticalScroll(rememberScrollState())
                 .padding(vertical = 28.dp, horizontal = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -292,33 +292,24 @@ fun AppRoot(vm: MainViewModel) {
                 // Choosing a screen in the menu goes straight into it (the menu closes behind).
                 val go: (() -> Unit) -> Unit = { action -> action(); enterContent++ }
                 RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, open, Modifier.focusRequester(homeFocus)) { go { vm.show(Screen.HOME) } }
-                RailItem("Search", Icons.Rounded.Mic, false, open) { startSearch() }
-                RailItem("Command center", Icons.Rounded.Videocam, screen == Screen.CAMERAS, open) { go { vm.show(Screen.CAMERAS) } }
-                // Library: Movies and TV Shows stream from those Drive folders; Photos and Videos are
-                // what was picked from Google Photos, saved on the TV.
-                RailItem("Movies", Icons.Rounded.Movie, screen == Screen.DRIVE && driveTop == DrivePlace.Movies, open) {
-                    go { drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE) }
+                // Streaming: Movies and TV Shows (switched at the top of the tab), from those Drive folders.
+                RailItem("Streaming", Icons.Rounded.Movie, screen == Screen.DRIVE && (driveTop == DrivePlace.Movies || driveTop == DrivePlace.TvShows), open) {
+                    go { drive.openRoot(lastLibrary); vm.show(Screen.DRIVE) }
                 }
-                RailItem("TV Shows", Icons.Rounded.Tv, screen == Screen.DRIVE && driveTop == DrivePlace.TvShows, open) {
-                    go { drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE) }
-                }
+                // Family Memories: the photos and videos picked from Google Photos, saved on the TV.
                 val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browser.folder?.path?.startsWith(dir.path) == true }
-                RailItem("Photos", Icons.Rounded.PhotoLibrary, inFolder(GooglePhotos.folder), open) {
+                RailItem("Family Memories", Icons.Rounded.PhotoLibrary, inFolder(GooglePhotos.folder) || inFolder(GooglePhotos.videoFolder), open) {
                     go { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }) }
                 }
-                RailItem("Videos", Icons.Rounded.VideoLibrary, inFolder(GooglePhotos.videoFolder), open) {
-                    go { vm.openRoot(GooglePhotos.videoFolder.apply { mkdirs() }) }
-                }
-                RailItem("Mail", Icons.Rounded.Email, screen == Screen.MAIL, open) { go { vm.show(Screen.MAIL) } }
+                // Command Center: cameras, mail, notifications and notes (switched at the top).
                 RailItem(
-                    if (unread > 0) "Notifications · $unread" else "Notifications",
-                    Icons.Rounded.Notifications, screen == Screen.NOTIFICATIONS, open, badge = unread > 0,
-                ) { go { vm.show(Screen.NOTIFICATIONS) } }
-                RailItem("Notes", Icons.Rounded.EditNote, screen == Screen.NOTES, open) { go { vm.show(Screen.NOTES) } }
-                RailLabel("Connect", open)
-                RailItem(if (phoneConnected) "Phone · Connected" else "Phone", Icons.Rounded.PhoneIphone, screen == Screen.TRANSFER, open, badge = phoneConnected) {
-                    go { vm.show(Screen.TRANSFER) }
-                }
+                    if (unread > 0) "Command Center · $unread" else "Command Center",
+                    Icons.Rounded.Videocam, screen in COMMAND_SCREENS, open, badge = unread > 0,
+                ) { go { vm.show(Screen.CAMERAS) } }
+                Spacer(Modifier.weight(1f))
+                RailItem("Search", Icons.Rounded.Mic, false, open) { startSearch() }
+                // Set apart, so it's clear it's Settings you're going to.
+                Spacer(Modifier.height(22.dp))
                 RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS, open) { go { vm.show(Screen.SETTINGS) } }
               }
         }
@@ -453,6 +444,36 @@ private val LocalRailActive = androidx.compose.runtime.staticCompositionLocalOf<
 /** False while the sidebar is hidden: its items can't be reached by accident from the screen. */
 private val LocalRailFocusable = androidx.compose.runtime.compositionLocalOf { true }
 private val RAIL_OPEN = 260.dp
+
+/** The screens the Command Center tab holds. */
+private val COMMAND_SCREENS = setOf(Screen.CAMERAS, Screen.MAIL, Screen.NOTIFICATIONS, Screen.NOTES)
+
+/**
+ * The Command Center tab: cameras, mail, notifications and notes, switched with the pills across
+ * the top. It stays put while switching (so the focus stays on the pills); the pills step aside
+ * while a camera is full screen.
+ */
+@Composable
+private fun CommandHub(screen: Screen, vm: MainViewModel) {
+    val tabs = listOf(Screen.CAMERAS to "Cameras", Screen.MAIL to "Mail", Screen.NOTIFICATIONS to "Notifications", Screen.NOTES to "Notes")
+    Column(Modifier.fillMaxSize()) {
+        if (!com.woodruff.tvexplorer.ui.screens.cameraFullScreen.value) {
+            com.woodruff.tvexplorer.ui.components.TopTabs(
+                tabs.map { it.second }, selected = tabs.indexOfFirst { it.first == screen }.coerceAtLeast(0),
+                onSelect = { i -> vm.show(tabs[i].first) },
+                modifier = Modifier.padding(start = 28.dp, top = 20.dp),
+            )
+        }
+        Box(Modifier.weight(1f)) {
+            when (screen) {
+                Screen.MAIL -> MailScreen(vm)
+                Screen.NOTIFICATIONS -> NotificationsScreen(vm)
+                Screen.NOTES -> NotesScreen(vm)
+                else -> CommandCenterScreen(vm)
+            }
+        }
+    }
+}
 
 /**
  * Brings up the sidebar. A screen's Back at its top calls it (as on Apple TV) rather than going

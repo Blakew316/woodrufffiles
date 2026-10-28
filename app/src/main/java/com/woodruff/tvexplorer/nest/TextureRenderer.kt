@@ -22,6 +22,9 @@ class TextureRenderer(context: Context, eglContext: EglBase.Context) : TextureVi
 
     init {
         egl.init(eglContext, EglBase.CONFIG_PLAIN, GlRectDrawer())
+        // Each frame a TextureView shows redraws the app's window (a SurfaceView's don't): 15 a
+        // second is smooth for a small tile and halves that work on Home.
+        egl.setFpsReduction(15f)
         surfaceTextureListener = this
         isFocusable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO

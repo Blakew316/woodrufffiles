@@ -75,13 +75,16 @@ fun LibraryHeader(
     onChange: (LibraryFilter) -> Unit,
     onSearch: () -> Unit,
     onMore: () -> Unit,
+    /** In place of the title: a switch between libraries (Streaming's Movies / TV Shows). */
+    switcher: (@Composable () -> Unit)? = null,
 ) {
     var filtering by remember { mutableStateOf(false) }
     val genres = remember(all) { Library.genres(all) }
     val decades = remember(all) { Library.decades(all) }
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+            if (switcher != null) Box(Modifier.weight(1f)) { switcher() }
+            else Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
             // What the grid is narrowed to, so it's never a mystery why something's missing.
             val summary = listOfNotNull(filter.genre, filter.decade?.let { "${it}s" }, filter.sort.label.takeIf { filter.sort != LibrarySort.TITLE })
             if (summary.isNotEmpty()) Text(summary.joinToString(" · "), color = Palette.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 18.dp))

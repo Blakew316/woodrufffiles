@@ -167,7 +167,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             if (state.filterable) {
                 // The library's top level: title, Search / Filter / More, and category tabs.
                 Box(Modifier.onFocusChanged { headerFocused.value = it.hasFocus }) {
-                    LibraryHeader(state.place.title, state.files, filter, drive::setFilter, onSearch = { searching = true }, onMore = { moreOpen = true })
+                    LibraryHeader(
+                        state.place.title, state.files, filter, drive::setFilter, onSearch = { searching = true }, onMore = { moreOpen = true },
+                        // Streaming: Movies / TV Shows across the top, Netflix style.
+                        switcher = {
+                            com.woodruff.tvexplorer.ui.components.TopTabs(
+                                listOf("Movies", "TV Shows"), selected = if (state.stack.firstOrNull() == DrivePlace.TvShows) 1 else 0,
+                                onSelect = { i -> drive.openRoot(if (i == 0) DrivePlace.Movies else DrivePlace.TvShows) },
+                            )
+                        },
+                    )
                 }
             } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
                 // A show's folder (seasons, episodes): back, its name, More.

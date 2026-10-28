@@ -52,3 +52,39 @@ fun FilterRow(modifier: Modifier = Modifier, content: @Composable RowScope.() ->
         content = content,
     )
 }
+
+/**
+ * Netflix-style switch across the top of a tab: outlined pills, the chosen one filled; the focused
+ * one turns solid. OK chooses (moving across changes nothing). Streaming (Movies / TV Shows),
+ * Family Memories (Photos / Videos) and the Command Center (Cameras / Mail / …) use it.
+ */
+@Composable
+fun TopTabs(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        options.forEachIndexed { i, label ->
+            val chosen = i == selected
+            val pill = com.woodruff.tvexplorer.ui.theme.Shapes.pill
+            androidx.tv.material3.Surface(
+                onClick = { onSelect(i) },
+                shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(pill),
+                colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+                    containerColor = if (chosen) Palette.text.copy(alpha = 0.16f) else androidx.compose.ui.graphics.Color.Transparent,
+                    contentColor = Palette.text,
+                    focusedContainerColor = Palette.text,
+                    focusedContentColor = Palette.background,
+                ),
+                border = androidx.tv.material3.ClickableSurfaceDefaults.border(
+                    border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.5.dp, Palette.text.copy(alpha = if (chosen) 0.85f else 0.4f)), shape = pill),
+                    focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.5.dp, Palette.text), shape = pill),
+                ),
+                scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+            ) {
+                Text(
+                    label, style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (chosen) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 9.dp),
+                )
+            }
+        }
+    }
+}

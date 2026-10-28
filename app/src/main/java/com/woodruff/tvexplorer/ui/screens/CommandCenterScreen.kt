@@ -102,6 +102,9 @@ import java.util.Locale
  */
 private const val MAX_LIVE = 4
 
+/** A camera is showing full screen (the Command Center hides its tabs). */
+internal val cameraFullScreen = androidx.compose.runtime.mutableStateOf(false)
+
 /** Set by Home's camera tiles before opening the Command center, to show that camera full screen. */
 internal var openCameraAt: Int? = null
 
@@ -126,6 +129,10 @@ fun CommandCenterScreen(vm: MainViewModel) {
 
     val cams = state.cameras
     val fullIndex = full
+    // Full screen: the Command Center's tabs step aside.
+    val isFull = state.step == NestStep.CONNECTED && fullIndex != null && cams.isNotEmpty()
+    LaunchedEffect(isFull) { cameraFullScreen.value = isFull }
+    DisposableEffect(Unit) { onDispose { cameraFullScreen.value = false } }
     if (state.step == NestStep.CONNECTED && fullIndex != null && cams.isNotEmpty()) {
         FullCamera(cams, fullIndex.coerceIn(0, cams.size - 1), onChange = { full = it })
         return
