@@ -618,6 +618,11 @@ class PlayerActivity : ComponentActivity() {
                 }
 
                 override fun onTrackSelectionParametersChanged(parameters: androidx.media3.common.TrackSelectionParameters) {
+                    // A change of ours made inside another callback is reported only after the rest of
+                    // that batch of events, when a newer one of ours may already be in place: out of
+                    // date, and not the viewer's (at an episode change it saved the automatic English
+                    // subtitles as the show's choice).
+                    if (parameters != p.trackSelectionParameters) return
                     val before = lastParams
                     lastParams = parameters
                     if (parameters != ownParams && before != null) userChanged = userChanged + changedTypes(before, parameters)
@@ -645,9 +650,13 @@ class PlayerActivity : ComponentActivity() {
                         val prev = p.previousMediaItemIndex.takeIf { it >= 0 }?.let { p.getMediaItemAt(it) }
                         prev?.mediaId?.let(::finished)
                     } else {
-                        // Next / Previous (or a skip past a bad file) from part-way through: keep where
-                        // that one was, as stopping would.
-                        lastSeen?.takeIf { it.key != mediaItem?.mediaId }?.let(::keepPlace)
+                        // Next / Previous (or a skip past a bad file) from part-way through a video: keep
+                        // where that one was, as stopping would. Not songs, nor anything only glimpsed
+                        // while skipping (Continue watching's own 10 s): they pushed real progress out of
+                        // the 30 kept. (pauseAtEndOfMediaItems is still the one left's: the new item's
+                        // tracks aren't known yet.)
+                        lastSeen?.takeIf { it.key != mediaItem?.mediaId && it.positionMs > 10_000 && p.pauseAtEndOfMediaItems }
+                            ?.let(::keepPlace)
                     }
                     lastSeen = null
                 }
@@ -697,7 +706,9 @@ class PlayerActivity : ComponentActivity() {
      */
     private fun keepPlace(item: RecentItem) {
         val pos = item.positionMs
-        val dur = item.durationMs
+        // Left before its length was known (Back while it was still opening): keep the length saved
+        // before, or it was saved as 0 % watched and dropped from the show's "Resume".
+        val dur = item.durationMs.takeIf { it > 0 } ?: recent.all().firstOrNull { it.key == item.key }?.durationMs ?: 0L
         if (dur > 0 && (dur - pos < 5_000 || pos >= dur * 0.95)) finished(item.key)
         else if (pos > 0) recent.save(item.key, item.title, pos, dur)
     }

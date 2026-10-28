@@ -50,7 +50,7 @@ fun UpdatePrompt(vm: MainViewModel) {
     // Allowed to install: go straight to Android's own "Update" screen (one press), no dialog of ours.
     // Only once per version; if that didn't go through, the dialog below offers it again with the reason.
     if (Opener.canInstallPackages(context) && autoTried != s.latest) {
-        LaunchedEffect(s.latest) { autoTried = s.latest; Updater.install(context) }
+        LaunchedEffect(s.latest) { autoTried = s.latest; Updater.install(context, manual = false) }
         return
     }
     ConfirmDialog(

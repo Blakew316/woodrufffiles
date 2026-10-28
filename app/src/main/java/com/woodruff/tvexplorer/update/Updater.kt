@@ -113,7 +113,7 @@ object Updater {
             if (_state.value.step == Step.READY && canInstallSilently(app) && idle() && System.currentTimeMillis() >= retryAt) {
                 // On screen but untouched: Woodruff restarts, so open it again afterwards.
                 if (AppVisibility.foreground) prefs(app).edit().putBoolean("reopen", true).apply()
-                install(app)
+                install(app, manual = false)
             }
         }
     }
@@ -228,15 +228,17 @@ object Updater {
     /**
      * Hands the downloaded APK to the package installer. With a prompt, Android shows its
      * "Update" screen (only possible while Woodruff is on screen); without, it just installs and
-     * Woodruff restarts (the phone connection comes back by itself).
+     * Woodruff restarts (the phone connection comes back by itself). [manual]: someone chose
+     * Install; false when it installs on its own.
      */
-    fun install(c: Context) {
+    fun install(c: Context, manual: Boolean = true) {
         val app = c.applicationContext
         val file = apkFile(app)
         if (_state.value.step != Step.READY) return
         // Android can clear the app's cache, update and all: fetch it again (Install then works
-        // once it's back) rather than doing nothing.
-        if (!file.exists()) { checkNow(app); return }
+        // once it's back) rather than doing nothing. Not as a manual check when installing on its
+        // own: that fetched the newest release at once, skipping the test TV's day.
+        if (!file.exists()) { scope.launch { checkAndDownload(app, manual) }; return }
         _state.update { it.copy(step = Step.INSTALLING) }
         scope.launch {
             try {
