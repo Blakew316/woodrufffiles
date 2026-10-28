@@ -49,6 +49,7 @@ import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.server.AutoStart
 import com.woodruff.tvexplorer.update.Updater
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.runtime.produceState
 import com.woodruff.tvexplorer.nest.Doorbell
@@ -232,6 +233,13 @@ fun SettingsScreen(vm: MainViewModel) {
                 SettingRow(Icons.Rounded.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off (set up in the phone app)") {}
             }
             // Same as the Updates page: installs when an update is ready, otherwise checks.
+            item {
+                // Slow frames per screen on this TV since the app started (press to start counting afresh).
+                var stats by remember { mutableStateOf(com.woodruff.tvexplorer.util.FrameStats.summary()) }
+                SettingRow(Icons.Rounded.Speed, "Smoothness", stats) {
+                    com.woodruff.tvexplorer.util.FrameStats.reset(); stats = com.woodruff.tvexplorer.util.FrameStats.summary()
+                }
+            }
             item {
                 SettingRow(Icons.Rounded.SystemUpdate, "Updates", updateStatus(update)) {
                     if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)

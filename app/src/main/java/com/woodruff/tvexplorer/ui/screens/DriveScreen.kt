@@ -187,6 +187,13 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     val target = remember(state.place) { driveFocus[placeKey]?.takeIf { id -> shown.any { it.id == id } } ?: shown.first().id }
                     val first = remember(state.place) { FocusRequester() }
                     val grid = remember(state.place) { LazyGridState() }
+                    // Load the posters a couple of rows past the focus into the image cache, so they're
+                    // already there when the grid scrolls to them instead of popping in.
+                    val positions = remember(shown) { shown.withIndex().associate { (i, f) -> f.id to i } }
+                    val prefetch: (String) -> Unit = { id ->
+                        val at = positions[id]
+                        if (at != null) prefetchPosters(context, shown, at + 1, 14, state.token)
+                    }
                     LazyVerticalGrid(
                         state = grid,
                         // Movies / TV Shows: tall poster tiles, more per row.
@@ -199,7 +206,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     ) {
                         items(shown, key = { it.id }) { f ->
                             val mod = (if (f.id == target) Modifier.focusRequester(first) else Modifier)
-                                .onFocusChanged { if (it.isFocused) { driveFocus[placeKey] = f.id; if (state.library) focusedArt.value = posterArt(f) } }
+                                .onFocusChanged {
+                                    if (it.isFocused) {
+                                        driveFocus[placeKey] = f.id
+                                        if (state.library) { focusedArt.value = posterArt(f); prefetch(f.id) }
+                                    }
+                                }
                             if (state.library) PosterTile(
                                 f, state.token, onClick = { choose(f) }, onLongClick = { menuFor = f }, modifier = mod,
                                 label = if (state.filterable) Library.label(f) else null,
@@ -265,6 +277,20 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 if (!f.isFolder && !f.isGoogleDoc) add(MenuAction("Download to this TV", Icons.Rounded.Download) { drive.download(f) })
                 if (f.isGoogleDoc) add(MenuAction("Google Docs files can't be opened on TV", Icons.Rounded.Visibility) {})
             },
+        )
+    }
+}
+
+/** Asks the image loader for [count] posters from [from] on, at the tiles' size (so they land in the memory cache). */
+private fun prefetchPosters(context: Context, files: List<DriveFile>, from: Int, count: Int, token: String?) {
+    val loader = coil.Coil.imageLoader(context)
+    for (i in from until minOf(files.size, from + count)) {
+        val art = posterArt(files[i]) ?: continue
+        if (isGoogle(art) && token == null) continue
+        loader.enqueue(
+            ImageRequest.Builder(context).data(art)
+                .apply { if (isGoogle(art) && token != null) addHeader("Authorization", "Bearer $token") }
+                .size(320, 480).build(),
         )
     }
 }

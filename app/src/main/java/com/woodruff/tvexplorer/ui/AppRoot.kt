@@ -324,6 +324,10 @@ fun AppRoot(vm: MainViewModel) {
     // A screen changed from inside the content (Back to Home, a dashboard shortcut): the focused
     // item went away with the old screen, so put focus in the new one unless it took it itself.
     LaunchedEffect(screen) {
+        com.woodruff.tvexplorer.util.FrameStats.screen = when (screen) {
+            Screen.DRIVE -> drive.state.value.stack.firstOrNull()?.title ?: "Google Drive"
+            else -> screen.name.lowercase().replaceFirstChar { it.uppercase() }
+        }
         withFrameNanos {}
         withFrameNanos {}
         if (!railFocused && !contentFocused) runCatching { contentFocus.requestFocus() }

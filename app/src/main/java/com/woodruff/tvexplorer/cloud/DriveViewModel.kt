@@ -233,7 +233,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         files.asSequence().mapNotNull { it.posterUrl }.take(12).forEach { url ->
             val google = android.net.Uri.parse(url).host.orEmpty().let { it.endsWith("googleusercontent.com") || it.endsWith("google.com") }
             loader.enqueue(
-                coil.request.ImageRequest.Builder(ctx).data(url).size(450, 675)
+                coil.request.ImageRequest.Builder(ctx).data(url).size(320, 480) // same size as the tiles: a memory-cache hit
                     .apply { if (google) addHeader("Authorization", "Bearer $token") }
                     .build(),
             )
@@ -252,6 +252,17 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         val cached = cache[place]
         _state.update { it.copy(busy = cached == null, error = null, files = cached ?: emptyList()) }
         loadJob = viewModelScope.launch {
+            // Nothing in memory yet (first visit since the app started): show the saved listing at
+            // once, then refresh it from Drive behind the scenes.
+            var shownSaved = false
+            if (cached == null && library) {
+                val saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place) }
+                if (!saved.isNullOrEmpty()) {
+                    cache[place] = saved
+                    shownSaved = true
+                    _state.update { if (it.place == place && it.files.isEmpty()) it.copy(files = saved, busy = false) else it }
+                }
+            }
             try {
                 val token = GoogleAuth.token(ctx)
                 if (token == null) {
@@ -266,17 +277,19 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 cache[place] = files
                 // Only apply if the viewer is still on this place.
                 _state.update { if (it.place == place) it.copy(token = token, files = files, busy = false) else it }
+                if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
                 if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
                     val withTmdb = tmdb(token, stack, files)
                     cache[place] = withTmdb
                     _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
+                    withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb) }
                     if (place == DrivePlace.Movies || place == DrivePlace.TvShows) updateRecentlyAdded()
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // With a cached list on screen, keep showing it rather than an error.
-                _state.update { if (cached != null) it.copy(busy = false) else it.copy(busy = false, error = explain(e)) }
+                _state.update { if (cached != null || shownSaved) it.copy(busy = false) else it.copy(busy = false, error = explain(e)) }
             }
         }
     }

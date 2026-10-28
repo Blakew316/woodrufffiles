@@ -152,7 +152,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.woodruff.tvexplorer.util.FrameStats.attach(this)
         recheck() // the user may have just granted access in Settings
+    }
+
+    override fun onPause() {
+        com.woodruff.tvexplorer.util.FrameStats.detach(this)
+        super.onPause()
     }
 
     override fun onDestroy() {

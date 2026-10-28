@@ -415,6 +415,8 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.woodruff.tvexplorer.util.FrameStats.screen = "Player"
+        com.woodruff.tvexplorer.util.FrameStats.attach(this)
         preview = ScrubPreview(::previewSource)
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
         val keys = savedQueue?.first ?: intent.getStringArrayListExtra(EXTRA_KEYS).orEmpty()
@@ -432,7 +434,15 @@ class PlayerActivity : ComponentActivity() {
                 .build()
         }
 
-        player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources())).build().also { p ->
+        player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()))
+            // Start as soon as 1 s is buffered (2 s after a stall) instead of the default 2.5 / 5 s,
+            // so Play feels immediate; it keeps filling up to 50 s ahead while it plays.
+            .setLoadControl(
+                androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
+                    .build(),
+            )
+            .build().also { p ->
             p.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     val key = p.currentMediaItem?.mediaId
@@ -517,6 +527,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        com.woodruff.tvexplorer.util.FrameStats.detach(this)
         preview?.release(); preview = null
         if (::previewBox.isInitialized) previewBox.visibility = android.view.View.GONE
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
