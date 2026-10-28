@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -107,11 +108,16 @@ fun CommandCenterScreen(vm: MainViewModel) {
     val state by Nest.state.collectAsStateWithLifecycle()
     // Opened from a Home camera tile: go straight to that camera full screen.
     var full by remember { mutableStateOf(openCameraAt.also { openCameraAt = null }) }
+    // The camera last shown full screen: back in the grid it takes the focus, not camera 1.
+    var lastFull by remember { mutableIntStateOf(0) }
     var askProject by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { Nest.open() }
     LaunchedEffect(Unit) { cameraRequests.collect { full = it } }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
-    BackHandler { if (full != null) full = null else openSidebar() }
+    BackHandler {
+        val f = full
+        if (f != null) { lastFull = f; full = null } else openSidebar()
+    }
 
     val cams = state.cameras
     val fullIndex = full
@@ -162,11 +168,11 @@ fun CommandCenterScreen(vm: MainViewModel) {
                     EmptyState("Loading cameras…")
                 } else if (Appearance.allInOne) {
                     Row(Modifier.fillMaxSize().padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f)) { full = it }
+                        CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull) { full = it }
                         SidePanel(Modifier.weight(1f).fillMaxHeight())
                     }
                 } else {
-                    CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp)) { full = it }
+                    CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp), focusOn = lastFull) { full = it }
                 }
             }
         }
@@ -210,9 +216,11 @@ private fun SignInPanel(state: NestState) {
     }
 }
 
+/** [focusOn]: the camera that takes the focus (the last if there are fewer now). */
 @Composable
-private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, onOpen: (Int) -> Unit) {
-    val first = remember { FocusRequester() }
+private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, focusOn: Int, onOpen: (Int) -> Unit) {
+    val focus = remember { FocusRequester() }
+    val focusAt = minOf(focusOn, cams.lastIndex)
     // Plain scrolling rows, not a lazy grid: live video is an Android view, and Android views in
     // lazy layouts crashed when the grid closed (leaving the Command center).
     // Room inside the scrolling column for a focused tile to grow: it clips at its top and bottom
@@ -223,7 +231,7 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, onO
                 for ((i, cam) in row) key(cam.name) {
                     Surface(
                         onClick = { onOpen(i) },
-                        modifier = Modifier.weight(1f).aspectRatio(16f / 9f).then(if (i == 0) Modifier.focusRequester(first) else Modifier),
+                        modifier = Modifier.weight(1f).aspectRatio(16f / 9f).then(if (i == focusAt) Modifier.focusRequester(focus) else Modifier),
                         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
                         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
                     ) {
@@ -240,7 +248,7 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, onO
             }
         }
     }
-    LaunchedEffect(cams.size) { runCatching { first.requestFocus() } }
+    LaunchedEffect(cams.size) { runCatching { focus.requestFocus() } }
 }
 
 @Composable

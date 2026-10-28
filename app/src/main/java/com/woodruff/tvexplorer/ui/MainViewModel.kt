@@ -70,7 +70,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Where Back leaves the browser to: Home, or Settings when a drive was opened from there. */
+    /** Where Back at the browser's top goes: the screen it was opened from (Settings, for a drive or Browse by type). */
     private var browserReturn = Screen.HOME
 
     /** Where Back from the Apps screen goes: Home, or Settings when opened from there. */
@@ -95,6 +95,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun open(location: Location) {
+        // Coming in from another screen (Settings' Browse by type, say): Back at the top returns there.
+        if (_screen.value != Screen.BROWSER) browserReturn = _screen.value
         _browser.value.location?.let { if (it != location) history.addLast(it) }
         _screen.value = Screen.BROWSER
         load(location)

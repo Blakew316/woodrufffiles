@@ -355,9 +355,10 @@ fun AppRoot(vm: MainViewModel) {
     LaunchedEffect(frameLabel) { com.woodruff.tvexplorer.util.FrameStats.screen = frameLabel }
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { com.woodruff.tvexplorer.util.FrameStats.screen = frameLabel }
     LaunchedEffect(Unit) {
-        // Start in the content with the menu closed; fall back to the menu if nothing there takes focus.
+        // Start in the content with the menu closed (unless the screen already took the focus, as the
+        // Command Center does on a notification tap); fall back to the menu if nothing there takes focus.
         delay(300)
-        runCatching { contentFocus.requestFocus() }
+        if (!contentFocused) runCatching { contentFocus.requestFocus() }
         delay(100)
         if (!contentFocused) railWanted = true
     }
@@ -432,13 +433,17 @@ private val COMMAND_SCREENS = setOf(Screen.CAMERAS, Screen.MAIL, Screen.NOTIFICA
 @Composable
 private fun CommandHub(screen: Screen, vm: MainViewModel) {
     val tabs = listOf(Screen.CAMERAS to "Cameras", Screen.MAIL to "Mail", Screen.NOTIFICATIONS to "Notifications", Screen.NOTES to "Notes")
-    Column(Modifier.fillMaxSize()) {
+    val chosen = tabs.indexOfFirst { it.first == screen }.coerceAtLeast(0)
+    val tabsFocus = remember { FocusRequester() }
+    var hubFocused by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    Column(Modifier.fillMaxSize().onFocusChanged { hubFocused = it.hasFocus }) {
         if (!com.woodruff.tvexplorer.ui.screens.cameraFullScreen.value) {
             Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 36.dp, top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 com.woodruff.tvexplorer.ui.components.TopTabs(
-                    tabs.map { it.second }, selected = tabs.indexOfFirst { it.first == screen }.coerceAtLeast(0),
+                    tabs.map { it.second }, selected = chosen,
                     onSelect = { i -> vm.show(tabs[i].first) },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).focusRequester(tabsFocus),
                 )
                 HubClock()
             }
@@ -450,6 +455,15 @@ private fun CommandHub(screen: Screen, vm: MainViewModel) {
                 Screen.NOTES -> NotesScreen(vm)
                 else -> CommandCenterScreen(vm)
             }
+        }
+    }
+    // A tab put up from elsewhere (Home's "At a glance", say) with nothing here taking the focus:
+    // AppRoot's fallback would put it on the first pill, Cameras, where OK switches tabs. Put it on
+    // the chosen pill instead, stepping across from the first (the pills have no handles of their own).
+    LaunchedEffect(screen) {
+        withFrameNanos {} // once the pills are laid out
+        if (!hubFocused && runCatching { tabsFocus.requestFocus() }.isSuccess) {
+            repeat(chosen) { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right) }
         }
     }
 }

@@ -53,6 +53,7 @@ fun NotificationsScreen(vm: MainViewModel) {
     val context = LocalContext.current
     val items by Notices.items.collectAsStateWithLifecycle()
     var announcing by remember { mutableStateOf(false) }
+    val announce = remember { FocusRequester() }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
     BackHandler { openSidebar() }
     LaunchedEffect(Unit) { Notices.markAllRead(context) }
@@ -63,8 +64,9 @@ fun NotificationsScreen(vm: MainViewModel) {
             Column(Modifier.weight(1f)) {
                 Text("Notifications", style = MaterialTheme.typography.headlineLarge)
             }
-            ToolButton(Sym.Campaign, "Announce", { announcing = true })
-            if (items.isNotEmpty()) ToolButton(Sym.Delete, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp))
+            ToolButton(Sym.Campaign, "Announce", { announcing = true }, Modifier.focusRequester(announce))
+            // Clear goes away with the list: the focus moves to Announce first, or it's left nowhere.
+            if (items.isNotEmpty()) ToolButton(Sym.Delete, "Clear", { runCatching { announce.requestFocus() }; Notices.clear(context) }, Modifier.padding(start = 12.dp))
         }
         if (items.isEmpty()) {
             EmptyState("No notifications")
@@ -131,7 +133,8 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
         if (phones.isEmpty()) {
             Text("No phones yet. Open Woodruff on a phone (scan the QR in Phone) and give it a name under Settings → This phone.", color = Palette.muted)
         }
-        LazyColumn(Modifier.heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        // Room above the first row and below the last: a focused row grows past them, and the list clips there.
+        LazyColumn(Modifier.heightIn(max = 220.dp), contentPadding = PaddingValues(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(phones, key = { it.id }) { p ->
                 val on = p.id in chosen
                 ListItem(

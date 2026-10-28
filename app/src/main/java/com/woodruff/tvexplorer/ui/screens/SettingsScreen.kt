@@ -386,11 +386,15 @@ fun SettingsScreen(vm: MainViewModel) {
                 val items = rows(page)
                 // The first row of a page just opened; after Back, the row that opened the page left.
                 val focusOn = if (shown != path || moves == 0) null else items.indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0)
-                SettingsList(items, focusOn, moves, open, onFocused = { i -> hovered = page to i })
+                // Only the page on screen opens another: until a new page takes the focus (a frame
+                // later), a quick second press still reaches the one sliding out.
+                SettingsList(items, focusOn, moves, onOpen = { p -> if (shown == path) open(p) }, onFocused = { i -> hovered = page to i })
             }
         }
         // On the right: what the focused row is about, following the focus (OK still does the choosing).
-        val showing = hovered?.takeIf { it.first == here } ?: (here to 0)
+        // Until the page's row takes the focus, the row that will: after Back, the one that opened the page left.
+        val showing = hovered?.takeIf { it.first == here }
+            ?: (here to rows(here).indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0))
         Crossfade(showing, Modifier.weight(1f).fillMaxHeight().padding(start = 56.dp), animationSpec = tween(220), label = "settings-about") { (p, i) ->
             val item = rows(p).getOrNull(i)
             if (item != null) SettingAbout(item, item.opens?.let { rows(it) })
@@ -670,10 +674,11 @@ private fun SettingAbout(item: SettingItem, inside: List<SettingItem>?) {
 /** A row like the Apple TV's: plain until focused, then white with dark text. */
 @Composable
 private fun SettingRow(item: SettingItem, modifier: Modifier, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
     ListItem(
         selected = false,
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.onFocusChanged { focused = it.isFocused },
         colors = ListItemDefaults.colors(
             containerColor = Color.Transparent,
             contentColor = Palette.text,
@@ -685,7 +690,8 @@ private fun SettingRow(item: SettingItem, modifier: Modifier, onClick: () -> Uni
         // Plain symbols in the row's color (dark on the white focus), Apple style.
         leadingContent = { TvIcon(item.icon, size = 26.dp) },
         headlineContent = {
-            Text(item.title, color = if (item.danger) Palette.danger else Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Red only off the focus: on the white platter it washes out, so it takes the row's dark text.
+            Text(item.title, color = if (item.danger && !focused) Palette.danger else Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
         trailingContent = if (item.value != null || item.opens != null) {
             {
