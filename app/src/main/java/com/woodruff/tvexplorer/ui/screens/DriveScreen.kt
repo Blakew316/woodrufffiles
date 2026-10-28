@@ -383,11 +383,15 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
                     androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = depth)
                 }
             } else {
-                AsyncImage(
-                    model = ImageRequest.Builder(context).data(art)
+                // Built once per tile (not on every focus change that recomposes it).
+                val request = remember(art, token) {
+                    ImageRequest.Builder(context).data(art)
                         // The Google token only ever goes to Google's own image servers, never to TMDB.
                         .apply { if (isGoogle(art) && token != null) addHeader("Authorization", "Bearer $token") }
-                        .size(320, 480).crossfade(150).build(), // the tile's real size on a 1080p TV: faster decode, less memory
+                        .size(320, 480).crossfade(150).build() // the tile's real size on a 1080p TV: faster decode, less memory
+                }
+                AsyncImage(
+                    model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = depth,

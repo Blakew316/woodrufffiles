@@ -59,30 +59,34 @@ object Library {
         files.mapNotNull { info(it).year?.let { y -> y / 10 * 10 } }.distinct().sortedDescending()
 
     fun apply(files: List<DriveFile>, filter: LibraryFilter): List<DriveFile> {
-        // Parse each name once, not on every comparison.
-        val infos = files.associateWith { info(it) }
+        // Each file paired with its info once: comparisons then read the pair, rather than looking
+        // the file up in a map (which hashes the whole DriveFile on every comparison).
         val words = normalize(filter.query).split(' ').filter { it.isNotEmpty() }
-        val kept = files.filter { f ->
-            val i = infos.getValue(f)
+        val kept = files.map { it to info(it) }.filter { (_, i) ->
             (filter.genre == null || filter.genre in i.genres) &&
                 (filter.decade == null || (i.year != null && i.year / 10 * 10 == filter.decade)) &&
                 (words.isEmpty() || words.all { it in i.searchText })
         }
-        val byTitle = compareBy<DriveFile> { infos.getValue(it).sortKey }
+        val byTitle = compareBy<Pair<DriveFile, MediaInfo>> { it.second.sortKey }
         return when (filter.sort) {
             LibrarySort.TITLE -> kept.sortedWith(byTitle)
-            LibrarySort.RECENT -> kept.sortedWith(compareByDescending<DriveFile> { it.modified }.then(byTitle))
+            LibrarySort.RECENT -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.first.modified }.then(byTitle))
             // Unknown years / ratings go last, not first.
-            LibrarySort.YEAR -> kept.sortedWith(compareByDescending<DriveFile> { infos.getValue(it).year ?: Int.MIN_VALUE }.then(byTitle))
-            LibrarySort.RATING -> kept.sortedWith(compareByDescending<DriveFile> { infos.getValue(it).rating ?: -1.0 }.then(byTitle))
-        }
+            LibrarySort.YEAR -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.second.year ?: Int.MIN_VALUE }.then(byTitle))
+            LibrarySort.RATING -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.second.rating ?: -1.0 }.then(byTitle))
+        }.map { it.first }
     }
 
     /** Sorts "The Matrix" under M, ignores accents and case. */
-    fun sortKey(title: String): String = normalize(title).replace(Regex("^(the|a|an) "), "")
+    fun sortKey(title: String): String = normalize(title).replace(ARTICLE, "")
 
     /** Lowercase, accents removed, punctuation as spaces: "Amélie!" → "amelie". */
     fun normalize(s: String): String =
-        Normalizer.normalize(s, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
-            .replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+        Normalizer.normalize(s, Normalizer.Form.NFD).replace(MARKS, "").lowercase()
+            .replace(NON_WORD, " ").trim()
+
+    // Compiled once: these run for every title on every sort, filter and search keystroke.
+    private val ARTICLE = Regex("^(the|a|an) ")
+    private val MARKS = Regex("\\p{M}+")
+    private val NON_WORD = Regex("[^\\p{L}\\p{N}]+")
 }

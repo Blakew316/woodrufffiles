@@ -68,6 +68,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -215,11 +216,15 @@ fun AppRoot(vm: MainViewModel) {
         val railWidth = animateDpAsState(if (open) RAIL_OPEN else RAIL_CLOSED, tween(200, easing = FastOutSlowInEasing), label = "rail")
         Column(
             Modifier
+                // The rows are measured once at the width the menu is heading to; each animation frame
+                // then only changes how much of it shows (re-measuring 13 rows per frame cost frames).
                 .layout { measurable, constraints ->
+                    val target = (if (open) RAIL_OPEN else RAIL_CLOSED).roundToPx()
                     val w = railWidth.value.roundToPx()
-                    val p = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+                    val p = measurable.measure(constraints.copy(minWidth = target, maxWidth = target))
                     layout(w, p.height) { p.place(0, 0) }
                 }
+                .clipToBounds()
                 .fillMaxHeight()
                 .background(if (open) Palette.glass else Palette.surface)
                 .onFocusChanged { railFocused = it.hasFocus }
@@ -319,7 +324,11 @@ fun AppRoot(vm: MainViewModel) {
 private fun ScreenEnter(content: @Composable () -> Unit) {
     val p = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(Unit) { p.animateTo(1f, tween(180, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
-    Box(Modifier.fillMaxSize().graphicsLayer { alpha = p.value; translationY = (1f - p.value) * 14.dp.toPx() }) { content() }
+    // ModulateAlpha: fades without first drawing the whole screen into an offscreen buffer.
+    Box(Modifier.fillMaxSize().graphicsLayer {
+        alpha = p.value; translationY = (1f - p.value) * 14.dp.toPx()
+        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+    }) { content() }
 }
 
 /**

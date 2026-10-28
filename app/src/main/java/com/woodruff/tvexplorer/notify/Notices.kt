@@ -77,7 +77,11 @@ object Notices {
         }
     }
 
-    fun markAllRead(context: Context) { _items.update { l -> l.map { it.copy(read = true) } }; save(context) }
+    fun markAllRead(context: Context) {
+        // Nothing unread (the usual case): don't rewrite every notice and the file for nothing.
+        if (_items.value.none { !it.read }) return
+        _items.update { l -> l.map { it.copy(read = true) } }; save(context)
+    }
     fun clear(context: Context) { _items.value = emptyList(); save(context) }
     fun dismissLatest() { _latest.value = null }
     val unread: Int get() = _items.value.count { !it.read }

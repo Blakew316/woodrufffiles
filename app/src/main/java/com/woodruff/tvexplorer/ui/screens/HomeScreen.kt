@@ -535,6 +535,10 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     val context = LocalContext.current
     val lowRam = remember { context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true }
     var focusedCam by remember { mutableStateOf<String?>(null) }
+    // Where the focus is right now; it only becomes the live tile once it rests there, so passing
+    // across the tiles doesn't tear down and start a camera stream on every press.
+    var focusRaw by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(focusRaw) { val r = focusRaw ?: return@LaunchedEffect; delay(600); focusedCam = r }
     // "One at a time" (and low-memory TVs): one tile streams, moving on every 20 s; the others
     // show their last frame. The tile you're on always plays.
     val mode = Appearance.homeCameras
@@ -556,7 +560,7 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
                             focusedCam != null -> focusedCam == cam.name
                             else -> i == turn % minOf(cams.size, 4)
                         },
-                        onFocus = { f -> if (f) focusedCam = cam.name else if (focusedCam == cam.name) focusedCam = null },
+                        onFocus = { f -> if (f) focusRaw = cam.name else if (focusRaw == cam.name) focusRaw = null },
                         onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) },
                     )
                 }

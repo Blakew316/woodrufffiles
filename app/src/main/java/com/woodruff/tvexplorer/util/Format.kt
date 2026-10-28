@@ -26,6 +26,9 @@ object Format {
         }
     }
 
-    fun date(millis: Long): String =
-        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(millis))
+    // One formatter, made once: building one per list row showed up while scrolling. Only used on
+    // the main thread (DateFormat isn't thread-safe).
+    private val dateFormat by lazy { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT) }
+
+    fun date(millis: Long): String = dateFormat.format(Date(millis))
 }

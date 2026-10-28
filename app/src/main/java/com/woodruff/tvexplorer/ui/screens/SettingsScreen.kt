@@ -429,6 +429,10 @@ fun SettingsScreen(vm: MainViewModel) {
         },
     )
     var category by rememberSaveable { mutableIntStateOf(0) }
+    // Holding Down through the categories shouldn't rebuild the right side for each one passed:
+    // it switches once the focus rests (or at once on OK).
+    var resting by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(resting) { if (resting >= 0) { kotlinx.coroutines.delay(200); category = resting } }
     val pane = remember { FocusRequester() }
     Row(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 20.dp)) {
         // Scrolls (and follows the focus) when the categories don't all fit, so none is ever cut off.
@@ -440,8 +444,8 @@ fun SettingsScreen(vm: MainViewModel) {
             categories.forEachIndexed { i, c ->
                 ListItem(
                     selected = i == category,
-                    onClick = { runCatching { pane.requestFocus() } },
-                    modifier = Modifier.onFocusChanged { if (it.isFocused) category = i },
+                    onClick = { category = i; runCatching { pane.requestFocus() } },
+                    modifier = Modifier.onFocusChanged { if (it.isFocused) resting = i },
                     colors = ListItemDefaults.colors(
                         containerColor = Color.Transparent,
                         selectedContainerColor = Palette.surface,
