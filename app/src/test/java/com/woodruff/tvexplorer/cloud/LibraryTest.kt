@@ -1,6 +1,7 @@
 package com.woodruff.tvexplorer.cloud
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LibraryTest {
@@ -61,5 +62,50 @@ class LibraryTest {
     @Test fun genreAndDecadeChoices() {
         assertEquals("Sci-Fi", Library.genres(all).first()) // most common first
         assertEquals(listOf(2020, 2000, 1990), Library.decades(all))
+    }
+
+    @Test fun recentlyAddedIsWhenItWasPutInDriveNotLastRenamed() {
+        // Renamed later (modified moved to now), but added earlier.
+        val renamed = DriveFile("a", "A (2001).mp4", "video/mp4", 0, modified = 50, thumbnailLink = null, created = 1)
+        val newer = DriveFile("b", "B (2002).mp4", "video/mp4", 0, modified = 5, thumbnailLink = null, created = 2)
+        assertEquals(listOf("B", "A"), titles(Library.apply(listOf(renamed, newer), LibraryFilter(sort = LibrarySort.RECENT))))
+    }
+
+    // Sixty films whose genres overlap (Comedy and Family in two kinds each), rated 5.0–8.6.
+    private val library = (0 until 60).map { i ->
+        val genres = when (i % 4) {
+            0 -> listOf("Action", "Adventure", "Sci-Fi")
+            1 -> listOf("Comedy", "Family")
+            2 -> listOf("Drama", "Crime")
+            else -> listOf("Animation", "Comedy", "Family")
+        }
+        DriveFile("m$i", "Film $i.mp4", "video/mp4", 0, 0, null, null, MediaInfo("Film $i", 2000 + i % 20, genres, 5.0 + i % 10 * 0.4), created = i.toLong())
+    }
+
+    @Test fun overviewRowsNeverRepeatATitle() {
+        val rows = Library.overviewRows(library, emptySet())
+        val ids = rows.flatMap { (_, titles) -> titles.map { it.id } }
+        assertEquals(ids.size, ids.toSet().size)
+        assertEquals(listOf("Recently added", "Top rated"), rows.take(2).map { it.first })
+        // Genre rows too, each worth a row.
+        assertTrue(rows.map { it.first }.toString(), rows.size > 2)
+        rows.drop(2).forEach { (g, titles) -> assertTrue("$g: ${titles.size}", titles.size >= 6) }
+    }
+
+    @Test fun overviewRowsLeaveOutWhatsInContinueWatching() {
+        val watching = setOf("m59", "m58", "m10")
+        val ids = Library.overviewRows(library, watching).flatMap { (_, titles) -> titles.map { it.id } }
+        assertTrue(ids.none { it in watching })
+    }
+
+    @Test fun aFilmGoesToItsOwnGenreRow() {
+        // Eight without genres take Recently added; twelve split six and six between two genres
+        // listed in opposite orders. (No ratings: no Top rated row.)
+        val fillers = (0 until 8).map { DriveFile("f$it", "F$it.mp4", "video/mp4", 0, 0, null, null, MediaInfo("F$it", null)) }
+        val animated = (0 until 6).map { DriveFile("a$it", "A$it.mp4", "video/mp4", 0, 0, null, null, MediaInfo("A$it", null, listOf("Animation", "Comedy"))) }
+        val comedies = (0 until 6).map { DriveFile("c$it", "C$it.mp4", "video/mp4", 0, 0, null, null, MediaInfo("C$it", null, listOf("Comedy", "Animation"))) }
+        val rows = Library.overviewRows(fillers + animated + comedies, emptySet()).toMap()
+        assertEquals(animated.map { it.id }.toSet(), rows.getValue("Animation").map { it.id }.toSet())
+        assertEquals(comedies.map { it.id }.toSet(), rows.getValue("Comedy").map { it.id }.toSet())
     }
 }

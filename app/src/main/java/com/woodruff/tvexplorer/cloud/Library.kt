@@ -73,6 +73,85 @@ object Library {
         files.flatMap { info(it).genres }.groupingBy { it }.eachCount()
             .entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).map { it.key }
 
+    /**
+     * The Overview's rows under Continue watching ([shown]: the ids already in it): Recently added,
+     * Top rated, then the biggest genres — each title in one row only, so the rows don't repeat the
+     * same few films (a film tagged Action, Adventure and Sci-Fi used to fill all three, and Top
+     * rated too). The rows above claim a title first; among the genres, it goes to its own (the
+     * first TMDB lists) unless that row is full. A row too short to be worth one is left out, its
+     * titles going back to the others. Rows are shorter in a small library, so there's some left
+     * for the genres.
+     */
+    fun overviewRows(files: List<DriveFile>, shown: Set<String>): List<Pair<String, List<DriveFile>>> {
+        val size = (files.size / 6).coerceIn(MIN_ROW + 2, 20)
+        val used = shown.toHashSet()
+        fun claim(candidates: List<DriveFile>): List<DriveFile> {
+            val out = ArrayList<DriveFile>(size)
+            for (f in candidates) {
+                if (out.size == size) break
+                if (used.add(f.id)) out += f
+            }
+            return out
+        }
+        val recent = claim(files.sortedByDescending { it.added })
+        // Top rated, when enough are rated to make a row; otherwise those go back to the genres.
+        val top = claim(files.filter { info(it).rating != null }.sortedByDescending { info(it).rating })
+        if (top.size < MIN_ROW) used.removeAll(top.map { it.id }.toSet())
+        return buildList {
+            if (recent.isNotEmpty()) add("Recently added" to recent)
+            if (top.size >= MIN_ROW) add("Top rated" to top)
+            addAll(genreRows(files.filter { it.id !in used }, size))
+        }
+    }
+
+    /** Up to [GENRE_ROWS] genre rows of [size] from [files], none sharing a title, none under [MIN_ROW]. */
+    private fun genreRows(files: List<DriveFile>, size: Int): List<Pair<String, List<DriveFile>>> {
+        var genres = genres(files).take(GENRE_ROWS)
+        while (genres.isNotEmpty()) {
+            val rows = draft(files, genres, size)
+            val short = rows.filter { it.second.size < MIN_ROW }.map { it.first }.toSet()
+            if (short.isEmpty()) return rows
+            genres = genres.filter { it !in short } // their titles go back to the rest
+        }
+        return emptyList()
+    }
+
+    /**
+     * The genres take turns picking their next title not yet picked, so each gets a fair share: its
+     * own titles first (its genre listed first), then the rest, best rated first. Each row is then
+     * shown best first.
+     */
+    private fun draft(files: List<DriveFile>, genres: List<String>, size: Int): List<Pair<String, List<DriveFile>>> {
+        val pools = genres.map { g ->
+            files.filter { g in info(it).genres }.sortedWith(
+                compareBy<DriveFile> { if (info(it).genres.firstOrNull() == g) 0 else 1 }.thenByDescending { info(it).rating ?: 0.0 },
+            )
+        }
+        val rows = genres.map { ArrayList<DriveFile>(size) }
+        val next = IntArray(genres.size)
+        val taken = HashSet<String>()
+        var picked = true
+        while (picked) {
+            picked = false
+            for (r in genres.indices) {
+                if (rows[r].size >= size) continue
+                val pool = pools[r]
+                while (next[r] < pool.size && pool[next[r]].id in taken) next[r]++
+                if (next[r] < pool.size) {
+                    val f = pool[next[r]++]
+                    rows[r] += f
+                    taken += f.id
+                    picked = true
+                }
+            }
+        }
+        return genres.mapIndexed { r, g -> g to rows[r].sortedByDescending { info(it).rating ?: 0.0 } }
+    }
+
+    /** Fewer titles than this isn't worth a row of its own. */
+    private const val MIN_ROW = 6
+    private const val GENRE_ROWS = 8
+
     /** Decades in this list, newest first. */
     fun decades(files: List<DriveFile>): List<Int> =
         files.mapNotNull { info(it).year?.let { y -> y / 10 * 10 } }.distinct().sortedDescending()
@@ -89,7 +168,7 @@ object Library {
         val byTitle = compareBy<Pair<DriveFile, MediaInfo>> { it.second.sortKey }
         return when (filter.sort) {
             LibrarySort.TITLE -> kept.sortedWith(byTitle)
-            LibrarySort.RECENT -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.first.modified }.then(byTitle))
+            LibrarySort.RECENT -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.first.added }.then(byTitle))
             // Unknown years / ratings go last, not first.
             LibrarySort.YEAR -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.second.year ?: Int.MIN_VALUE }.then(byTitle))
             LibrarySort.RATING -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.second.rating ?: -1.0 }.then(byTitle))

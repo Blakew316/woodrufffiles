@@ -126,7 +126,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private fun updateRecentlyAdded() {
         _recentlyAdded.value = listOf(DrivePlace.Movies, DrivePlace.TvShows)
             .flatMap { place -> cache[place].orEmpty().map { place to it } }
-            .sortedByDescending { it.second.modified }
+            .sortedByDescending { it.second.added }
             .take(10)
         // Off the main thread: the name matching runs a few regexes per title.
         val entries = listOf(DrivePlace.Movies, DrivePlace.TvShows).flatMap { cache[it].orEmpty() }.filter { it.posterUrl != null }

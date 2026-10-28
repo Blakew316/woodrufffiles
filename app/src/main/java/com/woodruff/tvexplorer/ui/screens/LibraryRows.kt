@@ -114,16 +114,11 @@ internal fun LibraryRows(
         val continuing = recentAtOpen.mapNotNull { r ->
             byKey[r.key] ?: known[r.key]?.let { byKey[MediaRef.Drive(it).key] } ?: byName[Library.showMatchKey(r.title)]
         }.distinctBy { it.id }
-        val recentlyAdded = files.sortedByDescending { it.modified }.take(20)
-        val rated = files.filter { Library.info(it).rating != null }.sortedByDescending { Library.info(it).rating }
+        val watching = continuing.take(20)
         buildList {
-            if (continuing.isNotEmpty()) add("Continue watching" to continuing.take(20))
-            add("Recently added" to recentlyAdded)
-            if (rated.size >= 5) add("Top rated" to rated.take(20))
-            Library.genres(files).take(8).forEach { g ->
-                val inGenre = files.filter { g in Library.info(it).genres }
-                if (inGenre.size >= 4) add(g to inGenre.sortedByDescending { Library.info(it).rating ?: 0.0 }.take(24))
-            }
+            if (watching.isNotEmpty()) add("Continue watching" to watching)
+            // Then Recently added, Top rated and the genres, each title in one row only.
+            addAll(Library.overviewRows(files, watching.mapTo(HashSet()) { it.id }))
         }
     }
     // Featured: five of the library's well-rated titles with wide art, picked at random — a new

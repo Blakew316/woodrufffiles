@@ -50,7 +50,7 @@ object ListingCache {
     }
 
     private fun toJson(d: DriveFile) = JSONObject()
-        .put("id", d.id).put("n", d.name).put("m", d.mimeType).put("s", d.size).put("t", d.modified)
+        .put("id", d.id).put("n", d.name).put("m", d.mimeType).put("s", d.size).put("t", d.modified).put("c", d.created)
         .put("th", d.thumbnailLink ?: "").put("p", d.posterUrl ?: "")
         .apply {
             d.info?.let { i ->
@@ -64,7 +64,7 @@ object ListingCache {
         val i = o.optJSONObject("i")
         return DriveFile(
             id = o.getString("id"), name = o.optString("n"), mimeType = o.optString("m"),
-            size = o.optLong("s"), modified = o.optLong("t"),
+            size = o.optLong("s"), modified = o.optLong("t"), created = o.optLong("c"),
             thumbnailLink = o.optString("th").ifBlank { null }, posterUrl = o.optString("p").ifBlank { null },
             info = i?.let {
                 val g = it.optJSONArray("g")

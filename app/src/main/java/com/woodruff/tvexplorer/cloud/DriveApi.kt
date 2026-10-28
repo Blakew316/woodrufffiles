@@ -28,7 +28,14 @@ data class DriveFile(
     val posterUrl: String? = null,
     /** Title, year, genres and rating for Movies / TV Shows (see [Library]); null outside the library. */
     val info: MediaInfo? = null,
+    /** When it was put in Drive (0 when not known). */
+    val created: Long = 0,
 ) {
+    /**
+     * When it came into the library, for "Recently added": when it was put in Drive. Not [modified],
+     * which a rename moves to now (renaming the library made "Recently added" whatever was renamed last).
+     */
+    val added: Long get() = if (created > 0) created else modified
     val isFolder: Boolean get() = mimeType == FOLDER_MIME
     /** Google Docs/Sheets/Slides have no file bytes to stream or download. */
     val isGoogleDoc: Boolean get() = mimeType.startsWith("application/vnd.google-apps.") && !isFolder
@@ -69,7 +76,7 @@ sealed interface DrivePlace {
 object DriveApi {
     private const val BASE = "https://www.googleapis.com/drive/v3/files"
     private const val FOLDER = "application/vnd.google-apps.folder"
-    private const val FIELDS = "nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink)"
+    private const val FIELDS = "nextPageToken,files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink)"
 
     fun mediaUrl(id: String) = "$BASE/${enc(id)}?alt=media&supportsAllDrives=true"
 
@@ -108,6 +115,7 @@ object DriveApi {
                     size = f.optString("size").toLongOrNull() ?: 0L,
                     modified = parseTime(f.optString("modifiedTime")),
                     thumbnailLink = f.optString("thumbnailLink").ifEmpty { null },
+                    created = parseTime(f.optString("createdTime")),
                 )
             }
             pageToken = json.optString("nextPageToken").ifEmpty { null }
