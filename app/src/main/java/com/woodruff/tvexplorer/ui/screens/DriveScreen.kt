@@ -669,7 +669,7 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
                 }
             }
             Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                Text(f.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                Text(if (f.isFolder) f.name else Format.title(f.name), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 Text(
                     if (f.isFolder) "Folder" else listOfNotNull(Format.bytes(f.size).takeIf { f.size > 0 }, Format.date(f.modified)).joinToString(" · "),
                     maxLines = 1, color = Palette.muted, style = MaterialTheme.typography.bodySmall,

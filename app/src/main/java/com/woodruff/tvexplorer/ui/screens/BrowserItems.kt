@@ -78,7 +78,7 @@ fun FileRow(
             if (selecting) TvIcon(if (selected) Sym.CheckCircle else Sym.RadioButtonUnchecked)
             else FileGlyph(item.name, item.kind, size = 34.dp)
         },
-        headlineContent = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(if (item.isDirectory) item.name else Format.title(item.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = { Text(item.subtitle(), maxLines = 1, color = Palette.muted) },
     )
 }
@@ -133,7 +133,7 @@ fun FileTile(
                 }
             }
             Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                Text(if (item.isDirectory) item.name else Format.title(item.name), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 Row { Text(item.subtitle(), maxLines = 1, color = Palette.muted, style = MaterialTheme.typography.bodySmall) }
             }
         }

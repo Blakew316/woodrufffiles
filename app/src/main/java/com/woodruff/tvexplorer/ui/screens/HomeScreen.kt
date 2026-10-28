@@ -395,7 +395,7 @@ private fun ResumeTile(
             ResumeArt(r, poster, token)
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp)) {
                 // A poster carries its own title; an episode still says which one it is.
-                val label = if (poster == null) r.title else episodeCode(r.title)
+                val label = if (poster == null) Format.title(r.title) else episodeCode(r.title)
                 if (label != null) Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 UsageBar(r.progress, Modifier.padding(top = 4.dp))
             }
@@ -490,7 +490,7 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
                 val p = sel.playing
                 Text(sel.name + if (isThis && tvs.size > 1) " · this TV" else "", style = MaterialTheme.typography.labelMedium, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    when { !sel.online -> "Off or unreachable"; p != null -> p.title; else -> "Nothing playing" },
+                    when { !sel.online -> "Off or unreachable"; p != null -> Format.title(p.title); else -> "Nothing playing" },
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 if (sel.online && p != null) {

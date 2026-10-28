@@ -541,7 +541,7 @@ class PlayerActivity : ComponentActivity() {
             MediaItem.Builder()
                 .setMediaId(key)
                 .setUri(ref.uri)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(titles.getOrNull(i)?.ifBlank { null } ?: ref.uri.lastPathSegment).build())
+                .setMediaMetadata(MediaMetadata.Builder().setTitle((titles.getOrNull(i)?.ifBlank { null } ?: ref.uri.lastPathSegment)?.let(com.woodruff.tvexplorer.util.Format::title)).build())
                 .build()
         }
 
@@ -724,7 +724,7 @@ class PlayerActivity : ComponentActivity() {
             val at = media.indexOfFirst { it.id == ref.id }.takeIf { it >= 0 } ?: return@launch
             fun item(f: com.woodruff.tvexplorer.cloud.DriveFile) = MediaItem.Builder()
                 .setMediaId(MediaRef.Drive(f.id).key).setUri(MediaRef.Drive(f.id).uri)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(f.name).build()).build()
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(com.woodruff.tvexplorer.util.Format.title(f.name)).build()).build()
             p.addMediaItems(media.drop(at + 1).take(300).map(::item))
             p.addMediaItems(0, media.take(at).takeLast(300).map(::item))
         }

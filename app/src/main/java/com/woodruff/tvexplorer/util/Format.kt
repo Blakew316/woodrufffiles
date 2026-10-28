@@ -5,6 +5,21 @@ import java.util.Date
 import java.util.Locale
 
 object Format {
+    /**
+     * A file's name as shown: videos, music and pictures without their extension ("Pilot.mp4" →
+     * "Pilot"); other files keep theirs, where it tells you what they are.
+     */
+    fun title(name: String): String {
+        val dot = name.lastIndexOf('.')
+        return if (dot > 0 && name.substring(dot + 1).lowercase() in MEDIA_EXTENSIONS) name.substring(0, dot) else name
+    }
+
+    private val MEDIA_EXTENSIONS = setOf(
+        "mp4", "m4v", "mkv", "avi", "mov", "webm", "ts", "m2ts", "wmv", "mpg", "mpeg", "3gp",
+        "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus",
+        "jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "bmp", "dng",
+    )
+
     fun bytes(b: Long): String {
         if (b < 1024) return "$b B"
         val units = arrayOf("KB", "MB", "GB", "TB")
