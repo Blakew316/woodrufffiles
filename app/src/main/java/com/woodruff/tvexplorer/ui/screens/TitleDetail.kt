@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -141,7 +142,19 @@ fun TitleDetail(
             .take(14).map { it.first }.toList()
     }
     val primary = remember { FocusRequester() }
+    var focused by remember(f) { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // Focus the main button once it's there — a show's Resume at once, its Play when the first
+        // season's episodes arrive — then leave focus alone. Here, inside the dialog, because its
+        // window composes a frame or two after the page that opens it.
+        val ready = !isShow || !f.isFolder || resumeEpisode != null || firstEps != null || seasons?.isEmpty() == true
+        LaunchedEffect(f, ready) {
+            if (focused || !ready) return@LaunchedEffect
+            repeat(10) {
+                withFrameNanos {}
+                if (runCatching { primary.requestFocus() }.isSuccess) { focused = true; return@LaunchedEffect }
+            }
+        }
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             val wide = info.backdrop ?: art
             if (wide != null) {
@@ -230,13 +243,6 @@ fun TitleDetail(
             }
         }
     }
-    // Focus the main button once it exists (a show's Play appears when its episodes arrive), then leave focus alone.
-    var focused by remember(f) { mutableStateOf(false) }
-    LaunchedEffect(firstEps, seasons) {
-        if (!focused && (!isShow || !f.isFolder || firstEps != null || seasons?.isEmpty() == true)) {
-            focused = runCatching { primary.requestFocus() }.isSuccess
-        }
-    }
 }
 
 /** "S02E04" / "1x05" in a file name → "S2 E4"; null when there isn't one. */
@@ -278,7 +284,7 @@ private fun EpisodeCard(ep: DriveFile, token: String?, progress: Float?, watched
         ) {
             Box(Modifier.fillMaxSize()) {
                 val thumb = ep.thumbnailLink?.let(DriveApi::big)
-                if (thumb != null && token != null) {
+                if (thumb != null && token != null && isGoogle(thumb)) {
                     val request = remember(thumb, token) {
                         ImageRequest.Builder(context).data(thumb).addHeader("Authorization", "Bearer $token").size(400, 225).crossfade(150).build()
                     }
