@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -57,6 +58,7 @@ import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import java.util.Calendar
+import kotlinx.coroutines.launch
 
 /** Where the focus was in each library's rows (row name to title id), to put it back on return. */
 private val rowsFocus = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
@@ -132,6 +134,7 @@ internal fun LibraryRows(
     val restoreTile = remember { FocusRequester() }
     val heroRows = if (featured != null) 1 else 0
     val list = rememberLazyListState(initialFirstVisibleItemIndex = restore?.let { it.first + heroRows } ?: 0)
+    val scope = rememberCoroutineScope()
     // Each row's scroll position, kept while it's off screen.
     val rowStates = remember { HashMap<String, LazyListState>() }
     LazyColumn(
@@ -141,7 +144,15 @@ internal fun LibraryRows(
         modifier = Modifier.fillMaxSize(),
     ) {
         if (featured != null) item(key = "hero") {
-            Box(Modifier.onFocusChanged { if (it.hasFocus) rowsFocus.remove(placeKey) }) {
+            // Focus on the featured title shows all of it (scrolled to the top), never half of it
+            // tucked under the header.
+            Box(Modifier.onFocusChanged {
+                if (it.hasFocus) {
+                    rowsFocus.remove(placeKey)
+                    // After the focus's own scroll has started (a frame later), so this one wins.
+                    scope.launch { withFrameNanos {}; list.animateScrollToItem(0) }
+                }
+            }) {
                 Hero(
                     featured, token, isShows, heroFocus,
                     onPlay = { if (featured.isFolder) onChoose(featured) else onPlay(featured) },

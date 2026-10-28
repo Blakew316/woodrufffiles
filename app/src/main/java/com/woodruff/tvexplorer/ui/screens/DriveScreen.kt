@@ -147,9 +147,11 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val onOpen: (DriveFile) -> Unit = { f -> openDriveFile(context, f, if (state.filterable) listOf(f) else shown, drive::open, onOther = { menuFor = it }) }
 
     var moreOpen by remember { mutableStateOf(false) }
-    // Rows (featured title, Continue watching, genres) or the full grid, remembered.
+    // "All" is the whole library A–Z, as a grid of posters. The rows view (featured title,
+    // Continue watching, a row per genre) is there to choose in More; remembered. (A new key:
+    // the old one defaulted to rows.)
     val viewPrefs = remember { context.getSharedPreferences("library_view", Context.MODE_PRIVATE) }
-    var rowsView by remember { mutableStateOf(viewPrefs.getBoolean("rows", true)) }
+    var rowsView by remember { mutableStateOf(viewPrefs.getBoolean("rowsView", false)) }
     // A title's detail page (Movies / TV Shows top level): choosing a poster opens it first, as on Apple TV.
     var detailFor by remember { mutableStateOf<DriveFile?>(null) }
     val choose: (DriveFile) -> Unit = { f -> if (state.filterable) detailFor = f else onOpen(f) }
@@ -283,7 +285,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             actions = listOfNotNull(
                 if (state.filterable) MenuAction(if (rowsView) "Show as a grid" else "Show as rows", Icons.Rounded.Movie) {
                     rowsView = !rowsView
-                    viewPrefs.edit().putBoolean("rows", rowsView).apply()
+                    viewPrefs.edit().putBoolean("rowsView", rowsView).apply()
                 } else null,
                 MenuAction("Refresh", Icons.Rounded.Refresh, run = drive::refresh),
                 MenuAction("My Drive", Icons.Rounded.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
