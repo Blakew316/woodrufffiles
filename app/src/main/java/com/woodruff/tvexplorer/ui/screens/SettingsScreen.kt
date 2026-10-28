@@ -185,7 +185,8 @@ fun SettingsScreen(vm: MainViewModel) {
     var version by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { CompanionHub.changes.collect { version++ } }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { version++ }
-    BackHandler { vm.show(Screen.HOME) }
+    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    BackHandler { openSidebar() }
 
     val v = version // read so the values below refresh
     val clientId = remember(v) { GoogleAuth.clientId(context) }

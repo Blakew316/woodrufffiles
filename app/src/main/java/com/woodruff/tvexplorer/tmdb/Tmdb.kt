@@ -30,12 +30,14 @@ import java.util.concurrent.ConcurrentHashMap
  * This product uses the TMDB API but is not endorsed or certified by TMDB.
  */
 object Tmdb {
-    enum class Mode { MOVIES, SHOWS, SEASONS, NONE }
+    enum class Mode { MOVIES, SHOWS, SEASONS, EPISODES, NONE }
 
     private const val KEY = "tmdb.key"
     private const val API = "https://api.themoviedb.org/3/"
     // w342 is plenty for a ~150dp poster tile and about 40% smaller to download than w500.
     private const val IMG = "https://image.tmdb.org/t/p/w342"
+    /** Episode pictures: only small sizes or the original exist; a 16:9 card on a TV wants the original. */
+    private const val STILL = "https://image.tmdb.org/t/p/original"
     private const val BACKDROP = "https://image.tmdb.org/t/p/w1280"
     private val cache = ConcurrentHashMap<String, String>() // query -> Hit JSON ("" = no match)
     @Volatile private var loaded = false
@@ -53,13 +55,14 @@ object Tmdb {
 
     /**
      * Fills [DriveFile.posterUrl] where it's empty and [DriveFile.info] (year, genres, rating).
-     * [show] is the show's name when listing its seasons.
+     * [show] is the show's name when listing its seasons or episodes; [season] the season folder's.
      */
-    suspend fun fill(c: Context, files: List<DriveFile>, mode: Mode, show: String? = null): List<DriveFile> = withContext(Dispatchers.IO) {
+    suspend fun fill(c: Context, files: List<DriveFile>, mode: Mode, show: String? = null, season: String? = null): List<DriveFile> = withContext(Dispatchers.IO) {
         // All of it off the main thread: the key is a Keystore read and the cache a large JSON file.
         if (mode == Mode.NONE) return@withContext files
         val key = key(c) ?: return@withContext files
         load(c)
+        if (mode == Mode.EPISODES) return@withContext if (show != null) withEpisodeStills(c, files, show, season) else files
         val before = cache.size
         val out = coroutineScope {
             files.map { f ->
@@ -73,7 +76,7 @@ object Tmdb {
                                 Mode.MOVIES -> if (f.isFolder || f.kind == FileKind.VIDEO) movie(key, f.name, f.isFolder) else null
                                 Mode.SHOWS -> if (f.isFolder) tv(key, f.name) else null
                                 Mode.SEASONS -> if (f.isFolder && show != null) season(key, show, f.name) else null
-                                Mode.NONE -> null
+                                Mode.EPISODES, Mode.NONE -> null
                             }
                         }
                     }.onFailure { Log.w("Tmdb", "lookup failed: ${f.name}", it) }.getOrNull() ?: return@async f
@@ -89,8 +92,121 @@ object Tmdb {
             }.awaitAll()
         }
         if (cache.size != before) save(c)
-        out
+        when {
+            // A show's own folder can hold its episodes too (no season folders): their pictures.
+            mode == Mode.SEASONS && show != null -> withEpisodeStills(c, out, show, null)
+            mode == Mode.SEASONS -> out
+            else -> shareWithTwins(out)
+        }
     }
+
+    /**
+     * Each episode's picture from TMDB as its poster, so episode tiles aren't blank: files named
+     * S02E04, 2x04, or "Episode 4" inside a "Season 2" folder ([seasonFolder]). Episodes with art of
+     * their own keep it.
+     */
+    suspend fun withEpisodeStills(c: Context, files: List<DriveFile>, show: String, seasonFolder: String?): List<DriveFile> = withContext(Dispatchers.IO) {
+        val key = key(c) ?: return@withContext files
+        load(c)
+        val folderSeason = seasonFolder?.let(::seasonNumber)
+        val wanted = files.mapNotNull { f -> if (f.kind == FileKind.VIDEO && f.posterUrl == null) episodeNumber(f.name, folderSeason) else null }
+        if (wanted.isEmpty()) return@withContext files
+        val (parsed, year) = parse(lookupName(show), stripExtension = false)
+        val title = searchTitle(parsed)
+        if (title.isBlank()) return@withContext files
+        val before = cache.size
+        val stills = wanted.map { it.first }.distinct().associateWith { s ->
+            runCatching { gate.withPermit { seasonStills(key, title, year, s) } }
+                .onFailure { Log.w("Tmdb", "episode pictures failed: $title season $s", it) }
+                .getOrDefault(emptyMap())
+        }
+        if (cache.size != before) save(c)
+        files.map { f ->
+            if (f.kind != FileKind.VIDEO || f.posterUrl != null) return@map f
+            val (s, e) = episodeNumber(f.name, folderSeason) ?: return@map f
+            stills[s]?.get(e)?.let { f.copy(posterUrl = it) } ?: f
+        }
+    }
+
+    /** Season [season] of the show: episode number → picture URL. */
+    private fun seasonStills(key: String, title: String, year: String?, season: Int): Map<Int, String> {
+        val json = cachedJson("e:$title:$year:$season") {
+            val id = showResult(key, title, year)?.optInt("id")?.takeIf { it > 0 } ?: return@cachedJson null
+            val episodes = get(key, "tv/$id/season/$season").optJSONArray("episodes") ?: return@cachedJson null
+            JSONObject().apply {
+                for (i in 0 until episodes.length()) {
+                    val e = episodes.optJSONObject(i) ?: continue
+                    val still = e.optString("still_path")
+                    if (still.isNotBlank()) put(e.optInt("episode_number").toString(), STILL + still)
+                }
+            }
+        } ?: return emptyMap()
+        return json.keys().asSequence().mapNotNull { k -> k.toIntOrNull()?.let { it to json.optString(k) } }.toMap()
+    }
+
+    /** Like [cached], for a JSON object ("" = looked up, nothing found). */
+    private inline fun cachedJson(query: String, lookup: () -> JSONObject?): JSONObject? {
+        cache[query]?.let { return if (it.isEmpty()) null else runCatching { JSONObject(it) }.getOrNull() }
+        val v = lookup()
+        cache[query] = v?.toString().orEmpty()
+        return v
+    }
+
+    /** "Show.S02E04" / "2x04" → (2, 4); "Episode 4" → ([folderSeason], 4). Visible for tests. */
+    fun episodeNumber(name: String, folderSeason: Int?): Pair<Int, Int>? {
+        EP_CODE.find(name)?.let { return it.groupValues[1].toInt() to it.groupValues[2].toInt() }
+        EP_X.find(name)?.let { return it.groupValues[1].toInt() to it.groupValues[2].toInt() }
+        if (folderSeason != null) EP_WORD.find(name)?.let { return folderSeason to it.groupValues[1].toInt() }
+        return null
+    }
+
+    private val EP_CODE = Regex("(?i)s(\\d{1,2})\\s*e(\\d{1,3})")
+    private val EP_X = Regex("(?i)(?<!\\d)(\\d{1,2})x(\\d{2,3})(?!\\d)")
+    private val EP_WORD = Regex("(?i)\\b(?:episode|ep)\\s*(\\d{1,3})\\b")
+
+    /**
+     * A title kept twice (a copy, another version) that still found nothing borrows its twin's
+     * poster and details: the same title (and year, when both have one) in the same library.
+     */
+    private fun shareWithTwins(files: List<DriveFile>): List<DriveFile> {
+        fun twinKey(f: DriveFile): String {
+            val (t, _) = parse(lookupName(f.name), stripExtension = !f.isFolder)
+            return Library.normalize(searchTitle(t))
+        }
+        val donors = files.filter { it.posterUrl != null }.groupBy(::twinKey)
+        if (donors.isEmpty()) return files
+        return files.map { f ->
+            if (f.posterUrl != null) return@map f
+            val candidates = donors[twinKey(f)] ?: return@map f
+            val year = f.info?.year
+            val twin = candidates.firstOrNull { year != null && it.info?.year == year }
+                ?: candidates.takeIf { c -> c.mapNotNull { it.info?.year }.distinct().size <= 1 }?.first()
+                ?: return@map f
+            val mine = f.info
+            val theirs = twin.info
+            f.copy(
+                posterUrl = twin.posterUrl,
+                info = if (mine != null && theirs != null && mine.tmdbId == null) theirs.copy(title = mine.title, year = mine.year ?: theirs.year) else mine,
+            )
+        }
+    }
+
+    /**
+     * A name as it's looked up: without what duplicating a file adds — Drive's "Copy of …",
+     * " - Copy", a " (1)" before the extension. Visible for tests.
+     */
+    fun lookupName(name: String): String = name.replace(COPY_PREFIX, "").replace(COPY_NUMBER, "").replace(COPY_SUFFIX, "")
+
+    /** A title as it's searched: without an edition ("Director's Cut", "Special Edition"). Visible for tests. */
+    fun searchTitle(title: String): String = title.replace(EDITION, " ").replace(SPACES, " ").trim().ifBlank { title }
+
+    private val COPY_PREFIX = Regex("(?i)^copy of\\s+")
+    private val COPY_NUMBER = Regex("\\s*\\(\\d{1,2}\\)(?=\\.[A-Za-z0-9]{2,4}$|$)")
+    private val COPY_SUFFIX = Regex("(?i)\\s+-\\s+copy(?=\\.[A-Za-z0-9]{2,4}$|$)")
+    private val EDITION = Regex(
+        "(?i)\\b(director'?s cut|extended (cut|edition|version)|theatrical (cut|edition|version)|special edition|" +
+            "collector'?s edition|anniversary edition|ultimate (cut|edition)|final cut|remastered|redux|open matte|uncut)\\b",
+    )
 
     private val castCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
 
@@ -133,7 +249,8 @@ object Tmdb {
     }
 
     private fun movie(key: String, name: String, folder: Boolean): Hit? {
-        val (title, year) = parse(name, stripExtension = !folder)
+        val (parsed, year) = parse(lookupName(name), stripExtension = !folder)
+        val title = searchTitle(parsed)
         if (title.isBlank()) return null
         return cached("m:$title:$year") {
             val q = "search/movie?query=${enc(title)}&include_adult=false"
@@ -143,7 +260,8 @@ object Tmdb {
     }
 
     private fun tv(key: String, name: String): Hit? {
-        val (title, year) = parse(name, stripExtension = false)
+        val (parsed, year) = parse(lookupName(name), stripExtension = false)
+        val title = searchTitle(parsed)
         if (title.isBlank()) return null
         return cached("t:$title:$year") { showResult(key, title, year)?.let { hit(it, TV_GENRES, "first_air_date") } }
     }

@@ -115,7 +115,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val context = LocalContext.current
     var menuFor by remember { mutableStateOf<DriveFile?>(null) }
     var searching by remember { mutableStateOf(false) }
-    BackHandler { if (!drive.back()) vm.show(Screen.HOME) }
+    // Back goes up a folder; at a library's top it brings up the sidebar, as on Apple TV.
+    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    BackHandler { if (!drive.back()) openSidebar() }
 
     // Load files, or start the phone sign-in server; stop that server when leaving the screen.
     DisposableEffect(Unit) {
@@ -241,12 +243,17 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         }
                     }
                     val prefetch: (String) -> Unit = { id -> positions[id]?.let { prefetchFrom.intValue = it } }
+                    // A season's episodes: wide picture cards (each episode's picture), as streaming
+                    // apps show them, instead of tall poster tiles.
+                    val episodeGrid = state.library && state.stack.firstOrNull() == DrivePlace.TvShows && state.stack.size >= 2 &&
+                        shown.count { it.kind == FileKind.VIDEO } * 2 > shown.size
                     LazyVerticalGrid(
                         state = grid,
                         // Movies / TV Shows: tall poster tiles, more per row.
-                        columns = GridCells.Adaptive(if (state.library) 150.dp else 230.dp),
-                        // Posters lift and grow when focused: leave them room so the edges aren't cut off.
-                        contentPadding = if (state.library) PaddingValues(top = 20.dp, bottom = 56.dp, start = 18.dp, end = 18.dp)
+                        columns = GridCells.Adaptive(if (episodeGrid) 260.dp else if (state.library) 150.dp else 230.dp),
+                        // Posters lift and grow when focused (about 23 dp up for the first row): leave them
+                        // room so the top of the outline isn't cut off.
+                        contentPadding = if (state.library) PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp)
                         else PaddingValues(top = 8.dp, bottom = 48.dp, start = 6.dp, end = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(if (state.library) 30.dp else 22.dp),
                         verticalArrangement = Arrangement.spacedBy(if (state.library) 30.dp else 22.dp),
@@ -256,12 +263,18 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                             // places (and fades the ones coming and going) instead of jumping.
                             val mod = Modifier.animateItem().then(if (f.id == target) Modifier.focusRequester(first) else Modifier)
                                 .onFocusChanged {
-                                    if (it.isFocused) {
+                                    if (it.hasFocus) {
                                         driveFocus[placeKey] = f.id
-                                        if (state.library) { focusedArt.value = posterArt(f); prefetch(f.id) }
+                                        if (state.library) { focusedArt.value = posterArt(f); if (!episodeGrid) prefetch(f.id) }
                                     }
                                 }
-                            if (state.library) PosterTile(
+                            if (episodeGrid && f.kind == FileKind.VIDEO) EpisodeCard(
+                                f, state.token,
+                                progress = progressOf[MediaRef.Drive(f.id).key],
+                                watched = com.woodruff.tvexplorer.player.Watched.isWatched(context, MediaRef.Drive(f.id).key),
+                                modifier = mod,
+                            ) { choose(f) }
+                            else if (state.library) PosterTile(
                                 f, state.token, onClick = { choose(f) }, onLongClick = { menuFor = f }, modifier = mod,
                                 label = if (state.filterable) Library.label(f) else null,
                                 progress = progressOf[MediaRef.Drive(f.id).key],
@@ -596,7 +609,7 @@ private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, o
                 )
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(150.dp),
-                    contentPadding = PaddingValues(top = 22.dp, bottom = 56.dp, start = 18.dp, end = 18.dp),
+                    contentPadding = PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp),
                     horizontalArrangement = Arrangement.spacedBy(30.dp),
                     verticalArrangement = Arrangement.spacedBy(30.dp),
                     modifier = Modifier.fillMaxSize(),

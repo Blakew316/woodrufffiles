@@ -62,7 +62,8 @@ fun TransferScreen(vm: MainViewModel) {
         else TransferService.start(context)
     }
     LaunchedEffect(Unit) { if (!state.running) TransferService.start(context) }
-    BackHandler { vm.show(Screen.HOME) }
+    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    BackHandler { openSidebar() }
 
     // QR first at a fixed size, text gets the rest: TVs give apps only ~960x540dp.
     Row(

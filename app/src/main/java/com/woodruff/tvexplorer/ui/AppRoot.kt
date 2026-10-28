@@ -209,6 +209,7 @@ fun AppRoot(vm: MainViewModel) {
         ) {
                 // Switch screens in one step, not a cross-fade: during a fade the Command center's
                 // live video views were torn down by the transition, which crashed on some TVs.
+                CompositionLocalProvider(LocalOpenSidebar provides { railWanted = true }) {
                 key(screen) {
                   // Each screen eases in (a quick fade and a few dp of rise) instead of popping in.
                   // Only the new screen animates; the old one is gone at once (a cross-fade kept the
@@ -227,6 +228,7 @@ fun AppRoot(vm: MainViewModel) {
                         Screen.SETTINGS -> SettingsScreen(vm)
                     }
                   }
+                }
                 }
                 MessageBanner(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
                 DriveMessage(drive, Modifier.align(Alignment.BottomCenter))
@@ -451,6 +453,12 @@ private val LocalRailActive = androidx.compose.runtime.staticCompositionLocalOf<
 /** False while the sidebar is hidden: its items can't be reached by accident from the screen. */
 private val LocalRailFocusable = androidx.compose.runtime.compositionLocalOf { true }
 private val RAIL_OPEN = 260.dp
+
+/**
+ * Brings up the sidebar. A screen's Back at its top calls it (as on Apple TV) rather than going
+ * straight Home; Home is chosen in the sidebar.
+ */
+internal val LocalOpenSidebar = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
 
 /** The remote's search button asks for a voice search (MainActivity forwards it here). */
 internal object VoiceSearch {

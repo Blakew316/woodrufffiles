@@ -62,7 +62,8 @@ fun NotesScreen(vm: MainViewModel) {
     LaunchedEffect(Unit) { Notes.load(context) }
     val notes by Notes.items.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<Note?>(null) }
-    BackHandler { vm.show(Screen.HOME) }
+    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    BackHandler { openSidebar() }
 
     Column(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 28.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -67,7 +67,8 @@ fun MailScreen(vm: MainViewModel) {
     val mail: MailViewModel = viewModel()
     val state by mail.state.collectAsStateWithLifecycle()
 
-    BackHandler { if (state.open != null) mail.closeMessage() else vm.show(Screen.HOME) }
+    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    BackHandler { if (state.open != null) mail.closeMessage() else openSidebar() }
 
     Column(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, top = 28.dp)) {
         Text("Mail", style = MaterialTheme.typography.headlineLarge)

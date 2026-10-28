@@ -121,7 +121,8 @@ fun CommandCenterScreen(vm: MainViewModel) {
     var askProject by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { Nest.open() }
     LaunchedEffect(Unit) { cameraRequests.collect { full = it } }
-    BackHandler { if (full != null) full = null else vm.show(Screen.HOME) }
+    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    BackHandler { if (full != null) full = null else openSidebar() }
 
     val cams = state.cameras
     val fullIndex = full

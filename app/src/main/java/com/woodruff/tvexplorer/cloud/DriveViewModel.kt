@@ -244,11 +244,13 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         stack.first() == DrivePlace.Movies && stack.size == 1 -> Tmdb.Mode.MOVIES
         stack.first() == DrivePlace.TvShows && stack.size == 1 -> Tmdb.Mode.SHOWS
         stack.first() == DrivePlace.TvShows && stack.size == 2 -> Tmdb.Mode.SEASONS
+        // Inside a season: each episode's picture.
+        stack.first() == DrivePlace.TvShows && stack.size >= 3 -> Tmdb.Mode.EPISODES
         else -> Tmdb.Mode.NONE
     }
 
     private suspend fun tmdb(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> =
-        Tmdb.fill(ctx, files, tmdbMode(stack), show = stack.getOrNull(1)?.title)
+        Tmdb.fill(ctx, files, tmdbMode(stack), show = stack.getOrNull(1)?.title, season = stack.getOrNull(2)?.title)
             .let { withContext(Dispatchers.Default) { Library.prepare(it) } }
             .also { warmPosters(token, it) }
 

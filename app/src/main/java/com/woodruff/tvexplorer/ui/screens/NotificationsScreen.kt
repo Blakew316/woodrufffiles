@@ -60,7 +60,8 @@ fun NotificationsScreen(vm: MainViewModel) {
     val context = LocalContext.current
     val items by Notices.items.collectAsStateWithLifecycle()
     var announcing by remember { mutableStateOf(false) }
-    BackHandler { vm.show(Screen.HOME) }
+    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    BackHandler { openSidebar() }
     LaunchedEffect(Unit) { Notices.markAllRead(context) }
     if (announcing) AnnounceDialog(vm, onDismiss = { announcing = false })
 

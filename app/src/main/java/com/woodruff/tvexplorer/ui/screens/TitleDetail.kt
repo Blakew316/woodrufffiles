@@ -165,6 +165,14 @@ private fun TitlePage(
             .minByOrNull { (_, s) -> Tmdb.seasonNumber(s.first) ?: Int.MAX_VALUE }?.index ?: 0
     }
     var chosenSeason by remember { mutableIntStateOf(-1) }
+    // The season tab the focus is on: its episodes come up once it rests there a moment (passing
+    // across the tabs doesn't load every season on the way).
+    var restingSeason by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(restingSeason) {
+        if (restingSeason < 0) return@LaunchedEffect
+        kotlinx.coroutines.delay(250)
+        chosenSeason = restingSeason
+    }
     val season = if (chosenSeason >= 0) chosenSeason else firstSeason
     // The season's episodes, tagged with the season they're from: switching seasons never shows
     // (or plays) the previous one's while the next loads.
@@ -175,7 +183,7 @@ private fun TitlePage(
             list.isEmpty() -> emptyList<DriveFile>()
             folder == null -> inside.orEmpty().filter { it.kind == FileKind.VIDEO }
             else -> listing(context, token, folder).orEmpty().filter { it.kind == FileKind.VIDEO }
-        }
+        }.let { eps -> runCatching { Tmdb.withEpisodeStills(context, eps, show = f.name, seasonFolder = folder?.name) }.getOrDefault(eps) }
     }
     val episodes = loaded?.takeIf { it.first == season }?.second
     // The first season's episodes, kept so "Play S1 E1" stays put while you browse other seasons.
@@ -268,8 +276,10 @@ private fun TitlePage(
                         } else if (firstEpisode != null) {
                             DetailButton(Icons.Rounded.PlayArrow, "Play " + (episodeCode(firstEpisode.name) ?: "first episode"), primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
                         }
-                        val openIsMain = resumeEpisode == null && firstEpisode == null
-                        DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = openIsMain, if (openIsMain) Modifier.focusRequester(primary) else Modifier, onOpen)
+                        // The folders only when no episode was found to play (never beside Play).
+                        if (resumeEpisode == null && firstEpisode == null && (firstEps != null || seasons?.isEmpty() == true)) {
+                            DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
+                        }
                     }
                     film != null -> {
                         if (filmResumeMs > 60_000) {
@@ -291,15 +301,17 @@ private fun TitlePage(
             // A show's seasons and episodes.
             val seasonList = seasons
             if (isShow && f.isFolder && seasonList != null && seasonList.isNotEmpty()) {
-                if (seasonList.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
+                // Rows leave room at their ends for a focused item's grown edge and white outline
+                // (a row clips there).
+                if (seasonList.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)) {
                     items(seasonList.size) { i ->
-                        SeasonTab(seasonList[i].first, selected = i == season) { chosenSeason = i }
+                        SeasonTab(seasonList[i].first, selected = i == season, onFocused = { restingSeason = i }) { chosenSeason = i }
                     }
                 }
                 val eps = episodes
                 if (eps == null) Text("Loading episodes…", color = Color.White.copy(alpha = 0.6f))
                 else if (eps.isEmpty()) Text("No episodes in this folder", color = Color.White.copy(alpha = 0.6f))
-                else LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 4.dp)) {
+                else LazyRow(horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 16.dp)) {
                     items(eps, key = { it.id }) { ep ->
                         val key = MediaRef.Drive(ep.id).key
                         EpisodeCard(
@@ -313,7 +325,7 @@ private fun TitlePage(
             // More like this, from your own library.
             if (similar.isNotEmpty()) {
                 Text("More like this", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.padding(top = 10.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 8.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)) {
                     items(similar, key = { it.id }) { s ->
                         PosterTile(s, token, onClick = { onChoose(s) }, onLongClick = { onChoose(s) }, modifier = Modifier.width(130.dp), label = Library.label(s))
                     }
@@ -345,9 +357,10 @@ internal fun episodeCode(name: String): String? {
 }
 
 @Composable
-private fun SeasonTab(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun SeasonTab(label: String, selected: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
+        modifier = Modifier.onFocusChanged { if (it.isFocused) onFocused() },
         shape = ClickableSurfaceDefaults.shape(Shapes.pill),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) Color.White.copy(alpha = 0.22f) else Color.Transparent,
@@ -361,11 +374,18 @@ private fun SeasonTab(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** An episode: its frame from Drive, the code and name, a progress bar or a ✓. */
+/**
+ * An episode: its picture (TMDB's, else Drive's frame from the video), the code and name, a
+ * progress bar or a ✓. Used in a show's row of episodes and in a season's folder.
+ */
 @Composable
-private fun EpisodeCard(ep: DriveFile, token: String?, progress: Float?, watched: Boolean, onClick: () -> Unit) {
+internal fun EpisodeCard(
+    ep: DriveFile, token: String?, progress: Float?, watched: Boolean,
+    modifier: Modifier = Modifier.width(280.dp),
+    onClick: () -> Unit,
+) {
     val context = LocalContext.current
-    Column(Modifier.width(280.dp)) {
+    Column(modifier) {
         Surface(
             onClick = onClick,
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
@@ -375,10 +395,13 @@ private fun EpisodeCard(ep: DriveFile, token: String?, progress: Float?, watched
             modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
         ) {
             Box(Modifier.fillMaxSize()) {
-                val thumb = ep.thumbnailLink?.let(DriveApi::big)
-                if (thumb != null && token != null && isGoogle(thumb)) {
+                val thumb = ep.posterUrl ?: ep.thumbnailLink?.let(DriveApi::big)
+                // Drive's own images need the Google token (and only they ever get it); TMDB's don't.
+                if (thumb != null && (!isGoogle(thumb) || token != null)) {
                     val request = remember(thumb, token) {
-                        ImageRequest.Builder(context).data(thumb).addHeader("Authorization", "Bearer $token").size(400, 225).crossfade(150).build()
+                        ImageRequest.Builder(context).data(thumb)
+                            .apply { if (isGoogle(thumb) && token != null) addHeader("Authorization", "Bearer $token") }
+                            .size(400, 225).crossfade(150).build()
                     }
                     AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 } else TvIcon(Icons.Rounded.PlayArrow, size = 40.dp, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Center))
