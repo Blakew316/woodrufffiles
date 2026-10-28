@@ -1,6 +1,7 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import com.woodruff.tvexplorer.ui.icons.Sym
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,7 +51,11 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.DrivePlace
+import com.woodruff.tvexplorer.cloud.EpisodeShows
+import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.RecentStore
@@ -57,6 +63,8 @@ import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import java.util.Calendar
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** Where the focus was in each library's rows (row name to title id), to put it back on return. */
@@ -100,7 +108,12 @@ internal fun LibraryRows(
         // A film you're part-way through, or a show (or a film in its own folder) by name — the
         // folders' names are only worked out if something isn't found by its own key.
         val byName by lazy { files.filter { it.isFolder }.associateBy { Library.showMatchKey(it.name) } }
-        val continuing = recentAtOpen.mapNotNull { r -> byKey[r.key] ?: byName[Library.showMatchKey(r.title)] }.distinctBy { it.id }
+        // An episode whose name doesn't say its show ("S01E013_Pilot"): the show it's known to sit under.
+        EpisodeShows.load(context)
+        val known = EpisodeShows.map.value
+        val continuing = recentAtOpen.mapNotNull { r ->
+            byKey[r.key] ?: known[r.key]?.let { byKey[MediaRef.Drive(it).key] } ?: byName[Library.showMatchKey(r.title)]
+        }.distinctBy { it.id }
         val recentlyAdded = files.sortedByDescending { it.modified }.take(20)
         val rated = files.filter { Library.info(it).rating != null }.sortedByDescending { Library.info(it).rating }
         buildList {
@@ -135,6 +148,8 @@ internal fun LibraryRows(
     val heroRows = if (featured.isNotEmpty()) 1 else 0
     val list = rememberLazyListState(initialFirstVisibleItemIndex = restore?.let { it.first + heroRows } ?: 0)
     val scope = rememberCoroutineScope()
+    // A featured folder being looked in for its film: OK pressed again meanwhile doesn't play it twice.
+    var findingFilm by remember { mutableStateOf<Job?>(null) }
     // Each row's scroll position, kept while it's off screen.
     val rowStates = remember { HashMap<String, LazyListState>() }
     LazyColumn(
@@ -151,11 +166,20 @@ internal fun LibraryRows(
                     rowsFocus.remove(placeKey)
                     // After the focus's own scroll has started (a frame later), so this one wins.
                     scope.launch { withFrameNanos {}; list.animateScrollToItem(0) }
-                }
+                } else findingFilm?.cancel() // moved on before its film was found: it doesn't start later
             }) {
                 HeroCarousel(
                     featured, token, isShows, heroFocus,
-                    onPlay = { f -> if (f.isFolder) onChoose(f) else onPlay(f) },
+                    onPlay = { f ->
+                        if (!f.isFolder) onPlay(f)
+                        else if (isShows) onChoose(f)
+                        // A film kept in its own folder (Plex style): play it, as its title page
+                        // does; that page instead when the folder has no video or can't be listed.
+                        else if (findingFilm?.isActive != true) findingFilm = scope.launch {
+                            val film = filmIn(context, token, f)
+                            if (film != null) onPlay(film) else onChoose(f)
+                        }
+                    },
                     onDetails = onChoose,
                 )
             }
@@ -214,8 +238,22 @@ internal fun LibraryRows(
 }
 
 /**
+ * The film kept in [folder], picked as its title page picks it ([folderFilm]); null for a collection
+ * or a film in parts, when there's no video, or when the folder can't be listed. Listed with a
+ * current token (the screen's can be an hour old).
+ */
+private suspend fun filmIn(context: Context, token: String?, folder: DriveFile): DriveFile? = try {
+    val t = GoogleAuth.token(context) ?: token
+    if (t == null) null else folderFilm(DriveApi.list(t, DrivePlace.Folder(folder.id, folder.name)))
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    null
+}
+
+/**
  * The featured titles, Apple TV style: one at a time across the top — its wide art in a rounded
- * frame, name, year and genres, synopsis — gliding to the next every 8 seconds, with dots for
+ * frame, name, year and genres, synopsis — gliding to the next every 12 seconds, with dots for
  * where it is among them. Only the picture and words cross-fade: the Play and Details buttons stay
  * put (and keep the focus) and always act on the title showing.
  */
@@ -226,8 +264,11 @@ private fun HeroCarousel(
 ) {
     val context = LocalContext.current
     var index by remember(items) { mutableIntStateOf(0) }
-    LaunchedEffect(items) {
-        while (items.size > 1) {
+    // Paused while a title's page, a menu or the filters cover it (they take the window's focus):
+    // unseen, it went on loading and cross-fading art behind them.
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(items, windowFocused) {
+        while (windowFocused && items.size > 1) {
             kotlinx.coroutines.delay(12_000) // a calm pace
             index = (index + 1) % items.size
         }

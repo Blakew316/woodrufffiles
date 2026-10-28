@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.ui.screens
 
 import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,7 +86,8 @@ fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
     }
     DialogFrame("Add another TV", onDismiss, width = 640) {
         Text(if (found.isEmpty()) "Looking for TVs with Woodruff Family on this Wi-Fi…" else "Choose a TV:", color = Palette.muted)
-        LazyColumn(Modifier.heightIn(max = 260.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Room above the first row and below the last: a focused row grows past them, and the list clips there.
+        LazyColumn(Modifier.heightIn(max = 260.dp), contentPadding = PaddingValues(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(found, key = { it.base }) { f ->
                 ListItem(
                     selected = false, onClick = { chosen = f },

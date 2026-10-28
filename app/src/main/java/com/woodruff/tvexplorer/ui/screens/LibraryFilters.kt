@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -123,8 +124,8 @@ internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (active) Palette.text.copy(alpha = 0.22f) else Palette.surfaceHigh,
             contentColor = Palette.text,
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color(0xFF0B1220),
+            focusedContainerColor = Palette.text,
+            focusedContentColor = Palette.background,
         ),
         border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Palette.rim), shape = Shapes.pill)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
@@ -143,10 +144,12 @@ internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 @Composable
 private fun <T> CategoryTabs(options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
     val select by rememberUpdatedState(onSelect)
+    // The row clips at its ends, and a focused tab grows past them (a long genre's by several dp):
+    // the tabs get room inside it, shifted back into line.
     LazyRow(
-        Modifier.fillMaxWidth().padding(top = 10.dp),
+        Modifier.fillMaxWidth().padding(top = 10.dp).offset(x = (-8).dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
     ) {
         items(options, key = { it.toString() }) { o ->
             val isSelected = o == selected
@@ -156,8 +159,8 @@ private fun <T> CategoryTabs(options: List<T>, selected: T, label: (T) -> String
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (isSelected) Palette.surfaceHigh else Color.Transparent,
                     contentColor = if (isSelected) Palette.text else Palette.muted,
-                    focusedContainerColor = Color.White,
-                    focusedContentColor = Color(0xFF0B1220),
+                    focusedContainerColor = Palette.text,
+                    focusedContentColor = Palette.background,
                 ),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
             ) {
@@ -274,8 +277,8 @@ internal fun SheetOption(label: String, checked: Boolean, modifier: Modifier = M
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
             contentColor = if (accent) Palette.accent else Palette.text,
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color(0xFF0B1220),
+            focusedContainerColor = Palette.text,
+            focusedContentColor = Palette.background,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
     ) {

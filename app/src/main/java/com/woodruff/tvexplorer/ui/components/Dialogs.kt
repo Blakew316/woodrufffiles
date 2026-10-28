@@ -4,6 +4,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -77,7 +78,9 @@ fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDi
     val first = remember { FocusRequester() }
     DialogFrame(title, onDismiss, width = 460) {
         if (subtitle != null) Text(subtitle, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Room above the first row and below the last: a focused row grows past them, and the
+        // list clips there.
+        LazyColumn(contentPadding = PaddingValues(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             itemsIndexed(actions) { i, a ->
                 ListItem(
                     selected = false,
