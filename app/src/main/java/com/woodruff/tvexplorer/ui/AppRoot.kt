@@ -394,14 +394,25 @@ fun AppRoot(vm: MainViewModel) {
     }
 }
 
-/** Fade + slight rise for a screen that just opened; runs in the draw layer only. */
+/**
+ * Apple's ease-out: moves off quickly and glides to a stop, with no visible end — the curve behind
+ * the "buttery" feel of tvOS transitions.
+ */
+internal val SmoothEase = androidx.compose.animation.core.CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+
+/**
+ * A screen (or a page over it) easing in, as on Apple TV: a fade with a gentle zoom from just
+ * under full size. Runs in the draw layer only, so it costs no recomposition or layout.
+ */
 @Composable
-private fun ScreenEnter(content: @Composable () -> Unit) {
+internal fun ScreenEnter(content: @Composable () -> Unit) {
     val p = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(Unit) { p.animateTo(1f, tween(180, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+    LaunchedEffect(Unit) { p.animateTo(1f, tween(320, easing = SmoothEase)) }
     // ModulateAlpha: fades without first drawing the whole screen into an offscreen buffer.
     Box(Modifier.fillMaxSize().graphicsLayer {
-        alpha = p.value; translationY = (1f - p.value) * 14.dp.toPx()
+        alpha = p.value
+        val s = 0.97f + 0.03f * p.value
+        scaleX = s; scaleY = s
         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
     }) { content() }
 }
@@ -415,7 +426,9 @@ private fun ScreenEnter(content: @Composable () -> Unit) {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 internal val SmoothBringIntoView = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
     override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
-        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 900f)
+        // Fully damped: glides to a stop without bounce; soft enough to feel smooth, quick enough
+        // that holding a direction never leaves the focus behind.
+        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 700f)
 
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         val margin = containerSize * 0.16f

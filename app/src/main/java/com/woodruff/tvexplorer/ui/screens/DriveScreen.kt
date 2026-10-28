@@ -247,7 +247,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         verticalArrangement = Arrangement.spacedBy(if (state.library) 30.dp else 22.dp),
                     ) {
                         items(shown, key = { it.id }) { f ->
-                            val mod = (if (f.id == target) Modifier.focusRequester(first) else Modifier)
+                            // animateItem: changing the sort or category glides the posters to their new
+                            // places (and fades the ones coming and going) instead of jumping.
+                            val mod = Modifier.animateItem().then(if (f.id == target) Modifier.focusRequester(first) else Modifier)
                                 .onFocusChanged {
                                     if (it.isFocused) {
                                         driveFocus[placeKey] = f.id
@@ -533,7 +535,7 @@ private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: 
     LaunchedEffect(art) {
         androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { kotlinx.coroutines.delay(350); shown = it }
     }
-    androidx.compose.animation.Crossfade(shown, animationSpec = tween(450, easing = LinearEasing), label = "backdrop") { url ->
+    androidx.compose.animation.Crossfade(shown, animationSpec = tween(520, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "backdrop") { url ->
         if (url != null) {
             val painter = LocalPosterPainter.current
             if (painter != null) painter(url)?.let {
@@ -567,6 +569,7 @@ private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, o
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(field)
+        com.woodruff.tvexplorer.ui.ScreenEnter {
         Box(Modifier.fillMaxSize().ambientBackdrop()) {
             Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -598,10 +601,11 @@ private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, o
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(results, key = { it.id }) { f ->
-                        PosterTile(f, token, onClick = { onOpen(f) }, onLongClick = { onOpen(f) }, modifier = Modifier, label = Library.label(f))
+                        PosterTile(f, token, onClick = { onOpen(f) }, onLongClick = { onOpen(f) }, modifier = Modifier.animateItem(), label = Library.label(f))
                     }
                 }
             }
+        }
         }
     }
 }

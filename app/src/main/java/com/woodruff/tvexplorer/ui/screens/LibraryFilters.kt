@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -183,12 +184,21 @@ private fun FilterSheet(
     val first = remember { FocusRequester() }
     val list = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Glides in from the right edge, as Apple TV's side panels do.
+    val enter = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { enter.animateTo(1f, androidx.compose.animation.core.tween(340, easing = com.woodruff.tvexplorer.ui.SmoothEase)) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(first)
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
             LazyColumn(
                 state = list,
-                modifier = Modifier.width(400.dp).fillMaxHeight().padding(vertical = 28.dp, horizontal = 28.dp)
+                modifier = Modifier
+                    .graphicsLayer {
+                        alpha = enter.value
+                        translationX = (1f - enter.value) * 64.dp.toPx()
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                    }
+                    .width(400.dp).fillMaxHeight().padding(vertical = 28.dp, horizontal = 28.dp)
                     .background(Palette.glass, RoundedCornerShape(30.dp))
                     .border(1.dp, Palette.rim, RoundedCornerShape(30.dp)),
                 contentPadding = PaddingValues(18.dp),

@@ -104,7 +104,10 @@ fun TitleDetail(
         // One page per title: a title picked from "More like this" starts afresh, with nothing (cast,
         // seasons, the first episode, scroll, focus) carried over from the one before.
         key(f.id) {
-            TitlePage(f, art, token, all, isShow, artHeaders, onPlay, onPlayEpisode, onPlayKey, openLabel, onOpen, onChoose)
+            // Eases in (fade and a gentle zoom) rather than popping up.
+            com.woodruff.tvexplorer.ui.ScreenEnter {
+                TitlePage(f, art, token, all, isShow, artHeaders, onPlay, onPlayEpisode, onPlayKey, openLabel, onOpen, onChoose)
+            }
         }
     }
 }
