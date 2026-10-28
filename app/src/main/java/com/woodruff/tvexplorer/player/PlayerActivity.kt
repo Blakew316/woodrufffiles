@@ -145,7 +145,84 @@ class PlayerActivity : ComponentActivity() {
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.END,
         ).apply { setMargins(0, 0, 72, 72) })
+        // Scrubbing preview: a frame from that point of the film, above the progress bar.
+        val d = resources.displayMetrics.density
+        previewImage = android.widget.ImageView(this).apply {
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(android.graphics.Color.BLACK)
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: android.view.View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, 14 * d) }
+            }
+        }
+        previewTime = android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 20f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, (8 * d).toInt(), 0, 0)
+        }
+        previewBox = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            val pad = (5 * d).toInt()
+            setPadding(pad, pad, pad, pad)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xE6101820.toInt()); cornerRadius = 18 * d; setStroke((2 * d).toInt(), android.graphics.Color.WHITE)
+            }
+            addView(previewImage, android.widget.LinearLayout.LayoutParams((PREVIEW_W * d).toInt(), (PREVIEW_H * d).toInt()))
+            addView(previewTime, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
+            visibility = android.view.View.GONE
+        }
+        root.addView(previewBox, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.TOP or android.view.Gravity.START,
+        ))
+        rootView = root
         setContentView(root)
+        view.findViewById<androidx.media3.ui.DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
+            override fun onScrubStart(timeBar: androidx.media3.ui.TimeBar, position: Long) = showPreview(timeBar as android.view.View, position, starting = true)
+            override fun onScrubMove(timeBar: androidx.media3.ui.TimeBar, position: Long) = showPreview(timeBar as android.view.View, position, starting = false)
+            override fun onScrubStop(timeBar: androidx.media3.ui.TimeBar, position: Long, canceled: Boolean) {
+                preview?.cancel()
+                previewBox.visibility = android.view.View.GONE
+            }
+        })
+    }
+
+    // ---- Scrubbing preview ----------------------------------------------------------------------
+
+    private lateinit var rootView: android.widget.FrameLayout
+    private lateinit var previewBox: android.widget.LinearLayout
+    private lateinit var previewImage: android.widget.ImageView
+    private lateinit var previewTime: android.widget.TextView
+    private var preview: ScrubPreview? = null
+
+    /** Where the preview frames come from: the same file the player streams (Drive with its token). Off the main thread. */
+    private fun previewSource(key: String): Pair<String, Map<String, String>>? = when (val ref = MediaRef.parse(key)) {
+        is MediaRef.Drive -> token().takeIf { it.isNotEmpty() }?.let { com.woodruff.tvexplorer.cloud.DriveApi.mediaUrl(ref.id) to mapOf("Authorization" to "Bearer $it") }
+        is MediaRef.Local -> ref.path to emptyMap()
+        is MediaRef.Remote -> ref.url to emptyMap()
+    }
+
+    private fun showPreview(timeBar: android.view.View, position: Long, starting: Boolean) {
+        val p = player ?: return
+        val key = p.currentMediaItem?.mediaId ?: return
+        val duration = p.duration.takeIf { it > 0 } ?: return
+        val pv = preview ?: return
+        previewTime.text = com.woodruff.tvexplorer.util.Format.duration(position)
+        val cached = pv.cached(key, position)
+        if (cached != null) previewImage.setImageBitmap(cached) else if (starting) previewImage.setImageDrawable(null)
+        pv.request(key, position) { previewImage.setImageBitmap(it) }
+        // Centered over the scrub point, kept on screen, just above the bar.
+        val d = resources.displayMetrics.density
+        val boxW = (PREVIEW_W + 10) * d
+        val boxH = (PREVIEW_H + 10 + 40) * d
+        val bar = IntArray(2).also(timeBar::getLocationInWindow)
+        val rootPos = IntArray(2).also(rootView::getLocationInWindow)
+        val x = bar[0] - rootPos[0] + timeBar.width * (position.toFloat() / duration) - boxW / 2
+        previewBox.translationX = x.coerceIn(24 * d, (rootView.width - boxW - 24 * d).coerceAtLeast(24 * d))
+        previewBox.translationY = (bar[1] - rootPos[1] - boxH - 18 * d).coerceAtLeast(24 * d)
+        previewBox.visibility = android.view.View.VISIBLE
     }
 
     // ---- Sleep timer, skip intro, remembered tracks ----------------------------------------
@@ -338,6 +415,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        preview = ScrubPreview(::previewSource)
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
         val keys = savedQueue?.first ?: intent.getStringArrayListExtra(EXTRA_KEYS).orEmpty()
         val titles = savedQueue?.second ?: intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
@@ -439,6 +517,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        preview?.release(); preview = null
+        if (::previewBox.isInitialized) previewBox.visibility = android.view.View.GONE
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         reporter.removeCallbacks(report)
         followJob?.cancel(); followJob = null
@@ -542,6 +622,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val PREVIEW_W = 288
+        private const val PREVIEW_H = 162
         private const val EXTRA_KEYS = "keys"
         private const val EXTRA_TITLES = "titles"
         private const val EXTRA_START = "start"

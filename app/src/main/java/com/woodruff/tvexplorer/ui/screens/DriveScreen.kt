@@ -363,7 +363,7 @@ internal fun PosterTile(f: DriveFile, token: String?, onClick: () -> Unit, onLon
                     model = ImageRequest.Builder(context).data(art)
                         // The Google token only ever goes to Google's own image servers, never to TMDB.
                         .apply { if (isGoogle(art) && token != null) addHeader("Authorization", "Bearer $token") }
-                        .size(450, 675).crossfade(true).build(),
+                        .size(320, 480).crossfade(150).build(), // the tile's real size on a 1080p TV: faster decode, less memory
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = depth,
@@ -393,7 +393,7 @@ private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: 
     LaunchedEffect(Unit) {
         androidx.compose.runtime.snapshotFlow { art.value }.collect { kotlinx.coroutines.delay(350); shown = it }
     }
-    androidx.compose.animation.Crossfade(shown, animationSpec = tween(700, easing = LinearEasing), label = "backdrop") { url ->
+    androidx.compose.animation.Crossfade(shown, animationSpec = tween(450, easing = LinearEasing), label = "backdrop") { url ->
         if (url != null) {
             val painter = LocalPosterPainter.current
             if (painter != null) painter(url)?.let {

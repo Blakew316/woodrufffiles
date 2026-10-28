@@ -26,6 +26,11 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         // At most two decodes at once: a folder of videos otherwise opens a decoder per tile and
         // the TV's few hardware decoders (and the CPU) choke while scrolling.
         .decoderDispatcher(kotlinx.coroutines.Dispatchers.IO.limitedParallelism(2))
-        .crossfade(true)
+        // Posters and thumbnails are opaque: half the memory per image, so more of them stay cached
+        // and scrolling back is instant. Keep them on disk even when Google's servers say "no-cache"
+        // (the same poster URL never changes), so revisits don't refetch every tile.
+        .allowRgb565(true)
+        .respectCacheHeaders(false)
+        .crossfade(150)
         .build()
 }

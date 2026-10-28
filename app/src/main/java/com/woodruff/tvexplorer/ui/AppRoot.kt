@@ -318,7 +318,7 @@ fun AppRoot(vm: MainViewModel) {
 @Composable
 private fun ScreenEnter(content: @Composable () -> Unit) {
     val p = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(Unit) { p.animateTo(1f, tween(220, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+    LaunchedEffect(Unit) { p.animateTo(1f, tween(180, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
     Box(Modifier.fillMaxSize().graphicsLayer { alpha = p.value; translationY = (1f - p.value) * 14.dp.toPx() }) { content() }
 }
 
