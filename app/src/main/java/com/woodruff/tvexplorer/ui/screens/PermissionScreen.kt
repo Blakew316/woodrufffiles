@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -8,8 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,7 +43,7 @@ fun PermissionScreen(onRecheck: () -> Unit) {
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(Modifier.width(640.dp), verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            TvIcon(Icons.Rounded.FolderOpen, size = 72.dp, tint = Palette.text)
+            TvIcon(Sym.FolderOpen, size = 72.dp, tint = Palette.text)
             Text("Allow access to your files", style = MaterialTheme.typography.headlineMedium)
             Text(
                 if (Build.VERSION.SDK_INT >= 30)

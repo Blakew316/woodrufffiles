@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -11,14 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Backup
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.Launch
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -80,11 +73,11 @@ fun AppsScreen(vm: MainViewModel) {
         )
         Row(Modifier.padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ToolButton(
-                if (includeSystem) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                if (includeSystem) Sym.Visibility else Sym.VisibilityOff,
                 if (includeSystem) "Hide system apps" else "Show system apps",
                 { includeSystem = !includeSystem },
             )
-            ToolButton(Icons.Rounded.Refresh, null, { generation++ })
+            ToolButton(Sym.Refresh, null, { generation++ })
         }
         LazyColumn(contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(apps.orEmpty(), key = { it.packageName }) { app ->
@@ -113,18 +106,18 @@ fun AppsScreen(vm: MainViewModel) {
             subtitle = app.packageName,
             onDismiss = { menuFor = null },
             actions = buildList {
-                if (app.launchable) add(MenuAction("Open", Icons.Rounded.Launch) {
+                if (app.launchable) add(MenuAction("Open", Sym.Launch) {
                     repo.launchIntent(app.packageName)?.let { context.startActivity(it) } ?: vm.say("This app has no launcher screen")
                 })
-                add(MenuAction("Back up APK to Downloads", Icons.Rounded.Backup) {
+                add(MenuAction("Back up APK to Downloads", Sym.Backup) {
                     scope.launch {
                         runCatching { repo.backup(app) }
                             .onSuccess { vm.say("Saved ${it.absolutePath}") }
                             .onFailure { vm.say("Backup failed: ${it.message}") }
                     }
                 })
-                add(MenuAction("App info", Icons.Rounded.Info) { report(Opener.appDetails(context, app.packageName)) })
-                if (!app.isSystem) add(MenuAction("Uninstall", Icons.Rounded.Delete, destructive = true) {
+                add(MenuAction("App info", Sym.Info) { report(Opener.appDetails(context, app.packageName)) })
+                if (!app.isSystem) add(MenuAction("Uninstall", Sym.Delete, destructive = true) {
                     report(Opener.uninstall(context, app.packageName))
                 })
             },

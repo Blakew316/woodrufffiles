@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,11 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -88,9 +84,9 @@ fun LibraryHeader(
             // What the grid is narrowed to, so it's never a mystery why something's missing.
             val summary = listOfNotNull(filter.genre, filter.decade?.let { "${it}s" }, filter.sort.label.takeIf { filter.sort != LibrarySort.TITLE })
             if (summary.isNotEmpty()) Text(summary.joinToString(" · "), color = Palette.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 18.dp))
-            RoundButton(Icons.Rounded.Search, "Search", onSearch)
-            RoundButton(Icons.Rounded.Tune, "Filter", { filtering = true }, active = filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)
-            RoundButton(Icons.Rounded.MoreHoriz, null, onMore)
+            RoundButton(Sym.Search, "Search", onSearch)
+            RoundButton(Sym.Tune, "Filter", { filtering = true }, active = filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)
+            RoundButton(Sym.MoreHoriz, null, onMore)
         }
         // Tabs: Overview (featured title and rows), All (A–Z), then the genres when TMDB has tagged
         // the titles, otherwise the decades.
@@ -285,7 +281,7 @@ internal fun SheetOption(label: String, checked: Boolean, modifier: Modifier = M
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (checked) TvIcon(Icons.Rounded.Check, size = 22.dp)
+            if (checked) TvIcon(Sym.Check, size = 22.dp)
         }
     }
 }

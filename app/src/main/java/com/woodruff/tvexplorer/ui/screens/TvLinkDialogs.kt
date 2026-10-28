@@ -1,11 +1,10 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -90,7 +89,7 @@ fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
             items(found, key = { it.base }) { f ->
                 ListItem(
                     selected = false, onClick = { chosen = f },
-                    leadingContent = { TvIcon(Icons.Rounded.Tv) },
+                    leadingContent = { TvIcon(Sym.Tv) },
                     headlineContent = { Text(f.name) },
                     supportingContent = { Text(f.base.removePrefix("http://"), color = Palette.muted) },
                 )

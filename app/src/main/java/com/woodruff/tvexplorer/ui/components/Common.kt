@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.components
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -12,19 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Android
-import androidx.compose.material.icons.rounded.Archive
-import androidx.compose.material.icons.rounded.AudioFile
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.InsertDriveFile
-import androidx.compose.material.icons.rounded.Movie
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.PhotoCamera
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.TextSnippet
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,7 +54,7 @@ fun FocusWhenReady(requester: androidx.compose.ui.focus.FocusRequester, key: Any
 /** Tinted vector icon; follows the surrounding content color (which flips when focused). */
 @Composable
 fun TvIcon(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 24.dp, tint: Color = LocalContentColor.current) {
-    Image(icon, contentDescription = null, modifier = modifier.size(size), colorFilter = ColorFilter.tint(tint))
+    Image(com.woodruff.tvexplorer.ui.icons.symbolAt(icon, size), contentDescription = null, modifier = modifier.size(size), colorFilter = ColorFilter.tint(tint))
 }
 
 /**
@@ -74,13 +62,13 @@ fun TvIcon(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 24.dp, t
  * plain folder.
  */
 private fun folderGlyph(name: String): ImageVector = when (name.lowercase()) {
-    "movies", "videos", "movie", "video", "tv shows" -> Icons.Rounded.Movie
-    "pictures", "photos", "screenshots", "wallpapers" -> Icons.Rounded.Image
-    "dcim", "camera" -> Icons.Rounded.PhotoCamera
-    "music", "podcasts", "audiobooks", "ringtones" -> Icons.Rounded.MusicNote
-    "download", "downloads" -> Icons.Rounded.Download
-    "documents", "docs" -> Icons.Rounded.Description
-    else -> Icons.Rounded.Folder
+    "movies", "videos", "movie", "video", "tv shows" -> Sym.Movie
+    "pictures", "photos", "screenshots", "wallpapers" -> Sym.Image
+    "dcim", "camera" -> Sym.PhotoCamera
+    "music", "podcasts", "audiobooks", "ringtones" -> Sym.MusicNote
+    "download", "downloads" -> Sym.Download
+    "documents", "docs" -> Sym.Description
+    else -> Sym.Folder
 }
 
 /** The icon for any file or folder: an iOS-style folder, or a colored badge for files. */
@@ -93,15 +81,15 @@ fun FileGlyph(name: String, kind: FileKind, modifier: Modifier = Modifier, size:
 }
 
 fun FileKind.icon(): ImageVector = when (this) {
-    FileKind.FOLDER -> Icons.Rounded.Folder
-    FileKind.IMAGE -> Icons.Rounded.Image
-    FileKind.VIDEO -> Icons.Rounded.Movie
-    FileKind.AUDIO -> Icons.Rounded.AudioFile
-    FileKind.DOCUMENT -> Icons.Rounded.Description
-    FileKind.TEXT -> Icons.Rounded.TextSnippet
-    FileKind.ARCHIVE -> Icons.Rounded.Archive
-    FileKind.APK -> Icons.Rounded.Android
-    FileKind.OTHER -> Icons.Rounded.InsertDriveFile
+    FileKind.FOLDER -> Sym.Folder
+    FileKind.IMAGE -> Sym.Image
+    FileKind.VIDEO -> Sym.Movie
+    FileKind.AUDIO -> Sym.AudioFile
+    FileKind.DOCUMENT -> Sym.Description
+    FileKind.TEXT -> Sym.TextSnippet
+    FileKind.ARCHIVE -> Sym.Archive
+    FileKind.APK -> Sym.Android
+    FileKind.OTHER -> Sym.InsertDriveFile
 }
 
 

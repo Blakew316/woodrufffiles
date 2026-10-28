@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.components
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -7,9 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,7 +35,7 @@ fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit, icon: Imag
             focusedContentColor = Palette.background,
         ),
     ) {
-        val shown = if (selected && icon == null) Icons.Rounded.Check else icon
+        val shown = if (selected && icon == null) Sym.Check else icon
         if (shown != null) TvIcon(shown, size = 18.dp, modifier = Modifier.padding(end = 6.dp))
         Text(label, style = MaterialTheme.typography.labelLarge)
     }
@@ -112,7 +110,7 @@ fun SearchBar(query: String, hint: String, onClick: () -> Unit, modifier: Modifi
         scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
     ) {
         Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvIcon(androidx.compose.material.icons.Icons.Rounded.Search, size = 22.dp)
+            TvIcon(Sym.Search, size = 22.dp)
             Text(
                 query.ifEmpty { hint }, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleSmall,

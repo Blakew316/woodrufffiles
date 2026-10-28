@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,9 +19,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -262,8 +260,8 @@ private fun HeroCarousel(
             }
         }
         Row(Modifier.align(Alignment.BottomStart).padding(start = 36.dp, bottom = 28.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            HeroButton(Icons.Rounded.PlayArrow, if (current.isFolder && isShows) "Episodes" else "Play", Modifier.focusRequester(focus)) { onPlay(current) }
-            HeroButton(Icons.Rounded.Info, "Details", Modifier) { onDetails(current) }
+            HeroButton(Sym.PlayArrow, if (current.isFolder && isShows) "Episodes" else "Play", Modifier.focusRequester(focus)) { onPlay(current) }
+            HeroButton(Sym.Info, "Details", Modifier) { onDetails(current) }
         }
         if (items.size > 1) Row(
             Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 40.dp),

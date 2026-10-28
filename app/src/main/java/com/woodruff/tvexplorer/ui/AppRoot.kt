@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -37,22 +38,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AddToDrive
-import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.Email
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.rounded.PhoneIphone
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.SdStorage
-import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.EditNote
-import androidx.compose.material.icons.rounded.Videocam
-import androidx.compose.material.icons.rounded.Movie
-import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material.icons.rounded.Tv
-import androidx.compose.material.icons.rounded.VideoLibrary
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.photos.GooglePhotos
 import com.woodruff.tvexplorer.ui.screens.CommandCenterScreen
@@ -287,21 +272,21 @@ fun AppRoot(vm: MainViewModel) {
                 Brand(open, Modifier.padding(start = 6.dp, bottom = 24.dp))
                 // Choosing a screen in the menu goes straight into it (the menu closes behind).
                 val go: (() -> Unit) -> Unit = { action -> action(); enterContent++ }
-                RailItem("Home", Icons.Rounded.Home, screen == Screen.HOME, open, Modifier.focusRequester(homeFocus)) { go { vm.show(Screen.HOME) } }
+                RailItem("Home", Sym.Home, screen == Screen.HOME, open, Modifier.focusRequester(homeFocus)) { go { vm.show(Screen.HOME) } }
                 // Streaming: Movies and TV Shows (switched at the top of the tab), from those Drive folders.
-                RailItem("Streaming", Icons.Rounded.Movie, screen == Screen.DRIVE && (driveTop == DrivePlace.Movies || driveTop == DrivePlace.TvShows), open) {
+                RailItem("Streaming", Sym.Streaming, screen == Screen.DRIVE && (driveTop == DrivePlace.Movies || driveTop == DrivePlace.TvShows), open) {
                     go { drive.openRoot(lastLibrary); vm.show(Screen.DRIVE) }
                 }
                 // Family Memories: the photos and videos picked from Google Photos, saved on the TV.
                 val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browser.folder?.path?.startsWith(dir.path) == true }
-                RailItem("Family Memories", Icons.Rounded.PhotoLibrary, inFolder(GooglePhotos.folder) || inFolder(GooglePhotos.videoFolder), open) {
+                RailItem("Family Memories", Sym.PhotoLibrary, inFolder(GooglePhotos.folder) || inFolder(GooglePhotos.videoFolder), open) {
                     go { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }) }
                 }
                 // Command Center: cameras, mail, notifications and notes (switched at the top).
-                RailItem("Command Center", Icons.Rounded.Videocam, screen in COMMAND_SCREENS, open) { go { vm.show(Screen.CAMERAS) } }
+                RailItem("Command Center", Sym.Videocam, screen in COMMAND_SCREENS, open) { go { vm.show(Screen.CAMERAS) } }
                 // Set apart at the bottom, so it's clear it's Settings you're going to.
                 Spacer(Modifier.weight(1f))
-                RailItem("Settings", Icons.Rounded.Settings, screen == Screen.SETTINGS, open) { go { vm.show(Screen.SETTINGS) } }
+                RailItem("Settings", Sym.Settings, screen == Screen.SETTINGS, open) { go { vm.show(Screen.SETTINGS) } }
               }
         }
     }
@@ -316,7 +301,7 @@ fun AppRoot(vm: MainViewModel) {
             title = "\u201c$q\u201d", subtitle = "${found.size} found",
             onDismiss = { searchResults = null },
             actions = found.map { (place, f) ->
-                MenuAction(com.woodruff.tvexplorer.cloud.Library.label(f) + " · " + place.title, if (f.isFolder) Icons.Rounded.Tv else Icons.Rounded.Movie) {
+                MenuAction(com.woodruff.tvexplorer.cloud.Library.label(f) + " · " + place.title, if (f.isFolder) Sym.Tv else Sym.Movie) {
                     if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
                     else {
                         val key = com.woodruff.tvexplorer.player.MediaRef.Drive(f.id).key

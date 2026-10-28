@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,9 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,7 +75,7 @@ fun FileRow(
         ),
         scale = ListItemDefaults.scale(focusedScale = 1.01f),
         leadingContent = {
-            if (selecting) TvIcon(if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked)
+            if (selecting) TvIcon(if (selected) Sym.CheckCircle else Sym.RadioButtonUnchecked)
             else FileGlyph(item.name, item.kind, size = 34.dp)
         },
         headlineContent = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -128,7 +126,7 @@ fun FileTile(
                 }
                 if (selecting) {
                     TvIcon(
-                        if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                        if (selected) Sym.CheckCircle else Sym.RadioButtonUnchecked,
                         tint = androidx.compose.ui.graphics.Color.White,
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                     )

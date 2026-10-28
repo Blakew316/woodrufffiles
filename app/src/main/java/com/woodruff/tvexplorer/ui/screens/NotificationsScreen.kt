@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -11,20 +12,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Email
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.PhoneIphone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material.icons.rounded.Campaign
-import androidx.compose.material.icons.rounded.CheckBox
-import androidx.compose.material.icons.rounded.CheckBoxOutlineBlank
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.TextFieldValue
@@ -70,8 +63,8 @@ fun NotificationsScreen(vm: MainViewModel) {
             Column(Modifier.weight(1f)) {
                 Text("Notifications", style = MaterialTheme.typography.headlineLarge)
             }
-            ToolButton(Icons.Rounded.Campaign, "Announce", { announcing = true })
-            if (items.isNotEmpty()) ToolButton(Icons.Rounded.Delete, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp))
+            ToolButton(Sym.Campaign, "Announce", { announcing = true })
+            if (items.isNotEmpty()) ToolButton(Sym.Delete, "Clear", { Notices.clear(context) }, Modifier.padding(start = 12.dp))
         }
         if (items.isEmpty()) {
             EmptyState("No notifications")
@@ -94,7 +87,7 @@ fun NotificationsScreen(vm: MainViewModel) {
                     colors = ListItemDefaults.colors(focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text),
                     leadingContent = {
                         TvIcon(
-                            when (n.source) { NoticeSource.PHONE -> Icons.Rounded.PhoneIphone; NoticeSource.MAIL -> Icons.Rounded.Email; NoticeSource.SYSTEM -> Icons.Rounded.Info },
+                            when (n.source) { NoticeSource.PHONE -> Sym.PhoneIphone; NoticeSource.MAIL -> Sym.Email; NoticeSource.SYSTEM -> Sym.Info },
                         )
                     },
                     headlineContent = { Text(n.title, maxLines = 2) },
@@ -144,14 +137,14 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                 ListItem(
                     selected = on,
                     onClick = { chosen = if (on) chosen - p.id else chosen + p.id },
-                    leadingContent = { TvIcon(if (on) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank) },
+                    leadingContent = { TvIcon(if (on) Sym.CheckBox else Sym.CheckBoxOutlineBlank) },
                     headlineContent = { Text(p.name) },
                 )
             }
             item {
                 ListItem(
                     selected = onTv, onClick = { onTv = !onTv },
-                    leadingContent = { TvIcon(if (onTv) Icons.Rounded.CheckBox else Icons.Rounded.CheckBoxOutlineBlank) },
+                    leadingContent = { TvIcon(if (onTv) Sym.CheckBox else Sym.CheckBoxOutlineBlank) },
                     headlineContent = { Text("Also show it on this TV") },
                 )
             }

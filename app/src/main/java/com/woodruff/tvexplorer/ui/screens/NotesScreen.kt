@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,9 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,7 +68,7 @@ fun NotesScreen(vm: MainViewModel) {
             Column(Modifier.weight(1f)) {
                 Text("Notes", style = MaterialTheme.typography.headlineLarge)
             }
-            ToolButton(Icons.Rounded.Add, "New note", { editing = NEW })
+            ToolButton(Sym.Add, "New note", { editing = NEW })
         }
         if (notes.isEmpty()) {
             EmptyState("No notes")
@@ -114,7 +112,7 @@ private fun NoteCard(n: Note, onClick: () -> Unit) {
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (n.pinned) TvIcon(Icons.Rounded.PushPin, size = 18.dp)
+                if (n.pinned) TvIcon(Sym.PushPin, size = 18.dp)
             }
             Spacer(Modifier.height(6.dp))
             Text(

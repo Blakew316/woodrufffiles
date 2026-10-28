@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,12 +22,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.FolderOpen
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Replay
-import androidx.compose.material.icons.rounded.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -247,7 +242,7 @@ private fun TitlePage(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (meta.isNotEmpty()) Text(meta.joinToString("  ·  "), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
                     info.rating?.let { r ->
-                        TvIcon(Icons.Rounded.Star, size = 18.dp, modifier = Modifier.padding(start = 14.dp, end = 4.dp))
+                        TvIcon(Sym.Star, size = 18.dp, modifier = Modifier.padding(start = 14.dp, end = 4.dp))
                         Text(String.format("%.1f", r), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleMedium)
                     }
                 }
@@ -271,31 +266,31 @@ private fun TitlePage(
                         val firstEpisode = firstEps?.firstOrNull()
                         if (resumeEpisode != null) {
                             val label = episodeCode(resumeEpisode.title)?.let { "Resume $it" } ?: "Resume"
-                            DetailButton(Icons.Rounded.PlayArrow, label, primary = true, Modifier.focusRequester(primary)) { onPlayKey(resumeEpisode.key, resumeEpisode.title) }
-                            if (firstEpisode != null) DetailButton(Icons.Rounded.Replay, "Play from the start", primary = false) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
+                            DetailButton(Sym.PlayArrow, label, primary = true, Modifier.focusRequester(primary)) { onPlayKey(resumeEpisode.key, resumeEpisode.title) }
+                            if (firstEpisode != null) DetailButton(Sym.Replay, "Play from the start", primary = false) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
                         } else if (firstEpisode != null) {
-                            DetailButton(Icons.Rounded.PlayArrow, "Play " + (episodeCode(firstEpisode.name) ?: "first episode"), primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
+                            DetailButton(Sym.PlayArrow, "Play " + (episodeCode(firstEpisode.name) ?: "first episode"), primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
                         }
                         // The folders only when no episode was found to play (never beside Play).
                         if (resumeEpisode == null && firstEpisode == null && (firstEps != null || seasons?.isEmpty() == true)) {
-                            DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
+                            DetailButton(Sym.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
                         }
                     }
                     film != null -> {
                         if (filmResumeMs > 60_000) {
-                            DetailButton(Icons.Rounded.PlayArrow, "Resume from ${Format.duration(filmResumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(film, listOf(film), false) }
-                            DetailButton(Icons.Rounded.Replay, "Start over", primary = false) { onPlayEpisode(film, listOf(film), true) }
+                            DetailButton(Sym.PlayArrow, "Resume from ${Format.duration(filmResumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(film, listOf(film), false) }
+                            DetailButton(Sym.Replay, "Start over", primary = false) { onPlayEpisode(film, listOf(film), true) }
                         } else {
-                            DetailButton(Icons.Rounded.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(film, listOf(film), false) }
+                            DetailButton(Sym.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(film, listOf(film), false) }
                         }
-                        DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = false, Modifier, onOpen)
+                        DetailButton(Sym.FolderOpen, openLabel, primary = false, Modifier, onOpen)
                     }
-                    f.isFolder -> DetailButton(Icons.Rounded.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
+                    f.isFolder -> DetailButton(Sym.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
                     resumeMs > 60_000 -> {
-                        DetailButton(Icons.Rounded.PlayArrow, "Resume from ${Format.duration(resumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
-                        DetailButton(Icons.Rounded.Replay, "Start over", primary = false) { onPlay(true) }
+                        DetailButton(Sym.PlayArrow, "Resume from ${Format.duration(resumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
+                        DetailButton(Sym.Replay, "Start over", primary = false) { onPlay(true) }
                     }
-                    else -> DetailButton(Icons.Rounded.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
+                    else -> DetailButton(Sym.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
                 }
             }
             // A show's seasons and episodes.
@@ -404,14 +399,14 @@ internal fun EpisodeCard(
                             .size(400, 225).crossfade(150).build()
                     }
                     AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                } else TvIcon(Icons.Rounded.PlayArrow, size = 40.dp, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Center))
+                } else TvIcon(Sym.PlayArrow, size = 40.dp, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Center))
                 if (progress != null && progress > 0.01f && !watched) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {
                     Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(com.woodruff.tvexplorer.ui.theme.Palette.accent))
                 }
                 if (watched) Box(
                     Modifier.align(Alignment.TopEnd).padding(8.dp).size(26.dp).clip(CircleShape).background(Color.White),
                     contentAlignment = Alignment.Center,
-                ) { TvIcon(Icons.Rounded.Check, size = 18.dp, tint = Color(0xFF0B1220)) }
+                ) { TvIcon(Sym.Check, size = 18.dp, tint = Color(0xFF0B1220)) }
             }
         }
         val code = episodeCode(ep.name)

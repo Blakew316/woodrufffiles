@@ -1,10 +1,9 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Context
 import androidx.compose.foundation.layout.height
-import androidx.compose.material.icons.rounded.Check
 import com.woodruff.tvexplorer.ui.theme.ambientBackdrop
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.draw.drawWithCache
@@ -38,18 +37,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AddToDrive
-import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.FolderShared
-import androidx.compose.material.icons.rounded.Logout
-import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -179,16 +167,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 }
             } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
                 // A show's folder (seasons, episodes): back, its name, More.
-                if (state.stack.size > 1) ToolButton(Icons.Rounded.ArrowBack, null, { drive.back() }, modifier = Modifier.padding(end = 14.dp))
+                if (state.stack.size > 1) ToolButton(Sym.ArrowBack, null, { drive.back() }, modifier = Modifier.padding(end = 14.dp))
                 Text(
                     state.place.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(end = 18.dp).weight(1f),
                 )
-                ToolButton(Icons.Rounded.MoreHoriz, null, { moreOpen = true }, modifier = Modifier.padding(start = 10.dp))
+                ToolButton(Sym.MoreHoriz, null, { moreOpen = true }, modifier = Modifier.padding(start = 10.dp))
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TvIcon(Icons.Rounded.AddToDrive, size = 32.dp) // a plain symbol, not the colored logo
+                TvIcon(Sym.AddToDrive, size = 32.dp) // a plain symbol, not the colored logo
                 Text(state.place.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(
@@ -197,12 +185,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 modifier = Modifier.padding(top = 4.dp),
             )
             Row(Modifier.padding(top = 18.dp, bottom = 18.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (state.stack.size > 1) ToolButton(Icons.Rounded.ArrowBack, null, { drive.back() })
-                ToolButton(Icons.Rounded.AddToDrive, "My Drive", { drive.openRoot(DrivePlace.MyDrive) })
-                ToolButton(Icons.Rounded.Movie, "All videos", { drive.openRoot(DrivePlace.Videos()) })
-                ToolButton(Icons.Rounded.FolderShared, "Shared with me", { drive.openRoot(DrivePlace.SharedWithMe) })
-                ToolButton(Icons.Rounded.Refresh, null, drive::refresh)
-                ToolButton(Icons.Rounded.Logout, null, drive::signOut)
+                if (state.stack.size > 1) ToolButton(Sym.ArrowBack, null, { drive.back() })
+                ToolButton(Sym.AddToDrive, "My Drive", { drive.openRoot(DrivePlace.MyDrive) })
+                ToolButton(Sym.Movie, "All videos", { drive.openRoot(DrivePlace.Videos()) })
+                ToolButton(Sym.FolderShared, "Shared with me", { drive.openRoot(DrivePlace.SharedWithMe) })
+                ToolButton(Sym.Refresh, null, drive::refresh)
+                ToolButton(Sym.Logout, null, drive::signOut)
             }
         }
         Box(Modifier.fillMaxSize()) {
@@ -307,11 +295,11 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         ActionMenu(
             title = "Google Drive", subtitle = null, onDismiss = { moreOpen = false },
             actions = listOfNotNull(
-                MenuAction("Refresh", Icons.Rounded.Refresh, run = drive::refresh),
-                MenuAction("My Drive", Icons.Rounded.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
-                MenuAction("All videos", Icons.Rounded.Movie) { drive.openRoot(DrivePlace.Videos()) },
-                MenuAction("Shared with me", Icons.Rounded.FolderShared) { drive.openRoot(DrivePlace.SharedWithMe) },
-                MenuAction("Sign out of Google Drive", Icons.Rounded.Logout, destructive = true, run = drive::signOut),
+                MenuAction("Refresh", Sym.Refresh, run = drive::refresh),
+                MenuAction("My Drive", Sym.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
+                MenuAction("All videos", Sym.Movie) { drive.openRoot(DrivePlace.Videos()) },
+                MenuAction("Shared with me", Sym.FolderShared) { drive.openRoot(DrivePlace.SharedWithMe) },
+                MenuAction("Sign out of Google Drive", Sym.Logout, destructive = true, run = drive::signOut),
             ),
         )
     }
@@ -354,11 +342,11 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             subtitle = if (f.isFolder) "Folder" else "${Format.bytes(f.size)} · ${Format.date(f.modified)}",
             onDismiss = { menuFor = null },
             actions = buildList {
-                if (f.isFolder) add(MenuAction("Open", Icons.Rounded.AddToDrive) { drive.open(DrivePlace.Folder(f.id, f.name)) })
-                if (f.kind == FileKind.VIDEO || f.kind == FileKind.AUDIO) add(MenuAction("Play", Icons.Rounded.PlayArrow) { onOpen(f) })
-                if (f.kind == FileKind.IMAGE) add(MenuAction("View", Icons.Rounded.Visibility) { onOpen(f) })
-                if (!f.isFolder && !f.isGoogleDoc) add(MenuAction("Download to this TV", Icons.Rounded.Download) { drive.download(f) })
-                if (f.isGoogleDoc) add(MenuAction("Google Docs files can't be opened on TV", Icons.Rounded.Visibility) {})
+                if (f.isFolder) add(MenuAction("Open", Sym.AddToDrive) { drive.open(DrivePlace.Folder(f.id, f.name)) })
+                if (f.kind == FileKind.VIDEO || f.kind == FileKind.AUDIO) add(MenuAction("Play", Sym.PlayArrow) { onOpen(f) })
+                if (f.kind == FileKind.IMAGE) add(MenuAction("View", Sym.Visibility) { onOpen(f) })
+                if (!f.isFolder && !f.isGoogleDoc) add(MenuAction("Download to this TV", Sym.Download) { drive.download(f) })
+                if (f.isGoogleDoc) add(MenuAction("Google Docs files can't be opened on TV", Sym.Visibility) {})
             },
         )
     }
@@ -536,7 +524,7 @@ internal fun PosterTile(
             if (watched) Box(
                 Modifier.align(Alignment.TopEnd).padding(8.dp).size(26.dp).background(Color.White, androidx.compose.foundation.shape.CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { TvIcon(Icons.Rounded.Check, size = 18.dp, tint = Color(0xFF0B1220)) }
+            ) { TvIcon(Sym.Check, size = 18.dp, tint = Color(0xFF0B1220)) }
         }
     }
 }
@@ -595,7 +583,7 @@ private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, o
         Box(Modifier.fillMaxSize().ambientBackdrop()) {
             Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TvIcon(Icons.Rounded.Search, size = 34.dp, tint = Palette.muted)
+                    TvIcon(Sym.Search, size = 34.dp, tint = Palette.muted)
                     com.woodruff.tvexplorer.ui.components.RemoteTextField(
                         value = query,
                         onValueChange = { query = it },
@@ -668,7 +656,7 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
                     Box(
                         Modifier.align(Alignment.Center).size(44.dp).clip(RoundedCornerShape(50)).background(Palette.background.copy(alpha = 0.6f)),
                         contentAlignment = Alignment.Center,
-                    ) { TvIcon(Icons.Rounded.PlayArrow, size = 28.dp, tint = Palette.text) }
+                    ) { TvIcon(Sym.PlayArrow, size = 28.dp, tint = Palette.text) }
                 }
             }
             Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
@@ -712,7 +700,7 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TvIcon(Icons.Rounded.AddToDrive, size = 32.dp) // a plain symbol, not the colored logo
+                TvIcon(Sym.AddToDrive, size = 32.dp) // a plain symbol, not the colored logo
                 Text(
                     if (setup) "Set up Google Drive" else "Sign in with your phone",
                     style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 12.dp),

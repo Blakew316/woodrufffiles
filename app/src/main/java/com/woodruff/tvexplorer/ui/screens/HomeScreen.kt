@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -25,18 +26,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.EditNote
-import androidx.compose.material.icons.rounded.Email
-import androidx.compose.material.icons.rounded.Event
-import androidx.compose.material.icons.rounded.Movie
-import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.rounded.PhoneIphone
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Tv
-import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -105,9 +94,6 @@ import kotlinx.coroutines.delay
 import com.woodruff.tvexplorer.weather.Weather
 import com.woodruff.tvexplorer.notify.Board
 import com.woodruff.tvexplorer.photos.Memories
-import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.runtime.produceState
 import com.woodruff.tvexplorer.nest.CameraStills
 import androidx.compose.runtime.mutableIntStateOf
@@ -115,7 +101,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import androidx.compose.material.icons.rounded.Groups
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
@@ -182,16 +167,16 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
             title = r.title, subtitle = "${(r.progress * 100).toInt()}% watched",
             onDismiss = { removeFor = null },
             actions = listOfNotNull(
-                MenuAction("Play from where you left off", Icons.Rounded.PlayArrow) { play(r) },
+                MenuAction("Play from where you left off", Sym.PlayArrow) { play(r) },
                 // Same Drive video on every linked TV, from the same spot.
-                if (linked.isNotEmpty() && MediaRef.parse(r.key) is MediaRef.Drive) MenuAction("Watch together on all TVs", Icons.Rounded.Groups) {
+                if (linked.isNotEmpty() && MediaRef.parse(r.key) is MediaRef.Drive) MenuAction("Watch together on all TVs", Sym.Groups) {
                     scope.launch {
                         withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, r.key, r.title, r.positionMs) } }
                         // This TV leads: pause, seek and its position keep the others in step.
                         context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key, r.positionMs, together = true))
                     }
                 } else null,
-                MenuAction("Remove from Continue watching", Icons.Rounded.Delete, destructive = true) {
+                MenuAction("Remove from Continue watching", Sym.Delete, destructive = true) {
                     store.remove(r.key); recent = store.continueWatching()
                 },
             ),
@@ -212,13 +197,13 @@ private fun PinnedMessage() {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.text.copy(alpha = 0.08f)).padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TvIcon(Icons.Rounded.PushPin, size = 22.dp)
+        TvIcon(Sym.PushPin, size = 22.dp)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(p.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = listOfNotNull(p.body.takeIf { it.isNotBlank() }, p.from?.let { "from $it" }).joinToString(" · ")
             if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        PanelButton("Dismiss", Icons.Rounded.Close) { Board.dismiss(context) }
+        PanelButton("Dismiss", Sym.Close) { Board.dismiss(context) }
     }
 }
 
@@ -365,8 +350,8 @@ private fun ContinuePanel(
             Text("Pick something to start; it shows up here to resume.", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PanelButton("Movies", Icons.Rounded.Movie, onMovies)
-                PanelButton("TV Shows", Icons.Rounded.Tv, onShows)
+                PanelButton("Movies", Sym.Movie, onMovies)
+                PanelButton("TV Shows", Sym.Tv, onShows)
             }
             return@Panel
         }
@@ -437,7 +422,7 @@ private fun ResumeArt(r: RecentItem, poster: String?, token: String?) {
                 AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
             ref is MediaRef.Local -> AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            else -> TvIcon(Icons.Rounded.PlayArrow, size = 34.dp, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.align(Alignment.Center).offset(y = (-14).dp))
+            else -> TvIcon(Sym.PlayArrow, size = 34.dp, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.align(Alignment.Center).offset(y = (-14).dp))
         }
         // Darken only the bottom, under the label and the bar.
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.8f))))
@@ -497,7 +482,7 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
                 )
             } else {
                 Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Palette.surfaceHigh), contentAlignment = Alignment.Center) {
-                    TvIcon(Icons.Rounded.Tv, size = 24.dp, tint = if (sel.online) Palette.text else Palette.muted)
+                    TvIcon(Sym.Tv, size = 24.dp, tint = if (sel.online) Palette.text else Palette.muted)
                 }
             }
             Column(Modifier.weight(1f)) {
@@ -528,7 +513,7 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
         }
         if (tvs.size == 1) {
             Spacer(Modifier.weight(1f))
-            PanelButton("Link another TV", Icons.Rounded.Settings) { vm.show(Screen.SETTINGS) }
+            PanelButton("Link another TV", Sym.Settings) { vm.show(Screen.SETTINGS) }
         }
     }
 }
@@ -594,7 +579,7 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
             else -> {
                 Text("Google Home cameras aren't connected.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(10.dp))
-                PanelButton("Set up in Settings", Icons.Rounded.Settings) { vm.show(Screen.SETTINGS) }
+                PanelButton("Set up in Settings", Sym.Settings) { vm.show(Screen.SETTINGS) }
             }
         }
     }
@@ -633,7 +618,7 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
             if (live && cam != null) LiveVideo(cam, audio = false, fill = true)
             else if (stillImage != null) Image(stillImage, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                TvIcon(Icons.Rounded.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))
+                TvIcon(Sym.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))
                 // Older Nest models only stream over RTSP, which Google's API doesn't offer to apps.
                 if (cam != null && !cam.webRtc) Text("No live view for this model", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall)
             }
@@ -666,20 +651,20 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
         value = withContext(Dispatchers.IO) { runCatching { Memories.forToday(context) { Appearance.photos(context) }.size }.getOrDefault(0) }
     }
     val items = buildList {
-        if (memories > 0) add(GlanceItem(Icons.Rounded.PhotoLibrary, "On this day", "$memories photo${if (memories == 1) "" else "s"} from earlier years", false) {
+        if (memories > 0) add(GlanceItem(Sym.PhotoLibrary, "On this day", "$memories photo${if (memories == 1) "" else "s"} from earlier years", false) {
             com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(context, memories = true)
         })
         if (cal.connected) {
             val next = cal.events.firstOrNull { (it.end ?: it.start ?: Long.MAX_VALUE) > now }
-            add(GlanceItem(Icons.Rounded.Event, next?.title ?: "Nothing else today", next?.let { eventTime(it) } ?: "Calendar", false, null))
+            add(GlanceItem(Sym.Event, next?.title ?: "Nothing else today", next?.let { eventTime(it) } ?: "Calendar", false, null))
         }
         notices.take(2).forEach { n ->
-            val icon = when (n.source) { NoticeSource.PHONE -> Icons.Rounded.PhoneIphone; NoticeSource.MAIL -> Icons.Rounded.Email; NoticeSource.SYSTEM -> Icons.Rounded.Notifications }
+            val icon = when (n.source) { NoticeSource.PHONE -> Sym.PhoneIphone; NoticeSource.MAIL -> Sym.Email; NoticeSource.SYSTEM -> Sym.Notifications }
             add(GlanceItem(icon, n.title, Format.date(n.at), !n.read) { vm.show(Screen.NOTIFICATIONS) })
         }
         (notes.firstOrNull { it.pinned } ?: notes.firstOrNull())?.let { n ->
             val first = n.body.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
-            add(GlanceItem(Icons.Rounded.EditNote, n.title.ifBlank { first }, if (n.title.isBlank()) "Note" else first, false) { vm.show(Screen.NOTES) })
+            add(GlanceItem(Sym.EditNote, n.title.ifBlank { first }, if (n.title.isBlank()) "Note" else first, false) { vm.show(Screen.NOTES) })
         }
     }.take(4)
     Panel("At a glance", modifier) {

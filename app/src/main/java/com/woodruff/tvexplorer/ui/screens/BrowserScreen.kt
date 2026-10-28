@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -17,22 +18,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.ContentCut
-import androidx.compose.material.icons.rounded.ContentPaste
-import androidx.compose.material.icons.rounded.CreateNewFolder
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.FolderZip
-import androidx.compose.material.icons.rounded.GridView
-import androidx.compose.material.icons.rounded.SelectAll
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Sort
-import androidx.compose.material.icons.rounded.ViewList
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,7 +43,6 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.OpenResult
 import com.woodruff.tvexplorer.util.Opener
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.foundation.layout.width
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.photos.GooglePhotos
@@ -158,36 +142,36 @@ fun BrowserScreen(vm: MainViewModel) {
             if (state.selecting) {
                 Text("${state.selected.size} selected", modifier = Modifier.padding(end = 8.dp))
                 val targets = { vm.targets(null) }
-                ToolButton(Icons.Rounded.ContentCopy, "Copy", { vm.copyToClipboard(targets(), move = false) })
-                ToolButton(Icons.Rounded.ContentCut, "Move", { vm.copyToClipboard(targets(), move = true) })
-                ToolButton(Icons.Rounded.Delete, "Delete", { dialog = BrowserDialog.ConfirmDelete(targets()) })
-                ToolButton(Icons.Rounded.FolderZip, "Zip", { dialog = BrowserDialog.Zip(targets()) })
-                ToolButton(Icons.Rounded.SelectAll, null, vm::selectAll)
-                ToolButton(Icons.Rounded.Close, null, vm::clearSelection)
+                ToolButton(Sym.ContentCopy, "Copy", { vm.copyToClipboard(targets(), move = false) })
+                ToolButton(Sym.ContentCut, "Move", { vm.copyToClipboard(targets(), move = true) })
+                ToolButton(Sym.Delete, "Delete", { dialog = BrowserDialog.ConfirmDelete(targets()) })
+                ToolButton(Sym.FolderZip, "Zip", { dialog = BrowserDialog.Zip(targets()) })
+                ToolButton(Sym.SelectAll, null, vm::selectAll)
+                ToolButton(Sym.Close, null, vm::clearSelection)
             } else if (photosFolder) {
                 // Family Memories: a search field and Filter, nothing else.
                 val inVideos = state.folder?.path?.startsWith(GooglePhotos.videoFolder.path) == true
                 com.woodruff.tvexplorer.ui.components.SearchBar(
                     query, if (inVideos) "Search videos" else "Search photos", { typing = true }, Modifier.width(520.dp),
                 )
-                if (dateFilterable) RoundButton(Icons.Rounded.Tune, "Filter", { filtering = true }, active = photoFilter != PhotoFilter())
+                if (dateFilterable) RoundButton(Sym.Tune, "Filter", { filtering = true }, active = photoFilter != PhotoFilter())
             } else {
                 val folder = state.folder
                 if (folder != null) {
-                    ToolButton(Icons.Rounded.ArrowUpward, null, vm::up)
-                    ToolButton(Icons.Rounded.CreateNewFolder, null, { dialog = BrowserDialog.NewFolder })
+                    ToolButton(Sym.ArrowUpward, null, vm::up)
+                    ToolButton(Sym.CreateNewFolder, null, { dialog = BrowserDialog.NewFolder })
                     clipboard?.let { clip ->
-                        ToolButton(Icons.Rounded.ContentPaste, "Paste ${clip.files.size}", vm::paste)
-                        ToolButton(Icons.Rounded.Close, null, vm::clearClipboard)
+                        ToolButton(Sym.ContentPaste, "Paste ${clip.files.size}", vm::paste)
+                        ToolButton(Sym.Close, null, vm::clearClipboard)
                     }
                 }
-                ToolButton(Icons.Rounded.Search, null, { dialog = BrowserDialog.Search })
+                ToolButton(Sym.Search, null, { dialog = BrowserDialog.Search })
                 // Photos / Videos sort by date with their own filters below.
-                if (!dateFilterable) ToolButton(Icons.Rounded.Sort, null, { dialog = BrowserDialog.Sort })
-                ToolButton(if (settings.grid) Icons.Rounded.ViewList else Icons.Rounded.GridView, null, {
+                if (!dateFilterable) ToolButton(Sym.Sort, null, { dialog = BrowserDialog.Sort })
+                ToolButton(if (settings.grid) Sym.ViewList else Sym.GridView, null, {
                     vm.updateSettings { it.copy(grid = !it.grid) }
                 })
-                ToolButton(if (settings.showHidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, null, {
+                ToolButton(if (settings.showHidden) Sym.Visibility else Sym.VisibilityOff, null, {
                     vm.updateSettings { it.copy(showHidden = !it.showHidden) }
                 })
             }

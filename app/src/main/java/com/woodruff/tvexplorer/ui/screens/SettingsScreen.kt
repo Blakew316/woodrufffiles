@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
@@ -11,11 +12,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Settings as SettingsIcon
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.VideoCall
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.input.key.KeyEventType
@@ -40,54 +36,18 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AddToDrive
-import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Email
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material.icons.rounded.LightMode
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Logout
-import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.PersonAdd
-import androidx.compose.material.icons.rounded.PhoneIphone
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Bedtime
-import androidx.compose.material.icons.rounded.SdStorage
-import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.Videocam
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.tmdb.Tmdb
 import com.woodruff.tvexplorer.tvs.LinkedTv
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.server.AutoStart
 import com.woodruff.tvexplorer.update.Updater
-import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.runtime.produceState
 import com.woodruff.tvexplorer.nest.Doorbell
-import androidx.compose.material.icons.rounded.Science
-import androidx.compose.material.icons.rounded.PowerSettingsNew
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.LinkOff
-import androidx.compose.material.icons.rounded.PlayCircle
 import com.woodruff.tvexplorer.calendar.TodayCalendar
-import androidx.compose.material.icons.rounded.Event
-import androidx.compose.material.icons.rounded.Cast
 import com.woodruff.tvexplorer.util.Handoff
 import com.woodruff.tvexplorer.photos.GooglePhotos
-import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material.icons.rounded.Slideshow
-import androidx.compose.material.icons.rounded.Smartphone
-import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.Tv
-import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.woodruff.tvexplorer.phones.Phone
 import com.woodruff.tvexplorer.phones.Phones
@@ -118,9 +78,6 @@ import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.Location
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Cloud
-import androidx.compose.material.icons.rounded.FolderOpen
 import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import androidx.tv.material3.OutlinedButton
@@ -252,86 +209,86 @@ fun SettingsScreen(vm: MainViewModel) {
         }
         SettingsPage.ACCOUNTS -> listOf(
             SettingItem(
-                Icons.Rounded.AddToDrive, "Google Drive", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up",
+                Sym.AddToDrive, "Google Drive", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up",
                 about = "Movies, TV Shows and files from your Google Drive. OK opens it.",
             ) { vm.show(Screen.DRIVE) },
             SettingItem(
-                Icons.Rounded.PhotoLibrary, "Google Photos", if (photosConnected) "Connected" else "Connect",
+                Sym.PhotoLibrary, "Google Photos", if (photosConnected) "Connected" else "Connect",
                 about = "Brings photos and videos into Family Memories.",
             ) { showPhotos = true },
             SettingItem(
-                Icons.Rounded.Event, "Google Calendar", if (calendar.connected) "Connected" else "Connect",
+                Sym.Event, "Google Calendar", if (calendar.connected) "Connected" else "Connect",
                 about = "Today's events on Home.",
             ) { if (!calendar.connected) showCalendar = true },
             SettingItem(
-                Icons.Rounded.Videocam, "Cameras", if (nestConnected) "Connected" else "Not connected",
+                Sym.Videocam, "Cameras", if (nestConnected) "Connected" else "Not connected",
                 about = "Live Google Home cameras in the Command Center. OK opens them.",
             ) { vm.show(Screen.CAMERAS) },
             opener(SettingsPage.MAIL, count(accounts.size, "account", "None")),
             opener(SettingsPage.KEYS, null, spaced = true),
         )
         SettingsPage.MAIL -> accounts.map { a ->
-            SettingItem(Icons.Rounded.Email, a.email, a.provider.label, about = "OK removes this account from the TV.") { dialog = SettingsDialog.RemoveMail(a) }
+            SettingItem(Sym.Email, a.email, a.provider.label, about = "OK removes this account from the TV.") { dialog = SettingsDialog.RemoveMail(a) }
         } + SettingItem(
-            Icons.Rounded.PersonAdd, "Add a mail account", spaced = accounts.isNotEmpty(),
+            Sym.PersonAdd, "Add a mail account", spaced = accounts.isNotEmpty(),
             about = "iCloud, Gmail, Outlook and others. You'll need an app-specific password, not your usual one.",
         ) { dialog = SettingsDialog.PickProvider }
         SettingsPage.KEYS -> buildList {
-            add(SettingItem(Icons.Rounded.Key, "Google Client ID", clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it.") { dialog = SettingsDialog.ClientId })
-            add(SettingItem(Icons.Rounded.Lock, "Google Client secret", if (configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted on this TV.") { dialog = SettingsDialog.ClientSecret })
-            add(SettingItem(Icons.Rounded.Key, "Cameras project ID", nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it.") { dialog = SettingsDialog.NestProject })
-            add(SettingItem(Icons.Rounded.Key, "TMDB key", if (tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures.") { dialog = SettingsDialog.TmdbKey })
+            add(SettingItem(Sym.Key, "Google Client ID", clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it.") { dialog = SettingsDialog.ClientId })
+            add(SettingItem(Sym.Lock, "Google Client secret", if (configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted on this TV.") { dialog = SettingsDialog.ClientSecret })
+            add(SettingItem(Sym.Key, "Cameras project ID", nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it.") { dialog = SettingsDialog.NestProject })
+            add(SettingItem(Sym.Key, "TMDB key", if (tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures.") { dialog = SettingsDialog.TmdbKey })
             // Signing out, set apart from the keys.
             var gap = true
             fun out(on: Boolean, title: String, about: String, action: () -> Unit) {
-                if (on) { add(SettingItem(Icons.Rounded.Logout, title, spaced = gap, about = about, onClick = action)); gap = false }
+                if (on) { add(SettingItem(Sym.Logout, title, spaced = gap, about = about, onClick = action)); gap = false }
             }
             out(connected, "Sign out of Google", "Signs this TV out of Google Drive.") { scope.launch { GoogleAuth.signOut(context); changed() } }
             out(photosConnected, "Disconnect Google Photos", "Stops adding from Google Photos. Photos already here stay.") { GooglePhotos.signOut { changed() } }
             out(calendar.connected, "Disconnect Google Calendar", "Stops showing today's events.") { TodayCalendar.signOut { changed() } }
             out(nestConnected, "Disconnect cameras", "Stops showing the cameras on this TV.") { Nest.signOut { changed() } }
-            if (configured) add(SettingItem(Icons.Rounded.Delete, "Remove Google keys", danger = true, spaced = gap, about = "Signs out and deletes the saved Client ID and secret from this TV.") { dialog = SettingsDialog.RemoveGoogle })
+            if (configured) add(SettingItem(Sym.Delete, "Remove Google keys", danger = true, spaced = gap, about = "Signs out and deletes the saved Client ID and secret from this TV.") { dialog = SettingsDialog.RemoveGoogle })
         }
         SettingsPage.LOOK -> listOf(
-            SettingItem(if (Palette.light) Icons.Rounded.LightMode else Icons.Rounded.DarkMode, "Theme", if (Palette.light) "Light" else "Dark", about = "OK switches between light and dark.") { ThemeSetting.toggle(context) },
+            SettingItem(if (Palette.light) Sym.LightMode else Sym.DarkMode, "Theme", if (Palette.light) "Light" else "Dark", about = "OK switches between light and dark.") { ThemeSetting.toggle(context) },
             SettingItem(
-                Icons.Rounded.Wallpaper, "Background photo", Appearance.background?.let { File(it).name } ?: "None",
+                Sym.Wallpaper, "Background photo", Appearance.background?.let { File(it).name } ?: "None",
                 about = "To choose one, press and hold a photo in Files and pick Set as app background. OK removes it.",
             ) {
                 if (Appearance.background != null) { Appearance.setBackground(context, null); vm.say("Background removed") }
                 else vm.say("In Files, press and hold on a photo and choose Set as app background")
             },
             // Turn off on extra TVs if Google starts limiting camera requests.
-            SettingItem(Icons.Rounded.Videocam, "Cameras on Home", Appearance.homeCameras.label, about = "What Home shows of the cameras. OK changes it.") { Appearance.nextHomeCameras(context) },
+            SettingItem(Sym.Videocam, "Cameras on Home", Appearance.homeCameras.label, about = "What Home shows of the cameras. OK changes it.") { Appearance.nextHomeCameras(context) },
         )
         SettingsPage.SCREENSAVER -> listOf(
-            SettingItem(Icons.Rounded.Bedtime, "Start when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min", about = "How long the TV sits unused before the slideshow starts. OK changes it.") { Appearance.nextIdle(context) },
+            SettingItem(Sym.Bedtime, "Start when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min", about = "How long the TV sits unused before the slideshow starts. OK changes it.") { Appearance.nextIdle(context) },
             SettingItem(
-                Icons.Rounded.PhotoLibrary, "Photos", Appearance.slideshowFolder?.let { File(it).name } ?: "Pictures & Camera",
+                Sym.PhotoLibrary, "Photos", Appearance.slideshowFolder?.let { File(it).name } ?: "Pictures & Camera",
                 about = "To choose a folder, press and hold it in Files and pick Use for photo slideshow. OK goes back to Pictures & Camera.",
             ) {
                 if (Appearance.slideshowFolder != null) Appearance.setSlideshowFolder(context, null)
                 else vm.say("In Files, press and hold on a folder and choose Use for photo slideshow")
             },
-            SettingItem(Icons.Rounded.Timer, "Each photo for", "${Appearance.seconds} seconds", about = "How long each photo stays up. OK changes it.") { Appearance.nextSpeed(context) },
-            SettingItem(Icons.Rounded.Slideshow, "Start now", spaced = true, about = "Starts the slideshow.") { SlideshowActivity.start(context) },
-            SettingItem(Icons.Rounded.Tv, "Use as the TV's screensaver", about = "Opens the TV's own screensaver settings to choose Woodruff Family.") {
+            SettingItem(Sym.Timer, "Each photo for", "${Appearance.seconds} seconds", about = "How long each photo stays up. OK changes it.") { Appearance.nextSpeed(context) },
+            SettingItem(Sym.Slideshow, "Start now", spaced = true, about = "Starts the slideshow.") { SlideshowActivity.start(context) },
+            SettingItem(Sym.Tv, "Use as the TV's screensaver", about = "Opens the TV's own screensaver settings to choose Woodruff Family.") {
                 val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
             },
         )
         SettingsPage.DEVICES -> listOf(
-            SettingItem(Icons.Rounded.Tv, "This TV's name", tvName, about = "Shown to your other TVs and on your phone.") { dialog = SettingsDialog.TvName },
-            SettingItem(Icons.Rounded.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) },
+            SettingItem(Sym.Tv, "This TV's name", tvName, about = "Shown to your other TVs and on your phone.") { dialog = SettingsDialog.TvName },
+            SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) },
             opener(SettingsPage.PHONES, count(phones.size, "phone", "None yet")),
             opener(SettingsPage.TVS, if (linkedTvs.isEmpty()) "None linked" else "${linkedTvs.size} linked"),
-            SettingItem(Icons.Rounded.PowerSettingsNew, "Start when the TV turns on", onOff(autoStart), about = "Opens Woodruff Family when the TV starts. OK turns it on or off.") { AutoStart.setEnabled(context, !autoStart); changed() },
+            SettingItem(Sym.PowerSettingsNew, "Start when the TV turns on", onOff(autoStart), about = "Opens Woodruff Family when the TV starts. OK turns it on or off.") { AutoStart.setEnabled(context, !autoStart); changed() },
         )
         SettingsPage.PHONES ->
-            if (phones.isEmpty()) listOf(SettingItem(Icons.Rounded.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) })
-            else phones.map { p -> SettingItem(Icons.Rounded.Smartphone, p.name, Format.date(p.lastSeen), about = "Last seen ${Format.date(p.lastSeen)}. OK forgets this phone.") { dialog = SettingsDialog.RemovePhone(p) } }
+            if (phones.isEmpty()) listOf(SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) })
+            else phones.map { p -> SettingItem(Sym.Smartphone, p.name, Format.date(p.lastSeen), about = "Last seen ${Format.date(p.lastSeen)}. OK forgets this phone.") { dialog = SettingsDialog.RemovePhone(p) } }
         SettingsPage.TVS -> buildList {
-            add(SettingItem(Icons.Rounded.Add, "Add another TV", about = "Enter the code the other TV shows in its Settings.") { dialog = SettingsDialog.AddTv })
+            add(SettingItem(Sym.Add, "Add another TV", about = "Enter the code the other TV shows in its Settings.") { dialog = SettingsDialog.AddTv })
             linkedTvs.forEach { tv ->
                 val s = otherTvs.firstOrNull { it.id == tv.id }
                 val status = when {
@@ -339,41 +296,41 @@ fun SettingsScreen(vm: MainViewModel) {
                     s.online -> "Online" + (s.version?.let { " · $it" } ?: "")
                     else -> "Off or unreachable"
                 }
-                add(SettingItem(Icons.Rounded.Tv, tv.name, status, about = "OK unlinks this TV.") { dialog = SettingsDialog.RemoveTv(tv) })
+                add(SettingItem(Sym.Tv, tv.name, status, about = "OK unlinks this TV.") { dialog = SettingsDialog.RemoveTv(tv) })
             }
-            add(SettingItem(Icons.Rounded.Link, "Link this TV to another", spaced = true, about = "Shows a code to enter on the other TV.") { dialog = SettingsDialog.LinkCode })
-            add(SettingItem(Icons.Rounded.LinkOff, "Stop other TVs seeing this one", danger = true, about = "Every linked TV loses access. Link again with a new code.") { dialog = SettingsDialog.UnlinkHubs })
+            add(SettingItem(Sym.Link, "Link this TV to another", spaced = true, about = "Shows a code to enter on the other TV.") { dialog = SettingsDialog.LinkCode })
+            add(SettingItem(Sym.LinkOff, "Stop other TVs seeing this one", danger = true, about = "Every linked TV loses access. Link again with a new code.") { dialog = SettingsDialog.UnlinkHubs })
         }
         SettingsPage.STORAGE -> roots.map { r ->
             SettingItem(
-                if (r.removable) Icons.Rounded.SdStorage else Icons.Rounded.Storage, r.title,
+                if (r.removable) Sym.SdStorage else Sym.Storage, r.title,
                 if (r.totalBytes > 0) "${Format.bytes(r.freeBytes)} free" else null,
                 about = (if (r.totalBytes > 0) "${Format.bytes(r.freeBytes)} free of ${Format.bytes(r.totalBytes)}. " else "") + "OK opens it.",
             ) { vm.openRoot(r.dir, from = Screen.SETTINGS) }
         } + listOf(
-            SettingItem(Icons.Rounded.FolderOpen, "Browse by type", spaced = roots.isNotEmpty(), about = "Every video, song, photo or document on this TV and attached drives.") { dialog = SettingsDialog.BrowseTypes },
-            SettingItem(Icons.Rounded.Apps, "Apps", about = "Open the apps on this TV.") { vm.openApps(Screen.SETTINGS) },
-            SettingItem(Icons.Rounded.Cloud, "iCloud", about = "How to bring iCloud mail, files and photos to this TV.") { dialog = SettingsDialog.ICloud },
-            SettingItem(Icons.Rounded.VideoCall, "Google Meet", spaced = true, about = "Video calls on the TV.") { Handoff.launch(context, Handoff.MEET) },
-            SettingItem(Icons.Rounded.Cast, "AirScreen", about = "Show an iPhone's camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
+            SettingItem(Sym.FolderOpen, "Browse by type", spaced = roots.isNotEmpty(), about = "Every video, song, photo or document on this TV and attached drives.") { dialog = SettingsDialog.BrowseTypes },
+            SettingItem(Sym.Apps, "Apps", about = "Open the apps on this TV.") { vm.openApps(Screen.SETTINGS) },
+            SettingItem(Sym.Cloud, "iCloud", about = "How to bring iCloud mail, files and photos to this TV.") { dialog = SettingsDialog.ICloud },
+            SettingItem(Sym.VideoCall, "Google Meet", spaced = true, about = "Video calls on the TV.") { Handoff.launch(context, Handoff.MEET) },
+            SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone's camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
         )
         SettingsPage.UPDATES -> listOf(
-            SettingItem(Icons.Rounded.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update), about = "OK checks for an update, or installs one that's ready.") {
+            SettingItem(Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update), about = "OK checks for an update, or installs one that's ready.") {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
-            SettingItem(Icons.Rounded.Autorenew, "Install updates automatically", onOff(autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !autoUpdate); changed() },
+            SettingItem(Sym.Autorenew, "Install updates automatically", onOff(autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !autoUpdate); changed() },
             // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
-            SettingItem(Icons.Rounded.Science, "Test TV", onOff(testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !testTv); changed() },
+            SettingItem(Sym.Science, "Test TV", onOff(testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !testTv); changed() },
         )
         SettingsPage.ADVANCED -> listOf(
-            SettingItem(Icons.Rounded.Speed, "Smoothness", detail = smoothness, about = "Slow frames on each screen since the app started, and what they were spent on. OK starts counting again.") {
+            SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames on each screen since the app started, and what they were spent on. OK starts counting again.") {
                 com.woodruff.tvexplorer.util.FrameStats.reset(); smoothness = com.woodruff.tvexplorer.util.FrameStats.summary()
             },
             SettingItem(
-                Icons.Rounded.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off",
+                Sym.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off",
                 about = "Doorbell presses pop up on this TV. Set it up in the phone app.",
             ),
-            SettingItem(Icons.Rounded.NotificationsActive, "Pop-ups over other apps", onOff(overlay), about = "Lets alerts show while another app is open.") {
+            SettingItem(Sym.NotificationsActive, "Pop-ups over other apps", onOff(overlay), about = "Lets alerts show while another app is open.") {
                 if (!overlay) {
                     val r = Opener.firstThatStarts(
                         context,
@@ -386,12 +343,15 @@ fun SettingsScreen(vm: MainViewModel) {
                     if (r is OpenResult.Failed) dialog = SettingsDialog.OverlayHelp
                 }
             },
-            SettingItem(Icons.Rounded.PlayCircle, "See what other apps are playing", onOff(seesOtherApps), about = "Lets Home and your other TVs show what's playing in other apps.") {
+            SettingItem(Sym.PlayCircle, "See what other apps are playing", onOff(seesOtherApps), about = "Lets Home and your other TVs show what's playing in other apps.") {
                 val r = Opener.firstThatStarts(context, listOf(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.MediaAccessHelp
             },
-            SettingItem(Icons.Rounded.Refresh, "Reset phone pairing", danger = true, spaced = true, about = "Every phone, bookmark and Shortcut will need to scan a new QR code.") { dialog = SettingsDialog.ResetPairing },
-            SettingItem(Icons.Rounded.Info, "Posters", "TMDB", spaced = true, about = "Movie and show details and pictures come from TMDB. This app is not endorsed by TMDB."),
+            SettingItem(Sym.Refresh, "Reset phone pairing", danger = true, spaced = true, about = "Every phone, bookmark and Shortcut will need to scan a new QR code.") { dialog = SettingsDialog.ResetPairing },
+            SettingItem(
+                Sym.Info, "Credits", "TMDB · Lucide", spaced = true,
+                about = "Movie and show details and pictures come from TMDB; this app is not endorsed by TMDB. Symbols are from Lucide (ISC license).",
+            ),
         )
     }
 
@@ -475,7 +435,7 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsDialog.PickProvider -> ActionMenu(
             "Add a mail account", "You'll need an app-specific password, not your normal one.",
-            MailProvider.entries.map { p -> MenuAction(p.label, Icons.Rounded.Email) { dialog = SettingsDialog.MailEmail(p) } },
+            MailProvider.entries.map { p -> MenuAction(p.label, Sym.Email) { dialog = SettingsDialog.MailEmail(p) } },
             onDismiss = { dialog = null },
         )
         is SettingsDialog.MailEmail -> TextInputDialog(
@@ -522,7 +482,7 @@ fun SettingsScreen(vm: MainViewModel) {
                 FileKind.VIDEO to "Videos", FileKind.AUDIO to "Music", FileKind.IMAGE to "Photos",
                 FileKind.DOCUMENT to "Documents", FileKind.APK to "APK files", FileKind.ARCHIVE to "Archives",
             ).map { (kind, title) -> MenuAction(title, kind.icon()) { vm.open(Location.Category(kind, title)) } } +
-                MenuAction("Downloads", Icons.Rounded.Download) { vm.openDownloads() },
+                MenuAction("Downloads", Sym.Download) { vm.openDownloads() },
         )
         SettingsDialog.UnlinkHubs -> ConfirmDialog(
             "Stop other TVs seeing this one?", "Every TV linked to this one loses access. Link again with a new code.", "Stop",
@@ -592,18 +552,18 @@ private fun addMail(
 
 /** The pages of Settings: the first, and the ones opened from it. */
 private enum class SettingsPage(val title: String, val icon: ImageVector, val about: String) {
-    HOME("Settings", Icons.Rounded.SettingsIcon, ""),
-    ACCOUNTS("Accounts", Icons.Rounded.AccountCircle, "Google Drive, Photos, Calendar, cameras and mail."),
-    MAIL("Mail", Icons.Rounded.Email, "The mail accounts the Command Center shows."),
-    KEYS("Keys & sign-out", Icons.Rounded.Key, "The keys from Google and TMDB, and signing out."),
-    LOOK("Appearance", Icons.Rounded.DarkMode, "Light or dark, a background photo, and the cameras on Home."),
-    SCREENSAVER("Screensaver", Icons.Rounded.Slideshow, "A slideshow of your photos when the TV sits idle."),
-    DEVICES("TVs & phones", Icons.Rounded.Tv, "This TV's name, your phones and the other TVs in the house."),
-    PHONES("Phones", Icons.Rounded.Smartphone, "Phones connected to this TV."),
-    TVS("Other TVs", Icons.Rounded.Link, "Link TVs to see what each one is playing and watch together."),
-    STORAGE("Storage & apps", Icons.Rounded.Storage, "Drives, files by type, apps, iCloud and video calls."),
-    UPDATES("Updates", Icons.Rounded.SystemUpdate, "New versions of Woodruff Family."),
-    ADVANCED("Advanced", Icons.Rounded.Tune, "Smoothness, permissions, pairing and credits."),
+    HOME("Settings", Sym.Settings, ""),
+    ACCOUNTS("Accounts", Sym.AccountCircle, "Google Drive, Photos, Calendar, cameras and mail."),
+    MAIL("Mail", Sym.Email, "The mail accounts the Command Center shows."),
+    KEYS("Keys & sign-out", Sym.Key, "The keys from Google and TMDB, and signing out."),
+    LOOK("Appearance", Sym.DarkMode, "Light or dark, a background photo, and the cameras on Home."),
+    SCREENSAVER("Screensaver", Sym.Slideshow, "A slideshow of your photos when the TV sits idle."),
+    DEVICES("TVs & phones", Sym.Tv, "This TV's name, your phones and the other TVs in the house."),
+    PHONES("Phones", Sym.Smartphone, "Phones connected to this TV."),
+    TVS("Other TVs", Sym.Link, "Link TVs to see what each one is playing and watch together."),
+    STORAGE("Storage & apps", Sym.Storage, "Drives, files by type, apps, iCloud and video calls."),
+    UPDATES("Updates", Sym.SystemUpdate, "New versions of Woodruff Family."),
+    ADVANCED("Advanced", Sym.Tune, "Smoothness, permissions, pairing and credits."),
 }
 
 /**
@@ -737,7 +697,7 @@ private fun SettingRow(item: SettingItem, modifier: Modifier, onClick: () -> Uni
                         )
                     }
                     if (item.opens != null) {
-                        TvIcon(Icons.Rounded.ChevronRight, Modifier.padding(start = 6.dp), size = 22.dp, tint = LocalContentColor.current.copy(alpha = 0.5f))
+                        TvIcon(Sym.ChevronRight, Modifier.padding(start = 6.dp), size = 22.dp, tint = LocalContentColor.current.copy(alpha = 0.5f))
                     }
                 }
             }
