@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -31,10 +32,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -50,6 +54,7 @@ import androidx.tv.material3.ListItem
 import androidx.tv.material3.ListItemDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.woodruff.tvexplorer.mail.MailClient
 import com.woodruff.tvexplorer.mail.MailViewModel
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
@@ -89,8 +94,11 @@ fun MailScreen(vm: MainViewModel) {
             state.loading -> EmptyState("Loading ${state.account?.email}…")
             state.error != null -> EmptyState(state.error!!)
             else -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                val list = rememberLazyListState()
+                val openRow = remember { FocusRequester() }
                 LazyColumn(
                     Modifier.width(300.dp).fillMaxHeight(),
+                    state = list,
                     contentPadding = PaddingValues(bottom = 40.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -98,6 +106,7 @@ fun MailScreen(vm: MainViewModel) {
                         ListItem(
                             selected = m.uid == state.openUid,
                             onClick = { mail.open(m) },
+                            modifier = if (m.uid == state.openUid) Modifier.focusRequester(openRow) else Modifier,
                             colors = ListItemDefaults.colors(
                                 selectedContainerColor = Palette.accentSoft,
                                 focusedContainerColor = Palette.surfaceHigh,
@@ -119,7 +128,11 @@ fun MailScreen(vm: MainViewModel) {
                         )
                     }
                 }
-                Reader(state.open, state.openLoading)
+                // Left from the message goes back to its row while that's on screen. (Plain focus movement
+                // picks the row level with the middle of the pane: often another message.)
+                Reader(state.open, state.openLoading) {
+                    list.layoutInfo.visibleItemsInfo.any { it.key == state.openUid } && runCatching { openRow.requestFocus() }.isSuccess
+                }
             }
         }
     }
@@ -127,18 +140,21 @@ fun MailScreen(vm: MainViewModel) {
 
 /**
  * Message pane. It's focusable so Up/Down scroll the message with the remote; Left goes back to
- * the list as normal focus movement. A message with an HTML version is shown as mail apps show it
- * (in a web view with scripts and links off); otherwise as text.
+ * the list ([onLeft], or normal focus movement when that returns false). A message with an HTML
+ * version is shown as mail apps show it (in a web view with scripts and links off); otherwise as text.
  */
 @Composable
-private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolean) {
+private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolean, onLeft: () -> Boolean) {
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     var focused by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
-    // Some TVs have no web view installed: those show the text version.
-    val webOk = remember { runCatching { android.webkit.WebSettings.getDefaultUserAgent(context) }.isSuccess }
+    // Some TVs have no web view installed: those show the text version. Checked only when a message
+    // has an HTML version: the check starts the web engine, which holds up the screen for a moment.
+    val webOk by remember { lazy { runCatching { android.webkit.WebSettings.getDefaultUserAgent(context) }.isSuccess } }
     var web by remember { mutableStateOf<android.webkit.WebView?>(null) }
+    // The page's web process crashed, or Android ended it to free memory: this message shows as text.
+    var webGone by remember(body) { mutableStateOf(false) }
     Box(
         Modifier
             .fillMaxSize()
@@ -156,6 +172,7 @@ private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolea
                     }
                     // At the top, Up leaves for the accounts above.
                     Key.DirectionUp -> if (w != null) w.pageUp(false) else if (scroll.value > 0) { scope.launch { scroll.animateScrollBy(-260f) }; true } else false
+                    Key.DirectionLeft -> onLeft()
                     else -> false
                 }
             }
@@ -168,10 +185,12 @@ private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolea
                 Spacer(Modifier.height(10.dp))
                 Text("Choose a message", color = Palette.muted)
             }
-            body.html != null && webOk -> Column(Modifier.fillMaxSize().padding(26.dp)) {
+            body.html != null && !webGone && webOk -> Column(Modifier.fillMaxSize().padding(26.dp)) {
                 MessageHeader(body)
                 Spacer(Modifier.height(16.dp))
                 val html = body.html
+                // Pictures sent inside the message: the page asks for them, on the web view's own thread.
+                val pictures = rememberUpdatedState(body.pictures)
                 androidx.compose.ui.viewinterop.AndroidView(
                     factory = { ctx ->
                         android.webkit.WebView(ctx).apply {
@@ -179,9 +198,20 @@ private fun Reader(body: com.woodruff.tvexplorer.mail.MailBody?, loading: Boolea
                             settings.allowFileAccess = false
                             settings.allowContentAccess = false
                             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                            // Links stay put: there's no browser to follow them into here.
                             webViewClient = object : android.webkit.WebViewClient() {
+                                // Links stay put: there's no browser to follow them into here.
                                 override fun shouldOverrideUrlLoading(view: android.webkit.WebView, request: android.webkit.WebResourceRequest) = true
+                                override fun shouldInterceptRequest(view: android.webkit.WebView, request: android.webkit.WebResourceRequest): android.webkit.WebResourceResponse? {
+                                    if (request.url.host != MailClient.PICTURE_HOST) return null
+                                    val (type, bytes) = request.url.lastPathSegment?.let { pictures.value[it] } ?: return null
+                                    return android.webkit.WebResourceResponse(type, null, java.io.ByteArrayInputStream(bytes))
+                                }
+                                // Unhandled, the page's process ending takes the whole app down with it.
+                                override fun onRenderProcessGone(view: android.webkit.WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                                    if (web === view) web = null
+                                    webGone = true // shows the text version; onRelease destroys this web view
+                                    return true
+                                }
                             }
                             // The pane takes the keys and scrolls this.
                             isFocusable = false

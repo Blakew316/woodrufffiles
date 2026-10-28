@@ -25,11 +25,19 @@ data class MailSummary(
     val seen: Boolean,
 )
 
-/** [html]: the message as mail apps show it, when it has an HTML version (pictures sent inside it included). */
-data class MailBody(val from: String, val to: String, val subject: String, val date: Long, val text: String, val html: String? = null)
+/**
+ * [html]: the message as mail apps show it, when it has an HTML version. It links the pictures sent
+ * inside it at https://[MailClient.PICTURE_HOST]/<key>; [pictures] holds each one's type and bytes by key.
+ */
+data class MailBody(val from: String, val to: String, val subject: String, val date: Long, val text: String, val html: String? = null, val pictures: Map<String, Pair<String, ByteArray>> = emptyMap())
 
 /** Read-only IMAP access: list the inbox, read a message, find new mail for notifications. */
 object MailClient {
+    /** Where [MailBody.html] links the pictures sent inside a message (a name that never resolves). */
+    const val PICTURE_HOST = "cid.invalid"
+
+    // Every picture gets a link of its own, so a page is never shown another message's picture.
+    private val pictureKeys = java.util.concurrent.atomic.AtomicLong()
 
     suspend fun inbox(a: MailAccount, limit: Int = 60): List<MailSummary> = withInbox(a) { f ->
         val total = f.messageCount
@@ -41,13 +49,16 @@ object MailClient {
 
     suspend fun read(a: MailAccount, uid: Long): MailBody = withInbox(a) { f ->
         val m = f.getMessageByUID(uid) ?: error("That message was deleted")
+        val pictures = HashMap<String, Pair<String, ByteArray>>()
         MailBody(
             from = who(m.from),
             to = who(m.getRecipients(Message.RecipientType.TO)),
             subject = m.subject ?: "(no subject)",
             date = (m.sentDate ?: m.receivedDate)?.time ?: 0L,
             text = textOf(m).trim().ifEmpty { "(This message has no readable text.)" },
-            html = htmlOf(m)?.let { inlinePictures(m, it) },
+            // A huge HTML version (rare) is more than the web view can take: those show the text version.
+            html = htmlOf(m)?.takeIf { it.length <= 2_000_000 }?.let { inlinePictures(m, it, pictures) },
+            pictures = pictures,
         )
     }
 
@@ -73,6 +84,8 @@ object MailClient {
             put("mail.imaps.ssl.checkserveridentity", "true")
             put("mail.imaps.connectiontimeout", "15000")
             put("mail.imaps.timeout", "30000")
+            // Each part in one request: by default it comes 16 KB per round trip, so photos took half a minute.
+            put("mail.imaps.partialfetch", "false")
         }
         val store: Store = Session.getInstance(props).getStore("imaps")
         try {
@@ -109,6 +122,12 @@ object MailClient {
         if (p.isMimeType("text/html")) return p.content as? String
         if (p.isMimeType("multipart/*")) {
             val mp = p.content as Multipart
+            // Apple Mail splits the HTML into pieces around an attachment placed in the text: show them all, in order.
+            if (p.isMimeType("multipart/mixed")) {
+                val pieces = (0 until mp.count).map { mp.getBodyPart(it) }
+                    .filter { it.isMimeType("text/html") && !Part.ATTACHMENT.equals(it.disposition, ignoreCase = true) }
+                if (pieces.size > 1) return pieces.joinToString("\n") { it.content as? String ?: "" }
+            }
             for (i in 0 until mp.count) {
                 val part = mp.getBodyPart(i)
                 if (Part.ATTACHMENT.equals(part.disposition, ignoreCase = true)) continue
@@ -118,8 +137,13 @@ object MailClient {
         return null
     }
 
-    /** Pictures sent inside the message (linked as "cid:…") as data URIs, so they show too. Up to 8 MB in all. */
-    private fun inlinePictures(m: Part, html: String): String {
+    /**
+     * Pictures sent inside the message (linked as "cid:…"), so they show too: up to 8 MB in all go into
+     * [pictures], and the page links them at [PICTURE_HOST] for the reader to serve. (Pasted into the
+     * page as data URIs, a third bigger and once per link, they made pages of tens of MB, which the web
+     * view copies several times over on the main thread: the app ran out of memory.)
+     */
+    private fun inlinePictures(m: Part, html: String, pictures: MutableMap<String, Pair<String, ByteArray>>): String {
         if (!html.contains("cid:", ignoreCase = true)) return html
         var out = html
         var budget = 8 * 1024 * 1024
@@ -128,17 +152,26 @@ object MailClient {
                 val mp = p.content as Multipart
                 for (i in 0 until mp.count) walk(mp.getBodyPart(i))
             } else if (p.isMimeType("image/*")) {
-                val id = (p as? javax.mail.internet.MimeBodyPart)?.contentID?.trim()?.removePrefix("<")?.removeSuffix(">") ?: return
+                val id = (p as? javax.mail.internet.MimeBodyPart)?.contentID?.trim()?.removePrefix("<")?.removeSuffix(">")?.takeIf { it.isNotEmpty() } ?: return
                 if (p.size > budget) return
+                val key = pictureKeys.incrementAndGet().toString()
+                val linked = linkPicture(out, id, "https://$PICTURE_HOST/$key") ?: return // not in the page
                 val bytes = p.inputStream.use { it.readBytes() }
                 if (bytes.size > budget) return
                 budget -= bytes.size
-                val type = p.contentType.substringBefore(';').trim().lowercase()
-                out = out.replace("cid:$id", "data:$type;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP), ignoreCase = true)
+                pictures[key] = p.contentType.substringBefore(';').trim().lowercase() to bytes
+                out = linked
             }
         }
         runCatching { walk(m) }
         return out
+    }
+
+    /** [html] with its links to the picture [id] ("cid:<id>") changed to [url]; null when it has none. */
+    internal fun linkPicture(html: String, id: String, url: String): String? {
+        // Whole ids only: the link to "image1" must not take the start of "cid:image10".
+        val link = Regex("cid:" + Regex.escape(id) + "(?=[\"'\\s)>&]|$)", RegexOption.IGNORE_CASE)
+        return if (link.containsMatchIn(html)) link.replace(html) { url } else null
     }
 
     /** Prefers text/plain; falls back to HTML converted to text. */

@@ -46,7 +46,9 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     fun select(id: String?, force: Boolean = true) {
         if (!force && id == _state.value.selected && _state.value.messages.isNotEmpty()) return
         val account = _state.value.accounts.firstOrNull { it.id == id }
-        _state.update { it.copy(selected = id, messages = emptyList(), open = null, openUid = null, error = null, loading = account != null) }
+        // A message still opening belongs to the inbox being replaced: its result must not land in this one.
+        readJob?.cancel()
+        _state.update { it.copy(selected = id, messages = emptyList(), open = null, openUid = null, openLoading = false, error = null, loading = account != null) }
         if (account == null) return
         listJob?.cancel()
         listJob = viewModelScope.launch {
