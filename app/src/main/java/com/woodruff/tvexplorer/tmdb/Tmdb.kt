@@ -13,6 +13,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -115,8 +116,8 @@ object Tmdb {
         val title = searchTitle(parsed)
         if (title.isBlank()) return@withContext files
         val before = cache.size
-        val stills = wanted.map { it.first }.distinct().associateWith { s ->
-            runCatching { gate.withPermit { seasonStills(key, title, year, s) } }
+        val seasons = wanted.map { it.first }.distinct().associateWith { s ->
+            runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
                 .onFailure { Log.w("Tmdb", "episode pictures failed: $title season $s", it) }
                 .getOrDefault(emptyMap())
         }
@@ -124,24 +125,56 @@ object Tmdb {
         files.map { f ->
             if (f.kind != FileKind.VIDEO || f.posterUrl != null) return@map f
             val (s, e) = episodeNumber(f.name, folderSeason) ?: return@map f
-            stills[s]?.get(e)?.let { f.copy(posterUrl = it) } ?: f
+            seasons[s]?.get(e)?.still?.let { f.copy(posterUrl = it) } ?: f
         }
     }
 
-    /** Season [season] of the show: episode number → picture URL. */
-    private fun seasonStills(key: String, title: String, year: String?, season: Int): Map<Int, String> {
-        val json = cachedJson("e:$title:$year:$season") {
+    /**
+     * An episode's length in minutes, as TMDB lists it in its season (the same request as its
+     * picture), for "Ends at" on a show's page. [episode] is its file name; [seasonFolder] the
+     * season folder's, for names like "Episode 4". Null when it isn't known.
+     */
+    suspend fun episodeRuntime(c: Context, show: String, episode: String, seasonFolder: String?): Int? = withContext(Dispatchers.IO) {
+        val key = key(c) ?: return@withContext null
+        load(c)
+        val (s, e) = episodeNumber(episode, seasonFolder?.let(::seasonNumber)) ?: return@withContext null
+        val (parsed, year) = parse(lookupName(show), stripExtension = false)
+        val title = searchTitle(parsed)
+        if (title.isBlank()) return@withContext null
+        val before = cache.size
+        val runtime = runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
+            .onFailure { Log.w("Tmdb", "episode lengths failed: $title season $s", it) }
+            .getOrNull()?.get(e)?.runtime
+        if (cache.size != before) save(c)
+        runtime
+    }
+
+    /** One episode as TMDB lists it: its picture and its length in minutes (either can be missing). */
+    internal data class Episode(val still: String?, val runtime: Int?)
+
+    /** Season [season] of the show: episode number → its picture and length. */
+    private fun episodesOf(key: String, title: String, year: String?, season: Int): Map<Int, Episode> {
+        val json = cachedJson("ep:$title:$year:$season") {
             val id = showResult(key, title, year)?.optInt("id")?.takeIf { it > 0 } ?: return@cachedJson null
-            val episodes = get(key, "tv/$id/season/$season").optJSONArray("episodes") ?: return@cachedJson null
+            val episodes = seasonEpisodes(get(key, "tv/$id/season/$season"))
             JSONObject().apply {
-                for (i in 0 until episodes.length()) {
-                    val e = episodes.optJSONObject(i) ?: continue
-                    val still = e.optString("still_path")
-                    if (still.isNotBlank()) put(e.optInt("episode_number").toString(), STILL + still)
-                }
+                episodes.forEach { (n, e) -> put(n.toString(), JSONObject().put("s", e.still ?: "").put("r", e.runtime ?: 0)) }
             }
         } ?: return emptyMap()
-        return json.keys().asSequence().mapNotNull { k -> k.toIntOrNull()?.let { it to json.optString(k) } }.toMap()
+        return json.keys().asSequence().mapNotNull { k ->
+            val e = json.optJSONObject(k) ?: return@mapNotNull null
+            k.toIntOrNull()?.let { it to Episode(e.optString("s").ifBlank { null }, e.optInt("r").takeIf { r -> r > 0 }) }
+        }.toMap()
+    }
+
+    /** Reads a season (tv/{id}/season/{n}): episode number → picture and length. Visible for tests. */
+    internal fun seasonEpisodes(o: JSONObject): Map<Int, Episode> {
+        val episodes = o.optJSONArray("episodes") ?: return emptyMap()
+        return (0 until episodes.length()).mapNotNull { episodes.optJSONObject(it) }.mapNotNull { e ->
+            val n = e.optInt("episode_number").takeIf { it > 0 } ?: return@mapNotNull null
+            val ep = Episode(e.text("still_path")?.let { STILL + it }, e.optInt("runtime").takeIf { it > 0 })
+            if (ep.still == null && ep.runtime == null) null else n to ep
+        }.toMap()
     }
 
     /** Like [cached], for a JSON object ("" = looked up, nothing found). */
@@ -214,29 +247,124 @@ object Tmdb {
             "collector'?s edition|anniversary edition|ultimate (cut|edition)|final cut|remastered|redux|open matte|uncut|blu-?ray)\\b",
     )
 
-    private val castCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+    /**
+     * What a title's page shows beyond the search result: a film's length, the US age rating, the
+     * collection a film belongs to, and the main cast. Whatever TMDB doesn't know is null (or empty).
+     */
+    data class Details(
+        /** Minutes, for a film (a show's episodes vary: see [episodeRuntime]). */
+        val runtime: Int? = null,
+        /** The US age rating: "PG-13", "TV-14". */
+        val ageRating: String? = null,
+        /** The film's collection ("The Lord of the Rings Collection"), whose films [collection] lists. */
+        val collectionId: Int? = null,
+        val collectionName: String? = null,
+        /** The main cast: just names ("Name as Character" is too long for a TV line). */
+        val cast: List<String> = emptyList(),
+    ) {
+        fun toJson(): JSONObject = JSONObject().put("rt", runtime ?: 0).put("ar", ageRating ?: "")
+            .put("ci", collectionId ?: 0).put("cn", collectionName ?: "").put("c", JSONArray(cast))
 
-    /** The main cast ("Name as Character" is too long for a TV line: just names), for a title's page. */
-    suspend fun cast(c: Context, id: Int, tv: Boolean): List<String> = withContext(Dispatchers.IO) {
-        val k = "${if (tv) "tv" else "movie"}/$id"
-        castCache[k]?.let { return@withContext it }
-        val key = key(c) ?: return@withContext emptyList()
-        runCatching {
-            val arr = get(key, if (tv) "tv/$id/aggregate_credits" else "movie/$id/credits").optJSONArray("cast")
-            (0 until minOf(arr?.length() ?: 0, 6)).mapNotNull { arr!!.optJSONObject(it)?.optString("name")?.ifBlank { null } }
-        }.getOrDefault(emptyList()).also { if (it.isNotEmpty()) castCache[k] = it }
+        companion object {
+            fun fromJson(o: JSONObject): Details {
+                val c = o.optJSONArray("c")
+                return Details(
+                    o.optInt("rt").takeIf { it > 0 }, o.optString("ar").ifBlank { null },
+                    o.optInt("ci").takeIf { it > 0 }, o.optString("cn").ifBlank { null },
+                    c?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).ifBlank { null } } }.orEmpty(),
+                )
+            }
+        }
     }
+
+    /**
+     * A title's [Details], in one request (with its age ratings and cast appended), kept in the disk
+     * cache with the rest: a title's page has them at once the next time, even after a restart.
+     */
+    suspend fun details(c: Context, id: Int, tv: Boolean): Details? = withContext(Dispatchers.IO) {
+        val key = key(c) ?: return@withContext null
+        load(c)
+        val before = cache.size
+        val json = runCatching {
+            gate.withPermit {
+                cachedJson("d:${if (tv) "t" else "m"}:$id") {
+                    if (tv) showDetails(get(key, "tv/$id?append_to_response=content_ratings,aggregate_credits")).toJson()
+                    else movieDetails(get(key, "movie/$id?append_to_response=release_dates,credits")).toJson()
+                }
+            }
+        }.onFailure { Log.w("Tmdb", "details failed: ${if (tv) "tv" else "movie"} $id", it) }.getOrNull()
+        if (cache.size != before) save(c)
+        json?.let { Details.fromJson(it) }
+    }
+
+    /** The main cast, for a title's page (now part of [details]). */
+    suspend fun cast(c: Context, id: Int, tv: Boolean): List<String> = details(c, id, tv)?.cast.orEmpty()
+
+    /** The films in TMDB collection [id] (their TMDB ids), oldest first, for a film's page. */
+    suspend fun collection(c: Context, id: Int): List<Int> = withContext(Dispatchers.IO) {
+        val key = key(c) ?: return@withContext emptyList()
+        load(c)
+        val before = cache.size
+        val json = runCatching {
+            gate.withPermit { cachedJson("k:$id") { JSONObject().put("p", JSONArray(collectionParts(get(key, "collection/$id")))) } }
+        }.onFailure { Log.w("Tmdb", "collection failed: $id", it) }.getOrNull()
+        if (cache.size != before) save(c)
+        json?.optJSONArray("p")?.let { a -> (0 until a.length()).map { a.optInt(it) }.filter { it > 0 } }.orEmpty()
+    }
+
+    /** Reads movie/{id}?append_to_response=release_dates,credits. Visible for tests. */
+    internal fun movieDetails(o: JSONObject): Details {
+        val dates = countryEntry(o.optJSONObject("release_dates"))?.optJSONArray("release_dates")
+            ?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
+        // The cinema release's rating first (type 3): a later TV or disc release can be unrated or cut.
+        val rating = dates.sortedBy { if (it.optInt("type") == 3) 0 else 1 }.firstNotNullOfOrNull { ageRating(it.text("certification")) }
+        val collection = o.optJSONObject("belongs_to_collection")
+        return Details(
+            runtime = o.optInt("runtime").takeIf { it > 0 },
+            ageRating = rating,
+            collectionId = collection?.optInt("id")?.takeIf { it > 0 },
+            collectionName = collection?.text("name"),
+            cast = castNames(o.optJSONObject("credits")?.optJSONArray("cast")),
+        )
+    }
+
+    /** Reads tv/{id}?append_to_response=content_ratings,aggregate_credits. Visible for tests. */
+    internal fun showDetails(o: JSONObject): Details = Details(
+        ageRating = ageRating(countryEntry(o.optJSONObject("content_ratings"))?.text("rating")),
+        cast = castNames(o.optJSONObject("aggregate_credits")?.optJSONArray("cast")),
+    )
+
+    /** Reads collection/{id}: its films' TMDB ids by release date, those without one last. Visible for tests. */
+    internal fun collectionParts(o: JSONObject): List<Int> {
+        val parts = o.optJSONArray("parts") ?: return emptyList()
+        return (0 until parts.length()).mapNotNull { parts.optJSONObject(it) }
+            .mapNotNull { p -> p.optInt("id").takeIf { it > 0 }?.let { it to p.text("release_date").orEmpty() } }
+            .sortedWith(compareBy<Pair<Int, String>> { it.second.isEmpty() }.thenBy { it.second })
+            .map { it.first }
+    }
+
+    /** The United States' entry in a list of per-country results (release dates, TV ratings). */
+    private fun countryEntry(o: JSONObject?): JSONObject? {
+        val results = o?.optJSONArray("results") ?: return null
+        return (0 until results.length()).mapNotNull { results.optJSONObject(it) }.firstOrNull { it.optString("iso_3166_1") == "US" }
+    }
+
+    /** An age rating worth showing: "NR" (not rated) says nothing. */
+    private fun ageRating(s: String?): String? = s?.trim()?.takeIf { it.isNotEmpty() && !it.equals("NR", ignoreCase = true) }
+
+    private fun castNames(arr: JSONArray?): List<String> =
+        if (arr == null) emptyList() else (0 until minOf(arr.length(), 6)).mapNotNull { arr.optJSONObject(it)?.text("name") }
 
     /** One TMDB match, as cached: poster URL, release year, genre names, rating out of 10. */
     internal data class Hit(
         val poster: String?, val year: Int?, val genres: List<String>, val rating: Double?,
         /** The synopsis and a wide background image, for the title's detail page. */
         val overview: String? = null, val backdrop: String? = null,
-        /** TMDB's id and whether it's a TV show, for the cast list. */
+        /** TMDB's id and whether it's a TV show, for the title page's [details]. */
         val id: Int? = null, val tv: Boolean = false,
     ) {
         fun toJson(): String = JSONObject().put("p", poster ?: "").put("y", year ?: 0)
-            .put("g", org.json.JSONArray(genres)).put("r", rating ?: 0.0)
+            .put("g", JSONArray(genres)).put("r", rating ?: 0.0)
             .put("o", overview ?: "").put("b", backdrop ?: "").put("i", id ?: 0).put("tv", tv).toString()
 
         companion object {
@@ -244,10 +372,11 @@ object Tmdb {
                 val o = JSONObject(s)
                 val g = o.optJSONArray("g")
                 Hit(
-                    o.optString("p").ifBlank { null }, o.optInt("y").takeIf { it > 0 },
+                    // Earlier versions kept a missing picture as ".../w342null": none.
+                    o.optString("p").ifBlank { null }?.takeUnless { it.endsWith("null") }, o.optInt("y").takeIf { it > 0 },
                     g?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
                     o.optDouble("r", 0.0).takeIf { it > 0 },
-                    o.optString("o").ifBlank { null }, o.optString("b").ifBlank { null },
+                    o.optString("o").ifBlank { null }, o.optString("b").ifBlank { null }?.takeUnless { it.endsWith("null") },
                     o.optInt("i").takeIf { it > 0 }, o.optBoolean("tv"),
                 )
             }.getOrNull()
@@ -277,7 +406,7 @@ object Tmdb {
         val (title, year) = parse(showName, stripExtension = false)
         return cached("s:$title:$year:$number") {
             val id = showResult(key, title, year)?.optInt("id") ?: return@cached null
-            runCatching { get(key, "tv/$id/season/$number").optString("poster_path").ifBlank { null } }.getOrNull()
+            runCatching { get(key, "tv/$id/season/$number").text("poster_path") }.getOrNull()
                 ?.let { Hit(IMG + it, null, emptyList(), null) }
                 ?: tv(key, showName) // no season art: use the show's poster
         }
@@ -293,7 +422,7 @@ object Tmdb {
     private fun best(r: JSONObject, genres: Map<Int, List<String>>, dateField: String): Hit? {
         val results = r.optJSONArray("results") ?: return null
         val top = (0 until minOf(results.length(), 5)).mapNotNull { results.optJSONObject(it) }
-        val pick = top.firstOrNull { it.optString("poster_path").isNotBlank() } ?: top.firstOrNull() ?: return null
+        val pick = top.firstOrNull { it.text("poster_path") != null } ?: top.firstOrNull() ?: return null
         return hit(pick, genres, dateField)
     }
 
@@ -304,11 +433,11 @@ object Tmdb {
         // A score from a handful of votes means little: leave it out of "Top rated".
         val rating = o.optDouble("vote_average", 0.0).takeIf { it > 0 && o.optInt("vote_count") >= 20 }
         return Hit(
-            o.optString("poster_path").ifBlank { null }?.let { IMG + it },
-            o.optString(dateField).take(4).toIntOrNull()?.takeIf { it in 1870..2100 },
+            o.text("poster_path")?.let { IMG + it },
+            o.text(dateField)?.take(4)?.toIntOrNull()?.takeIf { it in 1870..2100 },
             names, rating,
-            o.optString("overview").ifBlank { null }?.take(700),
-            o.optString("backdrop_path").ifBlank { null }?.let { BACKDROP + it },
+            o.text("overview")?.take(700),
+            o.text("backdrop_path")?.let { BACKDROP + it },
             o.optInt("id").takeIf { it > 0 }, dateField == "first_air_date",
         )
     }
@@ -407,6 +536,8 @@ object Tmdb {
             val o = JSONObject(cacheFile(c).readText())
             o.keys().forEach { k -> cache[k] = o.getString(k) }
         }
+        // Episode pictures are kept with the episodes' lengths now ("ep:"): the old entries go.
+        cache.keys.removeAll { it.startsWith("e:") }
     }
 
     @Synchronized
@@ -421,3 +552,6 @@ object Tmdb {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 }
+
+/** A text field; null when it's missing, blank or JSON null (Android's optString reads that as "null"). */
+private fun JSONObject.text(name: String): String? = if (isNull(name)) null else optString(name).ifBlank { null }
