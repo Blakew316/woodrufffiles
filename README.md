@@ -17,24 +17,20 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   and new mail shows up as a notification. While Mail is on screen it stays signed in (until 3 idle minutes), so
   messages open at once.
 - **Phone connection**: scan the QR code once (the pairing key persists). On iPhone, tap **Share → Add to Home Screen**
-  and it opens like an app that stays paired. It looks and moves like an iPhone app: a floating glass tab bar, large
-  titles that shrink as you scroll, inset lists, pages that slide in and go back with **‹** or a swipe from the left,
-  menus, press-and-hold menus and action sheets, in light and dark. Each tab keeps its place when you switch. Six tabs:
-  - **TV**: what's playing (with a progress bar) and a live picture of the TV (tap it to enlarge), the linked TVs
-    (tap one to switch), and the *Away from home* link.
+  and it opens like an app that stays paired. It looks and moves like an iPhone app (pages slide in; **‹** or a swipe
+  from the left goes back), in light and dark, with four tabs:
   - **Remote**: laid out like the Siri Remote: a round clickpad (tap or swipe), Back, Home, Play/Pause, Mute and
-    volume. It's the tab the app opens on; the TV's name at the top picks a TV when several are linked. When a text
-    box is selected on the TV, the keyboard button lights up and a *Type into …* button appears; letters appear on
-    the TV as you type and Enter presses Done.
-  - **Files**: browse the TV's storage (the menu under the title switches storage) and search the folder; tap a file
-    for *Play on TV*, *Set as TV Background*, *Save to iPhone* or *Delete*; press and hold a file or folder for all
-    its actions, including *Use for Slideshow*. **+** uploads photos or files and makes folders.
+    volume. The TV's name at the top picks a TV when several are linked. A *Now Playing* card shows what's on; tap
+    it for a live picture of the TV. When a text box is selected on the TV, the keyboard button lights up and a
+    *Type into …* button appears; letters appear on the TV as you type and Enter presses Done.
+  - **Send**: one message box and a **To** row (everyone by default; choose TVs, phones and *Keep on Every TV's
+    Home*), then **Photos & Files** (browse the TV's storage, play, set as background, save to iPhone, upload, and
+    press and hold a folder to use it for the slideshow), **Open a Link** (YouTube, Apple Music or a video) and
+    **Start Photo Slideshow**.
   - **Notes**: the same notes as the TV's Notes screen, with search and pinning (press and hold, or **…**). A note
     opens as its own page and is saved when you go back; tap the pencil to write one.
-  - **Send**: announcements to the TV and/or chosen phones (**Send** is at the top), links (YouTube and Apple Music
-    links open in those apps), the photo slideshow, and a link for iPhone Shortcuts.
-  - **Settings**: this phone (name, lock-screen alerts), then a page each for Google Drive, posters (TMDB), cameras,
-    mail, weather on Home and Share to TV, plus the TV's last crash when there is one.
+  - **Settings**: this phone (name, lock-screen alerts), **Connections** (Google Drive, posters, cameras, mail),
+    weather on Home, **Away From Home** (the Tailscale link) and **Shortcuts** (the links for iPhone Shortcuts).
 - **Library in the side menu**: **Movies** and **TV Shows** open the Drive folders of those names (created by you,
   anywhere in My Drive, top level preferred) and stream from them. **Photos** and **Videos** show what you've added from
   Google Photos (saved on the TV), each with an **Add from Google Photos** button. Google Drive and Google Photos
@@ -45,17 +41,17 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   lists films without a ✓ and shows not started. Photos and Videos
   sort newest or oldest first and filter by year and month, using when each was taken: Google's capture time for
   Google Photos items, otherwise the photo's own data or a date in its name.
-- **Live TV picture on the phone** (TV tab): about once a second, only while the tab is open. Only Woodruff
+- **Live TV picture on the phone** (Remote → tap *Now Playing*): about once a second, only while it's open. Only Woodruff
   Family's own screens can be shown (video itself appears black); other apps would need a permission prompt on the
   TV every time.
 - **Away from home with Tailscale**: install Tailscale on the TV and the iPhone (same account). The TV's Phone
-  screen then shows an *Away from home* link and QR code (also in the phone's TV tab); open it once on the phone
+  screen then shows an *Away from home* link and QR code (also in the phone app: Settings → *Away From Home*); open it once on the phone
   and add it to the Home Screen. Everything in the phone app then works from anywhere, encrypted by Tailscale.
   The phone connection starts by itself when the TV turns on and after Woodruff updates (it waits for Wi-Fi first),
   so nobody needs to open Woodruff on the TV after a restart. Settings → Phone connection → *Start when the TV turns on*.
 - **Several TVs**: install Woodruff Family on each TV and give each a name (Settings → TVs → This TV's name).
   On the TV you'll watch from (the hub), choose **Add another TV**, pick the other TV from the list and type the
-  6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's TV tab then
+  6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's Remote (the TV's name at the top) then
   list every TV with what's playing, and the phone can see and control any of them. Woodruff's own player is
   always reported; to also see Netflix, YouTube and other apps, turn on **See what other apps are playing** on
   each TV (Notification access; Settings shows an adb command for TVs that hide that setting). If the router gives a
@@ -94,11 +90,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   *Weather on Home* (city or ZIP).
 - **On this day**: photos taken on today's date in earlier years show up in *At a glance* (select to see them as a
   slideshow) and come first in the regular slideshow.
-- **Family message board**: in the phone app's Send tab, *Pin on every TV's Home* keeps a message at the top of Home
+- **Family message board**: in the phone app's Send tab, **To** → *Keep on Every TV's Home* keeps a message at the top of Home
   on this TV and every linked TV until someone dismisses it on that TV.
 - **Status** (top of Settings): version, phone connection, Google Drive, cameras, doorbell alerts, updates, and
   every linked TV (online or not, and its version), each with the reason when something isn't working.
-- **Share to TV from iPhone**: phone app → Settings → *Share to TV* copies a link for a "Send to TV" Shortcut in the
+- **Share to TV from iPhone**: phone app → Settings → *Shortcuts* copies a link for a "Send to TV" Shortcut in the
   share sheet (steps are on that screen). Links open on the TV (YouTube and Apple Music in their apps); text
   shows up as a message.
 - **Phone remote extras**: volume down / mute / up buttons (the TV's own volume, whatever is on screen); hold an
@@ -133,7 +129,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   the doorbell full screen if Woodruff is on screen. During a film in Woodruff's player a card says *Someone's at the
   door · OK to look* for 20 s: OK shows the camera live with sound (Left/Right for the others), Back returns to the film. Google only announces rings through Cloud Pub/Sub: turn on
   Pub/Sub for the Device Access project, create a pull subscription to its topic in Google Cloud, enter the
-  subscription's full name in the phone app (Settings → Cameras → Doorbell alerts) for one TV, then connect the
+  subscription's full name in the phone app (Settings → Connections → Cameras → Doorbell alerts) for one TV, then connect the
   cameras again on that TV so the sign-in includes Pub/Sub.
 - **Notifications**: messages from the phone and new mail appear as a pop-up, even over other apps once
   "Pop-ups over other apps" is allowed in Settings (also on Android 7 TVs, such as older Fire TV sticks). They're also

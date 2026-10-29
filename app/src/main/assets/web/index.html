@@ -39,7 +39,7 @@
     --safe-t:env(safe-area-inset-top, 0px); --safe-b:env(safe-area-inset-bottom, 0px);
     --safe-l:env(safe-area-inset-left, 0px); --safe-r:env(safe-area-inset-right, 0px);
     --ml:calc(16px + var(--safe-l)); --mr:calc(16px + var(--safe-r));
-    --nav-h:52px; --tab-h:62px; --tab-b:max(10px, calc(var(--safe-b) - 13px));
+    --nav-h:52px; --tab-h:64px; --tab-b:max(10px, calc(var(--safe-b) - 13px));
     --r:12px;                                       /* inset grouped corner radius */
     --ease:cubic-bezier(.32,.72,0,1);               /* navigation pushes and sheets */
     --spring:cubic-bezier(.3,1.35,.55,1);           /* glass: a small overshoot */
@@ -128,6 +128,7 @@
   .gb.prom, .gb.ready { background-color:var(--tint-fill); color:var(--on-tint); font-weight:600; box-shadow:inset 0 1px 1px rgba(255,255,255,.3), 0 0 0 .5px rgba(0,0,0,.08), 0 6px 16px rgba(0,0,0,.14); }
   .gb.prom:active { background-color:var(--tint-fill); }
   .gb:disabled { opacity:.45; pointer-events:none; }
+  .gb.prom:disabled { opacity:1; background-color:var(--fill); color:var(--label3); box-shadow:none; }   /* like a disabled prominent bar button */
   .gb.back { padding:0 16px 0 12px; gap:6px; min-width:0; max-width:100%; }
   .gb.back svg { width:12px; height:21px; }
   .gb.back span { overflow:hidden; text-overflow:ellipsis; min-width:0; }
@@ -231,6 +232,9 @@
   .steps b { color:var(--tint); font-weight:600; }
   .steps code { font:13px/20px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:0; padding:1px 6px; border-radius:6px; background:var(--fill4); word-break:break-all; }
   #crash-text { display:block; white-space:pre-wrap; word-break:break-word; color:var(--label2); }
+  /* Send: one message box; the To row under it says who gets it. */
+  #n-text { min-height:118px; }
+  #n-to-d { max-width:78%; }
 
   /* Tip (the Add to Home Screen hint) */
   .tip { display:flex; gap:12px; align-items:flex-start; margin:8px var(--mr) 0 var(--ml); padding:14px 12px 14px 14px; border-radius:18px; background:var(--cell); font-size:15px; line-height:20px; letter-spacing:-.23px; }
@@ -241,34 +245,43 @@
   .tip .x { flex:none; width:30px; height:30px; margin:-6px -4px 0 0; display:flex; align-items:center; justify-content:center; color:var(--label3); }
   .tip .x svg { width:15px; height:15px; }
 
-  /* ---- TV: live picture and Now Playing --------------------------------------------------------- */
-  .nowcard { display:flex; gap:12px; align-items:center; padding:12px; }
-  .nowcard.big { display:block; }
-  .screen { position:relative; flex:none; width:46%; aspect-ratio:16/9; border-radius:10px; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center; }
-  .nowcard.big .screen { width:100%; }
-  .screen img { width:100%; height:100%; object-fit:contain; transition:opacity .2s; }
-  .screen p { position:absolute; left:0; right:0; margin:0; padding:0 10px; color:#fff; text-align:center; font-size:13px; line-height:18px; letter-spacing:-.08px; text-shadow:0 1px 2px rgba(0,0,0,.8); }
-  .nowcard.big .screen p { font-size:15px; line-height:20px; }
-  .now { flex:1; min-width:0; display:flex; flex-direction:column; }
-  .nowcard.big .now { padding:12px 4px 2px; }
-  .np-k { font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); }
-  .np { font-weight:600; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .np-s { font-size:15px; line-height:20px; letter-spacing:-.23px; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .np-bar { margin-top:10px; }
-  .np-track { height:6px; border-radius:3px; background:var(--fill2); overflow:hidden; }
-  .np-track i { display:block; height:100%; width:0; border-radius:3px; background:var(--label2); transition:width .5s linear; }
-  .np-bar.on .np-track i { background:var(--label); }
-  .np-times { display:flex; justify-content:space-between; margin-top:5px; font-size:12px; line-height:16px; letter-spacing:0; font-weight:500; color:var(--label2); font-variant-numeric:tabular-nums; }
-
-  /* ---- Remote: the Siri Remote clickpad and buttons -------------------------------------------- */
-  /* Sized to the screen's height, so the whole remote fits from an iPhone SE to a Pro Max. */
-  .remote { --k:clamp(52px, 7.8dvh, 62px); --g:clamp(14px, 3.4dvh, 30px); --pad:clamp(180px, min(72vw, calc(100dvh - var(--safe-t) - var(--safe-b) - 430px)), 296px);
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--g); padding:4px 0 8px;
-    min-height:calc(100dvh - var(--safe-t) - var(--nav-h) - var(--tab-b) - var(--tab-h) - 40px); }
-  .hint { display:inline-flex; align-items:center; gap:8px; height:40px; max-width:calc(100vw - 48px); padding:0 16px; border-radius:20px; background:var(--tint-soft); color:var(--tint); font-size:15px; letter-spacing:-.23px; font-weight:600; }
+  /* ---- Remote: what's playing (tap it for the TV screen), the Siri Remote clickpad and buttons ---- */
+  /* The remote fills the room between the bars without scrolling, from an iPhone SE to a Pro Max: the
+     buttons follow the height and the clickpad takes what's left (both size containers). */
+  #remote-root::after { display:none; }   /* nothing scrolls under the tab bar here */
+  #remote-root .scroller::after { height:calc(var(--tab-b) + var(--tab-h) + 8px); }
+  .remote { --k:clamp(46px, 7.4vh, 62px); height:calc(100% - var(--tab-b) - var(--tab-h) - 8px); min-height:440px;
+    display:flex; flex-direction:column; align-items:center; padding:4px var(--mr) 6px var(--ml); }
+  .remote > .tip { align-self:stretch; margin:0 0 12px; }
+  /* Now Playing: always two lines high, so the remote below never moves; the progress is a hairline under them. */
+  .npc { position:relative; flex:none; align-self:stretch; display:grid; grid-template-columns:40px minmax(0,1fr) 18px; column-gap:12px; align-items:center;
+    padding:10px 14px 15px 11px; border-radius:18px; background:var(--cell); text-align:left; overflow:hidden;
+    transition:transform .35s var(--spring), background-color .3s; }
+  .npc:active { transform:scale(.98); background-color:var(--cell-hi); transition:transform .35s var(--spring), background-color 0s; }
+  .npa { grid-row:1 / span 2; width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; color:#fff; background:linear-gradient(165deg, #5b9fd6, var(--tint-fill)); }
+  .npa.off { background:var(--gray); }
+  .npa svg { width:22px; height:22px; }
+  .npt { grid-column:2; font-size:16px; line-height:21px; font-weight:600; letter-spacing:-.31px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .nps { grid-column:2; display:flex; gap:10px; min-width:0; font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); }
+  .nps > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .nps > span:first-child { flex:1; min-width:0; }
+  .nps .tm { flex:none; font-variant-numeric:tabular-nums; }
+  .npx { grid-column:3; grid-row:1 / span 2; justify-self:end; color:var(--label3); }
+  .npx svg { width:16px; height:16px; }
+  .npb { position:absolute; left:63px; right:14px; bottom:7px; height:3px; border-radius:1.5px; background:var(--fill2); overflow:hidden; }
+  .npb i { display:block; height:100%; width:0; border-radius:1.5px; background:var(--label3); transition:width .9s linear; }
+  .npb.on i { background:var(--tint); }
+  .hint { flex:none; display:inline-flex; align-items:center; gap:8px; height:44px; max-width:100%; margin-top:10px; padding:0 18px; border-radius:22px; background:var(--tint-soft); color:var(--tint); font-size:15px; letter-spacing:-.23px; font-weight:600; }
   .hint svg { width:20px; height:20px; }
   .hint span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .pad { position:relative; flex:none; width:var(--pad); height:var(--pad); border-radius:50%; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); touch-action:none; }
+  .padbox { flex:1 1 0; min-height:170px; align-self:stretch; display:flex; align-items:center; justify-content:center; }
+  .pad { --pad:clamp(150px, calc(100vh - var(--safe-t) - var(--safe-b) - 450px), 300px); position:relative; flex:none; width:var(--pad); height:var(--pad); border-radius:50%; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); touch-action:none;
+    transition:width .3s var(--ease), height .3s var(--ease); }
+  @supports (container-type:size) {
+    .remote { --k:clamp(46px, 9.5cqh, 62px); container-type:size; }
+    .padbox { container-type:size; min-height:0; }
+    .pad { --pad:min(300px, 100cqh - 24px, 100cqw - 40px); }
+  }
   .pad::after { content:''; position:absolute; inset:7%; border-radius:50%; border:1px solid var(--fill4); pointer-events:none; }
   .pad button { position:absolute; display:flex; align-items:center; justify-content:center; color:var(--label3); transition:color .15s; }
   .pad .dir { width:33%; height:33%; }
@@ -299,14 +312,15 @@
   #note-body { padding:4px var(--mr) 24px var(--ml); min-height:calc(100dvh - var(--safe-t) - 250px); line-height:24px; }
 
   /* ---- Tab bar: a floating glass capsule; the selection lens follows a finger dragged along it ---- */
+  /* Four tabs, so each one is a wide target. */
   .tabbar { position:absolute; z-index:300; left:calc(16px + var(--safe-l)); right:calc(16px + var(--safe-r)); bottom:var(--tab-b); height:var(--tab-h); max-width:560px; margin:0 auto;
-    display:flex; padding:0 4px; border-radius:31px; }
-  .tb-lens { position:absolute; z-index:0; top:4px; left:0; width:0; height:calc(100% - 8px); border-radius:27px; background:var(--lens); transition:transform .5s var(--spring), width .3s var(--ease), background-color .2s; }
+    display:flex; padding:0 4px; border-radius:32px; }
+  .tb-lens { position:absolute; z-index:0; top:4px; left:0; width:0; height:calc(100% - 8px); border-radius:28px; background:var(--lens); transition:transform .5s var(--spring), width .3s var(--ease), background-color .2s; }
   .tabbar.press .tb-lens { background:var(--fill2); }
   .tabbar.drag .tb-lens { transition:transform .1s linear, width .3s var(--ease); }
   .tabbar button { position:relative; z-index:1; flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; padding-top:2px;
-    color:var(--label); font-size:10px; line-height:12px; font-weight:600; letter-spacing:.1px; transition:color .2s; }
-  .tabbar button svg { width:28px; height:26px; }
+    color:var(--label); font-size:11px; line-height:13px; font-weight:600; letter-spacing:.06px; transition:color .2s; }
+  .tabbar button svg { width:30px; height:28px; }
   .tabbar button.on { color:var(--tint); }
   .tabbar button span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
@@ -375,6 +389,31 @@
   .dot { width:9px; height:9px; border-radius:50%; background:var(--label3); flex:none; }
   .dot.live { background:var(--green); }
   #kb-text { font-size:20px; line-height:26px; min-height:150px; }
+  /* A floating glass sheet at medium height (iOS 26): the TV Screen. Its picture updates only while it's open. */
+  .msheet.half { z-index:1001; top:auto; bottom:8px; left:calc(8px + var(--safe-l)); right:calc(8px + var(--safe-r)); max-width:520px; margin:0 auto; max-height:calc(100% - var(--safe-t) - 24px);
+    border-radius:34px; background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8);
+    box-shadow:0 0 0 .5px rgba(0,0,0,.06), 0 12px 44px rgba(0,0,0,.24); }
+  .msheet.half:not(.show) { transform:translateY(calc(100% + 40px)); }
+  .msheet.half .sbody { flex:none; padding-bottom:max(18px, calc(var(--safe-b) - 8px)); }
+  .stt { display:flex; flex-direction:column; align-items:center; min-width:0; }
+  .stt b, .stt small { max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .stt small { font-size:12px; line-height:15px; letter-spacing:0; color:var(--label2); }
+  .nowcard { display:flex; gap:14px; align-items:center; padding:2px var(--mr) 0 var(--ml); }
+  .nowcard.big { display:block; }
+  .screen { position:relative; flex:none; width:46%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center; }
+  .nowcard.big .screen { width:100%; border-radius:18px; }
+  .screen img { width:100%; height:100%; object-fit:contain; transition:opacity .2s; }
+  .screen p { position:absolute; left:0; right:0; margin:0; padding:0 10px; color:#fff; text-align:center; font-size:13px; line-height:18px; letter-spacing:-.08px; text-shadow:0 1px 2px rgba(0,0,0,.8); }
+  .nowcard.big .screen p { font-size:15px; line-height:20px; }
+  .now { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .nowcard.big .now { padding:14px 4px 0; }
+  .np { font-weight:600; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .np-s { font-size:15px; line-height:20px; letter-spacing:-.23px; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .np-bar { margin-top:10px; }
+  .np-track { height:6px; border-radius:3px; background:var(--fill2); overflow:hidden; }
+  .np-track i { display:block; height:100%; width:0; border-radius:3px; background:var(--label2); transition:width .9s linear; }
+  .np-bar.on .np-track i { background:var(--label); }
+  .np-times { display:flex; justify-content:space-between; margin-top:5px; font-size:12px; line-height:16px; letter-spacing:0; font-weight:500; color:var(--label2); font-variant-numeric:tabular-nums; }
   /* HUD: a capsule that drops in from the top */
   .hud { position:fixed; z-index:1100; left:50%; top:calc(var(--safe-t) + 8px); display:flex; align-items:center; gap:8px; max-width:calc(100% - 32px); padding:11px 18px 11px 13px; border-radius:24px;
     background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8); box-shadow:var(--glass-shadow), 0 10px 30px rgba(0,0,0,.14);
@@ -407,40 +446,21 @@
 <body>
 <div id="app">
 
-<!-- TV: what's on, which TV, away-from-home link -->
-<section class="tab" id="tab-tv">
-  <div class="page" id="tv-root" data-title="TV"><div class="scroller">
-    <h1 class="large">TV</h1>
-    <div class="group nowcard" id="live">
-      <button class="screen" id="screen" aria-label="Make the TV picture bigger or smaller"><img id="tv-img" alt="What's on the TV" draggable="false"><p id="tv-msg">Connecting…</p></button>
-      <div class="now">
-        <span class="np-k">Now Playing</span>
-        <span class="np" id="now-title">Nothing playing</span>
-        <span class="np-s" id="now-time"></span>
-        <div class="np-bar" id="now-bar" hidden><div class="np-track"><i id="now-fill"></i></div><div class="np-times"><span id="now-pos"></span><span id="now-left"></span></div></div>
-      </div>
-    </div>
-    <div class="group" id="kb-hint" hidden><button class="row i tap"><span class="ico" style="--c:var(--indigo)"><i data-ic="gKb"></i></span><span class="txt"><span class="t" id="kb-hint-t">Type on the TV</span><span class="s">Tap to use your keyboard</span></span><i data-ic="chev"></i></button></div>
-    <div class="head" id="tv-head" hidden>TVs</div>
-    <div class="group" id="tv-list" hidden></div>
-    <div class="head" id="away-head" hidden>Away from home</div>
-    <div class="group" id="away" hidden><button class="row i tap" id="away-copy"><span class="ico" style="--c:var(--blue)"><i data-ic="gGlobe"></i></span><span class="txt"><span class="t">Copy Tailscale Link</span><span class="s" id="away-url"></span></span></button></div>
-    <p class="foot" id="away-foot" hidden>Open it on this phone with Tailscale on, then add it to your Home Screen too.</p>
-  </div></div>
-</section>
-
-<!-- REMOTE: nothing but the remote -->
+<!-- REMOTE: which TV (the title), what's on it (tap for the TV screen), the clickpad and buttons -->
 <section class="tab" id="tab-remote">
   <div class="page" id="remote-root" data-title="Remote"><div class="scroller">
-    <div class="tip" id="install" hidden><i data-ic="share"></i><div class="grow"><span class="tt">Add to Home Screen</span>Tap <b>Share</b>, then <b>Add to Home Screen</b>. It stays paired with this TV.</div><button class="x" id="install-x" aria-label="Dismiss"><i data-ic="xmark"></i></button></div>
     <div class="remote">
+      <div class="tip" id="install" hidden><i data-ic="share"></i><div class="grow"><span class="tt">Add to Home Screen</span>Tap <b>Share</b>, then <b>Add to Home Screen</b>. It stays paired with this TV.</div><button class="x" id="install-x" aria-label="Dismiss"><i data-ic="xmark"></i></button></div>
+      <button class="npc" id="now" aria-haspopup="dialog"><span class="npa" id="now-art"><i data-ic="gTv"></i></span><span class="npt" id="now-title">Nothing Playing</span><span class="nps"><span id="now-sub"></span><span class="tm" id="now-time"></span></span><span class="npx"><i data-ic="expand"></i></span><span class="npb" id="now-bar" hidden><i id="now-fill"></i></span></button>
       <button class="hint" id="rm-kb-hint" hidden><i data-ic="keyboard"></i><span id="rm-kb-hint-t">Type on the TV</span></button>
-      <div class="pad noswipe" id="pad" role="group" aria-label="Arrows and OK">
-        <button class="dir" data-key="up" aria-label="Up"><i data-ic="padUp"></i></button>
-        <button class="dir" data-key="left" aria-label="Left"><i data-ic="padLeft"></i></button>
-        <button class="okb" data-key="ok" aria-label="OK">OK</button>
-        <button class="dir" data-key="right" aria-label="Right"><i data-ic="padRight"></i></button>
-        <button class="dir" data-key="down" aria-label="Down"><i data-ic="padDown"></i></button>
+      <div class="padbox">
+        <div class="pad noswipe" id="pad" role="group" aria-label="Arrows and OK">
+          <button class="dir" data-key="up" aria-label="Up"><i data-ic="padUp"></i></button>
+          <button class="dir" data-key="left" aria-label="Left"><i data-ic="padLeft"></i></button>
+          <button class="okb" data-key="ok" aria-label="OK">OK</button>
+          <button class="dir" data-key="right" aria-label="Right"><i data-ic="padRight"></i></button>
+          <button class="dir" data-key="down" aria-label="Down"><i data-ic="padDown"></i></button>
+        </div>
       </div>
       <div class="keys noswipe">
         <button class="rk" data-key="back" style="grid-area:back" aria-label="Back"><i data-ic="kBack"></i></button>
@@ -451,18 +471,6 @@
       </div>
     </div>
   </div></div>
-</section>
-
-<!-- FILES (each folder opened is pushed as its own page) -->
-<section class="tab" id="tab-files">
-  <div class="page" id="files-root" data-title="Files"><div class="scroller">
-    <h1 class="large" id="files-title">Files</h1>
-    <button class="subtitle" id="storage" hidden><span id="storage-name"></span><i data-ic="down"></i></button>
-    <div class="searchbar"><label class="search"><i data-ic="search"></i><input type="search" id="files-search" placeholder="Search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button class="clr" type="button" aria-label="Clear text"><i data-ic="clear"></i></button></label></div>
-    <div class="group upl" id="uploads" hidden></div>
-    <div class="group flist" id="list"></div>
-  </div></div>
-  <input id="file" type="file" multiple hidden>
 </section>
 
 <!-- NOTES -->
@@ -479,45 +487,57 @@
   </div></div>
 </section>
 
-<!-- SEND -->
+<!-- SEND: a message for the TVs and phones, and everything else that goes to the TV -->
 <section class="tab" id="tab-send">
-  <div class="page" id="send-root" data-title="Send to TV"><div class="scroller">
-    <h1 class="large">Send to TV</h1>
+  <div class="page" id="send-root" data-title="Send"><div class="scroller">
+    <h1 class="large">Send</h1>
     <div class="group" id="name-me" hidden><button class="row i tap" data-page="set-phone"><span class="ico" style="--c:var(--orange)"><i data-ic="gPhone"></i></span><span class="txt"><span class="t">Name this phone in Settings</span><span class="s">So it can get announcements too</span></span><i data-ic="chev"></i></button></div>
-    <div class="head">Announcement</div>
     <div class="group">
-      <label class="row field"><input id="n-title" placeholder="Title" enterkeyhint="next" autocomplete="off"></label>
-      <label class="row field area"><textarea id="n-body" rows="3" placeholder="Message (optional)"></textarea></label>
+      <label class="row field area"><textarea id="n-text" rows="4" placeholder="Message" aria-label="Message"></textarea></label>
+      <button class="row tap" id="n-to" data-page="send-to"><span class="txt t">To</span><span class="detail" id="n-to-d">Everyone</span><i data-ic="chev"></i></button>
     </div>
-    <div class="head">Show on</div>
-    <div class="group" id="n-targets"></div>
-    <div class="group"><div class="row"><span class="txt t">Pin on Every TV's Home</span><input type="checkbox" class="switch" switch id="n-pin" aria-label="Pin on every TV's Home"></div></div>
-    <p class="foot">Stays until someone dismisses it on that TV.</p>
-    <div class="head">Open on the TV</div>
-    <div class="group"><label class="row field"><input id="o-url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="YouTube, Apple Music or a video link" enterkeyhint="go"></label></div>
-    <button class="btn tinted" id="o-send">Open on TV</button>
     <div class="group">
+      <button class="row i tap" data-page="files-root"><span class="ico" style="--c:var(--blue)"><i data-ic="gFolder"></i></span><span class="txt t">Photos &amp; Files</span><i data-ic="chev"></i></button>
+      <button class="row i tap" data-page="send-link"><span class="ico" style="--c:var(--indigo)"><i data-ic="gLink"></i></span><span class="txt t">Open a Link</span><i data-ic="chev"></i></button>
       <button class="row i tap" id="slideshow"><span class="ico" style="--c:var(--orange)"><i data-ic="gSlides"></i></span><span class="txt t">Start Photo Slideshow</span></button>
-      <button class="row i tap" id="shortcut"><span class="ico" style="--c:var(--pink)"><i data-ic="gLink"></i></span><span class="txt"><span class="t">Copy Shortcuts Link</span><span class="s">For iPhone Shortcuts automations</span></span></button>
     </div>
   </div></div>
+
+  <div class="page" id="send-to" data-title="Send To" data-hash="to"><div class="scroller">
+    <div class="group" id="n-targets"></div>
+    <div class="group"><div class="row"><span class="txt t">Keep on Every TV's Home</span><input type="checkbox" class="switch" switch id="n-pin" aria-label="Keep on every TV's Home"></div></div>
+    <p class="foot">It stays on Home until someone dismisses it there.</p>
+  </div></div>
+
+  <div class="page" id="send-link" data-title="Open a Link" data-hash="link"><div class="scroller">
+    <div class="group"><label class="row field"><input id="o-url" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste a link" enterkeyhint="go" aria-label="Link"></label></div>
+    <p class="foot">YouTube and Apple Music links open in their apps; video links play on the TV.</p>
+    <button class="btn" id="o-send" disabled>Open on TV</button>
+  </div></div>
+
+  <!-- Photos & Files: the TV's storage; each folder opened is pushed as its own page -->
+  <div class="page" id="files-root" data-title="Photos &amp; Files" data-hash="files"><div class="scroller">
+    <h1 class="large" id="files-title">Photos &amp; Files</h1>
+    <button class="subtitle" id="storage" hidden><span id="storage-name"></span><i data-ic="down"></i></button>
+    <div class="searchbar"><label class="search"><i data-ic="search"></i><input type="search" id="files-search" placeholder="Search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button class="clr" type="button" aria-label="Clear text"><i data-ic="clear"></i></button></label></div>
+    <div class="group upl" id="uploads" hidden></div>
+    <div class="group flist" id="list"></div>
+  </div></div>
+  <input id="file" type="file" multiple hidden>
 </section>
 
-<!-- SETTINGS: a list of pages, like iOS Settings -->
+<!-- SETTINGS: a short first page; everything else is a page further in, like iOS Settings -->
 <section class="tab" id="tab-settings">
   <div class="page" id="set-main" data-title="Settings"><div class="scroller">
     <h1 class="large">Settings</h1>
     <div class="group"><button class="row me tap" id="me-row" data-page="set-phone"><span class="avatar"><i data-ic="gPhoneBig"></i></span><span class="txt"><span class="t" id="me-name">This Phone</span><span class="s" id="me-sub"></span></span><i data-ic="chev"></i></button></div>
-    <div class="head">Connections</div>
     <div class="group">
-      <button class="row i tap" data-page="set-drive"><span class="ico" style="--c:#1a73e8"><i data-ic="gDrive"></i></span><span class="txt t">Google Drive</span><span class="detail" id="g-status">…</span><i data-ic="chev"></i></button>
-      <button class="row i tap" data-page="set-tmdb"><span class="ico" style="--c:#01b4e4"><i data-ic="gFilm"></i></span><span class="txt t">Movie &amp; Show Posters</span><span class="detail" id="t-status">…</span><i data-ic="chev"></i></button>
-      <button class="row i tap" data-page="set-cams"><span class="ico" style="--c:var(--green)"><i data-ic="gVideo"></i></span><span class="txt t">Cameras</span><span class="detail" id="c-status">…</span><i data-ic="chev"></i></button>
-      <button class="row i tap" data-page="set-mail"><span class="ico" style="--c:var(--blue)"><i data-ic="gMail"></i></span><span class="txt t">Mail</span><span class="detail" id="m-status">…</span><i data-ic="chev"></i></button>
+      <button class="row i tap" data-page="set-conn"><span class="ico" style="--c:var(--blue)"><i data-ic="gCloud"></i></span><span class="txt t">Connections</span><span class="detail" id="conn-status">…</span><i data-ic="chev"></i></button>
+      <button class="row i tap" data-page="set-weather"><span class="ico" style="--c:var(--cyan)"><i data-ic="gSun"></i></span><span class="txt t">Weather on Home</span><span class="detail" id="w-status">…</span><i data-ic="chev"></i></button>
     </div>
     <div class="group">
-      <button class="row i tap" data-page="set-weather"><span class="ico" style="--c:var(--cyan)"><i data-ic="gSun"></i></span><span class="txt t">Weather on Home</span><span class="detail" id="w-status">…</span><i data-ic="chev"></i></button>
-      <button class="row i tap" data-page="set-share"><span class="ico" style="--c:var(--indigo)"><i data-ic="gShare"></i></span><span class="txt t">Share to TV</span><i data-ic="chev"></i></button>
+      <button class="row i tap" data-page="set-away"><span class="ico" style="--c:var(--green)"><i data-ic="gGlobe"></i></span><span class="txt t">Away From Home</span><span class="detail" id="away-status"></span><i data-ic="chev"></i></button>
+      <button class="row i tap" data-page="set-share"><span class="ico" style="--c:linear-gradient(140deg, #ff5f8f, #6a5be2)"><i data-ic="gShortcuts"></i></span><span class="txt t">Shortcuts</span><i data-ic="chev"></i></button>
     </div>
     <div class="group" id="crash-group" hidden><button class="row i tap" data-page="set-crash"><span class="ico" style="--c:var(--red)"><i data-ic="gWarn"></i></span><span class="txt t">Last Crash on This TV</span><i data-ic="chev"></i></button></div>
     <p class="foot center" id="version"></p>
@@ -525,43 +545,74 @@
 
   <div class="page" id="set-phone" data-title="This Phone" data-hash="phone"><div class="scroller">
     <div class="head">Name</div>
-    <div class="group"><label class="row field"><input id="p-name" placeholder="Blake's iPhone" autocomplete="off" enterkeyhint="done"></label></div>
-    <div class="group"><div class="row"><span class="txt t">Lock-Screen Alerts</span><input type="checkbox" class="switch" switch id="p-alerts" aria-label="Lock-screen alerts"></div></div>
-    <div class="group" id="p-ntfy" hidden>
-      <div class="row steps selectable">1. Install <b>ntfy</b> from the App Store and allow notifications.<br>2. In ntfy tap <b>+</b>, paste this topic and tap Subscribe:<br><code id="p-topic"></code></div>
+    <div class="group"><label class="row field"><input id="p-name" placeholder="Blake's iPhone" autocomplete="off" enterkeyhint="done" aria-label="Name"></label></div>
+    <div class="group">
+      <div class="row"><span class="txt t">Lock-Screen Alerts</span><input type="checkbox" class="switch" switch id="p-alerts" aria-label="Lock-screen alerts"></div>
+      <button class="row tap" id="p-ntfy" data-page="set-ntfy" hidden><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button>
+    </div>
+    <p class="foot">Announcements reach the Lock Screen through the free ntfy app.</p>
+  </div></div>
+
+  <div class="page" id="set-ntfy" data-title="How to Set Up"><div class="scroller">
+    <div class="group">
+      <div class="row steps selectable">1. Install <b>ntfy</b> from the App Store and allow notifications.<br>2. In ntfy tap <b>+</b>, paste this topic and tap <b>Subscribe</b>:<br><code id="p-topic"></code></div>
       <button class="row act tap" id="p-copy">Copy Topic</button>
     </div>
-    <p class="foot" id="p-ntfy-foot" hidden>Keep the topic private: anyone with it can read these announcements.</p>
+    <p class="foot">Keep the topic private: anyone with it can read these announcements.</p>
+  </div></div>
+
+  <div class="page" id="set-conn" data-title="Connections" data-hash="connections"><div class="scroller">
+    <div class="group">
+      <button class="row i tap" data-page="set-drive"><span class="ico" style="--c:#1a73e8"><i data-ic="gDrive"></i></span><span class="txt t">Google Drive</span><span class="detail" id="g-status">…</span><i data-ic="chev"></i></button>
+      <button class="row i tap" data-page="set-tmdb"><span class="ico" style="--c:#01b4e4"><i data-ic="gFilm"></i></span><span class="txt t">Movie &amp; Show Posters</span><span class="detail" id="t-status">…</span><i data-ic="chev"></i></button>
+      <button class="row i tap" data-page="set-cams"><span class="ico" style="--c:var(--green)"><i data-ic="gVideo"></i></span><span class="txt t">Cameras</span><span class="detail" id="c-status">…</span><i data-ic="chev"></i></button>
+      <button class="row i tap" data-page="set-mail"><span class="ico" style="--c:var(--blue)"><i data-ic="gMail"></i></span><span class="txt t">Mail</span><span class="detail" id="m-status">…</span><i data-ic="chev"></i></button>
+    </div>
   </div></div>
 
   <div class="page" id="set-drive" data-title="Google Drive" data-hash="drive"><div class="scroller">
     <div class="group"><div class="row"><span class="txt t">Status</span><span class="detail" id="g-status2">…</span></div></div>
-    <div class="head">Google Cloud keys</div>
+    <div class="head">Keys from Google Cloud</div>
     <div class="group">
       <label class="row field"><span class="lbl">Client ID</span><input id="g-id" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="1234…apps.googleusercontent.com"></label>
       <label class="row field"><span class="lbl">Secret</span><input id="g-secret" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="GOCSPX-…"></label>
     </div>
-    <p class="foot">Leave the secret blank to keep the saved one. Redirect URI: <code id="g-redirect" class="selectable"></code></p>
+    <p class="foot">Leave Secret blank to keep the saved one.</p>
+    <div class="group"><button class="row tap" data-page="set-drive-help"><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button></div>
+  </div></div>
+
+  <div class="page" id="set-drive-help" data-title="How to Set Up"><div class="scroller">
+    <div class="group">
+      <div class="row steps selectable">1. In <b>Google Cloud</b>, turn on the <b>Google Drive API</b>. On the consent screen, add your Gmail as a test user and the scopes <b>drive.readonly</b> and <b>drive.appdata</b>.<br>2. Create an <b>OAuth client ID</b> for a <b>Web application</b> with this redirect URI:<br><code id="g-redirect"></code><br>3. Paste its Client ID and secret on the Google Drive page and tap <b>Save</b>, then sign in with the code on the TV.</div>
+      <button class="row act tap" id="g-copy">Copy Redirect URI</button>
+    </div>
   </div></div>
 
   <div class="page" id="set-tmdb" data-title="Posters" data-hash="posters"><div class="scroller">
-    <div class="group"><div class="row"><span class="txt t">TMDB Key</span><span class="detail" id="t-status2">…</span></div></div>
-    <div class="head">API key or Read Access Token</div>
-    <div class="group"><label class="row field"><input id="t-key" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="themoviedb.org → Settings → API"></label></div>
-    <p class="foot">Adds posters, genres and ratings to Movies and TV Shows.</p>
+    <div class="group"><div class="row"><span class="txt t">Status</span><span class="detail" id="t-status2">…</span></div></div>
+    <div class="head">TMDB Key</div>
+    <div class="group"><label class="row field"><input id="t-key" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="API key or Read Access Token" aria-label="TMDB key"></label></div>
+    <p class="foot">Free at themoviedb.org, under Settings → API. Adds posters, genres and ratings to Movies and TV Shows.</p>
   </div></div>
 
   <div class="page" id="set-cams" data-title="Cameras" data-hash="cameras"><div class="scroller">
     <div class="group"><div class="row"><span class="txt t">Status</span><span class="detail" id="c-status2">…</span></div></div>
-    <div class="head">Google Home Device Access</div>
     <div class="group"><label class="row field"><span class="lbl">Project ID</span><input id="c-project" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1a2b3c4d-5e6f-…"></label></div>
-    <div class="head">Doorbell alerts</div>
-    <div class="group"><label class="row field"><span class="lbl">Pub/Sub</span><input id="c-doorbell" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="projects/…/subscriptions/…"></label></div>
+    <div class="head">Doorbell Alerts</div>
     <div class="group">
+      <label class="row field"><span class="lbl">Pub/Sub</span><input id="c-doorbell" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="projects/…/subscriptions/…"></label>
       <div class="row"><span class="txt t">Person Alerts</span><input type="checkbox" class="switch" switch id="c-person" aria-label="Person alerts"></div>
       <div class="row"><span class="txt t">Motion Alerts</span><input type="checkbox" class="switch" switch id="c-motion" aria-label="Motion alerts"></div>
     </div>
-    <p class="foot" id="c-doorbell-foot">Set this on one TV only. In the Device Access Console turn on Pub/Sub for your project, then in Google Cloud create a pull subscription to that topic and paste its full name here. Connect the cameras again on the TV afterwards.</p>
+    <p class="foot" id="c-doorbell-foot">Needed on one TV only.</p>
+    <div class="group"><button class="row tap" data-page="set-cams-help"><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button></div>
+  </div></div>
+
+  <div class="page" id="set-cams-help" data-title="How to Set Up"><div class="scroller">
+    <div class="head">Cameras</div>
+    <div class="group"><div class="row steps selectable">1. In Google Cloud, turn on the <b>Smart Device Management API</b>.<br>2. At <b>console.nest.google.com/device-access</b>, pay Google's one-time fee and create a project with the same client ID as Google Drive.<br>3. Paste its <b>Project ID</b> on the Cameras page and tap <b>Save</b>, then open <b>Command center</b> on the TV and scan the code.</div></div>
+    <div class="head">Doorbell Alerts</div>
+    <div class="group"><div class="row steps selectable">Set this on one TV only. In the Device Access Console turn on <b>Pub/Sub</b> for your project, then in Google Cloud create a pull subscription to that topic and paste its full name. Connect the cameras again on the TV afterwards.</div></div>
   </div></div>
 
   <div class="page" id="set-mail" data-title="Mail" data-hash="mail"><div class="scroller">
@@ -582,12 +633,29 @@
 
   <div class="page" id="set-weather" data-title="Weather on Home" data-hash="weather"><div class="scroller">
     <div class="head">Place</div>
-    <div class="group"><label class="row field"><input id="w-place" autocomplete="off" placeholder="City or ZIP, e.g. Austin, TX" enterkeyhint="done"></label></div>
+    <div class="group"><label class="row field"><input id="w-place" autocomplete="off" placeholder="City or ZIP, e.g. Austin, TX" enterkeyhint="done" aria-label="Place"></label></div>
   </div></div>
 
-  <div class="page" id="set-share" data-title="Share to TV" data-hash="share"><div class="scroller">
-    <div class="group"><button class="row act tap" id="share-copy"><span class="txt"><span class="t">Copy Share Link</span><span class="s">For an iPhone Shortcut in the share sheet</span></span></button></div>
-    <p class="foot">In Shortcuts: New Shortcut → turn on <b>Show in Share Sheet</b> → add <b>Get Contents of URL</b> with this link, Method <b>POST</b>, Request Body <b>JSON</b> with a field <b>input</b> set to <b>Shortcut Input</b>. Name it "Send to TV". Links (YouTube, Apple Music, web pages) open on the TV; text shows up as a message.</p>
+  <div class="page" id="set-away" data-title="Away From Home" data-hash="away"><div class="scroller">
+    <div class="group" id="away" hidden><button class="row i tap" id="away-copy"><span class="ico" style="--c:var(--green)"><i data-ic="gGlobe"></i></span><span class="txt"><span class="t">Copy Link</span><span class="s" id="away-url"></span></span></button></div>
+    <p class="foot" id="away-foot" hidden>With Tailscale on, it works from anywhere. Open it on this phone, then add it to the Home Screen.</p>
+    <div class="group" id="away-off"><div class="row"><span class="txt t">Status</span><span class="detail">Not Set Up</span></div></div>
+    <p class="foot" id="away-off-foot">Install Tailscale on the TV and on this phone, signed in to the same account. The link then shows up here.</p>
+  </div></div>
+
+  <div class="page" id="set-share" data-title="Shortcuts" data-hash="shortcuts"><div class="scroller">
+    <div class="group"><button class="row act tap" id="share-copy">Copy Share to TV Link</button></div>
+    <p class="foot">For a “Send to TV” shortcut in the share sheet.</p>
+    <div class="group"><button class="row act tap" id="shortcut">Copy Announcement Link</button></div>
+    <p class="foot">For automations, like “When I get home”.</p>
+    <div class="group"><button class="row tap" data-page="set-share-help"><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button></div>
+  </div></div>
+
+  <div class="page" id="set-share-help" data-title="How to Set Up"><div class="scroller">
+    <div class="head">Share to TV</div>
+    <div class="group"><div class="row steps">1. In <b>Shortcuts</b>, make a new shortcut and turn on <b>Show in Share Sheet</b>.<br>2. Add <b>Get Contents of URL</b> with the Share to TV link, Method <b>POST</b>, Request Body <b>JSON</b> with a field <b>input</b> set to <b>Shortcut Input</b>.<br>3. Name it “Send to TV”. Links open on the TV; text shows up as a message.</div></div>
+    <div class="head">Announcements</div>
+    <div class="group"><div class="row steps">Add <b>Get Contents of URL</b> with the announcement link, Method <b>POST</b>, Request Body <b>JSON</b> with the fields <b>title</b> and <b>body</b>. It shows on every TV.</div></div>
   </div></div>
 
   <div class="page" id="set-crash" data-title="Last Crash" data-hash="crash"><div class="scroller">
@@ -601,11 +669,9 @@
 
 <nav class="tabbar glass" id="tabbar" role="tablist" aria-label="Tabs">
   <span class="tb-lens" id="tb-lens"></span>
-  <button role="tab" data-tab="tv"><i data-ic="tTv"></i><span>TV</span></button>
   <button role="tab" data-tab="remote"><i data-ic="tRemote"></i><span>Remote</span></button>
-  <button role="tab" data-tab="files"><i data-ic="tFiles"></i><span>Files</span></button>
-  <button role="tab" data-tab="notes"><i data-ic="tNotes"></i><span>Notes</span></button>
   <button role="tab" data-tab="send"><i data-ic="tSend"></i><span>Send</span></button>
+  <button role="tab" data-tab="notes"><i data-ic="tNotes"></i><span>Notes</span></button>
   <button role="tab" data-tab="settings"><i data-ic="tSettings"></i><span>Settings</span></button>
 </nav>
 <div id="appdim"></div>
@@ -627,6 +693,20 @@
     <p class="foot">Letters appear on the TV as you type. Enter presses Done on the TV.</p>
   </div>
 </div>
+<div class="msheet half" id="scr" role="dialog" aria-modal="true" aria-label="TV Screen">
+  <div class="grab"></div>
+  <div class="sbar"><button class="gb glass ic" id="scr-close" aria-label="Close"><i data-ic="xmark"></i></button><span class="stt"><b>TV Screen</b><small id="scr-tv" hidden></small></span><span></span></div>
+  <div class="sbody">
+    <div class="nowcard big" id="live">
+      <button class="screen" id="screen" aria-label="Make the TV picture bigger or smaller"><img id="tv-img" alt="What's on the TV" draggable="false"><p id="tv-msg">Connecting…</p></button>
+      <div class="now">
+        <span class="np" id="scr-title">Nothing Playing</span>
+        <span class="np-s" id="scr-sub"></span>
+        <div class="np-bar" id="scr-bar" hidden><div class="np-track"><i id="scr-fill"></i></div><div class="np-times"><span id="scr-pos"></span><span id="scr-left"></span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="hud" id="toast" role="status" aria-live="polite"><span id="toast-ic"></span><span id="toast-t"></span></div>
 <div class="banner" id="alert" role="alert"><img src="/icon-180.png?v=2" alt=""><div style="min-width:0"><small id="alert-from">Announcement</small><b id="alert-title"></b><div class="s" id="alert-body"></div></div></div>
 
@@ -636,7 +716,7 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var doc = document;
-  var TABS = { tv: 'TV', remote: 'Remote', files: 'Files', notes: 'Notes', send: 'Send to TV', settings: 'Settings' };
+  var TABS = { remote: 'Remote', send: 'Send', notes: 'Notes', settings: 'Settings' };
   var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   // Safari 17.4+ draws <input type=checkbox switch> as a real iOS switch (with a haptic tap on iPhone).
   var nativeSwitch = 'switch' in doc.createElement('input');
@@ -708,11 +788,14 @@
     slides: sv('<rect x="3" y="7.5" width="14.5" height="12" rx="2.4"/><path d="M7 4.5h11.5a2.5 2.5 0 0 1 2.5 2.5v8.5"/><path d="m3.6 17.3 3.6-3.5 2.8 2.6 2.1-1.9 4.6 4.3"/>'),
     drive: sv('<rect x="2.5" y="7" width="19" height="10" rx="2.6"/><path d="M6.3 12h.4M15.8 12h2.2"/>'),
     note: sv('<rect x="4.5" y="3" width="15" height="18" rx="3"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/>', false, 1.6),
+    expand: sv('<path d="M4.5 10V4.5H10M4.5 4.5l6.2 6.2M19.5 14v5.5H14M19.5 19.5l-6.2-6.2"/>', false, 2.1),
     spin: '<svg class="spin" viewBox="0 0 24 24" aria-hidden="true">' + [0, 1, 2, 3, 4, 5, 6, 7].map(function (i) { return '<rect x="11" y="2.5" width="2" height="5.5" rx="1" opacity="' + (1 - i * 0.11).toFixed(2) + '" transform="rotate(' + (-i * 45) + ' 12 12)"/>'; }).join('') + '</svg>',
     okFill: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="currentColor"/><path d="m7.4 12.4 3.1 3.1 6.1-6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     warnFill: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="currentColor"/><path d="M12 6.8v6.4" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/><circle cx="12" cy="16.9" r="1.35" fill="#fff"/></svg>',
     // White glyphs for the coloured squares in lists
-    gKb: sv('<path d="M20 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-9 2h2v2h-2zm0 3h2v2h-2zM8 8h2v2H8zm0 3h2v2H8zM5 8h2v2H5zm0 3h2v2H5zm11 5H8v-1.5h8zm0-3h-2v-2h2zm0-3h-2V8h2zm3 3h-2v-2h2zm0-3h-2V8h2z"/>', true),
+    gFolder: sv('<path d="M2.5 7.2A2.2 2.2 0 0 1 4.7 5h4.6c.6 0 1.1.2 1.5.6L12.4 7h6.9a2.2 2.2 0 0 1 2.2 2.2v8.6a2.2 2.2 0 0 1-2.2 2.2H4.7a2.2 2.2 0 0 1-2.2-2.2z"/>', true),
+    gCloud: sv('<path d="M7 19.5a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 9.3a4.85 4.85 0 0 1-.6 10.2z"/>', true),
+    gShortcuts: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path opacity=".55" d="M10.6 3.4a2 2 0 0 1 2.8 0l5.2 5.2a2 2 0 0 1 0 2.8l-5.2 5.2a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8z"/><path d="M10.6 8a2 2 0 0 1 2.8 0l5.2 5.2a2 2 0 0 1 0 2.8l-5.2 5.2a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8z"/></svg>',
     gGlobe: sv('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>', false, 2),
     gDrive: sv('<path d="M8.6 3h6.8l6.2 10.6-3.4 5.9H5.8l-3.4-5.9zm1 1.9L4.6 13.6l2.3 4h.1l5-8.6zm4.4 7.5-2.8 4.9h7.2l2.5-4.3z"/>', true),
     gFilm: sv('<path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 2v2h2V6zm0 4v4h2v-4zm0 6v2h2v-2zM17 6v2h2V6zm0 4v4h2v-4zm0 6v2h2v-2zM9 6v12h6V6z"/>', true),
@@ -721,7 +804,6 @@
     gSlides: sv('<path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 12h14l-4.5-6-3.5 4.5-2.5-3z"/>', true),
     gLink: sv('<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>', false, 2.1),
     gSun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.4" fill="currentColor"/><path d="M19.4 12H22M17.23 17.23l1.84 1.84M12 19.4V22M6.77 17.23l-1.84 1.84M4.6 12H2M6.77 6.77 4.93 4.93M12 4.6V2M17.23 6.77l1.84-1.84" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
-    gShare: sv('<path d="M12 14v-10M8.2 7.3 12 3.5l3.8 3.8M8.5 9.5H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1.5"/>', false, 2.1),
     gWarn: sv('<path fill-rule="evenodd" d="M10.27 3.9a2 2 0 0 1 3.46 0l8.06 13.95a2 2 0 0 1-1.73 3H3.94a2 2 0 0 1-1.73-3zM11 8.6h2v5.6h-2zm1 6.9a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5z"/>', true),
     gTv: sv('<rect x="3" y="4.5" width="18" height="12.5" rx="2.2" fill="currentColor" stroke="none"/><path d="M8.5 20h7"/>', false, 2.1),
     gPhone: sv('<rect x="7" y="2.8" width="10" height="18.4" rx="2.6"/><path d="M10.6 5.6h2.8"/>', false, 2),
@@ -734,9 +816,7 @@
     kMute: sv('<path d="M4 9h3.5L12 5v14l-4.5-4H4zm11.6.2 1.4-1.4 2 2 2-2 1.4 1.4-2 2 2 2-1.4 1.4-2-2-2 2-1.4-1.4 2-2z"/>', true),
     kUp: sv('<path d="M12 5.5v13M5.5 12h13"/>', false, 2.3), kDown: sv('<path d="M5.5 12h13"/>', false, 2.3),
     // Tab bar (filled, like SF Symbols in a tab bar)
-    tTv: t28('<rect x="2.5" y="4" width="23" height="15.5" rx="3.2"/><rect x="8" y="22" width="12" height="2.4" rx="1.2"/>'),
     tRemote: t28('<path fill-rule="evenodd" d="M11 1.5h6a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4h-6a4 4 0 0 1-4-4v-17a4 4 0 0 1 4-4zM14 4.6a3.9 3.9 0 1 0 0 7.8 3.9 3.9 0 0 0 0-7.8zM11.6 15.2a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm4.8 0a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm-4.8 4.4a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm4.8 0a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7z"/>'),
-    tFiles: t28('<path d="M3 7.6a3.1 3.1 0 0 1 3.1-3.1h4.6c.8 0 1.6.3 2.2.9l1.5 1.5h7.5A3.1 3.1 0 0 1 25 10v10.4a3.1 3.1 0 0 1-3.1 3.1H6.1A3.1 3.1 0 0 1 3 20.4z"/>'),
     tNotes: t28('<path fill-rule="evenodd" d="M8 2.5h12A3.5 3.5 0 0 1 23.5 6v16a3.5 3.5 0 0 1-3.5 3.5H8A3.5 3.5 0 0 1 4.5 22V6A3.5 3.5 0 0 1 8 2.5zm1.2 6.3a1.05 1.05 0 0 0 0 2.1h9.6a1.05 1.05 0 0 0 0-2.1zm0 4.4a1.05 1.05 0 0 0 0 2.1h9.6a1.05 1.05 0 0 0 0-2.1zm0 4.4a1.05 1.05 0 0 0 0 2.1h6a1.05 1.05 0 0 0 0-2.1z"/>'),
     tSend: t28('<path d="M24.2 3.3c.8-.3 1.6.5 1.3 1.3l-7.3 19.6c-.3.9-1.6 1-2 .1l-3.1-7.1 6.6-7.6-7.7 6.5-7-3.1c-.9-.4-.8-1.7.1-2z"/>'),
     tSettings: t28('<path fill-rule="evenodd" d="M11.31 5.2 11.79 2.61A11.6 11.6 0 0 1 16.21 2.61L16.69 5.2A9.2 9.2 0 0 1 18.32 5.88L20.49 4.38A11.6 11.6 0 0 1 23.62 7.51L22.12 9.68A9.2 9.2 0 0 1 22.8 11.31L25.39 11.79A11.6 11.6 0 0 1 25.39 16.21L22.8 16.69A9.2 9.2 0 0 1 22.12 18.32L23.62 20.49A11.6 11.6 0 0 1 20.49 23.62L18.32 22.12A9.2 9.2 0 0 1 16.69 22.8L16.21 25.39A11.6 11.6 0 0 1 11.79 25.39L11.31 22.8A9.2 9.2 0 0 1 9.68 22.12L7.51 23.62A11.6 11.6 0 0 1 4.38 20.49L5.88 18.32A9.2 9.2 0 0 1 5.2 16.69L2.61 16.21A11.6 11.6 0 0 1 2.61 11.79L5.2 11.31A9.2 9.2 0 0 1 5.88 9.68L4.38 7.51A11.6 11.6 0 0 1 7.51 4.38L9.68 5.88A9.2 9.2 0 0 1 11.31 5.2ZM18 14A4 4 0 1 0 10 14 4 4 0 1 0 18 14Z"/>')
@@ -792,7 +872,7 @@
   // Each page has its own scroll view and nav bar. A push slides the new page in from the right over
   // the old one (which moves a third of the way left, dimmed); Back, an edge swipe that follows the
   // finger, browser Back and a tap on the current tab all pop.
-  var stacks = { tv: [], remote: [], files: [], notes: [], send: [], settings: [] };
+  var stacks = { remote: [], send: [], notes: [], settings: [] };
   var tabEl = {}; Object.keys(TABS).forEach(function (t) { tabEl[t] = $('tab-' + t); });
   var current = null, busy = 0;
   var DUR = 500, EASE = 'cubic-bezier(.32,.72,0,1)';
@@ -970,7 +1050,7 @@
 
   // Interactive pop: from the left edge (or a sideways swipe on the page, as on iOS 26), the page follows the finger.
   var sw = null;
-  function overlayOpen() { return sheetOpen || dialogOpen || menuOpen || kbOpen; }
+  function overlayOpen() { return sheetOpen || dialogOpen || menuOpen || kbOpen || screenOpen; }
   $('app').addEventListener('touchstart', function (e) {
     sw = null;
     if (!swipeBack || busy || e.touches.length !== 1 || overlayOpen()) return;
@@ -1018,7 +1098,8 @@
   // Browser history mirrors the current tab's stack (base entry = its first page), so Back pops a page.
   var hist = { depth: 0, tab: null, waiting: false, timer: 0 };
   (function () { var s = history.state; if (s && s.wf) { hist.depth = s.depth | 0; hist.tab = s.tab; } })();
-  function hashFor(tab, depth) { var p = stacks[tab][depth]; return '#' + tab + (depth > 0 && p && p.o.hash ? '/' + p.o.hash : ''); }
+  // #tab/<hash of the deepest page that has one>, e.g. #settings/drive for Google Drive and its How to Set Up page.
+  function hashFor(tab, depth) { for (var i = depth; i > 0; i--) { var p = stacks[tab][i]; if (p && p.o.hash) return '#' + tab + '/' + p.o.hash; } return '#' + tab; }
   function entry(method, depth) { history[method]({ wf: 1, tab: current, depth: depth }, '', location.pathname + location.search + hashFor(current, depth)); }
   function syncHistory() {
     if (hist.waiting || !current) return;
@@ -1038,12 +1119,12 @@
   window.addEventListener('popstate', function (e) {
     var s = e.state && e.state.wf ? e.state : null;
     if (hist.waiting) { hist.waiting = false; clearTimeout(hist.timer); hist.depth = s ? s.depth : 0; if (s) hist.tab = s.tab; syncHistory(); return; }
-    if (!s) { hist.depth = 0; hist.tab = null; var h = location.hash.slice(1).split('/')[0]; selectTab(TABS[h] || h === 'keyboard' ? h : current); return; }
+    if (!s) { hist.depth = 0; hist.tab = null; route(location.hash.length > 1 ? location.hash : '#' + current); return; }
     hist.depth = s.depth; hist.tab = s.tab;
     if (s.tab !== current) { selectTab(s.tab); return; }
     if (s.depth < stacks[current].length - 1 && !busy) {
       // Safari's own back swipe has already animated; a Home Screen app has no such gesture.
-      if (sheetOpen) closeSheet(); if (menuOpen) closeMenu(); if (kbOpen) closeKb();
+      if (sheetOpen) closeSheet(); if (menuOpen) closeMenu(); if (kbOpen) closeKb(); if (screenOpen) closeScreen();
       popTo(s.depth, { animate: standalone });
     } else syncHistory();
   });
@@ -1064,11 +1145,22 @@
       moveLens();
     }
     syncHistory();
-    if (tab === 'tv') { loadSettings(); loadTvs(); frame(); pollField(); }
     if (tab === 'remote') { loadTvs(); pollField(); }
     if (tab === 'notes') loadNotes();
-    if (tab === 'send') { loadSettings(); loadPhones(); }
+    if (tab === 'send') { loadPhones(); if (!tvs.length) loadTvs(true); }
     if (tab === 'settings') loadSettings();
+  }
+  // Addresses, old and new: #remote (and #tv), #keyboard, #send, #send/to, #send/link, #send/files (and #files),
+  // #notes, #settings and #settings/<page>: phone, connections, drive, posters, cameras, mail, weather, away,
+  // shortcuts (and share), crash. A page further in opens with the pages above it, so Back goes to them.
+  function route(hash) {
+    var h = hash.replace(/^#/, ''), parts = (h === 'files' ? 'send/files' : h).split('/'), tab = parts[0], sub = parts[1] === 'share' ? 'shortcuts' : parts[1];
+    selectTab(tab);
+    if (!sub || current !== tab) return;
+    var p = Object.keys(PG).map(function (id) { return PG[id]; }).filter(function (x) { return x.tab === tab && x.o.hash === sub; })[0];
+    if (!p || stacks[tab].indexOf(p) >= 0) return;
+    popTo(0, { animate: false });
+    chain(p).forEach(function (x) { push(x, { animate: false }); });
   }
   // Tapping the current tab again goes back to its first page, or scrolls it to the top, like iOS.
   function tapTab(tab) {
@@ -1076,7 +1168,6 @@
     if (busy) return;
     if (stacks[current].length > 1) popTo(0);
     else topOf().scroller.scrollTo({ top: 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
-    if (current === 'files' && filesRoot.path) loadInto(filesRoot, filesRoot.path);
   }
   function tabAt(x) {
     var bs = doc.querySelectorAll('#tabbar button'), best = null;
@@ -1218,10 +1309,14 @@
   }
   // Card sheet: slides up over the app, which recedes; drag the grabber or bar down to dismiss.
   var safeTop = 0;
-  function presentSheet(s) { s.classList.add('show'); $('app').classList.add('recede'); }
-  function dismissSheet(s) { s.classList.remove('show'); s.style.transform = s.style.transition = ''; $('app').classList.remove('recede'); $('app').style.transform = $('app').style.transition = ''; }
+  // A medium-height sheet (.half) floats over a dimmed app instead; the app doesn't recede behind it.
+  function presentSheet(s) { s.classList.add('show'); if (!s.classList.contains('half')) $('app').classList.add('recede'); }
+  function dismissSheet(s) {
+    s.classList.remove('show'); s.style.transform = s.style.transition = '';
+    if (!s.classList.contains('half')) { $('app').classList.remove('recede'); $('app').style.transform = $('app').style.transition = ''; }
+  }
   function sheetDrag(s, onDismiss) {
-    var d = null;
+    var d = null, half = s.classList.contains('half');
     s.addEventListener('touchstart', function (e) {
       if (e.target.closest('button, input, textarea, select') || !e.target.closest('.grab, .sbar')) return;
       d = { y: e.touches[0].clientY, dy: 0, pts: [] };
@@ -1233,19 +1328,20 @@
       if (e.cancelable) e.preventDefault();
       var y = d.dy > 0 ? d.dy : -Math.sqrt(-d.dy) * 2, k = clamp(d.dy / s.offsetHeight, 0, 1);
       s.style.transition = 'none'; s.style.transform = 'translate3d(0,' + y + 'px,0)';
+      if (half) return;
       $('app').style.transition = 'none'; $('app').style.transform = 'translateY(' + safeTop * (1 - k) + 'px) scale(' + (0.92 + 0.08 * k) + ')';
     }, { passive: false });
     s.addEventListener('touchend', function () {
       if (!d) return; var g = d; d = null;
       var v = 0; if (g.pts.length > 1) { var a = g.pts[0], b = g.pts[g.pts.length - 1]; v = (b[1] - a[1]) / Math.max(1, b[0] - a[0]); }
-      s.style.transition = $('app').style.transition = '';
+      s.style.transition = ''; if (!half) $('app').style.transition = '';
       if (g.dy > s.offsetHeight * 0.3 || (v > 0.5 && g.dy > 20)) onDismiss();
-      else { s.style.transform = ''; $('app').style.transform = ''; }
+      else { s.style.transform = ''; if (!half) $('app').style.transform = ''; }
     });
   }
   doc.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    if (menuOpen) closeMenu(); else if (dialogOpen) closeDialog(); else if (sheetOpen) closeSheet(); else if (kbOpen) closeKb();
+    if (menuOpen) closeMenu(); else if (dialogOpen) closeDialog(); else if (sheetOpen) closeSheet(); else if (screenOpen) closeScreen(); else if (kbOpen) closeKb();
   });
   // No pinch-zooming the app, and the page snaps back after the keyboard closes.
   doc.addEventListener('gesturestart', function (e) { e.preventDefault(); });
@@ -1276,7 +1372,7 @@
     return w;
   }
 
-  // ---- Files --------------------------------------------------------------------------------------
+  // ---- Photos & Files (in the Send tab) ----------------------------------------------------------------
   // Each folder is a page of its own. Big folders (a camera roll can hold thousands of files) render in
   // batches, and one click handler per list serves every row, so the page stays responsive.
   var roots = [], BATCH = 200, filesRoot = null;
@@ -1322,11 +1418,13 @@
   }
   var IMG = /\.(jpe?g|png|webp|gif|heic|bmp)$/i, MEDIA = /\.(mp4|mkv|webm|avi|mov|m4v|ts|mp3|flac|m4a|aac|ogg|wav)$/i;
   function rootOf(path) { return roots.filter(function (r) { return path && (path === r.path || path.indexOf(r.path + '/') === 0); })[0] || roots[0] || { name: 'Files', path: path }; }
-  function cwd() { var p = topOf('files'); return p && p.path; }
+  // The folder on top: uploads and new folders go there.
+  function topFiles() { var s = stacks.send; for (var i = s.length - 1; i >= 0; i--) if (s[i].isFiles) return s[i]; return null; }
+  function cwd() { var p = topFiles(); return p && p.path; }
   function filesPage(title, pe) {
-    var p = page('files', { el: pe, title: title, large: true, keep: !!pe,
+    var p = page('send', { el: pe, title: title, large: true, keep: !!pe, hash: 'files',
       actions: [{ icon: 'plus', label: 'Add', fn: function (b) { addMenu(b); } }] });
-    p.files = []; p.view = []; p.shown = 0; p.seq = 0; p.filter = '';
+    p.isFiles = true; p.files = []; p.view = []; p.shown = 0; p.seq = 0; p.filter = '';
     if (pe) { p.uploads = $('uploads'); p.list = $('list'); wireSearch($('files-search'), function (v) { p.filter = v; render(p); }); }
     else {
       p.scroller.appendChild(searchBar(function (v) { p.filter = v; render(p); }));
@@ -1366,7 +1464,7 @@
       err(e);
     });
   }
-  function load(path) { var p = topOf('files'); if (p) loadInto(p, path); }
+  function load(path) { var p = topFiles(); if (p) loadInto(p, path); }
   function render(p) {
     var f = p.filter.trim().toLowerCase();
     p.view = f ? p.files.filter(function (x) { return x.name.toLowerCase().indexOf(f) >= 0; }) : p.files;
@@ -1422,12 +1520,12 @@
     ]);
   }
   function upload(list) {
-    var queue = Array.prototype.slice.call(list), p = topOf('files'), target = p.path, box = p.uploads;
+    var queue = Array.prototype.slice.call(list), p = topFiles(), target = p.path, box = p.uploads;
     box.hidden = false;
     (function next() {
       var f = queue.shift();
       if (!f) {
-        stacks.files.forEach(function (x) { if (x.path === target) loadInto(x, target); });
+        stacks.send.forEach(function (x) { if (x.isFiles && x.path === target) loadInto(x, target); });
         setTimeout(function () { if (!box.querySelector('.busy')) { box.hidden = true; box.textContent = ''; } }, 2500);
         return;
       }
@@ -1448,73 +1546,86 @@
     menu($('storage'), roots.map(function (r) { return { label: r.name, checked: r.path === now, fn: function () { loadInto(filesRoot, r.path); } }; }));
   };
   document.addEventListener('dragover', function (e) { e.preventDefault(); });
-  document.addEventListener('drop', function (e) { e.preventDefault(); if (current === 'files' && e.dataTransfer.files.length) upload(e.dataTransfer.files); });
+  document.addEventListener('drop', function (e) { e.preventDefault(); if (current === 'send' && topOf().isFiles && e.dataTransfer.files.length) upload(e.dataTransfer.files); });
 
   // ---- Send ---------------------------------------------------------------------------------------
-  var chosen = { tv: true };
-  function loadPhones() { api('/api/phones').then(function (d) { renderTargets(d.phones); }, err); }
+  // One message box. Its first line is the title (a TV shows two lines of title and three of the rest); a
+  // first line too long for that makes the whole text the message, titled "From <this phone>".
+  var chosen = { tv: true }, phones = [];
+  function loadPhones() { api('/api/phones').then(function (d) { phones = d.phones; renderTargets(); }, err); }
+  function tvLabel() { return tvs.length > 1 ? 'All TVs' : tvs.length ? tvs[0].name : 'TV Screen'; }
   function target(key, label, meta, glyph, color) {
     var row = el('div', 'row i'), ic = row.appendChild(el('span', 'ico'));
     ic.style.setProperty('--c', color); ic.innerHTML = I[glyph];
-    var name = el('span', 'txt'); name.appendChild(el('span', 't', label)); if (meta) name.appendChild(el('span', 's', meta));
+    var name = el('span', 'txt'), t = name.appendChild(el('span', 't', label)); if (meta) name.appendChild(el('span', 's', meta));
+    if (key === 'tv') t.id = 'n-tv-name';
     var box = el('input', 'switch'); box.type = 'checkbox'; box.setAttribute('switch', ''); box.setAttribute('aria-label', label); box.checked = !!chosen[key];
-    box.onchange = function () { chosen[key] = box.checked; };
+    box.onchange = function () { chosen[key] = box.checked; renderTo(); };
     row.appendChild(name); row.appendChild(box); return row;
   }
-  function renderTargets(phones) {
+  // The Send To page: the TV screen (every TV), each phone (others on, this one off, to start with) and the pin.
+  function renderTargets() {
     var t = $('n-targets'); t.textContent = '';
-    t.appendChild(target('tv', 'TV Screen', null, 'gTv', 'var(--tint-fill)'));
+    t.appendChild(target('tv', tvLabel(), null, 'gTv', 'var(--tint-fill)'));
     phones.forEach(function (p) {
       if (!(p.id in chosen)) chosen[p.id] = p.id !== device.id;
       t.appendChild(target(p.id, p.name + (p.id === device.id ? ' (this phone)' : ''), p.alerts ? 'Lock screen' : 'When Woodruff is open', 'gPhone', p.alerts ? 'var(--green)' : 'var(--gray)'));
     });
+    renderTo();
   }
-  $('n-title').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $('n-body').focus(); } };
-  // Send sits in the navigation bar, like Mail's, so it's in reach with the keyboard up.
-  function sendAnnouncement() {
-    var t = $('n-title').value.trim(); if (!t) { $('n-title').focus(); return toast('Write a title first', true); }
+  // The To row in a few words: "Everyone", "All TVs", "Living Room + 2 phones", "Mom's iPhone"…
+  function renderTo() {
+    var on = phones.filter(function (p) { return chosen[p.id]; }), others = phones.filter(function (p) { return p.id !== device.id; });
+    var n = on.length, pin = $('n-pin').checked, s;
+    if (chosen.tv && others.length && others.every(function (p) { return chosen[p.id]; })) s = 'Everyone';
+    else if (chosen.tv) s = tvLabel() + (n ? ' + ' + n + (n === 1 ? ' phone' : ' phones') : '');
+    else if (n === 1) s = on[0].id === device.id ? 'This Phone' : on[0].name;
+    else if (n) s = n + ' phones';
+    else s = pin ? '' : 'No One';
+    $('n-to-d').textContent = pin ? (s ? s + ' · Pinned' : 'Pinned on Home') : s;
+    if ($('n-tv-name')) $('n-tv-name').textContent = tvLabel();
+  }
+  $('n-pin').onchange = renderTo;
+  function message(text) {
+    text = text.replace(/\r\n?/g, '\n').trim();
+    var nl = text.indexOf('\n'), first = (nl < 0 ? text : text.slice(0, nl)).trim();
+    if (Array.from(first).length <= 80) return { title: first, body: nl < 0 ? '' : text.slice(nl + 1).trim() };
+    return { title: device.name ? 'From ' + device.name : 'Announcement', body: text };
+  }
+  // Send sits in the navigation bar, like Mail's, so it's in reach with the keyboard up; it turns on with text.
+  function canSend() { $('n-send').disabled = !$('n-text').value.trim(); }
+  $('n-text').addEventListener('input', canSend);
+  function sendAnnouncement(btn) {
+    var text = $('n-text').value; if (!text.trim()) return;
     var ids = Object.keys(chosen).filter(function (k) { return k !== 'tv' && chosen[k]; });
-    var pin = $('n-pin').checked;
+    var pin = $('n-pin').checked, m = message(text), tvWord = tvs.length > 1 ? 'the TVs' : 'the TV';
     if (!chosen.tv && !ids.length && !pin) return toast('Choose the TV or a phone', true);
-    post('/api/announce', { title: t, body: $('n-body').value.trim(), tv: !!chosen.tv, phones: ids, from: device.name || '', pin: pin }).then(function (r) {
-      $('n-pin').checked = false;
-      if (pin && !chosen.tv && !r.phones) return toast('Pinned on every TV');
-      toast(chosen.tv ? (r.phones ? 'Sent to the TV and ' + r.phones + (r.phones === 1 ? ' phone' : ' phones') : 'Shown on the TV') : 'Sent to ' + r.phones + (r.phones === 1 ? ' phone' : ' phones'));
-      $('n-title').value = ''; $('n-body').value = ''; document.activeElement.blur();
-    }, err);
+    btn.disabled = true;
+    post('/api/announce', { title: m.title, body: m.body, tv: !!chosen.tv, phones: ids, from: device.name || '', pin: pin }).then(function (r) {
+      $('n-pin').checked = false; renderTo();
+      if (pin && !chosen.tv && !r.phones) toast('Pinned on every TV');
+      else toast(chosen.tv ? (r.phones ? 'Sent to ' + tvWord + ' and ' + r.phones + (r.phones === 1 ? ' phone' : ' phones') : 'Shown on ' + tvWord) : 'Sent to ' + r.phones + (r.phones === 1 ? ' phone' : ' phones'));
+      $('n-text').value = ''; if (doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
+    }, err).then(canSend);
   }
+  // Open a Link: its own page, one field and one button.
+  function canOpen() { $('o-send').disabled = !$('o-url').value.trim(); }
+  $('o-url').addEventListener('input', canOpen);
   function openUrl() {
-    var u = $('o-url').value.trim(); if (!u) { $('o-url').focus(); return toast('Paste a link first', true); }
-    post('/api/open', { url: u }).then(function () { toast('Opening on the TV'); $('o-url').value = ''; document.activeElement.blur(); }, err);
+    var u = $('o-url').value.trim(); if (!u) { $('o-url').focus(); return; }
+    post('/api/open', { url: u }).then(function () { toast('Opening on the TV'); $('o-url').value = ''; canOpen(); doc.activeElement.blur(); }, err);
   }
   $('o-send').onclick = openUrl;
   $('o-url').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); openUrl(); } };
   $('slideshow').onclick = function () { post('/api/slideshow', { start: true }).then(function () { toast('Slideshow started'); }, err); };
-  $('shortcut').onclick = function () { if (settings) copy(settings.notifyUrl, 'Link copied. POST {title, body} to it'); };
 
   // ---- Remote -------------------------------------------------------------------------------------
-  // One frame at a time: the next request starts when the last image has loaded, so a slow
-  // network never queues up frames. Stops whenever the tab or the app isn't visible.
-  var frameTimer = null, lastUrl = null, tvId = 'this', tvTimer = null, tvs = [];
-  function screenUrl() { return (tvId === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(tvId) + '&t=') + Date.now(); }
-  function frame() {
-    clearTimeout(frameTimer);
-    if (current !== 'tv' || document.hidden || kbOpen) return;
-    fetch(screenUrl(), { cache: 'no-store' }).then(function (r) {
-      if (r.status === 409) return r.json().then(function (d) { $('tv-msg').textContent = d.message; $('tv-img').style.opacity = .25; frameTimer = setTimeout(frame, 3000); });
-      if (!r.ok) throw new Error();
-      return r.blob().then(function (b) {
-        var url = URL.createObjectURL(b), img = $('tv-img');
-        img.onload = function () { if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = url; frameTimer = setTimeout(frame, 700); };
-        img.src = url; img.style.opacity = 1; $('tv-msg').textContent = '';
-      });
-    }).catch(function () { $('tv-msg').textContent = "Can't reach the TV."; frameTimer = setTimeout(frame, 4000); });
-  }
+  var tvId = 'this', tvTimer = null, tvSeq = 0, tvs = [], tvsAt = 0;
   function press(key, btn) {
     if (btn) { btn.classList.add('hit'); setTimeout(function () { btn.classList.remove('hit'); }, 160); }
     haptic();
     var sent = tvId === 'this' ? post('/api/key', { key: key }) : post('/api/tvs/key', { id: tvId, key: key });
-    sent.then(function () { clearTimeout(frameTimer); frameTimer = setTimeout(frame, 250); if (key === 'ok') setTimeout(pollField, 400); }, err);
+    sent.then(function () { if (screenOpen) { clearTimeout(frameTimer); frameTimer = setTimeout(frame, 250); } if (key === 'ok') setTimeout(pollField, 400); }, err);
   }
   document.querySelectorAll('[data-key]').forEach(function (b) { b.onclick = function () { press(b.dataset.key, b); }; });
   // Swipe anywhere on the round pad to move, like the Apple TV remote; a tap still hits a button.
@@ -1537,53 +1648,97 @@
     }, { passive: true });
     ['touchend', 'touchcancel'].forEach(function (ev) { b.addEventListener(ev, stopRepeat, { passive: true }); });
   });
-  $('kb-hint').onclick = function () { openKb(true); };
   $('rm-kb-hint').onclick = function () { openKb(true); };
-  $('away-copy').onclick = function () { if (settings && settings.awayUrl) copy(settings.awayUrl, 'Link copied'); };
 
-  // Several TVs: this TV is the hub and relays the others. The pickers show once another TV is linked.
+  // Several TVs: this TV is the hub and relays the others. The title picks one once another TV is linked.
   function fmtTime(ms) { var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + ('0' + m).slice(-2) : m) + ':' + ('0' + (s % 60)).slice(-2); }
-  function tvStatus(t) { var p = t.playing; return !t.online ? 'Off' : p ? (p.playing ? '' : 'Paused · ') + p.title : 'Nothing playing'; }
-  function chooseTv(id) { tvId = id; loadTvs(); frame(); }
-  function loadTvs() {
-    clearTimeout(tvTimer);
-    if ((current !== 'tv' && current !== 'remote') || document.hidden) return;
-    api('/api/tvs').then(function (d) {
-      tvs = d.tvs;
-      var many = d.tvs.length > 1, list = $('tv-list');
-      $('tv-head').hidden = list.hidden = !many; $('rm-tv').hidden = !many; $('rm-title').hidden = many;
-      list.textContent = '';
-      d.tvs.forEach(function (t) {
-        var p = t.playing, row = el('button', 'row i tap'), ic = row.appendChild(el('span', 'ico'));
-        ic.style.setProperty('--c', t.online ? 'var(--tint-fill)' : 'var(--gray)'); ic.innerHTML = I.gTv;
-        var tx = row.appendChild(el('span', 'txt')); tx.appendChild(el('span', 't', t.name)); tx.appendChild(el('span', 's', tvStatus(t)));
-        if (t.online && p && p.playing) row.appendChild(el('span', 'live'));
-        if (t.id === tvId) { var ck = row.appendChild(el('span', 'ck')); ck.innerHTML = I.check; }
-        row.onclick = function () { chooseTv(t.id); };
-        list.appendChild(row);
-        if (t.id === tvId) {
-          renderNow(t);
-          $('rm-tv-name').textContent = t.name; $('rm-tv-dot').hidden = !(t.online && p && p.playing);
-        }
-      });
-      layoutNav(roots0.remote);
-    }, function () {}).then(function () { tvTimer = setTimeout(loadTvs, 5000); });
+  function tvStatus(t) { var p = t.playing; return !t.online ? 'Off' : !p ? 'Nothing Playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title; }
+  function chosenTv() { return tvs.filter(function (t) { return t.id === tvId; })[0]; }
+  function chooseTv(id) { tvId = id; renderTvs(); loadTvs(); if (screenOpen) { resetScreen(); frame(); } }
+  // Every 5 s while the Remote is on screen; once, without polling, for the Send tab's words.
+  function loadTvs(once) {
+    var seq = once ? 0 : ++tvSeq;
+    if (!once) { clearTimeout(tvTimer); if (current !== 'remote' || document.hidden) return; }
+    api('/api/tvs').then(function (d) { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }, function () {})
+      .then(function () { if (seq && seq === tvSeq) tvTimer = setTimeout(loadTvs, 5000); });
   }
+  function renderTvs() {
+    var many = tvs.length > 1, t = chosenTv();
+    if (!t && tvs.length) { tvId = tvs[0].id; t = tvs[0]; }   // that TV was unlinked
+    $('rm-tv').hidden = !many; $('rm-title').hidden = many;
+    if (t) { $('rm-tv-name').textContent = t.name; $('rm-tv-dot').hidden = !(t.online && t.playing && t.playing.playing); }
+    renderNow(t);
+    layoutNav(roots0.remote);
+    renderTo();
+  }
+  // What's playing, on the card over the clickpad and in the TV Screen sheet. Between polls the time moves on
+  // by itself while something plays.
   function renderNow(t) {
-    var p = t.playing, time = $('now-time'), bar = $('now-bar');
-    bar.hidden = true;
-    if (!t.online) { $('now-title').textContent = t.name + ' is off'; time.textContent = 'Or not reachable'; return; }
-    if (!p) { $('now-title').textContent = 'Nothing playing'; time.textContent = t.name; return; }
-    $('now-title').textContent = p.title;
-    time.textContent = (p.playing ? '' : 'Paused · ') + (p.app || '');
-    if (p.duration) {
-      bar.hidden = false; bar.classList.toggle('on', !!p.playing);
-      $('now-fill').style.width = Math.min(100, p.position * 100 / p.duration) + '%';
-      $('now-pos').textContent = fmtTime(p.position); $('now-left').textContent = '-' + fmtTime(Math.max(0, p.duration - p.position));
-    }
+    var p = t && t.playing, on = !!(t && t.online), title, sub;
+    if (!t) { title = 'Nothing Playing'; sub = ''; }
+    else if (!on) { title = t.name + ' is off'; sub = 'Or not reachable'; }
+    else if (!p) { title = 'Nothing Playing'; sub = t.name; }
+    else { title = p.title; sub = (p.playing ? '' : 'Paused · ') + (p.app || ''); }
+    $('now-title').textContent = $('scr-title').textContent = title;
+    $('now-sub').textContent = $('scr-sub').textContent = sub;
+    $('now-art').classList.toggle('off', !!t && !on);
+    $('now').setAttribute('aria-label', title + (sub ? ', ' + sub : '') + '. Show the TV screen');
+    $('scr-tv').textContent = t ? t.name : ''; $('scr-tv').hidden = tvs.length < 2;
+    var bar = !!(on && p && p.duration > 0);
+    $('now-bar').hidden = $('scr-bar').hidden = !bar; $('now-time').textContent = '';
+    if (!bar) return;
+    var pos = Math.min(p.duration, p.position + (p.playing ? Date.now() - tvsAt : 0));
+    $('now-fill').style.width = $('scr-fill').style.width = (pos * 100 / p.duration) + '%';
+    $('now-bar').classList.toggle('on', !!p.playing); $('scr-bar').classList.toggle('on', !!p.playing);
+    $('now-time').textContent = fmtTime(pos) + ' / ' + fmtTime(p.duration);
+    $('scr-pos').textContent = fmtTime(pos); $('scr-left').textContent = '-' + fmtTime(p.duration - pos);
   }
-  // The TV tab has the room for a big picture; tap it for a small one beside Now Playing.
-  function sizeScreen() { $('live').className = 'group nowcard' + (stored('woodruff.smallScreen') ? '' : ' big'); }
+  setInterval(function () { if (current === 'remote' && !document.hidden && tvs.length) renderNow(chosenTv()); }, 1000);
+
+  // ---- TV Screen ----------------------------------------------------------------------------------
+  // The live picture, in a sheet from the Now Playing card: one frame at a time, about once a second, and
+  // only while the sheet is open. The next request starts when the last image has loaded, so a slow
+  // network never queues up frames.
+  var screenOpen = false, frameTimer = null, frameSeq = 0, lastUrl = null, shownTv = null;
+  function screenUrl() { return (tvId === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(tvId) + '&t=') + Date.now(); }
+  function frame() {
+    clearTimeout(frameTimer);
+    if (!screenOpen || document.hidden) return;
+    var seq = ++frameSeq, id = tvId, img = $('tv-img'), msg = $('tv-msg');
+    fetch(screenUrl(), { cache: 'no-store' }).then(function (r) {
+      if (seq !== frameSeq) return;
+      if (r.status === 409) return r.json().then(function (d) { if (seq !== frameSeq) return; msg.textContent = d.message; img.style.opacity = .25; frameTimer = setTimeout(frame, 3000); });
+      if (!r.ok) throw new Error();
+      return r.blob().then(function (b) {
+        if (seq !== frameSeq) return;
+        var url = URL.createObjectURL(b);
+        img.onload = img.onerror = function () {
+          if (lastUrl && lastUrl !== url) URL.revokeObjectURL(lastUrl);
+          lastUrl = url; shownTv = id;
+          if (seq === frameSeq) frameTimer = setTimeout(frame, 800);
+        };
+        img.src = url; img.style.opacity = 1; msg.textContent = '';
+      });
+    }).catch(function () { if (seq !== frameSeq) return; msg.textContent = "Can't reach the TV."; frameTimer = setTimeout(frame, 4000); });
+  }
+  // Another TV's last picture isn't shown while this one's loads.
+  function resetScreen() { if (shownTv !== tvId) { $('tv-img').style.opacity = 0; $('tv-msg').textContent = 'Connecting…'; } }
+  function openScreen() {
+    if (screenOpen) return;
+    screenOpen = true; sizeScreen(); resetScreen(); renderNow(chosenTv());
+    veil(true, closeScreen); presentSheet($('scr'));
+    frame();
+  }
+  function closeScreen() {
+    if (!screenOpen) return;
+    screenOpen = false; frameSeq++; clearTimeout(frameTimer);
+    dismissSheet($('scr')); veil(false);
+  }
+  $('now').onclick = openScreen;
+  $('scr-close').onclick = closeScreen;
+  sheetDrag($('scr'), closeScreen);
+  // Tap the picture for a smaller one beside what's playing, or a big one again; this phone remembers.
+  function sizeScreen() { $('live').className = 'nowcard' + (stored('woodruff.smallScreen') ? '' : ' big'); }
   $('screen').onclick = function () { store('woodruff.smallScreen', stored('woodruff.smallScreen') ? '' : '1'); sizeScreen(); };
   sizeScreen();
 
@@ -1598,16 +1753,16 @@
   sheetDrag($('kb'), closeKb);
   function pollField() {
     clearTimeout(pollTimer);
-    if (document.hidden || (current !== 'tv' && current !== 'remote' && !kbOpen)) return;
+    if (document.hidden || (current !== 'remote' && !kbOpen)) return;
     api('/api/type').then(function (d) {
       var f = d.field;
-      $('kb-hint').hidden = $('rm-kb-hint').hidden = !f || kbOpen;
+      $('rm-kb-hint').hidden = !f || kbOpen;
       if ($('kb-open2')) $('kb-open2').classList.toggle('ready', !!f && !kbOpen);
       if (!f) { field = null; $('kb-dot').className = 'dot'; $('kb-status').textContent = 'No text box selected on the TV'; }
       else {
         if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
         field = f;
-        $('kb-hint-t').textContent = $('rm-kb-hint-t').textContent = 'Type into ' + f.label;
+        $('rm-kb-hint-t').textContent = 'Type into ' + f.label;
         $('kb-dot').className = 'dot live';
         $('kb-status').textContent = f.label + (f.secret ? ' (hidden)' : '');
         $('kb-text').style.webkitTextSecurity = f.secret ? 'disc' : 'none';
@@ -1752,7 +1907,7 @@
     if (document.activeElement !== $('p-name')) $('p-name').value = device.name || '';
     $('p-alerts').checked = !!device.alerts;
     var ntfy = !!(device.topic && device.alerts);
-    $('p-ntfy').hidden = $('p-copy').hidden = $('p-ntfy-foot').hidden = !ntfy;
+    $('p-ntfy').hidden = !ntfy;   // How to Set Up (ntfy)
     $('p-topic').textContent = device.topic || '';
     $('name-me').hidden = !!device.name;
     $('me-name').textContent = device.name || 'Name This Phone';
@@ -1794,24 +1949,27 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); } });
 
   // ---- Settings -----------------------------------------------------------------------------------
-  var settings = null, SP = {};
-  function openSettings(id, row) {
-    var p = SP[id]; if (!p || stacks.settings.indexOf(p) >= 0 || busy) return;
-    var here = current === 'settings';
-    if (!here) { selectTab('settings'); popTo(0, { animate: false }); }
-    if (here) select(topOf('settings'), row);
-    push(p, { animate: here });
+  var settings = null, PG = {};
+  // Opens a page by its id: pushed over this tab's page, or from another tab, that tab with the page (and the
+  // pages above it, so Back goes to them). A page already open in another tab is brought back.
+  function openPage(id, row) {
+    var p = PG[id]; if (!p || busy) return;
+    var i = stacks[p.tab].indexOf(p);
+    if (i >= 0) { if (current !== p.tab) { selectTab(p.tab); popTo(i, { animate: false }); } return; }
+    if (p.o.onOpen) p.o.onOpen(p);
+    if (current === p.tab) { select(topOf(), row); push(p); }
+    else { selectTab(p.tab); popTo(0, { animate: false }); chain(p).forEach(function (x) { push(x, { animate: false }); }); }
+    if (p.o.focus) $(p.o.focus).focus({ preventScroll: true });   // within the tap, so iOS shows the keyboard
   }
+  function chain(p) { var c = [p]; while (p.o.parent && PG[p.o.parent]) { p = PG[p.o.parent]; c.unshift(p); } return c; }
   function loadSettings() { api('/api/settings').then(renderSettings, err); }
   function status(ids, text, ok) { ids.forEach(function (id) { $(id).textContent = text; $(id).className = 'detail' + (ok ? ' on' : ''); }); }
   function renderSettings(s) {
     settings = s;
-    var g = s.google;
+    var g = s.google, on = [];
     status(['g-status', 'g-status2'], g.connected ? 'Connected' : g.hasSecret ? 'Sign in on TV' : 'Not set up', g.connected);
     if (!$('g-id').value) $('g-id').value = g.clientId || '';
     $('g-redirect').textContent = g.redirectUri;
-    ['away-head', 'away', 'away-foot'].forEach(function (id) { $(id).hidden = !s.awayUrl; });
-    $('away-url').textContent = s.awayUrl || '';
     status(['t-status', 't-status2'], s.tmdb ? 'On' : 'Off', s.tmdb);
     if (s.nest) {
       status(['c-status', 'c-status2'], s.nest.connected ? 'Connected' : s.nest.project ? 'Sign in on TV' : 'Not set up', s.nest.connected);
@@ -1821,12 +1979,19 @@
       if (s.nest.doorbellStatus) $('c-doorbell-foot').textContent = s.nest.doorbellStatus;
     }
     status(['m-status'], s.mail.length ? String(s.mail.length) : 'None', false);
+    // Connections in a word or two: "Drive, Mail" or "4 On"
+    if (g.connected) on.push('Drive'); if (s.tmdb) on.push('Posters'); if (s.nest && s.nest.connected) on.push('Cameras'); if (s.mail.length) on.push('Mail');
+    status(['conn-status'], on.length > 2 ? on.length + ' On' : on.length ? on.join(', ') : 'None', false);
+    // Away from home: the Tailscale link, once Tailscale runs on the TV
+    $('away').hidden = $('away-foot').hidden = !s.awayUrl; $('away-off').hidden = $('away-off-foot').hidden = !!s.awayUrl;
+    $('away-url').textContent = s.awayUrl || '';
+    status(['away-status'], s.awayUrl ? 'On' : 'Off', false);
     if (!$('w-place').value) $('w-place').value = s.weather || '';
     status(['w-status'], s.weather || 'Off', false);
     $('version').textContent = s.version ? 'Woodruff Family ' + s.version : '';
     $('crash-group').hidden = !s.crash;
     $('crash-text').textContent = (s.crash || '').split('\n').slice(0, 14).join('\n');
-    if (!s.crash && current === 'settings' && topOf('settings') === SP['set-crash']) goBack();
+    if (!s.crash && current === 'settings' && topOf('settings') === PG['set-crash']) goBack();
     var ml = $('m-list'); ml.textContent = '';
     if (!s.mail.length) ml.appendChild(el('div', 'row', 'No accounts yet')).style.color = 'var(--label2)';
     s.mail.forEach(function (m) {
@@ -1846,38 +2011,49 @@
     $('m-provider-label').textContent = p ? p.label : '';
     $('m-hostrow').hidden = !(p && p.custom);
   }
+  $('away-copy').onclick = function () { if (settings && settings.awayUrl) copy(settings.awayUrl, 'Link copied'); };
   $('share-copy').onclick = function () { if (settings && settings.shareUrl) copy(settings.shareUrl, 'Share link copied'); };
+  $('shortcut').onclick = function () { if (settings) copy(settings.notifyUrl, 'Link copied'); };
+  $('g-copy').onclick = function () { if (settings) copy(settings.google.redirectUri, 'Redirect URI copied'); };
   $('crash-copy').onclick = function () { if (settings && settings.crash) copy(settings.crash, 'Crash report copied'); };
   $('crash-clear').onclick = function () { post('/api/crash/clear', {}).then(renderSettings, err); };
 
-  // ---- Pages: every tab's first page, the Settings pages and the note ------------------------------
+  // ---- Pages: every tab's first page and the pages further in ---------------------------------------
   function adopt(tab, id, o) {
     var pe = $(id);
     o.el = pe; o.title = o.title != null ? o.title : pe.dataset.title; o.hash = pe.dataset.hash; o.keep = true;
-    return page(tab, o);
+    return (PG[id] = page(tab, o));
   }
   var rmTitle = el('span');
   rmTitle.innerHTML = '<span id="rm-title">Remote</span><button class="titlebtn" id="rm-tv" hidden aria-label="Choose a TV"><span class="live" id="rm-tv-dot" hidden></span><span id="rm-tv-name"></span>' + I.down + '</button>';
   var roots0 = {
-    tv: adopt('tv', 'tv-root', { large: true }),
     remote: adopt('remote', 'remote-root', { titleView: rmTitle, actions: [{ icon: 'keyboard', label: 'Keyboard', id: 'kb-open2', fn: function () { openKb(true); } }] }),
-    files: (filesRoot = filesPage('Files', $('files-root'))),
-    notes: (notesRoot = adopt('notes', 'notes-root', { large: true, actions: [{ icon: 'compose', label: 'New note', fn: function () { openNote(null); } }] })),
     send: adopt('send', 'send-root', { large: true, actions: [{ text: 'Send', prom: true, id: 'n-send', fn: sendAnnouncement }] }),
+    notes: (notesRoot = adopt('notes', 'notes-root', { large: true, actions: [{ icon: 'compose', label: 'New note', fn: function () { openNote(null); } }] })),
     settings: adopt('settings', 'set-main', { large: true })
   };
   Object.keys(roots0).forEach(function (t) { push(roots0[t], { animate: false }); });
+  canSend();
   $('rm-tv').onclick = function () {
     menu($('rm-tv'), tvs.map(function (t) { return { label: t.name, sub: tvStatus(t), checked: t.id === tvId, fn: function () { chooseTv(t.id); } }; }), { align: 'center' });
   };
+  // Send's pages: who gets the message, a link to open, and Photos & Files (listed afresh each time it opens).
+  adopt('send', 'send-to', {});
+  adopt('send', 'send-link', { focus: 'o-url' });
+  filesRoot = PG['files-root'] = filesPage($('files-root').dataset.title, $('files-root'));
+  filesRoot.o.onOpen = function () { if (filesRoot.path) loadInto(filesRoot, filesRoot.path); };
   notePage = adopt('notes', 'note-page', { plain: true, onPop: notePopped,
     actions: [{ icon: 'more', label: 'More', id: 'note-more', fn: noteMore }, { text: 'Done', prom: true, id: 'note-save', fn: noteSave }] });
+  // Settings pages: [page, bar buttons, the page it opens from when that isn't Settings itself]
   var SAVE = function (id) { return [{ text: 'Save', prom: true, id: id }]; };
-  [['set-phone'], ['set-drive', SAVE('g-save')], ['set-tmdb', SAVE('t-save')], ['set-cams', SAVE('c-save')], ['set-mail'],
-    ['set-mail-add', [{ text: 'Add', prom: true, id: 'm-add' }]], ['set-weather', SAVE('w-save')], ['set-share'], ['set-crash']].forEach(function (x) {
-    SP[x[0]] = adopt('settings', x[0], { actions: x[1] });
+  [['set-phone'], ['set-ntfy', null, 'set-phone'], ['set-conn'],
+    ['set-drive', SAVE('g-save'), 'set-conn'], ['set-drive-help', null, 'set-drive'], ['set-tmdb', SAVE('t-save'), 'set-conn'],
+    ['set-cams', SAVE('c-save'), 'set-conn'], ['set-cams-help', null, 'set-cams'], ['set-mail', null, 'set-conn'],
+    ['set-mail-add', [{ text: 'Add', prom: true, id: 'm-add' }], 'set-mail'], ['set-weather', SAVE('w-save')], ['set-away'],
+    ['set-share'], ['set-share-help', null, 'set-share'], ['set-crash']].forEach(function (x) {
+    adopt('settings', x[0], { actions: x[1], parent: x[2] });
   });
-  doc.querySelectorAll('[data-page]').forEach(function (b) { b.onclick = function () { openSettings(b.dataset.page, b); }; });
+  doc.querySelectorAll('[data-page]').forEach(function (b) { b.onclick = function () { openPage(b.dataset.page, b); }; });
 
   $('w-save').onclick = function () {
     post('/api/settings/weather', { place: $('w-place').value.trim() }).then(function (s) { renderSettings(s); toast(s.weather ? 'Weather for ' + s.weather : 'Weather off'); }, err);
@@ -1902,7 +2078,7 @@
     post('/api/mail', { provider: $('m-provider').value, email: $('m-email').value, password: $('m-pass').value, host: $('m-host').value })
       .then(function (s) {
         $('m-email').value = ''; $('m-pass').value = ''; renderSettings(s); toast('Mail account added');
-        if (current === 'settings' && topOf('settings') === SP['set-mail-add']) goBack();
+        if (current === 'settings' && topOf('settings') === PG['set-mail-add']) goBack();
       }, err)
       .then(function () { b.disabled = false; b.textContent = 'Add'; });
   };
@@ -1917,12 +2093,7 @@
     roots = r;
     if (roots.length) loadInto(filesRoot, roots[0].path);
   }, err);
-  // #tab, or #settings/<page> (e.g. #settings/drive) to open a Settings page; #keyboard opens the keyboard.
-  var start = (location.hash || '#remote').slice(1).split('/');
-  selectTab(start[0]);
-  if (start[0] === 'settings' && start[1]) {
-    Object.keys(SP).forEach(function (id) { if (SP[id].o.hash === start[1]) push(SP[id], { animate: false }); });
-  }
+  route(location.hash || '#remote');
 })();
 </script>
 </body>

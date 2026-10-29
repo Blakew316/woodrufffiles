@@ -1,5 +1,6 @@
 // Screenshots the phone app on an iPhone-sized screen, light and dark, for the UI gallery:
-// each tab, plus the keyboard sheet, a file's action sheet, a note and a Settings page.
+// each tab, plus the TV Screen and keyboard sheets, Send's To page, Photos & Files and a file's
+// action sheet, a note and a Settings page.
 // It runs like the Home Screen app: the web view under a "default" status bar (so no top safe area),
 // the home indicator's 34pt at the bottom, and navigator.standalone set.
 // Usage: node phone.mjs <output dir>   (with mock_server.py running on :8765)
@@ -9,13 +10,16 @@ import { mkdirSync } from 'node:fs';
 const out = process.argv[2] || 'gallery';
 mkdirSync(out, { recursive: true });
 const base = 'http://127.0.0.1:8765/';
-const tabs = ['remote', 'tv', 'files', 'notes', 'send', 'settings'];
-// Extra states: [name, tab, element to tap]. Each opens with a push, sheet or action sheet.
+const tabs = ['remote', 'send', 'notes', 'settings'];
+// Extra states: [name, tab, elements to tap in turn]. Each tap opens a push, sheet or action sheet.
 const extras = [
-  ['keyboard', 'remote', '#kb-open2'],                  // the keyboard sheet
-  ['files-actions', 'files', '#list [data-i="7"]'],     // a video's action sheet
-  ['note', 'notes', '#note-list .row'],                 // a note, pushed
-  ['settings-drive', 'settings', '#set-main [data-page=set-drive]'],
+  ['tv-screen', 'remote', ['#now']],                                                   // the TV Screen sheet
+  ['keyboard', 'remote', ['#kb-open2']],                                               // the keyboard sheet
+  ['send-to', 'send', ['#n-to']],                                                      // who gets a message
+  ['files', 'send', ['#send-root [data-page=files-root]']],                            // Photos & Files
+  ['files-actions', 'send', ['#send-root [data-page=files-root]', '#list [data-i="7"]']], // a video's action sheet
+  ['note', 'notes', ['#note-list .row']],                                              // a note, pushed
+  ['settings-drive', 'settings', ['#set-main [data-page=set-conn]', '#set-conn [data-page=set-drive]']],
 ];
 const settle = 900; // the push and sheet animations take 500 ms
 const browser = await chromium.launch();
@@ -48,11 +52,13 @@ for (const scheme of ['dark', 'light']) {
     await page.waitForTimeout(settle);
     await page.screenshot({ path: `${out}/phone-${tab}-${scheme}.png` });
   }
-  for (const [name, tab, target] of extras) {
+  for (const [name, tab, targets] of extras) {
     await page.goto(base + '#' + tab);
     await page.waitForTimeout(settle);
-    await page.tap(target);
-    await page.waitForTimeout(settle);
+    for (const target of targets) {
+      await page.tap(target);
+      await page.waitForTimeout(settle);
+    }
     await page.screenshot({ path: `${out}/phone-${name}-${scheme}.png` });
   }
   await context.close();

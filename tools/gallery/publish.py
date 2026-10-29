@@ -12,8 +12,9 @@ for old in glob.glob(os.path.join(img_dir, '*.webp')):
 TITLES = {
     'home': 'Home', 'home-menu': 'Home · menu open', 'movies': 'Movies (sample posters)', 'tv-shows': 'TV Shows (sample posters)', 'command-center': 'Command center', 'google-drive': 'Google Drive', 'mail': 'Mail',
     'notifications': 'Notifications', 'notes': 'Notes', 'apps': 'Apps', 'phone': 'Phone connection',
-    'settings': 'Settings', 'files': 'Files', 'tv': 'TV', 'remote': 'Remote', 'keyboard': 'Keyboard', 'send': 'Send to TV',
-    'files-actions': 'File actions', 'note': 'Note editor', 'settings-drive': 'Settings › Google Drive',
+    'settings': 'Settings', 'files': 'Send › Photos & Files', 'tv': 'TV', 'remote': 'Remote', 'keyboard': 'Keyboard', 'send': 'Send',
+    'files-actions': 'File actions', 'note': 'Note editor', 'settings-drive': 'Settings › Connections › Google Drive',
+    'tv-screen': 'Remote › TV Screen', 'send-to': 'Send › To',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -29,7 +30,7 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
 
 ORDER = ['home', 'home-menu', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
          'files', 'tv', 'keyboard', 'send']
-PHONE_ORDER = ['remote', 'keyboard', 'tv', 'files', 'files-actions', 'notes', 'note', 'send', 'settings', 'settings-drive']
+PHONE_ORDER = ['remote', 'tv-screen', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'notes', 'note', 'settings', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {
     'build': build,

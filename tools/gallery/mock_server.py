@@ -6,7 +6,8 @@ folders and two storages, and, with MOCK_LOG=<file>, appends every API request t
 JSON line ({"method", "path", "query", "body"}) so tests can check what the page sent.
 Test-only controls, never used by the gallery: POST /__mock/inbox {title, body, from} queues an
 announcement for the phone, POST /__mock/crash {text} sets the "last crash", POST /__mock/field {field}
-sets (or clears, with null) the TV text box the keyboard types into."""
+sets (or clears, with null) the TV text box the keyboard types into, and POST /__mock/set {settings, tvs, phones}
+changes the sample settings (merged), the linked TVs or the phones (replaced)."""
 import json, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -186,6 +187,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send({'ok': True})
         if path == '/__mock/field':
             FIELD['field'] = body.get('field')
+            return self.send({'ok': True})
+        if path == '/__mock/set':
+            SETTINGS.update(body.get('settings') or {})
+            if 'tvs' in body:
+                TVS['tvs'] = body['tvs']
+            if 'phones' in body:
+                PHONES[:] = body['phones']
             return self.send({'ok': True})
         if path == '/api/phone/hello':
             phone = {'id': body.get('id', 'p-blake'), 'name': body.get('name', "Blake's iPhone"),
