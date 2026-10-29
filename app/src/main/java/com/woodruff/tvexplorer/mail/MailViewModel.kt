@@ -82,4 +82,16 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun closeMessage() = _state.update { it.copy(open = null, openUid = null) }
+
+    /**
+     * The Mail screen came on show ([on]) or went away (another screen, the TV asleep): mail stays
+     * signed in only while it's on show.
+     */
+    fun shown(on: Boolean) {
+        MailClient.keepSignedIn(on)
+        val s = _state.value
+        val account = s.account
+        // Back to an inbox listed before: sign in now, so the first message opens without waiting for that.
+        if (on && account != null && !s.loading && s.error == null) viewModelScope.launch { MailClient.warmUp(account) }
+    }
 }

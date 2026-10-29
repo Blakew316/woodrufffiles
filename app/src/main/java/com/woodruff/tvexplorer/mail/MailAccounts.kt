@@ -70,5 +70,7 @@ object MailAccounts {
                 .put("host", it.host).put("port", it.port).put("password", it.password))
         }
         SecretStore.get(c).put(KEY, arr.toString())
+        // A removed account (or one added again, with a new password) stops using its open connection.
+        MailClient.keepOnly(items)
     }
 }

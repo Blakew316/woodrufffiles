@@ -48,6 +48,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ListItem
@@ -69,6 +70,12 @@ import kotlinx.coroutines.launch
 fun MailScreen(vm: MainViewModel) {
     val mail: MailViewModel = viewModel()
     val state by mail.state.collectAsStateWithLifecycle()
+    // Mail stays signed in while it's on show, so messages open at once; its connections close when
+    // it goes (another screen, another app, the TV asleep).
+    LifecycleStartEffect(mail) {
+        mail.shown(true)
+        onStopOrDispose { mail.shown(false) }
+    }
 
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
     BackHandler { if (state.open != null) mail.closeMessage() else openSidebar() }
