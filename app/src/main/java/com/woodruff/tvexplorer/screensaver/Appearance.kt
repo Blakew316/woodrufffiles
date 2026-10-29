@@ -30,6 +30,8 @@ object Appearance {
     enum class HomeCameras(val label: String) { ALL("All live"), ROTATE("One at a time (lighter)"), OFF("Off · select a camera to watch") }
     var homeCameras by mutableStateOf(HomeCameras.ALL); private set
     val homeLive: Boolean get() = homeCameras != HomeCameras.OFF
+    /** Reduce motion: nothing glides or grows; every change happens at once (see AppMotion). */
+    var reduceMotion by mutableStateOf(false); private set
 
     fun load(c: Context) {
         val p = prefs(c)
@@ -42,6 +44,14 @@ object Appearance {
         if (p.contains("start_cameras")) p.edit().remove("start_cameras").apply()
         homeCameras = p.getString("home_cameras", null)?.let { runCatching { HomeCameras.valueOf(it) }.getOrNull() }
             ?: if (p.getBoolean("home_live", true)) HomeCameras.ALL else HomeCameras.OFF
+        reduceMotion = p.getBoolean("reduce_motion", false)
+        com.woodruff.tvexplorer.ui.motion.AppMotion.reduced = reduceMotion
+    }
+
+    fun toggleReduceMotion(c: Context) {
+        reduceMotion = !reduceMotion
+        com.woodruff.tvexplorer.ui.motion.AppMotion.reduced = reduceMotion
+        prefs(c).edit().putBoolean("reduce_motion", reduceMotion).apply()
     }
 
     fun nextHomeCameras(c: Context) {

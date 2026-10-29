@@ -1,5 +1,10 @@
 package com.woodruff.tvexplorer.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import com.woodruff.tvexplorer.ui.motion.AppMotion
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,9 +67,22 @@ import com.woodruff.tvexplorer.util.Format
 @Composable
 fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
+        // Android glides the dialog's window in (the theme's window animation), unless the TV has window
+        // animations turned off: then the frame glides in itself, the same way (it can't glide out, as
+        // its window is gone at once).
+        val glideIn = remember { if (AppMotion.windowsAnimate || AppMotion.reduced) null else Animatable(0f) }
+        LaunchedEffect(glideIn) { glideIn?.animateTo(1f, tween(TvMotion.PresentMs, easing = TvMotion.GlideEase)) }
         Surface(
             // A dialog's keys never pass MainActivity's gate for held arrows: this is the same gate.
-            modifier = Modifier.dpadGate().width(width.dp),
+            modifier = Modifier.dpadGate().width(width.dp).then(
+                if (glideIn == null) Modifier
+                else Modifier.graphicsLayer {
+                    val p = glideIn.value
+                    val s = TvMotion.DialogScale + (1f - TvMotion.DialogScale) * p
+                    scaleX = s; scaleY = s
+                    alpha = (p * TvMotion.PresentMs / TvMotion.PresentFadeMs).coerceIn(0f, 1f)
+                },
+            ),
             shape = RoundedCornerShape(28.dp),
             colors = SurfaceDefaults.colors(containerColor = Palette.glass),
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(28.dp)),

@@ -312,6 +312,10 @@ fun SettingsScreen(vm: MainViewModel) {
                 Sym.Movie, "Match frame rate", onOff(facts.matchFrameRate),
                 about = "Shows films at their own frame rate, so slow pans don't stutter. The screen goes black for a moment when a film starts and stops.",
             ) { FrameRateMatch.setEnabled(context, !facts.matchFrameRate); version++ },
+            SettingItem(
+                Sym.Motion, "Reduce motion", onOff(Appearance.reduceMotion),
+                about = "Off, the app glides like Apple TV even when the TV's own animations are turned off: the highlight slides between rows, rows glide, pop-ups glide in. On, every change happens at once.",
+            ) { Appearance.toggleReduceMotion(context) },
         )
         SettingsPage.SCREENSAVER -> listOf(
             SettingItem(Sym.Bedtime, "Start when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min", about = "How long the TV sits unused before the slideshow starts. OK changes it.") { Appearance.nextIdle(context) },

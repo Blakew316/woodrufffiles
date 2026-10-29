@@ -132,6 +132,8 @@ object Sym {
     val Star: ImageVector by lazy { solid("M 11.525 2.295 a 0.53 0.53 0 0 1 0.95 0 l 2.31 4.679 a 2.123 2.123 0 0 0 1.595 1.16 l 5.166 0.756 a 0.53 0.53 0 0 1 0.294 0.904 l -3.736 3.638 a 2.123 2.123 0 0 0 -0.611 1.878 l 0.882 5.14 a 0.53 0.53 0 0 1 -0.771 0.56 l -4.618 -2.428 a 2.122 2.122 0 0 0 -1.973 0 L 6.396 21.01 a 0.53 0.53 0 0 1 -0.77 -0.56 l 0.881 -5.139 a 2.122 2.122 0 0 0 -0.611 -1.879 L 2.16 9.795 a 0.53 0.53 0 0 1 0.294 -0.906 l 5.165 -0.755 a 2.122 2.122 0 0 0 1.597 -1.16 z") }
     /** Lucide "gauge". */
     val Speed: ImageVector by lazy { line("m 12 14 l 4 -4", "M 3.34 19 a 10 10 0 1 1 17.32 0") }
+    /** Motion (Lucide move-horizontal): Reduce motion. */
+    val Motion: ImageVector by lazy { line("M 18 8 L 22 12 L 18 16", "M 2 12 L 22 12", "M 6 8 L 2 12 L 6 16") }
     /** Lucide "check-check". */
     val SelectAll: ImageVector by lazy { line("M 18 6 L 7 17 l -5 -5", "m 22 10 l -7.5 7.5 L 13 16") }
     /** Lucide "usb". */

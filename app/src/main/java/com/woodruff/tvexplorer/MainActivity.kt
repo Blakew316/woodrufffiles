@@ -1,5 +1,7 @@
 package com.woodruff.tvexplorer
 
+import com.woodruff.tvexplorer.ui.motion.AppMotion
+import com.woodruff.tvexplorer.ui.motion.useAppMotion
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -52,6 +54,8 @@ class MainActivity : ComponentActivity() {
         com.woodruff.tvexplorer.util.CrashLog.report(this)
         Appearance.load(this)
         handleOpen(intent)
+        // The app's motion plays at its own speed, even on a TV with Android's animations turned off.
+        window.decorView.useAppMotion(lifecycle)
         setContent {
             TvExplorerTheme {
                 // No background here: AppRoot's backdrop and the permission screen paint the whole screen.
@@ -155,6 +159,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The TV's window animations may have been turned on or off in Android's settings meanwhile.
+        AppMotion.refresh(this)
         com.woodruff.tvexplorer.util.FrameStats.attach(this)
         recheck() // the user may have just granted access in Settings
     }

@@ -224,6 +224,13 @@ each frame of an animation), so a busy moment doesn't stall a motion that's unde
 
 Every spring and duration is in `ui/motion/TvMotion.kt`; the gliding highlight is `ui/motion/FocusPlatter.kt`.
 
+**TVs with Android's animations turned off** (Developer options → *Window / Transition animation scale* and
+*Animator duration scale* set to *Animation off*, or Accessibility → *Remove animations*): the app keeps its own
+motion anyway (`ui/motion/AppMotion.kt`), so the highlight, rows and cross-fades still glide; dialogs then glide in
+from inside. Windows (dialogs leaving, the player and doorbell screens opening) can only glide with the TV's window
+and transition animation scales on, so set those to 1x. Settings → Appearance → *Reduce motion* turns the app's
+motion off.
+
 ## Smoothness report
 
 To find out why moving around isn't smooth on a particular TV:
