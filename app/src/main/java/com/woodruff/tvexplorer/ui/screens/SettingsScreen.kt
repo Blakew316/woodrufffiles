@@ -2,23 +2,41 @@ package com.woodruff.tvexplorer.ui.screens
 
 import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Intent
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.ColorProducer
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
-import androidx.tv.material3.LocalContentColor
+import androidx.tv.material3.LocalTextStyle
 import com.woodruff.tvexplorer.ui.SmoothEase
+import com.woodruff.tvexplorer.ui.motion.FocusTintIcon
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TvCard
+import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.util.FrameStats
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
@@ -71,8 +89,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import androidx.tv.material3.ListItem
-import androidx.tv.material3.ListItemDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.FileKind
@@ -118,6 +134,8 @@ import android.os.Build
 import androidx.profileinstaller.ProfileVerifier
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -170,52 +188,39 @@ fun SettingsScreen(vm: MainViewModel) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { version++ }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
 
+    // Slow frames per screen since the app started (read afresh each time a page opens). One state
+    // for the screen's life, so the Advanced rows kept below always read the current one.
+    var smoothness by remember { mutableStateOf(FrameStats.summary()) }
     // The pages opened from the first one, in order: the last is on screen.
     var path by remember { mutableStateOf(emptyList<SettingsPage>()) }
     // Page changes so far, and the page Back just left (the row that opened it takes the focus again).
     var moves by remember { mutableIntStateOf(0) }
     var left by remember { mutableStateOf<SettingsPage?>(null) }
-    val open: (SettingsPage) -> Unit = { p -> left = null; path = path + p; moves++ }
-    val back: () -> Unit = { left = path.last(); path = path.dropLast(1); moves++ }
+    val open: (SettingsPage) -> Unit = { p -> left = null; path = path + p; moves++; smoothness = FrameStats.summary() }
+    val back: () -> Unit = { left = path.last(); path = path.dropLast(1); moves++; smoothness = FrameStats.summary() }
     BackHandler { if (path.isEmpty()) openSidebar() else back() }
     val here = path.lastOrNull() ?: SettingsPage.HOME
 
     val v = version // read so the values below refresh
-    val clientId = remember(v) { GoogleAuth.clientId(context) }
-    val configured = remember(v) { GoogleAuth.isConfigured(context) }
-    val connected = remember(v) { GoogleAuth.isConnected(context) }
-    val nestProject = remember(v) { GoogleAuth.nestProject(context) }
-    val nestConnected = remember(v) { GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST) }
-    val tmdbSet = remember(v) { Tmdb.isConfigured(context) }
-    val tvName = remember(v) { TvLinks.name(context) }
-    val autoStart = remember(v) { AutoStart.enabled(context) }
-    val autoUpdate = remember(v) { Updater.autoEnabled(context) }
-    val testTv = remember(v) { Updater.isTestTv(context) }
+    // Keys, sign-ins, switches and permissions, read together (see readFacts): right away for the
+    // first frame, so nothing flashes, then off the main thread each time something changes or the
+    // TV comes back from Android's settings. Google Photos connects in its own dialog: read again
+    // when it closes.
+    val facts by produceState(remember { readFacts(context) }, v, showPhotos) {
+        value = withContext(Dispatchers.IO) { readFacts(context) }
+    }
     val update by Updater.state.collectAsStateWithLifecycle()
     val doorbellStatus by Doorbell.status.collectAsStateWithLifecycle()
     // Asked of the other TVs over the network, so only while their page is open.
     val otherTvs by produceState(emptyList<com.woodruff.tvexplorer.tvs.TvStatus>(), v, here) {
         if (here == SettingsPage.TVS) value = runCatching { TvLinks.statuses(context) }.getOrDefault(emptyList())
     }
-    val seesOtherApps = remember(v) { NowPlaying.canSeeOtherApps(context) }
-    remember { TvLinks.load(context) }
     val linkedTvs by TvLinks.linked.collectAsStateWithLifecycle()
-    val photosConnected = remember(v, showPhotos) { GoogleAuth.isConnected(context, GoogleAuth.Grant.PHOTOS) }
-    val accounts = remember(v) { MailAccounts.list(context) }
-    val overlay = remember(v) { Settings.canDrawOverlays(context) }
-    // This TV's own switches: nothing on the phone shows them, so they only refresh this screen.
-    val shareProgress = remember(v) { FamilySync.enabled(context) }
-    val shareProblem = remember(v) { FamilySync.problem(context) }
-    val shareSignIn = remember(v) { FamilySync.needsNewSignIn(context) }
-    val chime = remember(v) { Chime.enabled(context) }
-    val matchFrameRate = remember(v) { FrameRateMatch.enabled(context) }
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
     LaunchedEffect(Unit) { Phones.load(context) }
     val phones by Phones.items.collectAsStateWithLifecycle()
     val roots by vm.roots.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshRoots() }
-    // Slow frames per screen since the app started (read afresh each time a page opens).
-    var smoothness by remember(moves) { mutableStateOf(com.woodruff.tvexplorer.util.FrameStats.summary()) }
     // Whether Android has compiled the app's code yet: asked (off the main thread) only while Advanced is open.
     val appCode by produceState<String?>(null, here) {
         if (here == SettingsPage.ADVANCED) value = withContext(Dispatchers.IO) { appCodeStatus() }
@@ -223,12 +228,12 @@ fun SettingsScreen(vm: MainViewModel) {
 
     fun rows(page: SettingsPage): List<SettingItem> = when (page) {
         SettingsPage.HOME -> {
-            val linked = listOf(connected, photosConnected, calendar.connected, nestConnected).count { it } + accounts.size
+            val linked = listOf(facts.connected, facts.photosConnected, calendar.connected, facts.nestConnected).count { it } + facts.accounts.size
             listOf(
                 opener(SettingsPage.ACCOUNTS, if (linked == 0) "Not set up" else "$linked connected"),
                 opener(SettingsPage.LOOK, if (Palette.light) "Light" else "Dark"),
                 opener(SettingsPage.SCREENSAVER, if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min"),
-                opener(SettingsPage.DEVICES, tvName),
+                opener(SettingsPage.DEVICES, facts.tvName),
                 opener(SettingsPage.STORAGE, roots.firstOrNull { it.totalBytes > 0 }?.let { "${Format.bytes(it.freeBytes)} free" }),
                 opener(SettingsPage.UPDATES, updateStatus(update)),
                 opener(SettingsPage.ADVANCED, null, spaced = true),
@@ -236,21 +241,21 @@ fun SettingsScreen(vm: MainViewModel) {
         }
         SettingsPage.ACCOUNTS -> listOfNotNull(
             SettingItem(
-                Sym.AddToDrive, "Google Drive", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up",
+                Sym.AddToDrive, "Google Drive", if (facts.connected) "Signed in" else if (facts.configured) "Not signed in" else "Not set up",
                 about = "Movies, TV Shows and files from your Google Drive. OK opens it.",
             ) { vm.show(Screen.DRIVE) },
             // Through Drive, so it lives with it. Why it isn't working shows on the right.
             SettingItem(
-                Sym.Autorenew, "Share progress with other TVs", onOff(shareProgress), detail = shareProblem,
+                Sym.Autorenew, "Share progress with other TVs", onOff(facts.shareProgress), detail = facts.shareProblem,
                 about = "Continue watching, ✓s and Skip intro follow you to every TV signed in to the same Google account. OK turns it on or off.",
-            ) { FamilySync.setEnabled(context, !shareProgress); version++ },
+            ) { FamilySync.setEnabled(context, !facts.shareProgress); version++ },
             // Only while the Drive sign-in lacks the shared folder (from before it was asked for).
-            if (shareSignIn) SettingItem(
+            if (facts.shareSignIn) SettingItem(
                 Sym.Key, "Sign in to Google Drive again",
                 about = "Lets this TV share progress with your other TVs. Scan a code with your phone; the library stays as it is.",
             ) { dialog = SettingsDialog.DriveAgain } else null,
             SettingItem(
-                Sym.PhotoLibrary, "Google Photos", if (photosConnected) "Connected" else "Connect",
+                Sym.PhotoLibrary, "Google Photos", if (facts.photosConnected) "Connected" else "Connect",
                 about = "Brings photos and videos into Family Memories.",
             ) { showPhotos = true },
             SettingItem(
@@ -258,33 +263,33 @@ fun SettingsScreen(vm: MainViewModel) {
                 about = "Today's events on Home.",
             ) { if (!calendar.connected) showCalendar = true },
             SettingItem(
-                Sym.Videocam, "Cameras", if (nestConnected) "Connected" else "Not connected",
+                Sym.Videocam, "Cameras", if (facts.nestConnected) "Connected" else "Not connected",
                 about = "Live Google Home cameras in the Command Center. OK opens them.",
             ) { vm.show(Screen.CAMERAS) },
-            opener(SettingsPage.MAIL, count(accounts.size, "account", "None")),
+            opener(SettingsPage.MAIL, count(facts.accounts.size, "account", "None")),
             opener(SettingsPage.KEYS, null, spaced = true),
         )
-        SettingsPage.MAIL -> accounts.map { a ->
+        SettingsPage.MAIL -> facts.accounts.map { a ->
             SettingItem(Sym.Email, a.email, a.provider.label, about = "OK removes this account from the TV.") { dialog = SettingsDialog.RemoveMail(a) }
         } + SettingItem(
-            Sym.PersonAdd, "Add a mail account", spaced = accounts.isNotEmpty(),
+            Sym.PersonAdd, "Add a mail account", spaced = facts.accounts.isNotEmpty(),
             about = "iCloud, Gmail, Outlook and others. You'll need an app-specific password, not your usual one.",
         ) { dialog = SettingsDialog.PickProvider }
         SettingsPage.KEYS -> buildList {
-            add(SettingItem(Sym.Key, "Google Client ID", clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it.") { dialog = SettingsDialog.ClientId })
-            add(SettingItem(Sym.Lock, "Google Client secret", if (configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted on this TV.") { dialog = SettingsDialog.ClientSecret })
-            add(SettingItem(Sym.Key, "Cameras project ID", nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it.") { dialog = SettingsDialog.NestProject })
-            add(SettingItem(Sym.Key, "TMDB key", if (tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures.") { dialog = SettingsDialog.TmdbKey })
+            add(SettingItem(Sym.Key, "Google Client ID", facts.clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it.") { dialog = SettingsDialog.ClientId })
+            add(SettingItem(Sym.Lock, "Google Client secret", if (facts.configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted on this TV.") { dialog = SettingsDialog.ClientSecret })
+            add(SettingItem(Sym.Key, "Cameras project ID", facts.nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it.") { dialog = SettingsDialog.NestProject })
+            add(SettingItem(Sym.Key, "TMDB key", if (facts.tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures.") { dialog = SettingsDialog.TmdbKey })
             // Signing out, set apart from the keys.
             var gap = true
             fun out(on: Boolean, title: String, about: String, action: () -> Unit) {
                 if (on) { add(SettingItem(Sym.Logout, title, spaced = gap, about = about, onClick = action)); gap = false }
             }
-            out(connected, "Sign out of Google", "Signs this TV out of Google Drive.") { scope.launch { GoogleAuth.signOut(context); changed() } }
-            out(photosConnected, "Disconnect Google Photos", "Stops adding from Google Photos. Photos already here stay.") { GooglePhotos.signOut { changed() } }
+            out(facts.connected, "Sign out of Google", "Signs this TV out of Google Drive.") { scope.launch { GoogleAuth.signOut(context); changed() } }
+            out(facts.photosConnected, "Disconnect Google Photos", "Stops adding from Google Photos. Photos already here stay.") { GooglePhotos.signOut { changed() } }
             out(calendar.connected, "Disconnect Google Calendar", "Stops showing today's events.") { TodayCalendar.signOut { changed() } }
-            out(nestConnected, "Disconnect cameras", "Stops showing the cameras on this TV.") { Nest.signOut { changed() } }
-            if (configured) add(SettingItem(Sym.Delete, "Remove Google keys", danger = true, spaced = gap, about = "Signs out and deletes the saved Client ID and secret from this TV.") { dialog = SettingsDialog.RemoveGoogle })
+            out(facts.nestConnected, "Disconnect cameras", "Stops showing the cameras on this TV.") { Nest.signOut { changed() } }
+            if (facts.configured) add(SettingItem(Sym.Delete, "Remove Google keys", danger = true, spaced = gap, about = "Signs out and deletes the saved Client ID and secret from this TV.") { dialog = SettingsDialog.RemoveGoogle })
         }
         SettingsPage.LOOK -> listOf(
             SettingItem(if (Palette.light) Sym.LightMode else Sym.DarkMode, "Theme", if (Palette.light) "Light" else "Dark", about = "OK switches between light and dark.") { ThemeSetting.toggle(context) },
@@ -299,9 +304,9 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Videocam, "Cameras on Home", Appearance.homeCameras.label, about = "What Home shows of the cameras. OK changes it.") { Appearance.nextHomeCameras(context) },
             // Off unless asked for: each switch of the TV's refresh rate blanks the screen.
             SettingItem(
-                Sym.Movie, "Match frame rate", onOff(matchFrameRate),
+                Sym.Movie, "Match frame rate", onOff(facts.matchFrameRate),
                 about = "Shows films at their own frame rate, so slow pans don't stutter. The screen goes black for a moment when a film starts and stops.",
-            ) { FrameRateMatch.setEnabled(context, !matchFrameRate); version++ },
+            ) { FrameRateMatch.setEnabled(context, !facts.matchFrameRate); version++ },
         )
         SettingsPage.SCREENSAVER -> listOf(
             SettingItem(Sym.Bedtime, "Start when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min", about = "How long the TV sits unused before the slideshow starts. OK changes it.") { Appearance.nextIdle(context) },
@@ -320,11 +325,11 @@ fun SettingsScreen(vm: MainViewModel) {
             },
         )
         SettingsPage.DEVICES -> listOf(
-            SettingItem(Sym.Tv, "This TV's name", tvName, about = "Shown to your other TVs and on your phone.") { dialog = SettingsDialog.TvName },
+            SettingItem(Sym.Tv, "This TV's name", facts.tvName, about = "Shown to your other TVs and on your phone.") { dialog = SettingsDialog.TvName },
             SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) },
             opener(SettingsPage.PHONES, count(phones.size, "phone", "None yet")),
             opener(SettingsPage.TVS, if (linkedTvs.isEmpty()) "None linked" else "${linkedTvs.size} linked"),
-            SettingItem(Sym.PowerSettingsNew, "Start when the TV turns on", onOff(autoStart), about = "Opens Woodruff Family when the TV starts. OK turns it on or off.") { AutoStart.setEnabled(context, !autoStart); changed() },
+            SettingItem(Sym.PowerSettingsNew, "Start when the TV turns on", onOff(facts.autoStart), about = "Opens Woodruff Family when the TV starts. OK turns it on or off.") { AutoStart.setEnabled(context, !facts.autoStart); changed() },
         )
         SettingsPage.PHONES ->
             if (phones.isEmpty()) listOf(SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) })
@@ -360,13 +365,13 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update), about = "OK checks for an update, or installs one that's ready.") {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
-            SettingItem(Sym.Autorenew, "Install updates automatically", onOff(autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !autoUpdate); changed() },
+            SettingItem(Sym.Autorenew, "Install updates automatically", onOff(facts.autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !facts.autoUpdate); changed() },
             // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
-            SettingItem(Sym.Science, "Test TV", onOff(testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !testTv); changed() },
+            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
         )
         SettingsPage.ADVANCED -> listOf(
             SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames on each screen since the app started, and what they were spent on. OK starts counting again.") {
-                com.woodruff.tvexplorer.util.FrameStats.reset(); smoothness = com.woodruff.tvexplorer.util.FrameStats.summary()
+                FrameStats.reset(); smoothness = FrameStats.summary()
             },
             // The speed profile at work (baseline-prof.txt): right after an update when it installed with
             // its profile, otherwise once the TV has compiled it while idle. Read only.
@@ -375,11 +380,11 @@ fun SettingsScreen(vm: MainViewModel) {
                 about = "Whether the TV has compiled Woodruff's code, so it starts and moves faster. Updates are compiled as they install; if not, the TV does it while idle, usually overnight.",
             ),
             SettingItem(
-                Sym.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off",
+                Sym.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (facts.doorbellWatching) "Watching" else "Off",
                 about = "Doorbell presses pop up on this TV. Set it up in the phone app.",
             ),
-            SettingItem(Sym.NotificationsActive, "Pop-ups over other apps", onOff(overlay), about = "Lets alerts show while another app is open.") {
-                if (!overlay) {
+            SettingItem(Sym.NotificationsActive, "Pop-ups over other apps", onOff(facts.overlay), about = "Lets alerts show while another app is open.") {
+                if (!facts.overlay) {
                     val r = Opener.firstThatStarts(
                         context,
                         listOf(
@@ -392,10 +397,10 @@ fun SettingsScreen(vm: MainViewModel) {
                 }
             },
             SettingItem(
-                Sym.Notifications, "Chime for announcements", onOff(chime),
+                Sym.Notifications, "Chime for announcements", onOff(facts.chime),
                 about = "A short chime when an announcement or the doorbell pops up, so it's noticed over a film. Never for mail. OK turns it on or off.",
-            ) { Chime.setEnabled(context, !chime); version++ },
-            SettingItem(Sym.PlayCircle, "See what other apps are playing", onOff(seesOtherApps), about = "Lets Home and your other TVs show what's playing in other apps.") {
+            ) { Chime.setEnabled(context, !facts.chime); version++ },
+            SettingItem(Sym.PlayCircle, "See what other apps are playing", onOff(facts.seesOtherApps), about = "Lets Home and your other TVs show what's playing in other apps.") {
                 val r = Opener.firstThatStarts(context, listOf(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.MediaAccessHelp
             },
@@ -407,8 +412,15 @@ fun SettingsScreen(vm: MainViewModel) {
         )
     }
 
-    // The row the focus is on (and its page), for the panel on the right.
-    var hovered by remember { mutableStateOf<Pair<SettingsPage, Int>?>(null) }
+    // Each page's rows, built once and kept. Everything they show is Compose state (the facts above,
+    // the theme, an update's progress…), so a page's rows are rebuilt only when one of those changes;
+    // otherwise the list gets the very same rows back and neither it nor its rows recompose.
+    val rowsCache = remember(vm, context) { HashMap<SettingsPage, State<List<SettingItem>>>() }
+    val rowsOf = { p: SettingsPage -> rowsCache.getOrPut(p) { derivedStateOf { rows(p) } }.value }
+
+    // The row the focus is on (and its page), for the panel on the right. Only the panel reads it,
+    // so moving the focus recomposes the panel and nothing else.
+    val hovered = remember { mutableStateOf<Pair<SettingsPage, Int>?>(null) }
 
     Row(Modifier.fillMaxSize().padding(start = 40.dp, end = 56.dp)) {
         // The list, on the left.
@@ -419,10 +431,12 @@ fun SettingsScreen(vm: MainViewModel) {
             AnimatedContent(
                 path,
                 Modifier.weight(1f).fillMaxWidth()
-                    // Left goes back a page (on the first page it brings up the sidebar, as everywhere).
+                    // Left goes back a page (on the first page it brings up the sidebar, as everywhere),
+                    // one page a press: holding it doesn't run back through every page (its repeats are
+                    // taken and do nothing).
                     .onPreviewKeyEvent { e ->
                         if (e.key == androidx.compose.ui.input.key.Key.DirectionLeft && path.isNotEmpty()) {
-                            if (e.type == KeyEventType.KeyDown) back()
+                            if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) back()
                             true
                         } else false
                     },
@@ -435,22 +449,16 @@ fun SettingsScreen(vm: MainViewModel) {
                 label = "settings-page",
             ) { shown ->
                 val page = shown.lastOrNull() ?: SettingsPage.HOME
-                val items = rows(page)
+                val items = rowsOf(page)
                 // The first row of a page just opened; after Back, the row that opened the page left.
                 val focusOn = if (shown != path || moves == 0) null else items.indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0)
                 // Only the page on screen opens another: until a new page takes the focus (a frame
                 // later), a quick second press still reaches the one sliding out.
-                SettingsList(items, focusOn, moves, onOpen = { p -> if (shown == path) open(p) }, onFocused = { i -> hovered = page to i })
+                SettingsList(items, focusOn, moves, onOpen = { p -> if (shown == path) open(p) }, onFocused = { i -> hovered.value = page to i })
             }
         }
         // On the right: what the focused row is about, following the focus (OK still does the choosing).
-        // Until the page's row takes the focus, the row that will: after Back, the one that opened the page left.
-        val showing = hovered?.takeIf { it.first == here }
-            ?: (here to rows(here).indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0))
-        Crossfade(showing, Modifier.weight(1f).fillMaxHeight().padding(start = 56.dp), animationSpec = tween(220), label = "settings-about") { (p, i) ->
-            val item = rows(p).getOrNull(i)
-            if (item != null) SettingAbout(item, item.opens?.let { rows(it) })
-        }
+        AboutPanel(hovered, here, left, rowsOf, Modifier.weight(1f).fillMaxHeight().padding(start = 56.dp))
     }
 
     if (showCalendar) CalendarConnectDialog(onDismiss = { showCalendar = false })
@@ -459,7 +467,7 @@ fun SettingsScreen(vm: MainViewModel) {
     when (val d = dialog) {
         null -> Unit
         SettingsDialog.ClientId -> TextInputDialog(
-            "Google Client ID", clientId.orEmpty(), "Save",
+            "Google Client ID", facts.clientId.orEmpty(), "Save",
             onConfirm = { id ->
                 if (!id.endsWith(".apps.googleusercontent.com")) vm.say("A Client ID ends in .apps.googleusercontent.com")
                 else { GoogleAuth.saveClientId(context, id); changed() }
@@ -516,7 +524,7 @@ fun SettingsScreen(vm: MainViewModel) {
             onConfirm = { MailAccounts.remove(context, d.account.id); changed() }, onDismiss = { dialog = null },
         )
         SettingsDialog.TvName -> TextInputDialog(
-            "This TV's name", tvName, "Save",
+            "This TV's name", facts.tvName, "Save",
             onConfirm = { name ->
                 TvLinks.setName(context, name)
                 TransferService.state.value.base?.substringAfterLast(':')?.toIntOrNull()?.let { TvLinks.advertise(context, it) }
@@ -708,6 +716,47 @@ private fun opener(page: SettingsPage, value: String?, spaced: Boolean = false) 
 private fun onOff(on: Boolean) = if (on) "On" else "Off"
 
 /**
+ * What the rows show from storage and from Android: keys and sign-ins (the encrypted store), this
+ * TV's switches (settings files) and permissions (asked of Android's services).
+ */
+private data class SettingsFacts(
+    val clientId: String?, val configured: Boolean, val connected: Boolean,
+    val nestProject: String?, val nestConnected: Boolean, val photosConnected: Boolean, val tmdbSet: Boolean,
+    val tvName: String, val autoStart: Boolean, val autoUpdate: Boolean, val testTv: Boolean,
+    val seesOtherApps: Boolean, val accounts: List<MailAccount>, val overlay: Boolean,
+    // This TV's own switches: nothing on the phone shows them, so changing one only refreshes this screen.
+    val shareProgress: Boolean, val shareProblem: String?, val shareSignIn: Boolean,
+    val chime: Boolean, val matchFrameRate: Boolean, val doorbellWatching: Boolean,
+)
+
+/** Reads [SettingsFacts]: about 20 reads, two of them calls into Android's services. */
+private fun readFacts(context: android.content.Context): SettingsFacts {
+    TvLinks.load(context) // the linked TVs, from the encrypted store (once per app run)
+    return SettingsFacts(
+        clientId = GoogleAuth.clientId(context),
+        configured = GoogleAuth.isConfigured(context),
+        connected = GoogleAuth.isConnected(context),
+        nestProject = GoogleAuth.nestProject(context),
+        nestConnected = GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST),
+        photosConnected = GoogleAuth.isConnected(context, GoogleAuth.Grant.PHOTOS),
+        tmdbSet = Tmdb.isConfigured(context),
+        tvName = TvLinks.name(context),
+        autoStart = AutoStart.enabled(context),
+        autoUpdate = Updater.autoEnabled(context),
+        testTv = Updater.isTestTv(context),
+        seesOtherApps = NowPlaying.canSeeOtherApps(context),
+        accounts = MailAccounts.list(context),
+        overlay = Settings.canDrawOverlays(context),
+        shareProgress = FamilySync.enabled(context),
+        shareProblem = FamilySync.problem(context),
+        shareSignIn = FamilySync.needsNewSignIn(context),
+        chime = Chime.enabled(context),
+        matchFrameRate = FrameRateMatch.enabled(context),
+        doorbellWatching = Doorbell.subscription(context) != null,
+    )
+}
+
+/**
  * What Android says about the app's compiled code, from profileinstaller's own check a few seconds
  * after the app starts (waited for, so off the main thread). Android 9 and up can tell, except 11.
  */
@@ -741,29 +790,76 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
         withFrameNanos {} // once the page is laid out
         (focus.getOrNull(focusOn) ?: focus.firstOrNull())?.let { runCatching { it.requestFocus() } }
     }
-    Column(
-        Modifier.fillMaxSize()
-            // Right opens a group too, like stepping into it.
-            .onPreviewKeyEvent { e ->
-                val opens = items.getOrNull(focused)?.opens
-                if (e.key == androidx.compose.ui.input.key.Key.DirectionRight && opens != null) {
-                    if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) onOpen(opens)
-                    true
-                } else false
+    // The focused row rests 40% of the way down, Apple TV style, the list gliding on a spring to
+    // keep it there.
+    val scroll = rememberScrollState()
+    PivotScroll(scroll, Pivot(fraction = 0.4f), TvMotion.ColumnScroll) {
+        Column(
+            Modifier.fillMaxSize()
+                // Right opens a group too, like stepping into it.
+                .onPreviewKeyEvent { e ->
+                    val opens = items.getOrNull(focused)?.opens
+                    if (e.key == androidx.compose.ui.input.key.Key.DirectionRight && opens != null) {
+                        if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) onOpen(opens)
+                        true
+                    } else false
+                }
+                .verticalScroll(scroll)
+                // A little room above the first row: the scrolling column clips at its top edge.
+                .padding(top = 8.dp, bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items.forEachIndexed { i, item ->
+                SettingRow(
+                    item,
+                    // Before the row's own focus target, so it hears the row's focus.
+                    Modifier.padding(top = if (item.spaced) 22.dp else 0.dp)
+                        .focusRequester(focus[i])
+                        .onFocusChanged { if (it.isFocused) { focused = i; onFocused(i) } },
+                ) { item.opens?.let(onOpen) ?: item.onClick() }
             }
-            .verticalScroll(rememberScrollState())
-            // A little room above the first row: the scrolling column clips at its top edge.
-            .padding(top = 8.dp, bottom = 48.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        items.forEachIndexed { i, item ->
-            SettingRow(
-                item,
-                Modifier.padding(top = if (item.spaced) 22.dp else 0.dp)
-                    .focusRequester(focus[i])
-                    .onFocusChanged { if (it.isFocused) { focused = i; onFocused(i) } },
-            ) { item.opens?.let(onOpen) ?: item.onClick() }
         }
+    }
+}
+
+/**
+ * On the right: what the focused row ([hovered], on its page) is about. Only this reads the focus,
+ * so moving it recomposes the panel alone. Until the page's row takes the focus, the row that will:
+ * after Back, the one that opened the page [left].
+ */
+@Composable
+private fun AboutPanel(
+    hovered: State<Pair<SettingsPage, Int>?>, here: SettingsPage, left: SettingsPage?,
+    rowsOf: (SettingsPage) -> List<SettingItem>, modifier: Modifier,
+) {
+    // The focused row, once the focus settles. A held arrow steps every 100 ms or so: while steps
+    // come that close, the panel waits a little longer than the last gap, so it's rebuilt once the
+    // focus stops, not for every row it passes. A single press shows at once.
+    var rested by remember { mutableStateOf(hovered.value) }
+    LaunchedEffect(hovered) {
+        var lastMove = 0L
+        snapshotFlow { hovered.value }.collectLatest { h ->
+            val now = SystemClock.uptimeMillis()
+            val gap = now - lastMove
+            lastMove = now
+            if (gap < 200) delay(gap + 50)
+            rested = h
+        }
+    }
+    val (p, i) = rested?.takeIf { it.first == here }
+        ?: (here to rowsOf(here).indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0))
+    // One panel at a time, each new one fading in. The fade is the layer's alpha, applied as it
+    // draws: no second panel composed and no offscreen buffer, as a cross-fade had. The first panel
+    // is there at once (the screen itself eases in).
+    val shownOne = remember { BooleanArray(1) }
+    val fade = remember(p, i) { Animatable(if (shownOne[0]) 0f else 1f) }
+    LaunchedEffect(fade) {
+        shownOne[0] = true
+        fade.animateTo(1f, tween(180))
+    }
+    Box(modifier.graphicsLayer { alpha = fade.value; compositingStrategy = CompositingStrategy.ModulateAlpha }) {
+        val item = rowsOf(p).getOrNull(i)
+        if (item != null) SettingAbout(item, item.opens?.let { rowsOf(it) })
     }
 }
 
@@ -808,44 +904,53 @@ private fun SettingAbout(item: SettingItem, inside: List<SettingItem>?) {
     }
 }
 
-/** A row like the Apple TV's: plain until focused, then white with dark text. */
+/**
+ * A row like the Apple TV's: plain until focused, then white with dark text. Sized as tv-material's
+ * ListItem laid it out, but its platter, text and symbols follow the focus as they draw, so taking
+ * or losing the focus recomposes nothing.
+ */
 @Composable
 private fun SettingRow(item: SettingItem, modifier: Modifier, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    ListItem(
-        selected = false,
+    val motion = rememberFocusMotionState()
+    val text = Palette.text
+    val onWhite = Palette.background
+    // Red only off the focus: on the white platter it washes out, so it takes the row's dark text.
+    val titleColor = if (item.danger) Palette.danger else text
+    TvCard(
         onClick = onClick,
-        modifier = modifier.onFocusChanged { focused = it.isFocused },
-        colors = ListItemDefaults.colors(
-            containerColor = Color.Transparent,
-            contentColor = Palette.text,
-            focusedContainerColor = Palette.text,
-            focusedContentColor = Palette.background,
-        ),
-        shape = ListItemDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(14.dp)),
-        scale = ListItemDefaults.scale(focusedScale = 1.03f),
-        // Plain symbols in the row's color (dark on the white focus), Apple style.
-        leadingContent = { TvIcon(item.icon, size = 26.dp) },
-        headlineContent = {
-            // Red only off the focus: on the white platter it washes out, so it takes the row's dark text.
-            Text(item.title, color = if (item.danger && !focused) Palette.danger else Color.Unspecified, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
-        trailingContent = if (item.value != null || item.opens != null) {
-            {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        shape = RoundedCornerShape(14.dp),
+        modifier = modifier,
+        motion = motion,
+        focusedScale = TvMotion.RowScale,
+        color = Color.Transparent,
+        focusedColor = text,
+    ) {
+        Row(Modifier.defaultMinSize(minHeight = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Plain symbols in the row's color (dark on the white focus), Apple style, a little faded.
+            Box(Modifier.padding(end = 8.dp).size(32.dp), contentAlignment = Alignment.Center) {
+                FocusTintIcon(item.icon, motion, text.copy(alpha = 0.8f), onWhite.copy(alpha = 0.8f), size = 26.dp)
+            }
+            BasicText(
+                item.title, Modifier.weight(1f), style = LocalTextStyle.current.merge(MaterialTheme.typography.titleMedium),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = ColorProducer { lerp(titleColor, onWhite, motion.fraction.coerceIn(0f, 1f)) },
+            )
+            if (item.value != null || item.opens != null) {
+                Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (item.value != null) {
-                        Text(
-                            item.value, color = LocalContentColor.current.copy(alpha = 0.62f), style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp),
+                        BasicText(
+                            item.value, Modifier.widthIn(max = 200.dp), style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = ColorProducer { lerp(text, onWhite, motion.fraction.coerceIn(0f, 1f)).copy(alpha = 0.62f) },
                         )
                     }
                     if (item.opens != null) {
-                        TvIcon(Sym.ChevronRight, Modifier.padding(start = 6.dp), size = 22.dp, tint = LocalContentColor.current.copy(alpha = 0.5f))
+                        FocusTintIcon(Sym.ChevronRight, motion, text.copy(alpha = 0.5f), onWhite.copy(alpha = 0.5f), size = 22.dp, modifier = Modifier.padding(start = 6.dp))
                     }
                 }
             }
-        } else null,
-    )
+        }
+    }
 }
 
 
