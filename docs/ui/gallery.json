@@ -1,7 +1,7 @@
 {
- "build": "136",
- "commit": "fb1be71",
- "updated": "2026-10-29 04:46 UTC",
+ "build": "137",
+ "commit": "1e79e32",
+ "updated": "2026-10-29 05:02 UTC",
  "tv": [
   {
    "name": "home",
@@ -84,12 +84,6 @@
    "light": "img/phone-remote-light.webp"
   },
   {
-   "name": "tv-screen",
-   "title": "Remote \u203a TV Screen",
-   "dark": "img/phone-tv-screen-dark.webp",
-   "light": "img/phone-tv-screen-light.webp"
-  },
-  {
    "name": "keyboard",
    "title": "Keyboard",
    "dark": "img/phone-keyboard-dark.webp",
@@ -136,6 +130,18 @@
    "title": "Settings",
    "dark": "img/phone-settings-dark.webp",
    "light": "img/phone-settings-light.webp"
+  },
+  {
+   "name": "settings-tvs",
+   "title": "Settings \u203a TVs",
+   "dark": "img/phone-settings-tvs-dark.webp",
+   "light": "img/phone-settings-tvs-light.webp"
+  },
+  {
+   "name": "tv-screen",
+   "title": "Settings \u203a TVs \u203a TV Screen",
+   "dark": "img/phone-tv-screen-dark.webp",
+   "light": "img/phone-tv-screen-light.webp"
   },
   {
    "name": "settings-drive",
