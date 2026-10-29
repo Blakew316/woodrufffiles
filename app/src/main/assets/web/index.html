@@ -232,6 +232,10 @@
   .steps b { color:var(--tint); font-weight:600; }
   .steps code { font:13px/20px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:0; padding:1px 6px; border-radius:6px; background:var(--fill4); word-break:break-all; }
   #crash-text { display:block; white-space:pre-wrap; word-break:break-word; color:var(--label2); }
+  /* Settings › TVs: what each TV is playing, with a hairline of progress under it */
+  .tvbar { display:block; height:3px; margin:7px 0 2px; border-radius:1.5px; background:var(--fill2); overflow:hidden; }
+  .tvbar i { display:block; height:100%; width:0; border-radius:1.5px; background:var(--label3); transition:width .9s linear; }
+  .tvbar.on i { background:var(--tint); }
   /* Send: one message box; the To row under it says who gets it. */
   #n-text { min-height:118px; }
   #n-to-d { max-width:78%; }
@@ -245,42 +249,24 @@
   .tip .x { flex:none; width:30px; height:30px; margin:-6px -4px 0 0; display:flex; align-items:center; justify-content:center; color:var(--label3); }
   .tip .x svg { width:15px; height:15px; }
 
-  /* ---- Remote: what's playing (tap it for the TV screen), the Siri Remote clickpad and buttons ---- */
+  /* ---- Remote: the Siri Remote clickpad and buttons, then Netflix and YouTube --------------------- */
   /* The remote fills the room between the bars without scrolling, from an iPhone SE to a Pro Max: the
      buttons follow the height and the clickpad takes what's left (both size containers). */
   #remote-root::after { display:none; }   /* nothing scrolls under the tab bar here */
   #remote-root .scroller::after { height:calc(var(--tab-b) + var(--tab-h) + 8px); }
-  .remote { --k:clamp(46px, 7.4vh, 62px); height:calc(100% - var(--tab-b) - var(--tab-h) - 8px); min-height:440px;
+  .remote { --k:clamp(46px, 7.4vh, 62px); height:calc(100% - var(--tab-b) - var(--tab-h) - 8px); min-height:480px;
     display:flex; flex-direction:column; align-items:center; padding:4px var(--mr) 6px var(--ml); }
   .remote > .tip { align-self:stretch; margin:0 0 12px; }
-  /* Now Playing: always two lines high, so the remote below never moves; the progress is a hairline under them. */
-  .npc { position:relative; flex:none; align-self:stretch; display:grid; grid-template-columns:40px minmax(0,1fr) 18px; column-gap:12px; align-items:center;
-    padding:10px 14px 15px 11px; border-radius:18px; background:var(--cell); text-align:left; overflow:hidden;
-    transition:transform .35s var(--spring), background-color .3s; }
-  .npc:active { transform:scale(.98); background-color:var(--cell-hi); transition:transform .35s var(--spring), background-color 0s; }
-  .npa { grid-row:1 / span 2; width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; color:#fff; background:linear-gradient(165deg, #5b9fd6, var(--tint-fill)); }
-  .npa.off { background:var(--gray); }
-  .npa svg { width:22px; height:22px; }
-  .npt { grid-column:2; font-size:16px; line-height:21px; font-weight:600; letter-spacing:-.31px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .nps { grid-column:2; display:flex; gap:10px; min-width:0; font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); }
-  .nps > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .nps > span:first-child { flex:1; min-width:0; }
-  .nps .tm { flex:none; font-variant-numeric:tabular-nums; }
-  .npx { grid-column:3; grid-row:1 / span 2; justify-self:end; color:var(--label3); }
-  .npx svg { width:16px; height:16px; }
-  .npb { position:absolute; left:63px; right:14px; bottom:7px; height:3px; border-radius:1.5px; background:var(--fill2); overflow:hidden; }
-  .npb i { display:block; height:100%; width:0; border-radius:1.5px; background:var(--label3); transition:width .9s linear; }
-  .npb.on i { background:var(--tint); }
-  .hint { flex:none; display:inline-flex; align-items:center; gap:8px; height:44px; max-width:100%; margin-top:10px; padding:0 18px; border-radius:22px; background:var(--tint-soft); color:var(--tint); font-size:15px; letter-spacing:-.23px; font-weight:600; }
+  .hint { flex:none; display:inline-flex; align-items:center; gap:8px; height:44px; max-width:100%; margin-top:4px; padding:0 18px; border-radius:22px; background:var(--tint-soft); color:var(--tint); font-size:15px; letter-spacing:-.23px; font-weight:600; }
   .hint svg { width:20px; height:20px; }
   .hint span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .padbox { flex:1 1 0; min-height:170px; align-self:stretch; display:flex; align-items:center; justify-content:center; }
-  .pad { --pad:clamp(150px, calc(100vh - var(--safe-t) - var(--safe-b) - 450px), 300px); position:relative; flex:none; width:var(--pad); height:var(--pad); border-radius:50%; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); touch-action:none;
+  .pad { --pad:clamp(150px, calc(100vh - var(--safe-t) - var(--safe-b) - 460px), 320px); position:relative; flex:none; width:var(--pad); height:var(--pad); border-radius:50%; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); touch-action:none;
     transition:width .3s var(--ease), height .3s var(--ease); }
   @supports (container-type:size) {
     .remote { --k:clamp(46px, 9.5cqh, 62px); container-type:size; }
     .padbox { container-type:size; min-height:0; }
-    .pad { --pad:min(300px, 100cqh - 24px, 100cqw - 40px); }
+    .pad { --pad:min(324px, 100cqh - 24px, 100cqw - 40px); }
   }
   .pad::after { content:''; position:absolute; inset:7%; border-radius:50%; border:1px solid var(--fill4); pointer-events:none; }
   .pad button { position:absolute; display:flex; align-items:center; justify-content:center; color:var(--label3); transition:color .15s; }
@@ -301,6 +287,14 @@
   .vol button { flex:1; display:flex; align-items:center; justify-content:center; color:var(--label); transition:background-color .15s; }
   .vol button svg { width:22px; height:22px; }
   .vol button:active, .vol button.hit { background-color:var(--cell-hi); }
+  /* Netflix and YouTube: two capsules under the buttons, made like the other keys, each with its mark. */
+  .apps { flex:none; display:flex; gap:12px; width:min(100%, 320px); margin-top:calc(var(--k) / 4 + 6px); }
+  .app { flex:1 1 0; min-width:0; height:50px; border-radius:25px; display:flex; align-items:center; justify-content:center; gap:9px; padding:0 14px;
+    background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); color:var(--label); font-size:16px; line-height:21px; font-weight:600; letter-spacing:-.31px;
+    transition:transform .3s var(--spring), background-color .15s; }
+  .app svg { width:22px; height:22px; flex:none; }
+  .app span { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .app:active, .app.hit { transform:scale(.95); background-color:var(--cell-hi); }
 
   /* ---- Notes ---------------------------------------------------------------------------------- */
   .note .t { font-weight:600; }
@@ -438,7 +432,7 @@
     .alertbox, .alertbox.show { transform:translate(-50%,-50%); }
     .hud, .hud.show { transform:translate(-50%, 0); }
     .banner { transform:none; }
-    .tb-lens, .gb, .rk, .btn, .switch::after { transition-timing-function:ease !important; }
+    .tb-lens, .gb, .rk, .app, .btn, .switch::after { transition-timing-function:ease !important; }
     .spin { animation-duration:1.6s; }
   }
 </style>
@@ -446,12 +440,11 @@
 <body>
 <div id="app">
 
-<!-- REMOTE: which TV (the title), what's on it (tap for the TV screen), the clickpad and buttons -->
+<!-- REMOTE: which TV (the title), the clickpad and buttons, Netflix and YouTube -->
 <section class="tab" id="tab-remote">
   <div class="page" id="remote-root" data-title="Remote"><div class="scroller">
     <div class="remote">
       <div class="tip" id="install" hidden><i data-ic="share"></i><div class="grow"><span class="tt">Add to Home Screen</span>Tap <b>Share</b>, then <b>Add to Home Screen</b>. It stays paired with this TV.</div><button class="x" id="install-x" aria-label="Dismiss"><i data-ic="xmark"></i></button></div>
-      <button class="npc" id="now" aria-haspopup="dialog"><span class="npa" id="now-art"><i data-ic="gTv"></i></span><span class="npt" id="now-title">Nothing Playing</span><span class="nps"><span id="now-sub"></span><span class="tm" id="now-time"></span></span><span class="npx"><i data-ic="expand"></i></span><span class="npb" id="now-bar" hidden><i id="now-fill"></i></span></button>
       <button class="hint" id="rm-kb-hint" hidden><i data-ic="keyboard"></i><span id="rm-kb-hint-t">Type on the TV</span></button>
       <div class="padbox">
         <div class="pad noswipe" id="pad" role="group" aria-label="Arrows and OK">
@@ -468,6 +461,10 @@
         <button class="rk" data-key="playpause" style="grid-area:play" aria-label="Play or pause"><i data-ic="kPlay"></i></button>
         <button class="rk" data-key="mute" style="grid-area:mute" aria-label="Mute"><i data-ic="kMute"></i></button>
         <div class="vol"><button data-key="volup" aria-label="Volume up"><i data-ic="kUp"></i></button><button data-key="voldown" aria-label="Volume down"><i data-ic="kDown"></i></button></div>
+      </div>
+      <div class="apps noswipe">
+        <button class="app" data-key="netflix"><i data-ic="netflix"></i><span>Netflix</span></button>
+        <button class="app" data-key="youtube"><i data-ic="youtube"></i><span>YouTube</span></button>
       </div>
     </div>
   </div></div>
@@ -531,6 +528,7 @@
   <div class="page" id="set-main" data-title="Settings"><div class="scroller">
     <h1 class="large">Settings</h1>
     <div class="group"><button class="row me tap" id="me-row" data-page="set-phone"><span class="avatar"><i data-ic="gPhoneBig"></i></span><span class="txt"><span class="t" id="me-name">This Phone</span><span class="s" id="me-sub"></span></span><i data-ic="chev"></i></button></div>
+    <div class="group"><button class="row i tap" data-page="set-tvs"><span class="ico" style="--c:var(--tint-fill)"><i data-ic="gTv"></i></span><span class="txt t">TVs</span><span class="detail" id="tvs-status"></span><i data-ic="chev"></i></button></div>
     <div class="group">
       <button class="row i tap" data-page="set-conn"><span class="ico" style="--c:var(--blue)"><i data-ic="gCloud"></i></span><span class="txt t">Connections</span><span class="detail" id="conn-status">…</span><i data-ic="chev"></i></button>
       <button class="row i tap" data-page="set-weather"><span class="ico" style="--c:var(--cyan)"><i data-ic="gSun"></i></span><span class="txt t">Weather on Home</span><span class="detail" id="w-status">…</span><i data-ic="chev"></i></button>
@@ -541,6 +539,11 @@
     </div>
     <div class="group" id="crash-group" hidden><button class="row i tap" data-page="set-crash"><span class="ico" style="--c:var(--red)"><i data-ic="gWarn"></i></span><span class="txt t">Last Crash on This TV</span><i data-ic="chev"></i></button></div>
     <p class="foot center" id="version"></p>
+  </div></div>
+
+  <div class="page" id="set-tvs" data-title="TVs" data-hash="tvs"><div class="scroller">
+    <div class="group" id="tv-list"></div>
+    <p class="foot">Tap a TV to see its screen.</p>
   </div></div>
 
   <div class="page" id="set-phone" data-title="This Phone" data-hash="phone"><div class="scroller">
@@ -695,7 +698,7 @@
 </div>
 <div class="msheet half" id="scr" role="dialog" aria-modal="true" aria-label="TV Screen">
   <div class="grab"></div>
-  <div class="sbar"><button class="gb glass ic" id="scr-close" aria-label="Close"><i data-ic="xmark"></i></button><span class="stt"><b>TV Screen</b><small id="scr-tv" hidden></small></span><span></span></div>
+  <div class="sbar"><button class="gb glass ic" id="scr-close" aria-label="Close"><i data-ic="xmark"></i></button><span class="stt"><b>TV Screen</b><small id="scr-tv"></small></span><span></span></div>
   <div class="sbody">
     <div class="nowcard big" id="live">
       <button class="screen" id="screen" aria-label="Make the TV picture bigger or smaller"><img id="tv-img" alt="What's on the TV" draggable="false"><p id="tv-msg">Connecting…</p></button>
@@ -788,7 +791,6 @@
     slides: sv('<rect x="3" y="7.5" width="14.5" height="12" rx="2.4"/><path d="M7 4.5h11.5a2.5 2.5 0 0 1 2.5 2.5v8.5"/><path d="m3.6 17.3 3.6-3.5 2.8 2.6 2.1-1.9 4.6 4.3"/>'),
     drive: sv('<rect x="2.5" y="7" width="19" height="10" rx="2.6"/><path d="M6.3 12h.4M15.8 12h2.2"/>'),
     note: sv('<rect x="4.5" y="3" width="15" height="18" rx="3"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/>', false, 1.6),
-    expand: sv('<path d="M4.5 10V4.5H10M4.5 4.5l6.2 6.2M19.5 14v5.5H14M19.5 19.5l-6.2-6.2"/>', false, 2.1),
     spin: '<svg class="spin" viewBox="0 0 24 24" aria-hidden="true">' + [0, 1, 2, 3, 4, 5, 6, 7].map(function (i) { return '<rect x="11" y="2.5" width="2" height="5.5" rx="1" opacity="' + (1 - i * 0.11).toFixed(2) + '" transform="rotate(' + (-i * 45) + ' 12 12)"/>'; }).join('') + '</svg>',
     okFill: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="currentColor"/><path d="m7.4 12.4 3.1 3.1 6.1-6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     warnFill: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="currentColor"/><path d="M12 6.8v6.4" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/><circle cx="12" cy="16.9" r="1.35" fill="#fff"/></svg>',
@@ -815,6 +817,9 @@
     kPlay: sv('<path d="M3.5 6v12l8.5-6zM14 6h2.6v12H14zM18.6 6h2.6v12h-2.6z"/>', true),
     kMute: sv('<path d="M4 9h3.5L12 5v14l-4.5-4H4zm11.6.2 1.4-1.4 2 2 2-2 1.4 1.4-2 2 2 2-1.4 1.4-2-2-2 2-1.4-1.4 2-2z"/>', true),
     kUp: sv('<path d="M12 5.5v13M5.5 12h13"/>', false, 2.3), kDown: sv('<path d="M5.5 12h13"/>', false, 2.3),
+    // Brand marks for the app buttons, in their own colours: Netflix's N ribbon, YouTube's play button
+    netflix: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#b1060f" d="M5.5 2h4.1v19.3q-2 .2-4.1.7zM14.4 2h4.1v20q-2.1-.5-4.1-.7z"/><path fill="#e50914" d="M5.5 2h4.1l8.9 20q-2.1-.5-4.1-.7z"/></svg>',
+    youtube: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="5" width="21" height="14" rx="4.3" fill="#ff0033"/><path fill="#fff" d="M10 8.9v6.2l5.4-3.1z"/></svg>',
     // Tab bar (filled, like SF Symbols in a tab bar)
     tRemote: t28('<path fill-rule="evenodd" d="M11 1.5h6a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4h-6a4 4 0 0 1-4-4v-17a4 4 0 0 1 4-4zM14 4.6a3.9 3.9 0 1 0 0 7.8 3.9 3.9 0 0 0 0-7.8zM11.6 15.2a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm4.8 0a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm-4.8 4.4a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm4.8 0a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7z"/>'),
     tNotes: t28('<path fill-rule="evenodd" d="M8 2.5h12A3.5 3.5 0 0 1 23.5 6v16a3.5 3.5 0 0 1-3.5 3.5H8A3.5 3.5 0 0 1 4.5 22V6A3.5 3.5 0 0 1 8 2.5zm1.2 6.3a1.05 1.05 0 0 0 0 2.1h9.6a1.05 1.05 0 0 0 0-2.1zm0 4.4a1.05 1.05 0 0 0 0 2.1h9.6a1.05 1.05 0 0 0 0-2.1zm0 4.4a1.05 1.05 0 0 0 0 2.1h6a1.05 1.05 0 0 0 0-2.1z"/>'),
@@ -1148,19 +1153,21 @@
     if (tab === 'remote') { loadTvs(); pollField(); }
     if (tab === 'notes') loadNotes();
     if (tab === 'send') { loadPhones(); if (!tvs.length) loadTvs(true); }
-    if (tab === 'settings') loadSettings();
+    if (tab === 'settings') { loadSettings(); loadTvs(!tvsShowing()); }
   }
-  // Addresses, old and new: #remote (and #tv), #keyboard, #send, #send/to, #send/link, #send/files (and #files),
-  // #notes, #settings and #settings/<page>: phone, connections, drive, posters, cameras, mail, weather, away,
-  // shortcuts (and share), crash. A page further in opens with the pages above it, so Back goes to them.
+  // Addresses, old and new: #remote, #keyboard, #send, #send/to, #send/link, #send/files (and #files), #notes,
+  // #settings and #settings/<page>: tvs (and #tv), phone, connections, drive, posters, cameras, mail, weather,
+  // away, shortcuts (and share), crash. A page further in opens with the pages above it, so Back goes to them.
+  var ALIAS = { tv: 'settings/tvs', files: 'send/files' };
   function route(hash) {
-    var h = hash.replace(/^#/, ''), parts = (h === 'files' ? 'send/files' : h).split('/'), tab = parts[0], sub = parts[1] === 'share' ? 'shortcuts' : parts[1];
+    var h = hash.replace(/^#/, ''), parts = (ALIAS[h] || h).split('/'), tab = parts[0], sub = parts[1] === 'share' ? 'shortcuts' : parts[1];
     selectTab(tab);
     if (!sub || current !== tab) return;
     var p = Object.keys(PG).map(function (id) { return PG[id]; }).filter(function (x) { return x.tab === tab && x.o.hash === sub; })[0];
     if (!p || stacks[tab].indexOf(p) >= 0) return;
     popTo(0, { animate: false });
     chain(p).forEach(function (x) { push(x, { animate: false }); });
+    if (p.o.onShow) p.o.onShow(p);
   }
   // Tapping the current tab again goes back to its first page, or scrolls it to the top, like iOS.
   function tapTab(tab) {
@@ -1625,7 +1632,7 @@
     if (btn) { btn.classList.add('hit'); setTimeout(function () { btn.classList.remove('hit'); }, 160); }
     haptic();
     var sent = tvId === 'this' ? post('/api/key', { key: key }) : post('/api/tvs/key', { id: tvId, key: key });
-    sent.then(function () { if (screenOpen) { clearTimeout(frameTimer); frameTimer = setTimeout(frame, 250); } if (key === 'ok') setTimeout(pollField, 400); }, err);
+    sent.then(function () { if (key === 'ok') setTimeout(pollField, 400); }, err);   // a TV's refusal (e.g. no Netflix there) is the toast
   }
   document.querySelectorAll('[data-key]').forEach(function (b) { b.onclick = function () { press(b.dataset.key, b); }; });
   // Swipe anywhere on the round pad to move, like the Apple TV remote; a tap still hits a button.
@@ -1654,11 +1661,13 @@
   function fmtTime(ms) { var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + ('0' + m).slice(-2) : m) + ':' + ('0' + (s % 60)).slice(-2); }
   function tvStatus(t) { var p = t.playing; return !t.online ? 'Off' : !p ? 'Nothing Playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title; }
   function chosenTv() { return tvs.filter(function (t) { return t.id === tvId; })[0]; }
-  function chooseTv(id) { tvId = id; renderTvs(); loadTvs(); if (screenOpen) { resetScreen(); frame(); } }
-  // Every 5 s while the Remote is on screen; once, without polling, for the Send tab's words.
+  function chooseTv(id) { tvId = id; renderTvs(); loadTvs(); }
+  // Every 5 s while the Remote or Settings › TVs is on screen; once, without polling, for the words
+  // elsewhere (Send's To row, the TVs row in Settings).
+  function tvsShowing() { return current === 'settings' && topOf('settings') === PG['set-tvs']; }
   function loadTvs(once) {
     var seq = once ? 0 : ++tvSeq;
-    if (!once) { clearTimeout(tvTimer); if (current !== 'remote' || document.hidden) return; }
+    if (!once) { clearTimeout(tvTimer); if ((current !== 'remote' && !tvsShowing()) || document.hidden) return; }
     api('/api/tvs').then(function (d) { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }, function () {})
       .then(function () { if (seq && seq === tvSeq) tvTimer = setTimeout(loadTvs, 5000); });
   }
@@ -1666,45 +1675,56 @@
     var many = tvs.length > 1, t = chosenTv();
     if (!t && tvs.length) { tvId = tvs[0].id; t = tvs[0]; }   // that TV was unlinked
     $('rm-tv').hidden = !many; $('rm-title').hidden = many;
-    if (t) { $('rm-tv-name').textContent = t.name; $('rm-tv-dot').hidden = !(t.online && t.playing && t.playing.playing); }
-    renderNow(t);
+    if (t) { $('rm-tv-name').textContent = t.name; $('rm-tv-dot').hidden = !playing(t); }
     layoutNav(roots0.remote);
     renderTo();
+    renderTvList();
   }
-  // What's playing, on the card over the clickpad and in the TV Screen sheet. Between polls the time moves on
-  // by itself while something plays.
-  function renderNow(t) {
-    var p = t && t.playing, on = !!(t && t.online), title, sub;
-    if (!t) { title = 'Nothing Playing'; sub = ''; }
-    else if (!on) { title = t.name + ' is off'; sub = 'Or not reachable'; }
-    else if (!p) { title = 'Nothing Playing'; sub = t.name; }
-    else { title = p.title; sub = (p.playing ? '' : 'Paused · ') + (p.app || ''); }
-    $('now-title').textContent = $('scr-title').textContent = title;
-    $('now-sub').textContent = $('scr-sub').textContent = sub;
-    $('now-art').classList.toggle('off', !!t && !on);
-    $('now').setAttribute('aria-label', title + (sub ? ', ' + sub : '') + '. Show the TV screen');
-    $('scr-tv').textContent = t ? t.name : ''; $('scr-tv').hidden = tvs.length < 2;
-    var bar = !!(on && p && p.duration > 0);
-    $('now-bar').hidden = $('scr-bar').hidden = !bar; $('now-time').textContent = '';
-    if (!bar) return;
-    var pos = Math.min(p.duration, p.position + (p.playing ? Date.now() - tvsAt : 0));
-    $('now-fill').style.width = $('scr-fill').style.width = (pos * 100 / p.duration) + '%';
-    $('now-bar').classList.toggle('on', !!p.playing); $('scr-bar').classList.toggle('on', !!p.playing);
-    $('now-time').textContent = fmtTime(pos) + ' / ' + fmtTime(p.duration);
-    $('scr-pos').textContent = fmtTime(pos); $('scr-left').textContent = '-' + fmtTime(p.duration - pos);
+
+  // ---- Settings › TVs -----------------------------------------------------------------------------
+  // Every TV with what it's playing; tap one for its TV Screen. Between polls the time moves on by itself.
+  function playing(t) { return !!(t.online && t.playing && t.playing.playing); }
+  function statusLine(t) { var p = t.playing; return !t.online ? 'Off' : !p ? 'Nothing Playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title + (p.app ? ' · ' + p.app : ''); }
+  function position(p) { return Math.min(p.duration, p.position + (p.playing ? Date.now() - tvsAt : 0)); }
+  var tvRows = {};
+  function renderTvList() {
+    var box = $('tv-list'), on = tvs.filter(playing), seen = {};
+    // The TVs row in Settings: "Living Room · Playing", "2 Playing", or the TV (or how many there are)
+    $('tvs-status').textContent = on.length === 1 ? on[0].name + ' · Playing' : on.length ? on.length + ' Playing' : tvs.length === 1 ? tvs[0].name : tvs.length ? tvs.length + ' TVs' : '';
+    tvs.forEach(function (t, i) {
+      var r = tvRows[t.id], id = t.id;
+      if (!r) {   // rows are kept and updated, so a tap or the bar's movement isn't interrupted every second
+        r = tvRows[id] = { row: el('button', 'row i tap') };
+        r.ico = r.row.appendChild(el('span', 'ico')); r.ico.innerHTML = I.gTv;
+        var tx = r.row.appendChild(el('span', 'txt'));
+        r.name = tx.appendChild(el('span', 't')); r.st = tx.appendChild(el('span', 's'));
+        r.bar = tx.appendChild(el('span', 'tvbar')); r.fill = r.bar.appendChild(el('i'));
+        r.row.setAttribute('aria-haspopup', 'dialog');
+        r.row.onclick = function () { openScreen(id); };
+      }
+      seen[id] = true;
+      var p = t.playing, bar = !!(t.online && p && p.duration > 0);
+      r.ico.style.setProperty('--c', t.online ? 'var(--tint-fill)' : 'var(--gray)');
+      r.name.textContent = t.name; r.st.textContent = statusLine(t);
+      r.bar.hidden = !bar; r.bar.classList.toggle('on', bar && !!p.playing);
+      if (bar) r.fill.style.width = (position(p) * 100 / p.duration) + '%';
+      if (box.children[i] !== r.row) box.insertBefore(r.row, box.children[i] || null);
+    });
+    Object.keys(tvRows).forEach(function (id) { if (!seen[id]) { tvRows[id].row.remove(); delete tvRows[id]; } });
+    if (screenOpen) renderScreenNow();
   }
-  setInterval(function () { if (current === 'remote' && !document.hidden && tvs.length) renderNow(chosenTv()); }, 1000);
+  setInterval(function () { if (!document.hidden && tvs.length && (tvsShowing() || screenOpen)) renderTvList(); }, 1000);
 
   // ---- TV Screen ----------------------------------------------------------------------------------
-  // The live picture, in a sheet from the Now Playing card: one frame at a time, about once a second, and
-  // only while the sheet is open. The next request starts when the last image has loaded, so a slow
-  // network never queues up frames.
-  var screenOpen = false, frameTimer = null, frameSeq = 0, lastUrl = null, shownTv = null;
-  function screenUrl() { return (tvId === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(tvId) + '&t=') + Date.now(); }
+  // A TV's live picture, in a sheet from Settings › TVs: one frame at a time, about once a second, and only
+  // while the sheet is open. The next request starts when the last image has loaded, so a slow network
+  // never queues up frames.
+  var screenOpen = false, screenTv = 'this', frameTimer = null, frameSeq = 0, lastUrl = null, shownTv = null;
+  function screenUrl() { return (screenTv === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(screenTv) + '&t=') + Date.now(); }
   function frame() {
     clearTimeout(frameTimer);
     if (!screenOpen || document.hidden) return;
-    var seq = ++frameSeq, id = tvId, img = $('tv-img'), msg = $('tv-msg');
+    var seq = ++frameSeq, id = screenTv, img = $('tv-img'), msg = $('tv-msg');
     fetch(screenUrl(), { cache: 'no-store' }).then(function (r) {
       if (seq !== frameSeq) return;
       if (r.status === 409) return r.json().then(function (d) { if (seq !== frameSeq) return; msg.textContent = d.message; img.style.opacity = .25; frameTimer = setTimeout(frame, 3000); });
@@ -1721,11 +1741,23 @@
       });
     }).catch(function () { if (seq !== frameSeq) return; msg.textContent = "Can't reach the TV."; frameTimer = setTimeout(frame, 4000); });
   }
+  // Under the picture: what that TV is playing.
+  function renderScreenNow() {
+    var t = tvs.filter(function (x) { return x.id === screenTv; })[0], p = t && t.playing, on = !!(t && t.online), bar = !!(on && p && p.duration > 0);
+    $('scr-tv').textContent = t ? t.name : '';
+    $('scr-title').textContent = !t ? '' : !on ? t.name + ' is off' : p ? p.title : 'Nothing Playing';
+    $('scr-sub').textContent = !t || (on && !p) ? '' : !on ? 'Or not reachable' : (p.playing ? '' : 'Paused · ') + (p.app || '');
+    $('scr-bar').hidden = !bar;
+    if (!bar) return;
+    var pos = position(p);
+    $('scr-fill').style.width = (pos * 100 / p.duration) + '%'; $('scr-bar').classList.toggle('on', !!p.playing);
+    $('scr-pos').textContent = fmtTime(pos); $('scr-left').textContent = '-' + fmtTime(p.duration - pos);
+  }
   // Another TV's last picture isn't shown while this one's loads.
-  function resetScreen() { if (shownTv !== tvId) { $('tv-img').style.opacity = 0; $('tv-msg').textContent = 'Connecting…'; } }
-  function openScreen() {
-    if (screenOpen) return;
-    screenOpen = true; sizeScreen(); resetScreen(); renderNow(chosenTv());
+  function resetScreen() { if (shownTv !== screenTv) { $('tv-img').style.opacity = 0; $('tv-msg').textContent = 'Connecting…'; } }
+  function openScreen(id) {
+    if (screenOpen || busy) return;
+    screenOpen = true; screenTv = id; sizeScreen(); resetScreen(); renderScreenNow();
     veil(true, closeScreen); presentSheet($('scr'));
     frame();
   }
@@ -1734,7 +1766,6 @@
     screenOpen = false; frameSeq++; clearTimeout(frameTimer);
     dismissSheet($('scr')); veil(false);
   }
-  $('now').onclick = openScreen;
   $('scr-close').onclick = closeScreen;
   sheetDrag($('scr'), closeScreen);
   // Tap the picture for a smaller one beside what's playing, or a big one again; this phone remembers.
@@ -1959,6 +1990,7 @@
     if (p.o.onOpen) p.o.onOpen(p);
     if (current === p.tab) { select(topOf(), row); push(p); }
     else { selectTab(p.tab); popTo(0, { animate: false }); chain(p).forEach(function (x) { push(x, { animate: false }); }); }
+    if (p.o.onShow) p.o.onShow(p);
     if (p.o.focus) $(p.o.focus).focus({ preventScroll: true });   // within the tap, so iOS shows the keyboard
   }
   function chain(p) { var c = [p]; while (p.o.parent && PG[p.o.parent]) { p = PG[p.o.parent]; c.unshift(p); } return c; }
@@ -2046,6 +2078,7 @@
     actions: [{ icon: 'more', label: 'More', id: 'note-more', fn: noteMore }, { text: 'Done', prom: true, id: 'note-save', fn: noteSave }] });
   // Settings pages: [page, bar buttons, the page it opens from when that isn't Settings itself]
   var SAVE = function (id) { return [{ text: 'Save', prom: true, id: id }]; };
+  adopt('settings', 'set-tvs', { onShow: function () { loadTvs(); } });   // polls while it's showing
   [['set-phone'], ['set-ntfy', null, 'set-phone'], ['set-conn'],
     ['set-drive', SAVE('g-save'), 'set-conn'], ['set-drive-help', null, 'set-drive'], ['set-tmdb', SAVE('t-save'), 'set-conn'],
     ['set-cams', SAVE('c-save'), 'set-conn'], ['set-cams-help', null, 'set-cams'], ['set-mail', null, 'set-conn'],

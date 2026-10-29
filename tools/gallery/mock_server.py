@@ -7,7 +7,8 @@ JSON line ({"method", "path", "query", "body"}) so tests can check what the page
 Test-only controls, never used by the gallery: POST /__mock/inbox {title, body, from} queues an
 announcement for the phone, POST /__mock/crash {text} sets the "last crash", POST /__mock/field {field}
 sets (or clears, with null) the TV text box the keyboard types into, and POST /__mock/set {settings, tvs, phones}
-changes the sample settings (merged), the linked TVs or the phones (replaced)."""
+changes the sample settings (merged), the linked TVs or the phones (replaced).
+Remote keys are checked like the TV does; the Kids Room TV has no Netflix, so a test can see that error."""
 import json, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -85,6 +86,7 @@ TVS = {'tvs': [
      'playing': {'title': 'Backyard Science · S2 E4', 'app': 'YouTube', 'playing': True, 'position': 410000, 'duration': 1320000}},
     {'id': 'c', 'name': 'Bedroom', 'online': False, 'onScreen': False, 'playing': None},
 ]}
+KEYS = {'up', 'down', 'left', 'right', 'ok', 'back', 'home', 'playpause', 'mute', 'volup', 'voldown', 'netflix', 'youtube'}
 TYPES = {'.png': 'image/png', '.webmanifest': 'application/manifest+json'}
 
 
@@ -194,6 +196,12 @@ class Handler(BaseHTTPRequestHandler):
                 TVS['tvs'] = body['tvs']
             if 'phones' in body:
                 PHONES[:] = body['phones']
+            return self.send({'ok': True})
+        if path in ('/api/key', '/api/tvs/key'):
+            if body.get('key') not in KEYS:
+                return self.send('Unknown key', 'text/plain', 400)
+            if path == '/api/tvs/key' and body.get('id') == 'b' and body.get('key') == 'netflix':
+                return self.send("Kids Room: Netflix isn't installed on this TV", 'text/plain', 400)
             return self.send({'ok': True})
         if path == '/api/phone/hello':
             phone = {'id': body.get('id', 'p-blake'), 'name': body.get('name', "Blake's iPhone"),

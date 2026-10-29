@@ -20,17 +20,20 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   and it opens like an app that stays paired. It looks and moves like an iPhone app (pages slide in; **‹** or a swipe
   from the left goes back), in light and dark, with four tabs:
   - **Remote**: laid out like the Siri Remote: a round clickpad (tap or swipe), Back, Home, Play/Pause, Mute and
-    volume. The TV's name at the top picks a TV when several are linked. A *Now Playing* card shows what's on; tap
-    it for a live picture of the TV. When a text box is selected on the TV, the keyboard button lights up and a
-    *Type into …* button appears; letters appear on the TV as you type and Enter presses Done.
+    volume, plus **Netflix** and **YouTube** buttons that open those apps on the TV (over another app only with
+    *Pop-ups over other apps* on). The TV's name at the top picks a TV when several are linked. When a text box is
+    selected on the TV, the keyboard button lights up and a *Type into …* button appears; letters appear on the TV
+    as you type and Enter presses Done. In other apps, Play/Pause, volume and Home work; the arrows and OK only work
+    in Woodruff Family (Android doesn't let one app press keys in another).
   - **Send**: one message box and a **To** row (everyone by default; choose TVs, phones and *Keep on Every TV's
     Home*), then **Photos & Files** (browse the TV's storage, play, set as background, save to iPhone, upload, and
     press and hold a folder to use it for the slideshow), **Open a Link** (YouTube, Apple Music or a video) and
     **Start Photo Slideshow**.
   - **Notes**: the same notes as the TV's Notes screen, with search and pinning (press and hold, or **…**). A note
     opens as its own page and is saved when you go back; tap the pencil to write one.
-  - **Settings**: this phone (name, lock-screen alerts), **Connections** (Google Drive, posters, cameras, mail),
-    weather on Home, **Away From Home** (the Tailscale link) and **Shortcuts** (the links for iPhone Shortcuts).
+  - **Settings**: this phone (name, lock-screen alerts), **TVs** (what's playing on each TV; tap one for a live
+    picture of its screen), **Connections** (Google Drive, posters, cameras, mail), weather on Home, **Away From
+    Home** (the Tailscale link) and **Shortcuts** (the links for iPhone Shortcuts).
 - **Library in the side menu**: **Movies** and **TV Shows** open the Drive folders of those names (created by you,
   anywhere in My Drive, top level preferred) and stream from them. **Photos** and **Videos** show what you've added from
   Google Photos (saved on the TV), each with an **Add from Google Photos** button. Google Drive and Google Photos
@@ -41,7 +44,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   lists films without a ✓ and shows not started. Photos and Videos
   sort newest or oldest first and filter by year and month, using when each was taken: Google's capture time for
   Google Photos items, otherwise the photo's own data or a date in its name.
-- **Live TV picture on the phone** (Remote → tap *Now Playing*): about once a second, only while it's open. Only Woodruff
+- **Live TV picture on the phone** (Settings → TVs → tap a TV): about once a second, only while it's open. Only Woodruff
   Family's own screens can be shown (video itself appears black); other apps would need a permission prompt on the
   TV every time.
 - **Away from home with Tailscale**: install Tailscale on the TV and the iPhone (same account). The TV's Phone
@@ -51,7 +54,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   so nobody needs to open Woodruff on the TV after a restart. Settings → Phone connection → *Start when the TV turns on*.
 - **Several TVs**: install Woodruff Family on each TV and give each a name (Settings → TVs → This TV's name).
   On the TV you'll watch from (the hub), choose **Add another TV**, pick the other TV from the list and type the
-  6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's Remote (the TV's name at the top) then
+  6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's Settings → TVs then
   list every TV with what's playing, and the phone can see and control any of them. Woodruff's own player is
   always reported; to also see Netflix, YouTube and other apps, turn on **See what other apps are playing** on
   each TV (Notification access; Settings shows an adb command for TVs that hide that setting). If the router gives a
