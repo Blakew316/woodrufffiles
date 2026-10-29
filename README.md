@@ -17,19 +17,24 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   and new mail shows up as a notification. While Mail is on screen it stays signed in (until 3 idle minutes), so
   messages open at once.
 - **Phone connection**: scan the QR code once (the pairing key persists). On iPhone, tap **Share → Add to Home Screen**
-  and it opens like an app that stays paired. It follows iOS conventions (large titles, inset lists, switches, action
-  sheets, light and dark) and has six tabs:
-  - **TV**: what's playing and a live picture of the TV (tap it to enlarge), switching between linked TVs, and the
-    *Away from home* link.
-  - **Remote**: a dedicated remote: an Apple TV–style round clickpad (tap or swipe), Back, Home, Play/Pause and the
-    keyboard, with the TV picker on top when several TVs are linked. It's the tab the app opens on. When a text box is
-    selected on the TV, the keyboard button lights up; letters appear on the TV as you type and Enter presses Done.
-  - **Files**: browse the TV's storage; tap a file for *Play on TV*, *Set as TV Background*, *Save to iPhone* or *Delete*;
-    press and hold a folder to use it for the slideshow. **+** uploads photos or files and makes folders.
-  - **Notes**: the same notes as the TV's Notes screen; tap the pencil to write one.
-  - **Send**: announcements to the TV and/or chosen phones, links (YouTube and Apple Music links open in those apps),
-    the photo slideshow, and a link for iPhone Shortcuts.
-  - **Settings**: name this phone, lock-screen alerts, then Google Drive, posters (TMDB), cameras and mail.
+  and it opens like an app that stays paired. It looks and moves like an iPhone app: a floating glass tab bar, large
+  titles that shrink as you scroll, inset lists, pages that slide in and go back with **‹** or a swipe from the left,
+  menus, press-and-hold menus and action sheets, in light and dark. Each tab keeps its place when you switch. Six tabs:
+  - **TV**: what's playing (with a progress bar) and a live picture of the TV (tap it to enlarge), the linked TVs
+    (tap one to switch), and the *Away from home* link.
+  - **Remote**: laid out like the Siri Remote: a round clickpad (tap or swipe), Back, Home, Play/Pause, Mute and
+    volume. It's the tab the app opens on; the TV's name at the top picks a TV when several are linked. When a text
+    box is selected on the TV, the keyboard button lights up and a *Type into …* button appears; letters appear on
+    the TV as you type and Enter presses Done.
+  - **Files**: browse the TV's storage (the menu under the title switches storage) and search the folder; tap a file
+    for *Play on TV*, *Set as TV Background*, *Save to iPhone* or *Delete*; press and hold a file or folder for all
+    its actions, including *Use for Slideshow*. **+** uploads photos or files and makes folders.
+  - **Notes**: the same notes as the TV's Notes screen, with search and pinning (press and hold, or **…**). A note
+    opens as its own page and is saved when you go back; tap the pencil to write one.
+  - **Send**: announcements to the TV and/or chosen phones (**Send** is at the top), links (YouTube and Apple Music
+    links open in those apps), the photo slideshow, and a link for iPhone Shortcuts.
+  - **Settings**: this phone (name, lock-screen alerts), then a page each for Google Drive, posters (TMDB), cameras,
+    mail, weather on Home and Share to TV, plus the TV's last crash when there is one.
 - **Library in the side menu**: **Movies** and **TV Shows** open the Drive folders of those names (created by you,
   anywhere in My Drive, top level preferred) and stream from them. **Photos** and **Videos** show what you've added from
   Google Photos (saved on the TV), each with an **Add from Google Photos** button. Google Drive and Google Photos
