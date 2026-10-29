@@ -16,8 +16,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -25,6 +25,8 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import com.woodruff.tvexplorer.cloud.GoogleAuth
+import com.woodruff.tvexplorer.net.Http
+import java.util.concurrent.TimeUnit
 
 /**
  * Built-in video/music player for local files and Google Drive. Many Android TV devices ship
@@ -57,6 +59,8 @@ class PlayerActivity : ComponentActivity() {
     private var session: MediaSession? = null
     /** Playing or paused when the player last stopped, so it comes back the same way. */
     private var savedPlayWhenReady: Boolean? = null
+    /** What a picture is awaited for (the start, a seek) and since when, for the log. */
+    private var waitingForPicture: Pair<String, Long>? = null
 
     /** Shares title / play state / position with other TVs and the phone (see NowPlaying). */
     private val reporter = android.os.Handler(android.os.Looper.getMainLooper())
@@ -735,9 +739,10 @@ class PlayerActivity : ComponentActivity() {
         }
 
         // The buffer is Java memory in Woodruff's own heap. Where that's small (192 MB or less), it
-        // gets at most half of it: a Blu-ray remux would fill Media3's ~140 MB otherwise.
+        // and the video OkHttp has already fetched ahead get at most half of it (see bufferCapBytes):
+        // a Blu-ray remux would fill Media3's ~140 MB otherwise.
         val heapMb = getSystemService(android.app.ActivityManager::class.java)?.memoryClass ?: 256
-        val smallHeap = heapMb <= 192
+        val smallHeap = heapMb <= SMALL_HEAP_MB
         player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()))
             // Start as soon as 1 s is buffered (2 s after a stall) instead of the default 2.5 / 5 s,
             // so Play feels immediate; it keeps filling up to 50 s ahead while it plays. The last 10 s
@@ -746,7 +751,7 @@ class PlayerActivity : ComponentActivity() {
                 androidx.media3.exoplayer.DefaultLoadControl.Builder()
                     .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
                     .setBackBuffer(if (smallHeap) 5_000 else 10_000, /* retainBackBufferFromKeyframe = */ true)
-                    .apply { if (smallHeap) setTargetBufferBytes(heapMb * 1024 * 1024 / 2) }
+                    .apply { bufferCapBytes(heapMb)?.let { setTargetBufferBytes(it) } }
                     .build(),
             )
             // Other apps go quiet while it plays, a voice question pauses it for a moment, and it
@@ -809,7 +814,18 @@ class PlayerActivity : ComponentActivity() {
                     if (leader) sendSync()
                 }
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-                    if (leader && reason == Player.DISCONTINUITY_REASON_SEEK) sendSync()
+                    if (reason != Player.DISCONTINUITY_REASON_SEEK) return
+                    waitingForPicture = "Seek" to android.os.SystemClock.elapsedRealtime()
+                    if (leader) sendSync()
+                }
+
+                override fun onRenderedFirstFrame() {
+                    // How long Play or a seek took to show a picture (adb logcat -s Player), to
+                    // compare builds on a real TV.
+                    waitingForPicture?.let { (what, since) ->
+                        android.util.Log.i("Player", "$what: picture after ${android.os.SystemClock.elapsedRealtime() - since} ms")
+                    }
+                    waitingForPicture = null
                 }
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -879,6 +895,7 @@ class PlayerActivity : ComponentActivity() {
             // Back to it (from the doorbell, the screensaver): as it was, so paused stays paused. A
             // new film plays.
             p.playWhenReady = savedPlayWhenReady ?: true
+            waitingForPicture = "Start" to android.os.SystemClock.elapsedRealtime()
             p.prepare()
             view.player = p
             // Voice ("Hey Google, pause", Alexa) and Bluetooth buttons. The remote's own media keys
@@ -892,6 +909,7 @@ class PlayerActivity : ComponentActivity() {
         reporter.post(report)
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
         doorbellJob = lifecycleScope.launch { com.woodruff.tvexplorer.nest.Doorbell.rings.collect { showDoorbell(it) } }
+        keepDriveTokenFresh(keys)
     }
 
     override fun onStop() {
@@ -903,6 +921,7 @@ class PlayerActivity : ComponentActivity() {
         retry.removeCallbacksAndMessages(null)
         followJob?.cancel(); followJob = null
         doorbellJob?.cancel(); doorbellJob = null
+        tokenJob?.cancel(); tokenJob = null
         dismissDoorbell()
         cancelUpNext()
         countdown.removeCallbacks(sleep)
@@ -973,12 +992,16 @@ class PlayerActivity : ComponentActivity() {
 
     /** Local files pass straight through; Drive URLs get an Authorization header per request. */
     private fun dataSources(): DefaultDataSource.Factory {
-        val http = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
+        // Over OkHttp, on the app's shared connections: one kept-open (HTTP/2) connection to Drive
+        // carries every range request, so a start (3-4 requests for an MKV) and each seek no longer
+        // wait for a new connection and handshake. Redirects between http and https are still followed.
+        val http = OkHttpDataSource.Factory(streamClient)
         val authed = ResolvingDataSource.Factory(http) { spec ->
-            // Only Drive's own file URLs get the token: https, Google's API host, the Drive path —
-            // not any other googleapis.com address (a link sent from the phone, say).
+            // Only Drive's own file URLs get the token (see carriesDriveToken). A redirect can't take
+            // it anywhere else: OkHttp drops the header when a redirect changes host, port or scheme
+            // (the old data source sent it on to any host a redirect named).
             val uri = spec.uri
-            if (uri.scheme == "https" && uri.host == "www.googleapis.com" && uri.path.orEmpty().startsWith("/drive/")) {
+            if (carriesDriveToken(uri.scheme, uri.host, uri.path)) {
                 spec.withAdditionalHeaders(mapOf("Authorization" to "Bearer ${token()}"))
             } else spec
         }
@@ -991,6 +1014,32 @@ class PlayerActivity : ComponentActivity() {
      * (a copy kept here for 30 minutes could outlive it, and kept "" after a failed refresh).
      */
     private fun token(): String = GoogleAuth.blockingToken(applicationContext).orEmpty()
+
+    // ---- Drive token ---------------------------------------------------------------------------
+
+    private var tokenJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Renews the Drive token in the background just before it runs out, for as long as the player
+     * is up. Google's tokens last an hour, and GoogleAuth renews one only in its last minute, when
+     * it's next asked for: during a film that was the first seek or retry after the hour, which then
+     * waited on Google's sign-in server.
+     */
+    private fun keepDriveTokenFresh(keys: List<String>) {
+        if (keys.none { MediaRef.parse(it) is MediaRef.Drive }) return
+        val app = applicationContext
+        tokenJob = lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val secrets = com.woodruff.tvexplorer.settings.SecretStore.get(app)
+            while (GoogleAuth.isConnected(app)) {
+                // When the current token runs out, as GoogleAuth keeps it.
+                val expires = secrets.get(GoogleAuth.Grant.DRIVE.expiresKey)?.toLongOrNull() ?: 0L
+                kotlinx.coroutines.delay(tokenRenewDelayMs(expires, System.currentTimeMillis()))
+                runCatching { GoogleAuth.token(app) }
+                // At most one try a minute: a renewal that failed (no connection) is tried again then.
+                kotlinx.coroutines.delay(60_000)
+            }
+        }
+    }
 
     /** OK shows the controls; everything else (media keys, D-pad seeking) PlayerView handles. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -1062,6 +1111,15 @@ class PlayerActivity : ComponentActivity() {
         /** Media session ids must differ, and two players can overlap for a moment. */
         private var sessionIds = 0
 
+        /**
+         * The app's HTTP client (and its connections) with Media3's own timeouts for video, as
+         * before: 8 s to connect, and 8 s without data before a stalled stream is tried again.
+         * The app's own are longer, for everything else.
+         */
+        private val streamClient by lazy {
+            Http.client.newBuilder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
+        }
+
         /** [keys] are [MediaRef] keys; [titles] line up with them. */
         fun intent(context: Context, keys: List<String>, titles: List<String>, start: String, positionMs: Long? = null, together: Boolean = false): Intent =
             Intent(context, PlayerActivity::class.java)
@@ -1073,3 +1131,40 @@ class PlayerActivity : ComponentActivity() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 }
+
+/**
+ * Whether a request may carry the Google token: Drive's own file URLs only — https, Google's API
+ * host, the Drive path. Not any other googleapis.com address (a link sent from the phone, say).
+ */
+internal fun carriesDriveToken(scheme: String?, host: String?, path: String?): Boolean =
+    scheme == "https" && host == "www.googleapis.com" && path.orEmpty().startsWith("/drive/")
+
+/**
+ * How long before the Drive token runs out the player renews it: just inside its last minute, the
+ * only time GoogleAuth renews a token rather than hand back the one it has.
+ */
+internal const val TOKEN_RENEW_LEAD_MS = 50_000L
+
+/** How long to wait before renewing a token that runs out at [expiresAt]; 0 when that's due already. */
+internal fun tokenRenewDelayMs(expiresAt: Long, now: Long): Long = (expiresAt - TOKEN_RENEW_LEAD_MS - now).coerceAtLeast(0)
+
+/** Heaps of this many MB or fewer get a smaller player buffer. */
+internal const val SMALL_HEAP_MB = 192
+private const val MB = 1024 * 1024
+
+/**
+ * Video OkHttp holds beyond the player's buffer: its HTTP/2 window (16 MB in OkHttp 4.12), what
+ * Drive may send ahead of what the player has read, kept in memory while the buffer is full.
+ */
+internal const val HTTP2_WINDOW_BYTES = 16 * MB
+
+/** Media3's own smallest buffer (DefaultLoadControl.DEFAULT_MIN_BUFFER_SIZE). */
+private const val MIN_BUFFER_BYTES = 200 * 64 * 1024
+
+/**
+ * The player's buffer cap in bytes on a TV whose app heap is [heapMb] MB; null keeps Media3's own
+ * (about 140 MB). On a small heap the buffer and OkHttp's window get at most half of it between
+ * them: the same memory and the same video fetched ahead as before OkHttp.
+ */
+internal fun bufferCapBytes(heapMb: Int): Int? =
+    if (heapMb > SMALL_HEAP_MB) null else (heapMb * MB / 2 - HTTP2_WINDOW_BYTES).coerceAtLeast(MIN_BUFFER_BYTES)

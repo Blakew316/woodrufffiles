@@ -22,6 +22,9 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        // The app's one HTTP client, so pictures and the player share its warm connections. Made
+        // when the first picture is fetched, off the main thread.
+        .okHttpClient { com.woodruff.tvexplorer.net.Http.client }
         .components { add(VideoFrameDecoder.Factory()) }
         // At most two decodes at once: a folder of videos otherwise opens a decoder per tile and
         // the TV's few hardware decoders (and the CPU) choke while scrolling.
