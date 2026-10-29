@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +60,10 @@ data class TvTargets(val here: Boolean, val others: Set<String>?) {
  * The link key is not the phone pairing key: it only opens status, screen and remote keys, never
  * files, settings or mail. From then on this TV (the hub) fetches each TV's status, screen and remote keys for the
  * phone, so the phone only ever talks to one TV, at home or through Tailscale.
+ *
+ * A TV's address can change (a new router, a power cut, another app on port 8080), so each TV also
+ * advertises its id. When a linked TV stops answering, the hub looks for it by that id (or, from an
+ * older Woodruff, by name), checks it's that TV with its link key, and saves the new address.
  */
 object TvLinks {
     const val SERVICE_TYPE = "_woodruff._tcp."
@@ -66,6 +72,10 @@ object TvLinks {
     private const val K_NAME = "tvs.name"
     private const val K_LINK_KEY = "tvs.linkkey"
     private const val CODE_TTL_MS = 10 * 60_000L
+    /** A linked TV that stopped answering is looked for on the network at most this often. */
+    private const val REFIND_EVERY_MS = 3 * 60_000L
+    /** How long each look lasts. */
+    private const val REFIND_SEARCH_MS = 5_000L
 
     private val _linked = MutableStateFlow<List<LinkedTv>>(emptyList())
     val linked: StateFlow<List<LinkedTv>> = _linked
@@ -127,6 +137,7 @@ object TvLinks {
 
     @Synchronized
     fun load(c: Context) {
+        appContext = c.applicationContext
         if (loaded) return
         loaded = true
         _linked.value = runCatching {
@@ -146,7 +157,11 @@ object TvLinks {
         _linked.value = list
     }
 
-    fun remove(c: Context, id: String) { load(c); save(c, _linked.value.filter { it.id != id }) }
+    /** Changes the list in one step, so a TV linked or unlinked while another's new address is saved keeps both changes. */
+    @Synchronized
+    private fun edit(c: Context, change: (List<LinkedTv>) -> List<LinkedTv>) = save(c, change(_linked.value))
+
+    fun remove(c: Context, id: String) { load(c); edit(c) { list -> list.filter { it.id != id } } }
 
     /** Links the TV at [base] using the code it shows. */
     suspend fun link(c: Context, base: String, code: String): LinkedTv = withContext(Dispatchers.IO) {
@@ -160,7 +175,7 @@ object TvLinks {
         val o = JSONObject(r)
         val tv = LinkedTv(o.getString("id"), o.getString("name"), base, o.getString("key"))
         if (tv.id == id(c)) throw IOException("That's this TV.")
-        save(c, _linked.value.filter { it.id != tv.id } + tv)
+        edit(c) { list -> list.filter { it.id != tv.id } + tv }
         tv
     }
 
@@ -171,7 +186,13 @@ object TvLinks {
 
     @Volatile private var recent: Pair<Long, List<TvStatus>>? = null
     private val checks = StatusChecks(scope) { tv ->
-        parse(JSONObject(request("${tv.base}/api/status?k=${enc(tv.key)}", "GET", null)), true).copy(id = tv.id, name = tv.name)
+        try {
+            parse(JSONObject(request("${tv.base}/api/status?k=${enc(tv.key)}", "GET", null)), true).copy(id = tv.id, name = tv.name)
+        } catch (e: Exception) {
+            // Off, or at a new address: look for it on the network (in the background).
+            lost(tv)
+            throw e
+        }
     }
 
     /**
@@ -201,39 +222,49 @@ object TvLinks {
         val conn = open("${tv.base}/api/screen?k=${enc(tv.key)}", "GET")
         try {
             return if (conn.responseCode == 200) conn.inputStream.use { it.readBytes() } else null
+        } catch (e: IOException) {
+            lost(tv)
+            throw e
         } finally {
             conn.disconnect()
         }
     }
 
+    // A message that fails because the TV moved goes again once it's found at its new address, a
+    // few seconds late (a video started there catches up with the leader; a notice shows once per id).
+
     /** Start [key] (a Drive video) on [tv] at [positionMs]: "watch together". */
     fun watch(tv: LinkedTv, key: String, title: String, positionMs: Long) {
-        request("${tv.base}/api/watch?k=${enc(tv.key)}", "POST", JSONObject().put("key", key).put("title", title).put("position", positionMs).toString())
+        val body = JSONObject().put("key", key).put("title", title).put("position", positionMs).toString()
+        reach(tv, again = true) { t -> request("${t.base}/api/watch?k=${enc(t.key)}", "POST", body) }
     }
 
     /** Pin a family message on [tv]'s Home. */
     fun board(tv: LinkedTv, title: String, body: String, from: String?) {
-        request("${tv.base}/api/board?k=${enc(tv.key)}", "POST", JSONObject().put("title", title).put("body", body).put("from", from ?: "").toString())
+        val json = JSONObject().put("title", title).put("body", body).put("from", from ?: "").toString()
+        reach(tv, again = true) { t -> request("${t.base}/api/board?k=${enc(t.key)}", "POST", json) }
     }
 
     /** Pop up a message on [tv], with its announcement chime; [id] makes a repeat show only once. */
     fun notice(tv: LinkedTv, title: String, body: String, from: String?, id: String, source: NoticeSource = NoticeSource.PHONE) {
-        request("${tv.base}/api/notice?k=${enc(tv.key)}", "POST",
-            JSONObject().put("title", title).put("body", body).put("from", from ?: "").put("id", id).put("source", source.name).toString())
+        val json = JSONObject().put("title", title).put("body", body).put("from", from ?: "").put("id", id).put("source", source.name).toString()
+        reach(tv, again = true) { t -> request("${t.base}/api/notice?k=${enc(t.key)}", "POST", json) }
     }
 
     /** Watch together: the leader's position and play/pause, for [tv] to follow. */
     fun sync(tv: LinkedTv, key: String, positionMs: Long, playing: Boolean) {
-        request("${tv.base}/api/sync?k=${enc(tv.key)}", "POST",
-            JSONObject().put("key", key).put("position", positionMs).put("playing", playing).put("at", System.currentTimeMillis()).toString())
+        val json = JSONObject().put("key", key).put("position", positionMs).put("playing", playing).put("at", System.currentTimeMillis()).toString()
+        // Never sent again: it would be out of date, and the leader sends a fresh one every few seconds.
+        reach(tv, again = false) { t -> request("${t.base}/api/sync?k=${enc(t.key)}", "POST", json) }
     }
 
     /** Doorbell rang (seen by the TV that watches for it): tell [tv] too. */
     fun doorbell(tv: LinkedTv, camera: String, label: String, kind: String = "doorbell") {
-        request("${tv.base}/api/doorbell?k=${enc(tv.key)}", "POST", JSONObject().put("camera", camera).put("label", label).put("kind", kind).toString())
+        val json = JSONObject().put("camera", camera).put("label", label).put("kind", kind).toString()
+        reach(tv, again = true) { t -> request("${t.base}/api/doorbell?k=${enc(t.key)}", "POST", json) }
     }
 
-    /** Every linked TV, in parallel; failures (TV off) are ignored. */
+    /** Every linked TV, in parallel; failures (TV off) are ignored here, and a TV that moved is looked for in the background ([lost]). */
     suspend fun forEachLinked(c: Context, action: (LinkedTv) -> Unit) = coroutineScope {
         load(c)
         _linked.value.map { tv -> async(Dispatchers.IO) { runCatching { action(tv) } } }.awaitAll()
@@ -262,7 +293,9 @@ object TvLinks {
     }
 
     fun press(tv: LinkedTv, key: String) {
-        request("${tv.base}/api/key?k=${enc(tv.key)}", "POST", JSONObject().put("key", key).toString())
+        val json = JSONObject().put("key", key).toString()
+        // Never sent again: a key press arriving seconds late could do the wrong thing.
+        reach(tv, again = false) { t -> request("${t.base}/api/key?k=${enc(t.key)}", "POST", json) }
     }
 
     private fun parse(o: JSONObject, online: Boolean) = TvStatus(
@@ -294,37 +327,128 @@ object TvLinks {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
+    // ---- Finding a linked TV again after its address changed -----------------------------------
+
+    /** Linked TVs that stopped answering, to look for on the network. */
+    private val refinds = Refinds(REFIND_EVERY_MS) { SystemClock.elapsedRealtime() }
+
+    /** For looking for TVs after a status check or a message fails, which have no context of their own (set by [load]). */
+    @Volatile private var appContext: Context? = null
+
+    /**
+     * Sends something to [tv] with [send]. When [tv] doesn't answer, it's looked for again (see
+     * [lost]); with [again], the same goes once more if it turns up at a new address.
+     */
+    private fun reach(tv: LinkedTv, again: Boolean, send: (LinkedTv) -> Unit) {
+        try {
+            send(tv)
+        } catch (e: IOException) {
+            lost(tv, if (again) send else null)
+            throw e
+        }
+    }
+
+    /**
+     * [tv] didn't answer: it may be off, or at a new address. Looks for it on the network in the
+     * background, at most every few minutes and without holding anyone up, and sends it [again]
+     * once it turns up at a new address.
+     */
+    private fun lost(tv: LinkedTv, again: ((LinkedTv) -> Unit)? = null) {
+        val c = appContext ?: return
+        val now = find(tv.id) ?: return
+        // Found at its new address since this was sent: straight there.
+        if (now.base != tv.base) {
+            again?.let { send -> scope.launch { runCatching { send(now) } } }
+            return
+        }
+        if (refinds.lost(tv.id, again)) scope.launch {
+            while (true) {
+                val ids = refinds.next() ?: break
+                runCatching { search(c, ids) }.onFailure { Log.w("TvLinks", "Looking for TVs failed: $it") }
+            }
+        }
+    }
+
+    /**
+     * Looks on the network for the linked TVs [ids] for a few seconds. A TV that turns up is asked
+     * for its status with its own link key, so the key only goes to an address being checked as
+     * that TV, and saved there when its address changed.
+     */
+    private suspend fun search(c: Context, ids: Set<String>) {
+        val left = ids.filterTo(HashSet()) { find(it) != null }
+        if (left.isEmpty()) return
+        val found = Channel<Found>(Channel.UNLIMITED)
+        val stop = discover(c) { found.trySend(it) }
+        try {
+            withTimeoutOrNull(REFIND_SEARCH_MS) {
+                for (f in found) {
+                    val tv = candidatesFor(f, _linked.value.filter { it.id in left }).firstOrNull { isTv(it, f.base) } ?: continue
+                    left.remove(tv.id)
+                    if (f.base != tv.base) moved(c, tv.id, f.base)?.let { now ->
+                        Log.i("TvLinks", "Found ${tv.name} at a new address")
+                        refinds.found(tv.id).forEach { send -> scope.launch { runCatching { send(now) } } }
+                    }
+                    if (left.isEmpty()) break
+                }
+            }
+        } finally {
+            stop()
+            found.close()
+        }
+    }
+
+    /** Whether the Woodruff at [base] is [tv]: it takes [tv]'s link key and gives [tv]'s id. */
+    private fun isTv(tv: LinkedTv, base: String): Boolean = runCatching {
+        JSONObject(request("$base/api/status?k=${enc(tv.key)}", "GET", null)).optString("id") == tv.id
+    }.getOrDefault(false)
+
+    /** Saves [base] as the address of the linked TV [id]; null when it was unlinked meanwhile. */
+    @Synchronized
+    private fun moved(c: Context, id: String, base: String): LinkedTv? {
+        val tv = find(id)?.copy(base = base) ?: return null
+        save(c, _linked.value.map { if (it.id == id) tv else it })
+        return tv
+    }
+
     // ---- Finding TVs on the network (mDNS) -----------------------------------------------
 
-    private var registration: NsdManager.RegistrationListener? = null
+    @Volatile private var registration: NsdManager.RegistrationListener? = null
+    /** The name this TV is advertised under: Android adds " (2)" when another TV on the network has the same name. */
+    @Volatile private var registeredName: String? = null
 
     /** Announces this TV while its phone connection runs. */
     fun advertise(c: Context, port: Int) {
         stopAdvertising(c)
         val nsd = c.getSystemService(NsdManager::class.java) ?: return
         val info = NsdServiceInfo().apply { serviceName = name(c); serviceType = SERVICE_TYPE; setPort(port) }
+        // So linked TVs can find this one again when its address changes (older versions ignore it).
+        runCatching { info.setAttribute(TXT_ID, id(c)) }
         val listener = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(info: NsdServiceInfo) {}
+            override fun onServiceRegistered(info: NsdServiceInfo) { if (registration === this) registeredName = info.serviceName }
             override fun onRegistrationFailed(info: NsdServiceInfo, error: Int) { Log.w("TvLinks", "mDNS register failed $error") }
             override fun onServiceUnregistered(info: NsdServiceInfo) {}
             override fun onUnregistrationFailed(info: NsdServiceInfo, error: Int) {}
         }
-        runCatching { nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener); registration = listener }
+        registration = listener
+        runCatching { nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener) }.onFailure { if (registration === listener) registration = null }
     }
 
     fun stopAdvertising(c: Context) {
         val l = registration ?: return
         registration = null
+        registeredName = null
         runCatching { c.getSystemService(NsdManager::class.java)?.unregisterService(l) }
     }
 
-    /** A TV found on the network: its name and address ("http://192.168.1.21:8080"). */
-    data class Found(val name: String, val base: String)
+    /** A TV found on the network: its name, address ("http://192.168.1.21:8080") and id (null from older versions). */
+    data class Found(val name: String, val base: String, val id: String? = null)
 
-    /** Looks for other TVs for a few seconds; [onFound] is called on a background thread. */
+    /** Looks for other TVs until stopped; [onFound] is called on a background thread. */
     fun discover(c: Context, onFound: (Found) -> Unit): () -> Unit {
         val nsd = c.getSystemService(NsdManager::class.java) ?: return {}
-        val myName = name(c)
+        val myId = id(c)
+        // This TV's own advertisement, under the name Android gave it.
+        val myName = registeredName ?: name(c)
         val resolver = java.util.concurrent.Executors.newSingleThreadExecutor()
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(type: String) {}
@@ -335,27 +459,42 @@ object TvLinks {
             override fun onServiceFound(info: NsdServiceInfo) {
                 if (info.serviceName == myName) return
                 // Older Android resolves one service at a time (a second request fails), so queue them.
-                runCatching { resolver.execute {
-                    val done = java.util.concurrent.CountDownLatch(1)
-                    @Suppress("DEPRECATION")
-                    runCatching {
-                        nsd.resolveService(info, object : NsdManager.ResolveListener {
-                            override fun onResolveFailed(info: NsdServiceInfo, error: Int) { done.countDown() }
-                            override fun onServiceResolved(info: NsdServiceInfo) {
-                                @Suppress("DEPRECATION")
-                                val host = info.host?.hostAddress
-                                if (host != null && ':' !in host) onFound(Found(info.serviceName, "http://$host:${info.port}"))
-                                done.countDown()
-                            }
-                        })
-                    }.onFailure { done.countDown() }
-                    done.await(4, java.util.concurrent.TimeUnit.SECONDS)
-                } }
+                runCatching { resolver.execute { resolve(nsd, info) { r ->
+                    val host = ipv4(r) ?: return@resolve
+                    val id = runCatching { txtId(r.attributes) }.getOrNull()
+                    if (id != myId) onFound(Found(r.serviceName, "http://$host:${r.port}", id))
+                } } }
             }
         }
         runCatching { nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener) }
         return { runCatching { nsd.stopServiceDiscovery(listener) }; resolver.shutdownNow() }
     }
+
+    /** Resolves [info] (its address, port and TXT record) for [onResolved], waiting up to 4 s. */
+    @Suppress("DEPRECATION")
+    private fun resolve(nsd: NsdManager, info: NsdServiceInfo, onResolved: (NsdServiceInfo) -> Unit) {
+        val done = java.util.concurrent.CountDownLatch(1)
+        try {
+            nsd.resolveService(info, object : NsdManager.ResolveListener {
+                override fun onResolveFailed(info: NsdServiceInfo, error: Int) { done.countDown() }
+                override fun onServiceResolved(info: NsdServiceInfo) {
+                    try { onResolved(info) } catch (e: Exception) { Log.w("TvLinks", "mDNS: $e") } finally { done.countDown() }
+                }
+            })
+            done.await(4, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            // Refused, or stopped while waiting (interrupted): skip this one, quietly.
+        }
+    }
+
+    /**
+     * A resolved TV's home-network IPv4 address (192.168…, 10…), the kind its phone connection
+     * listens on: never somewhere outside, where a link key could leak. Android 14+ also lists IPv6 ones.
+     */
+    @Suppress("DEPRECATION")
+    private fun ipv4(info: NsdServiceInfo): String? =
+        (if (Build.VERSION.SDK_INT >= 34) info.hostAddresses else listOfNotNull(info.host))
+            .firstOrNull { it is java.net.Inet4Address && it.isSiteLocalAddress }?.hostAddress
 }
 
 // ---- Choosing and merging (plain logic, unit-tested) ------------------------------------------
@@ -419,4 +558,90 @@ internal fun pickTargets(asked: List<String>?, default: TvTargets, meId: String,
         else linked.firstOrNull { it.id == w || it.name.equals(w, ignoreCase = true) }?.let { ids.add(it.id) }
     }
     return if (here || ids.isNotEmpty()) TvTargets(here, ids) else null
+}
+
+// ---- Finding a linked TV again (plain logic, unit-tested) -------------------------------------
+
+/** The key of a TV's id in its mDNS TXT record. */
+private const val TXT_ID = "id"
+
+/** Android's " (2)" (or " (3)"…) at the end of an advertised name that another device already had. */
+private val RENAMED = Regex("""\s\(\d+\)$""")
+
+/** The id in a TV's TXT record ([attributes]); null from versions that don't advertise it. */
+internal fun txtId(attributes: Map<String, ByteArray?>): String? =
+    attributes.entries.firstOrNull { it.key.equals(TXT_ID, ignoreCase = true) }?.value
+        ?.toString(Charsets.UTF_8)?.trim()?.ifEmpty { null }
+
+/** [name] without the " (2)" Android adds to a TV's advertisement when another TV on the network has the same name. */
+internal fun withoutRenameSuffix(name: String): String = name.trim().replace(RENAMED, "").trimEnd()
+
+/** Whether a TV advertised as [advertised] may be the TV called [name]. */
+internal fun sameTvName(advertised: String, name: String): Boolean =
+    withoutRenameSuffix(advertised).equals(withoutRenameSuffix(name), ignoreCase = true)
+
+/**
+ * Which of [lost] (linked TVs that stopped answering) the TV [found] on the network may be: the one
+ * with its id or, when it advertises none (an older Woodruff), any with its name. Each is then
+ * checked with its own link key before its new address is saved.
+ */
+internal fun candidatesFor(found: TvLinks.Found, lost: List<LinkedTv>): List<LinkedTv> {
+    val id = found.id ?: return lost.filter { sameTvName(found.name, it.name) }
+    return lost.filter { it.id == id }
+}
+
+/** Whether a TV last looked for at [last] (null: never) may be looked for again at [now]. */
+internal fun refindDue(last: Long?, now: Long, everyMs: Long): Boolean =
+    last == null || now < last || now - last >= everyMs
+
+/**
+ * Linked TVs to look for on the network after they stopped answering: each at most once every
+ * [everyMs] ([now] is the clock), all of them in one search at a time. For each, it keeps what to
+ * send again if the TV turns up at a new address.
+ */
+internal class Refinds(private val everyMs: Long, private val now: () -> Long) {
+    private val lastTry = HashMap<String, Long>()
+    /** Waiting for the next search, by TV id, with what to send each again. */
+    private val queued = LinkedHashMap<String, MutableList<(LinkedTv) -> Unit>>()
+    /** In the search under way. */
+    private val searching = HashMap<String, MutableList<(LinkedTv) -> Unit>>()
+    private var busy = false
+
+    /**
+     * The TV [id] didn't answer ([again]: what to send it if it turns up at a new address). True
+     * when a search should start; it then takes [next] until that's null.
+     */
+    @Synchronized
+    fun lost(id: String, again: ((LinkedTv) -> Unit)?): Boolean {
+        // Already being looked for: this goes too, if it turns up.
+        (searching[id] ?: queued[id])?.let { waiting ->
+            if (again != null) waiting.add(again)
+            return false
+        }
+        val t = now()
+        if (!refindDue(lastTry[id], t, everyMs)) return false
+        lastTry[id] = t
+        queued[id] = listOfNotNull(again).toMutableList()
+        if (busy) return false
+        busy = true
+        return true
+    }
+
+    /** The TVs (ids) for the next search, or null when none are waiting and searching stops. */
+    @Synchronized
+    fun next(): Set<String>? {
+        // What the last search didn't find is dropped, as for a TV that's off.
+        searching.clear()
+        if (queued.isEmpty()) {
+            busy = false
+            return null
+        }
+        searching.putAll(queued)
+        queued.clear()
+        return searching.keys.toSet()
+    }
+
+    /** The TV [id] turned up at a new address: what to send it there, each once. */
+    @Synchronized
+    fun found(id: String): List<(LinkedTv) -> Unit> = searching.remove(id).orEmpty()
 }
