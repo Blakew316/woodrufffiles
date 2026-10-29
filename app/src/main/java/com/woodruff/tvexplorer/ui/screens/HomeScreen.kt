@@ -447,7 +447,8 @@ private fun ResumeArt(r: RecentItem, poster: String?, token: String?) {
                 }
                 AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
-            ref is MediaRef.Local -> AsyncImage(model = File(ref.path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            // Its frame saved on disk, not decoded from the video on every visit.
+            ref is MediaRef.Local -> AsyncImage(model = rememberVideoThumb(File(ref.path)), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else -> TvIcon(Sym.PlayArrow, size = 34.dp, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.align(Alignment.Center).offset(y = (-14).dp))
         }
         // Darken only the bottom, under the label and the bar.

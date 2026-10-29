@@ -16,6 +16,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
+import coil.request.CachePolicy
 import coil.request.Disposable
 import coil.request.ImageRequest
 import java.io.File
@@ -53,6 +54,14 @@ class SlideshowView(context: Context) : FrameLayout(context) {
     private var photos: List<File> = emptyList()
     private var index = 0
     private var request: Disposable? = null
+    /** The next photo, decoded while the current one shows, so it fades in right on its turn. */
+    private var ready: Pair<File, Drawable>? = null
+    /** Its turn came before it was decoded: it shows the moment it is. */
+    private var waiting = false
+    /** The photo on screen. */
+    private var shown: File? = null
+    /** Photos in a row that couldn't be read. */
+    private var misses = 0
     private var running = false
 
     init {
@@ -80,12 +89,17 @@ class SlideshowView(context: Context) : FrameLayout(context) {
         }
     }
 
+    // Decodes the next photo unless one is ready or on its way. After a fade it waits for the fade
+    // to finish, so the two don't compete for the TV's CPU.
+    private val preloadNext = Runnable { if (ready == null && request == null) preload() }
+
     /** Show only today's "On this day" photos. */
     var memoriesOnly = false
 
     fun start() {
         if (running) return
         running = true
+        misses = 0
         Appearance.load(context)
         main.post(tick)
         message.text = "Loading photos…"
@@ -110,10 +124,28 @@ class SlideshowView(context: Context) : FrameLayout(context) {
         running = false
         main.removeCallbacksAndMessages(null)
         request?.dispose()
+        request = null
+        ready = null
+        waiting = false
     }
 
     private fun showNext() {
-        if (photos.isEmpty()) return
+        if (photos.isEmpty() || single()) return
+        val next = ready
+        if (next == null) {
+            waiting = true
+            if (request == null) preload()
+            return
+        }
+        ready = null
+        fadeIn(next.first, next.second)
+    }
+
+    /** Only one photo, and it's up: it just stays (nothing to change to, nothing to decode again). */
+    private fun single() = photos.size == 1 && shown == photos[0]
+
+    private fun preload() {
+        if (!running || photos.isEmpty() || single()) return
         val file = photos[index % photos.size]
         index++
         request?.dispose()
@@ -121,26 +153,54 @@ class SlideshowView(context: Context) : FrameLayout(context) {
             ImageRequest.Builder(context)
                 .data(file)
                 .size(1920, 1080)
+                // Kept out of the app's image cache: each photo shows once a round, and there it only
+                // pushed out the Movies and TV Shows posters, which then had to be decoded again.
+                // The next photo waits in [ready] instead.
+                .memoryCachePolicy(CachePolicy.DISABLED)
                 .target(
-                    onSuccess = { d: Drawable -> fadeIn(d) },
-                    onError = { _ -> if (running && photos.size > 1) main.post { showNext() } },
+                    onSuccess = { d: Drawable -> loaded(file, d) },
+                    onError = { _ -> failed() },
                 )
                 .build(),
         )
     }
 
-    private fun fadeIn(d: Drawable) {
+    private fun loaded(file: File, d: Drawable) {
+        request = null
+        misses = 0
+        if (!running) return
+        if (waiting) {
+            waiting = false
+            fadeIn(file, d)
+        } else {
+            ready = file to d
+        }
+    }
+
+    private fun failed() {
+        request = null
+        // Skip a photo that can't be read; after a whole round of them, wait for the next turn.
+        if (running && ++misses < photos.size) main.post(preloadNext)
+    }
+
+    private fun fadeIn(file: File, d: Drawable) {
+        shown = file
         back.setImageDrawable(d)
-        back.animate().alpha(1f).setDuration(1200).start()
-        front.animate().alpha(0f).setDuration(1200).start()
+        back.animate().alpha(1f).setDuration(FADE_MS).start()
         val old = front
+        // Once hidden, the old photo lets go of its picture: only the one on screen and the next are held.
+        old.animate().alpha(0f).setDuration(FADE_MS).withEndAction { if (old.alpha == 0f) old.setImageDrawable(null) }.start()
         front = back
         back = old
         front.bringToFront()
         message.bringToFront()
         clock.bringToFront()
+        main.removeCallbacks(preloadNext)
+        main.postDelayed(preloadNext, FADE_MS)
     }
 }
+
+private const val FADE_MS = 1200L
 
 /** The TV's own screensaver ("Daydream"), when chosen in the TV's settings or with adb. */
 class SlideshowDream : DreamService() {

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,6 +22,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -30,14 +32,17 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.woodruff.tvexplorer.data.FileItem
 import com.woodruff.tvexplorer.data.FileKind
+import com.woodruff.tvexplorer.photos.VideoThumbs
 import com.woodruff.tvexplorer.ui.components.FileGlyph
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
+import java.io.File
 
 /** The remote's Menu key (or the "≡" key on some remotes) opens the action menu, like a long press. */
 fun Modifier.onMenuKey(action: () -> Unit) = onKeyEvent {
@@ -118,7 +123,7 @@ fun FileTile(
                 FileGlyph(item.name, item.kind, size = 64.dp)
                 if (item.kind == FileKind.IMAGE || item.kind == FileKind.VIDEO) {
                     AsyncImage(
-                        model = item.file,
+                        model = if (item.kind == FileKind.VIDEO) rememberVideoThumb(item.file) else item.file,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -138,6 +143,17 @@ fun FileTile(
             }
         }
     }
+}
+
+/**
+ * A local video's tile picture: a small copy of its frame kept on disk (made once, still there
+ * after a restart) instead of opening the video for every tile; the video itself when no frame
+ * could be saved, as before.
+ */
+@Composable
+internal fun rememberVideoThumb(video: File): ImageRequest {
+    val context = LocalContext.current
+    return remember(context, video) { VideoThumbs.request(context, video) }
 }
 
 @Composable
