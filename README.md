@@ -293,10 +293,24 @@ Command center, refreshed every 10 minutes and at midnight. Read-only.
 
 1. In Google Cloud (the Drive project), **APIs & Services → Library**: enable **Google Photos Picker API**.
 2. On the TV: **Settings → Google Photos** (or the Home tile). Scan the QR code and sign in, then scan the next
-   QR code, pick photos or albums in Google's picker on your phone and tap **Done**.
-3. The TV downloads them to `Pictures/Google Photos` and the slideshow switches to that folder. Use **Pick more** to add more.
+   QR code, pick photos in Google's picker on your phone and tap **Done**.
+3. The TV downloads them to `Pictures/Google Photos` (videos to `Movies/Google Photos`) and the slideshow switches
+   to that folder.
 
-Google only lets apps see the photos you pick each time (no browsing the whole library since 2025),
+**Show one album made for the TV.** Google's picker has no list of albums, but searching an album's name in it shows
+that album. So make an album in Google Photos (say "Living room TV"), then on the TV open Google Photos, scan the
+code, type the album's name in the picker's search bar, select its photos and tap **Done**.
+
+- **A new pick replaces the earlier ones**: the TV keeps exactly what you picked, so its storage doesn't fill up
+  pick after pick. Photos it already has aren't downloaded again, so picking the album again after adding a few
+  photos only fetches the new ones (and removes the ones you took out of it). **Add instead** (shown before you
+  pick) keeps what's there and adds to it. If any photo fails to download, nothing is removed; pick again.
+- Photos are saved at the size the TV shows them: 1920×1080 (about a quarter of a 4K copy), 3840×2160 only on the
+  few boxes that draw their screen in 4K. Videos are saved as they are.
+- The window shows how many photos and videos are on the TV and how much space they take, with **Remove all** to
+  delete them from the TV (your Google Photos library isn't touched).
+
+Google only lets apps see the photos you pick each time (no browsing the whole library or its albums since 2025),
 which is why it's a pick-and-download flow.
 
 ## Connect Google Home cameras

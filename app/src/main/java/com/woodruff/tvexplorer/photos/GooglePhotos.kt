@@ -16,6 +16,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,9 +34,14 @@ import java.net.URLEncoder
 
 /**
  * Google Photos for the slideshow, through Google's Photos Picker (since 2025 apps can no longer
- * browse a whole library). The TV shows a QR code, the owner picks photos on their phone in
+ * browse a whole library or list its albums). The TV shows a QR code, the owner picks photos on their phone in
  * Google's own picker, and the TV downloads them into Pictures/Google Photos and points the
  * slideshow there. Downloading matters: picked items can only be fetched for a short time.
+ *
+ * The picker has no list of albums, but searching an album's name in it shows that album, so an album made for
+ * the TV is picked by searching its name and selecting its photos. A new pick replaces what earlier picks left on
+ * the TV (or is added to it): the TV holds just that album, photos it already has aren't downloaded again, and
+ * its storage doesn't fill up pick after pick.
  */
 object GooglePhotos {
     enum class Step { NEED_GOOGLE, SIGN_IN, READY, PICKING, DOWNLOADING, DONE }
@@ -46,8 +53,18 @@ object GooglePhotos {
         val total: Int = 0,
         val added: Int = 0,
         val videos: Int = 0,
+        /** Picked items the TV already had: not downloaded again. */
+        val kept: Int = 0,
+        /** Earlier picks taken off the TV because this pick replaced them. */
+        val removed: Int = 0,
+        val failed: Int = 0,
         val error: String? = null,
     )
+
+    /** What the downloads take up on the TV, for the window's storage line. */
+    data class OnTv(val photos: Int = 0, val videos: Int = 0, val bytes: Long = 0) {
+        val items: Int get() = photos + videos
+    }
 
     private const val API = "https://photospicker.googleapis.com/v1/"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -56,6 +73,18 @@ object GooglePhotos {
     private lateinit var app: Context
     private var job: Job? = null
     @Volatile private var sessionId: String? = null
+    private val _onTv = MutableStateFlow(OnTv())
+    val onTv: StateFlow<OnTv> = _onTv
+    private val _replace = MutableStateFlow(true)
+    /** True: the next pick replaces what earlier picks left on the TV; false: it's added to them. */
+    val replace: StateFlow<Boolean> = _replace
+
+    /** Downloads and "Remove all" take turns, so files can't be pulled from under a download. */
+    private val files = Mutex()
+    /** The file each picked item became, by Google's item id (an item keeps its id from one pick to the next). */
+    private class Kept(val name: String, val video: Boolean)
+    private val picked = HashMap<String, Kept>()
+    private var pickedLoaded = false
 
     /** Picked photos (also the slideshow folder) and picked videos, on the TV's shared storage. */
     val folder: File get() = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Google Photos")
@@ -82,6 +111,8 @@ object GooglePhotos {
     fun open() {
         if (_state.value.step == Step.DOWNLOADING) return // reopening the window just shows progress
         _state.value = State()
+        _replace.value = true
+        scope.launch { files.withLock { withContext(Dispatchers.IO) { loadPicked(); countOnTv() } } }
         when {
             !GoogleAuth.isConfigured(app) -> _state.value = State(Step.NEED_GOOGLE)
             !isConnected(app) -> startSignIn()
@@ -133,7 +164,7 @@ object GooglePhotos {
     }
 
     private suspend fun download(session: String) {
-        data class Item(val url: String, val name: String, val video: Boolean, val taken: Long?)
+        data class Item(val id: String, val url: String, val name: String, val video: Boolean, val taken: Long?)
         val items = mutableListOf<Item>()
         var page: String? = null
         do {
@@ -146,55 +177,162 @@ object GooglePhotos {
                 val video = m.optString("type") == "VIDEO"
                 val name = f.optString("filename").ifBlank { m.optString("id") + if (video) ".mp4" else ".jpg" }
                 // Resized downloads lose their EXIF data, so keep Google's capture time for the date filters.
-                items += Item(f.getString("baseUrl"), name, video, MediaDates.parseRfc3339(m.optString("createTime")))
+                val url = f.getString("baseUrl")
+                items += Item(m.optString("id").ifBlank { url }, url, name, video, MediaDates.parseRfc3339(m.optString("createTime")))
             }
             page = r.optString("nextPageToken").ifBlank { null }
         } while (page != null)
 
-        _state.value = State(Step.DOWNLOADING, done = 0, total = items.size)
-        // Four downloads at a time: much faster than one by one, without starving video playback.
-        val added = java.util.concurrent.atomic.AtomicInteger()
-        val videos = java.util.concurrent.atomic.AtomicInteger()
-        val finished = java.util.concurrent.atomic.AtomicInteger()
-        val gate = kotlinx.coroutines.sync.Semaphore(4)
-        coroutineScope {
-            for (item in items) launch(Dispatchers.IO) {
-                gate.withPermit {
-                    val dir = (if (item.video) videoFolder else folder).apply { mkdirs() }
-                    val target = synchronized(this@GooglePhotos) {
-                        // Reserve the name so two parallel downloads can't pick the same one.
-                        FileOperations.uniqueTarget(dir, if (item.video) cleanName(item.name) else jpegName(item.name))
-                            .also { it.createNewFile() }
-                    }
-                    val tmp = File(dir, ".${target.name}.part")
-                    try {
-                        // Photos sized for a TV (sharp at 4K, light to store and decode); videos as-is ("=dv").
-                        val conn = open(if (item.video) "${item.url}=dv" else "${item.url}=w3840-h2160", "GET")
-                        if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
-                        conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 256 * 1024) } }
-                        conn.disconnect()
-                        // rename() replaces the empty placeholder atomically, keeping the name reserved.
-                        if (tmp.renameTo(target)) {
-                            item.taken?.let { MediaDates.record(app, target, it) }
-                            if (item.video) videos.incrementAndGet() else added.incrementAndGet()
+        val replacing = _replace.value
+        files.withLock {
+            // Items the TV already has (same Google item, its file still here) aren't downloaded again.
+            val todo = withContext(Dispatchers.IO) {
+                loadPicked()
+                synchronized(picked) { items.filter { item -> picked[item.id]?.let { fileOf(it).exists() } != true } }
+            }
+            val kept = items.size - todo.size
+            _state.value = State(Step.DOWNLOADING, done = 0, total = todo.size, kept = kept)
+            val screen = app.resources.displayMetrics
+            val sized = photoSize(screen.widthPixels, screen.heightPixels)
+            // Four downloads at a time: much faster than one by one, without starving video playback.
+            val added = java.util.concurrent.atomic.AtomicInteger()
+            val videos = java.util.concurrent.atomic.AtomicInteger()
+            val failed = java.util.concurrent.atomic.AtomicInteger()
+            val finished = java.util.concurrent.atomic.AtomicInteger()
+            val gate = kotlinx.coroutines.sync.Semaphore(4)
+            try {
+                coroutineScope {
+                    for (item in todo) launch(Dispatchers.IO) {
+                        gate.withPermit {
+                            val dir = (if (item.video) videoFolder else folder).apply { mkdirs() }
+                            val target = synchronized(this@GooglePhotos) {
+                                // Reserve the name so two parallel downloads can't pick the same one.
+                                FileOperations.uniqueTarget(dir, if (item.video) cleanName(item.name) else jpegName(item.name))
+                                    .also { it.createNewFile() }
+                            }
+                            val tmp = File(dir, ".${target.name}.part")
+                            try {
+                                // Photos at the size the TV draws them; videos as-is ("=dv").
+                                val conn = open(if (item.video) "${item.url}=dv" else "${item.url}$sized", "GET")
+                                if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
+                                conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 256 * 1024) } }
+                                conn.disconnect()
+                                // rename() replaces the empty placeholder atomically, keeping the name reserved.
+                                if (!tmp.renameTo(target)) throw IOException("Couldn't save ${target.name}")
+                                item.taken?.let { MediaDates.record(app, target, it) }
+                                if (item.video) videos.incrementAndGet() else added.incrementAndGet()
+                                // Written down as it arrives (and saved now and then), so even an interrupted
+                                // download is replaced by the next pick instead of staying on the TV for good.
+                                val n = synchronized(picked) { picked[item.id] = Kept(target.name, item.video); picked.size }
+                                if (n % 25 == 0) savePicked()
+                            } catch (e: CancellationException) {
+                                target.delete()
+                                throw e
+                            } catch (e: Exception) {
+                                target.delete()
+                                failed.incrementAndGet()
+                                Log.w("GooglePhotos", "download failed: ${item.name}", e)
+                            } finally {
+                                tmp.delete()
+                            }
                         }
-                    } catch (e: CancellationException) {
-                        target.delete()
-                        throw e
-                    } catch (e: Exception) {
-                        target.delete()
-                        Log.w("GooglePhotos", "download failed: ${item.name}", e)
-                    } finally {
-                        tmp.delete()
+                        val n = finished.incrementAndGet()
+                        _state.update { it.copy(done = n, added = added.get(), videos = videos.get(), failed = failed.get()) }
                     }
                 }
-                val n = finished.incrementAndGet()
-                _state.update { it.copy(done = n, added = added.get(), videos = videos.get()) }
+            } finally {
+                withContext(NonCancellable + Dispatchers.IO) { savePicked(); MediaDates.save(app) }
+            }
+            val removed = withContext(Dispatchers.IO) {
+                val (gone, inUse) = synchronized(picked) {
+                    val gone = leftOver(picked.keys.toSet(), items.map { it.id }, replacing, failed.get()).mapNotNull { picked.remove(it) }
+                    gone to picked.values.mapTo(HashSet()) { fileOf(it) }
+                }
+                // A file an earlier pick left can have been deleted on the TV and its name reused by this pick:
+                // only files no remaining pick uses are deleted.
+                val n = gone.map { fileOf(it) }.count { it !in inUse && it.delete() }
+                if (gone.isNotEmpty()) savePicked()
+                countOnTv()
+                n
+            }
+            if (items.any { !it.video } && _onTv.value.photos > 0) Appearance.setSlideshowFolder(app, folder.path)
+            _state.value = State(
+                Step.DONE, done = todo.size, total = todo.size, added = added.get(), videos = videos.get(),
+                kept = kept, removed = removed, failed = failed.get(),
+            )
+        }
+    }
+
+    /** Takes every downloaded photo and video off the TV (Google Photos itself isn't touched). */
+    fun removeAll() {
+        scope.launch {
+            files.withLock {
+                withContext(Dispatchers.IO) {
+                    loadPicked()
+                    for (dir in listOf(folder, videoFolder)) dir.listFiles()?.forEach { if (it.isFile) it.delete() }
+                    synchronized(picked) { picked.clear() }
+                    savePicked()
+                    countOnTv()
+                }
+                // Nothing left to show there: the slideshow goes back to the usual photo folders.
+                if (Appearance.slideshowFolder == folder.path) Appearance.setSlideshowFolder(app, null)
             }
         }
-        MediaDates.save(app)
-        if (added.get() > 0) Appearance.setSlideshowFolder(app, folder.path)
-        _state.value = State(Step.DONE, done = items.size, total = items.size, added = added.get(), videos = videos.get())
+    }
+
+    fun setReplace(on: Boolean) { _replace.value = on }
+
+    private fun fileOf(k: Kept) = File(if (k.video) videoFolder else folder, k.name)
+
+    private fun pickedFile() = File(app.filesDir, "google_photos_picked.json")
+
+    /** Reads which files came from picks, once (IO thread). */
+    private fun loadPicked() {
+        synchronized(picked) {
+            if (pickedLoaded) return
+            pickedLoaded = true
+            val f = pickedFile()
+            if (f.exists()) {
+                runCatching {
+                    val o = JSONObject(f.readText())
+                    for (id in o.keys()) o.getJSONObject(id).let { picked[id] = Kept(it.getString("f"), it.optBoolean("v")) }
+                }
+            } else {
+                // Before this list was kept, only picks wrote into these two folders: what's there now is what the
+                // next pick replaces.
+                for ((dir, video) in listOf(folder to false, videoFolder to true)) dir.listFiles()?.forEach {
+                    if (it.isFile && !it.name.startsWith(".")) picked["earlier:${if (video) "v" else "p"}:${it.name}"] = Kept(it.name, video)
+                }
+                savePicked()
+            }
+        }
+    }
+
+    private fun savePicked() {
+        synchronized(picked) {
+            runCatching {
+                val o = JSONObject()
+                for ((id, k) in picked) o.put(id, JSONObject().put("f", k.name).put("v", k.video))
+                val f = pickedFile()
+                val tmp = File(f.parentFile, f.name + ".tmp")
+                tmp.writeText(o.toString())
+                tmp.renameTo(f)
+            }
+        }
+    }
+
+    /** Counts what's in the two folders, for the storage line (IO thread). */
+    private fun countOnTv() {
+        var photos = 0
+        var videos = 0
+        var bytes = 0L
+        for ((dir, video) in listOf(folder to false, videoFolder to true)) dir.listFiles()?.forEach {
+            if (it.isFile && !it.name.startsWith(".")) {
+                if (video) videos++ else photos++
+                bytes += it.length()
+            }
+        }
+        _onTv.value = OnTv(photos, videos, bytes)
     }
 
     /** Leaves the window: stops waiting for a pick and tells Google to drop the session. */
@@ -265,3 +403,17 @@ object GooglePhotos {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 }
+
+/**
+ * Photos are stored at the size the TV draws them: the slideshow decodes at 1920×1080, so a 4K copy only pays off
+ * on the few boxes whose own screen is drawn in 4K. A 1080p copy takes about a quarter of the space.
+ */
+internal fun photoSize(widthPx: Int, heightPx: Int): String =
+    if (maxOf(widthPx, heightPx) > 1920) "=w3840-h2160" else "=w1920-h1080"
+
+/**
+ * The earlier picks a finished pick takes off the TV: those not in it, when it replaces them. None when adding, when
+ * nothing was picked, or when some picked items didn't arrive (then the old ones stay rather than leave gaps).
+ */
+internal fun leftOver(earlier: Set<String>, pick: List<String>, replacing: Boolean, failed: Int): Set<String> =
+    if (!replacing || failed > 0 || pick.isEmpty()) emptySet() else earlier - pick.toSet()
