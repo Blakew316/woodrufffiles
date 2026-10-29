@@ -14,7 +14,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   Secrets are stored **encrypted** with a key in the Android Keystore. They persist across restarts and updates,
   and you can type them on the TV or paste them from your phone.
 - **Mail**: iCloud Mail, Gmail, Yahoo or any IMAP account, using an app-specific password. There's an inbox and a reader,
-  and new mail shows up as a notification.
+  and new mail shows up as a notification. While Mail is on screen it stays signed in (until 3 idle minutes), so
+  messages open at once.
 - **Phone connection**: scan the QR code once (the pairing key persists). On iPhone, tap **Share → Add to Home Screen**
   and it opens like an app that stays paired. It follows iOS conventions (large titles, inset lists, switches, action
   sheets, light and dark) and has six tabs:
@@ -52,9 +53,9 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's TV tab then
   list every TV with what's playing, and the phone can see and control any of them. Woodruff's own player is
   always reported; to also see Netflix, YouTube and other apps, turn on **See what other apps are playing** on
-  each TV (Notification access; Settings shows an adb command for TVs that hide that setting). Give each TV a
-  fixed address in your router so links keep working. The phone's TV list answers at once: a sleeping TV shows as it was
-  last seen, then as off.
+  each TV (Notification access; Settings shows an adb command for TVs that hide that setting). If the router gives a
+  TV a new address, the others find it again by themselves within a few minutes. The phone's TV list answers at once:
+  a sleeping TV shows as it was last seen, then as off.
 - **Notes** (side menu): pinned and recent notes, editable from the TV or any paired phone.
 - **Announcements**: each phone gets a name ("Mom's iPhone"). From the TV (Notifications → Announce) or a phone,
   pick who gets it. Phones that turned on *Lock-screen alerts* get a real notification through the free
@@ -62,7 +63,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   every linked TV, over whatever is playing, with a soft chime; the TV's Announce dialog picks phones, *This TV* and each
   linked TV. A TV that's off is skipped without holding anyone up.
 - **Screensaver and background**: any photo can be the app background, and a photo slideshow (with a clock) can run from
-  Home, after a few idle minutes, or as the TV's own screensaver (Settings → Screensaver & background).
+  Home, after a few idle minutes, or as the TV's own screensaver (Settings → Screensaver & background). Coming back from it, posters show at once.
 - **Command center**: live Google Home / Nest cameras and doorbells (WebRTC, so the newest models work). Either
   cameras only or "all on one" next to the clock, notifications and notes. Select a camera for full screen with sound,
   Left/Right flips between cameras. Setup is [below](#connect-google-home-cameras).
@@ -136,11 +137,13 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Typeface**: Inter, the closest open-license match to Apple's San Francisco font, with Apple-style tracking.
 
 - **Google Drive**: stream videos and music (with seeking), view photos, or download files to the TV. Read-only access.
+  Films play over one kept-open connection to Drive, so they start and seek quickly.
   You sign in on your phone by scanning a QR code; it needs a one-time setup, described [below](#connect-google-drive-one-time-setup).
 - **Continue watching**: playback resumes where you stopped, and Home shows what you're partway through, one tile per
   show. It follows the family to every TV signed in to the same Google account: what's in progress (Drive videos), the
   ✓s and each show's Skip intro and languages, through one small hidden file per TV in Drive (Settings → Accounts →
   *Share progress with other TVs*, on by default; it needs the `drive.appdata` permission, see the Drive setup below).
+  Videos from the TV's own storage show a still from the video, made once and kept on the TV.
 - **iCloud**: iCloud Mail works through Mail (Apple supports IMAP with an app-specific password).
   iCloud Drive has no supported sign-in for Android apps, so files come from the iPhone through **Phone → Files → Upload → Browse**.
 
@@ -184,6 +187,9 @@ and installs it with Android's package installer (which only accepts an update s
   itself when Woodruff starts with an update ready, so it's one button press.
 - The TV asks once to let Woodruff Family *install unknown apps*.
 - Settings → Updates shows the version, checks now, and turns automatic updates off.
+- **Fast straight after an update**: each release carries a speed profile (`WoodruffFamily-api28.dm` and
+  `WoodruffFamily-api31.dm`) that installs with it on Android 9 and newer, so Android prepares the app's busiest code
+  while installing instead of over the following days. Settings → Advanced → *App code* shows how it's prepared.
 - **Test TV** (Settings → Updates): turn it on for one TV. That TV installs each new version as soon as it's
   out; every other TV waits until the newest version has been out for a day with nothing newer after it, so a
   bad build shows up on the test TV first. *Check for updates* skips the wait.
@@ -335,6 +341,8 @@ The APK is written to `app/build/outputs/apk/release/`.
 - A linked TV gets its own link key, not the phone pairing key: it can only read status, see the screen, press
   remote keys and show messages, never touch files, settings or mail. **Stop other TVs seeing this one** in Settings revokes every link.
   Linking codes last 10 minutes, work once, and die after 5 wrong tries.
+- To find a linked TV at a new address, a TV asks the device on your network that now uses that TV's name, with the
+  link key, and uses it only if it answers as the same TV. Like the rest of this traffic, it's plain HTTP on your network.
 - Archive extraction rejects "zip slip" entries that would write outside the target folder.
 
 ## Project layout
