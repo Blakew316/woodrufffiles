@@ -352,14 +352,60 @@
   .pad .dir.pressed, .pad .dir.hit { color:var(--tint); }
   .pad .dir.pressed svg, .pad .dir.hit svg { transform:scale(.8); transition:transform var(--pin-ms, .12s) var(--pin, ease-out); }
 
-  /* ---- Notes ---------------------------------------------------------------------------------- */
-  .note .t { font-weight:600; }
+  /* ---- Family Memories ------------------------------------------------------------------------ */
+  /* Photos' library grid: edge to edge, square tiles 2 px apart; each tile's picture fades in as it arrives. */
+  .mgrid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:2px; margin-top:4px; }
+  @media (min-width:600px) { .mgrid { grid-template-columns:repeat(5, minmax(0, 1fr)); } }
+  .mtile { position:relative; display:block; width:100%; aspect-ratio:1; overflow:hidden; background:var(--fill3); -webkit-touch-callout:none; }
+  .mtile img, .mtile canvas { position:absolute; left:0; top:0; width:100%; height:100%; object-fit:cover; }
+  .mtile img { opacity:0; transition:opacity .25s ease-out; }
+  .mtile img.in { opacity:1; }
+  button.mtile::after { content:''; position:absolute; inset:0; background:#000; opacity:0; transition:opacity .3s ease-out; pointer-events:none; }
+  button.mtile.pressed::after { opacity:.2; transition:opacity 60ms; }
+  .mtile .vid, .mtile .ph { position:absolute; right:5px; bottom:4px; width:19px; height:19px; color:#fff; filter:drop-shadow(0 0 2px rgba(0,0,0,.45)); }
+  .mtile .vid svg, .mtile .ph svg { width:100%; height:100%; display:block; }
+  .mtile.lifted { visibility:hidden; }   /* its photo is open full screen */
+  /* Going up to the TV: dimmed under a ring that fills; once it's there it brightens and the ring fades. */
+  .mtile.up { background:rgba(120,120,128,.55); }   /* (waiting its turn: the ring shows on it) */
+  .mtile.film { background:#2c2c2e; }
+  .mtile.up canvas { filter:brightness(.55); transition:filter .35s ease-out; }
+  .mtile.up.ok canvas { filter:none; }
+  .mtile .ring { position:absolute; left:50%; top:50%; width:34px; height:34px; margin:-17px 0 0 -17px; fill:none; stroke-width:3; transition:opacity .3s ease-out .3s; }
+  .mtile .ring circle { stroke:rgba(255,255,255,.3); }
+  .mtile .ring .rf { stroke:#fff; stroke-linecap:round; stroke-dasharray:100; stroke-dashoffset:100; transition:stroke-dashoffset .3s linear; }
+  .mtile.ok .ring, .mtile.fail .ring { opacity:0; }
+  .mtile.fail::after { content:'!'; position:absolute; left:50%; top:50%; width:30px; height:30px; margin:-15px 0 0 -15px; border-radius:50%; background:var(--red); color:#fff; font-size:19px; line-height:30px; font-weight:700; text-align:center; }
+  #mem-count:empty { display:none; }
   .cuv { display:flex; flex-direction:column; align-items:center; text-align:center; padding:64px 32px 24px; color:var(--label2); font-size:15px; line-height:20px; letter-spacing:-.23px; }
   .cuv svg { width:50px; height:50px; color:var(--label3); margin-bottom:14px; }
   .cuv b { font-size:22px; line-height:28px; font-weight:700; letter-spacing:.35px; color:var(--label); margin-bottom:6px; }
-  .note-date { margin:2px 16px 4px; min-height:18px; text-align:center; font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); }
-  #note-title { padding:4px var(--mr) 6px var(--ml); font-size:28px; line-height:34px; font-weight:700; letter-spacing:.36px; }
-  #note-body { padding:4px var(--mr) 24px var(--ml); min-height:calc(100dvh - var(--safe-t) - 250px); line-height:24px; }
+  .cuv .btn { width:auto; min-width:180px; padding:0 28px; margin:22px 0 0; }
+  /* One photo, full screen: over the app (and its tab bar), under sheets, menus and the HUD. Its background is the
+     page's (white or black) and black with the bars hidden, as in Photos. */
+  .mview { position:fixed; inset:0; z-index:900; visibility:hidden; pointer-events:none; }
+  .mview.show { visibility:visible; pointer-events:auto; }
+  .mv-bg { position:absolute; inset:0; background:var(--bg2); transition:background-color .3s; }
+  .mview.bare .mv-bg { background:#000; }
+  .mv-pager { position:absolute; inset:0; display:flex; overflow-x:scroll; overflow-y:hidden; scroll-snap-type:x mandatory; overscroll-behavior:contain; touch-action:pan-x; scrollbar-width:none; }
+  .mv-pager::-webkit-scrollbar { display:none; }
+  .mv-pager.zoomed { overflow-x:hidden; touch-action:none; }
+  .mv-s { position:relative; flex:0 0 100%; height:100%; overflow:hidden; scroll-snap-align:center; scroll-snap-stop:always; }
+  .mv-ph { position:absolute; transform-origin:0 0; }
+  .mv-ph img { position:absolute; left:0; top:0; width:100%; height:100%; object-fit:contain; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  .mv-ph .hi { opacity:0; transition:opacity .2s ease-out; }
+  .mv-ph .hi.in { opacity:1; }
+  .mv-play { position:absolute; left:50%; top:50%; width:76px; height:76px; margin:-38px 0 0 -38px; border-radius:50%; display:grid; place-items:center; color:var(--label); }
+  .mv-play svg { width:30px; height:30px; margin-left:4px; }
+  .mv-top, .mv-bar { position:absolute; left:0; right:0; display:flex; align-items:center; gap:10px; transition:opacity .25s ease-out; }
+  .mv-top { top:0; padding:calc(var(--safe-t) + 8px) var(--mr) 8px var(--ml); }
+  .mv-bar { bottom:0; justify-content:space-between; padding:8px var(--mr) calc(var(--safe-b) + 12px) var(--ml); }
+  .mv-title { flex:1; min-width:0; display:flex; justify-content:center; }
+  .mv-title > span { display:flex; flex-direction:column; align-items:center; min-width:0; max-width:100%; padding:5px 16px; border-radius:22px; }
+  .mv-title b { max-width:100%; font-size:15px; line-height:19px; font-weight:600; letter-spacing:-.23px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mv-title small { font-size:12px; line-height:15px; color:var(--label2); white-space:nowrap; }
+  .gb.mv-tv { padding:0 20px; font-weight:600; transition:background-color .25s, color .25s; }
+  .gb.mv-tv.on { background-color:var(--tint-fill); color:var(--on-tint); }
+  .mview.bare .mv-top, .mview.bare .mv-bar, .mview.dragging .mv-top, .mview.dragging .mv-bar { opacity:0; pointer-events:none; }
 
   /* ---- Tab bar: a floating glass capsule with a Liquid Glass lens on the selected tab ------------------- */
   /* Four tabs, so each one is a wide target. The lens glides between tabs on a spring, stretching a little on the
@@ -554,18 +600,17 @@
   </div></div>
 </section>
 
-<!-- NOTES -->
-<section class="tab" id="tab-notes">
-  <div class="page" id="notes-root" data-title="Notes"><div class="scroller">
-    <h1 class="large">Notes</h1>
-    <div class="searchbar"><label class="search"><i data-ic="search"></i><input type="search" id="note-search" placeholder="Search" enterkeyhint="search" autocomplete="off" spellcheck="false"><button class="clr" type="button" aria-label="Clear text"><i data-ic="clear"></i></button></label></div>
-    <div id="note-list"></div>
+<!-- FAMILY MEMORIES: the photos and videos in the TV's Family Memories; add more from this phone, show them on the TV -->
+<section class="tab" id="tab-memories">
+  <div class="page" id="mem-root" data-title="Family Memories"><div class="scroller">
+    <h1 class="large">Family Memories</h1>
+    <div class="mgrid" id="mem-grid"></div>
+    <div class="loading" id="mem-wait"><i data-ic="spin"></i></div>
+    <div class="cuv" id="mem-err" hidden><i data-ic="memories"></i><b>Can&rsquo;t Reach the TV</b><span>Family Memories shows here when the TV is on.</span></div>
+    <div class="cuv" id="mem-empty" hidden><i data-ic="memories"></i><b>No Memories Yet</b><span>Photos and videos you add here show in Family Memories on the TV, and in its slideshow.</span><button class="btn" id="mem-add">Add Photos</button></div>
+    <p class="foot center" id="mem-count"></p>
   </div></div>
-  <div class="page" id="note-page" data-title="" data-hash="note"><div class="scroller">
-    <p class="note-date" id="note-date"></p>
-    <input id="note-title" placeholder="Title" enterkeyhint="next" autocomplete="off">
-    <textarea id="note-body" placeholder="Note"></textarea>
-  </div></div>
+  <input id="mem-file" type="file" accept="image/*,video/*" multiple hidden>
 </section>
 
 <!-- SEND: a message for the TVs and phones, and everything else that goes to the TV -->
@@ -769,7 +814,7 @@
   <span class="tb-lens" id="tb-lens"><span class="tb-lz"><span class="tb-ls" id="tb-ls"><i class="lb"></i><i class="lh"></i></span></span></span>
   <button role="tab" data-tab="remote"><i data-ic="tRemote"></i><span>Remote</span></button>
   <button role="tab" data-tab="send"><i data-ic="tSend"></i><span>Send</span></button>
-  <button role="tab" data-tab="notes"><i data-ic="tNotes"></i><span>Notes</span></button>
+  <button role="tab" data-tab="memories"><i data-ic="tMemories"></i><span>Family Memories</span></button>
   <button role="tab" data-tab="settings"><i data-ic="tSettings"></i><span>Settings</span></button>
 </nav>
 <div id="appdim"></div>
@@ -805,6 +850,21 @@
     </div>
   </div>
 </div>
+<!-- Family Memories: one photo (or video), full screen -->
+<div class="mview" id="mv" role="dialog" aria-modal="true" aria-label="Photo">
+  <div class="mv-bg" id="mv-bg"></div>
+  <div class="mv-pager" id="mv-pager"></div>
+  <div class="mv-top" id="mv-top">
+    <button class="gb glass ic" id="mv-close" aria-label="Close"><i data-ic="xmark"></i></button>
+    <span class="mv-title"><span class="glass"><b id="mv-date"></b><small id="mv-time"></small></span></span>
+    <button class="gb glass ic" id="mv-more" aria-label="More"><i data-ic="more"></i></button>
+  </div>
+  <div class="mv-bar" id="mv-bar">
+    <button class="gb glass ic" id="mv-share" aria-label="Share"><i data-ic="share"></i></button>
+    <button class="gb glass mv-tv" id="mv-tv"><i data-ic="ontv"></i><span id="mv-tv-t">Show on TV</span></button>
+    <button class="gb glass ic" id="mv-del" aria-label="Delete"><i data-ic="trash"></i></button>
+  </div>
+</div>
 <div class="hud" id="toast" role="status" aria-live="polite"><span id="toast-ic"></span><span id="toast-t"></span></div>
 <div class="banner" id="alert" role="alert"><img src="/icon-180.png?v=2" alt=""><div style="min-width:0"><small id="alert-from">Announcement</small><b id="alert-title"></b><div class="s" id="alert-body"></div></div></div>
 
@@ -814,7 +874,7 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var doc = document;
-  var TABS = { remote: 'Remote', send: 'Send', notes: 'Notes', settings: 'Settings' };
+  var TABS = { remote: 'Remote', send: 'Send', memories: 'Family Memories', settings: 'Settings' };
   var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   // Safari 17.4+ draws <input type=checkbox switch> as a real iOS switch (with a haptic tap on iPhone).
   var nativeSwitch = 'switch' in doc.createElement('input');
@@ -867,7 +927,6 @@
     down: '<svg viewBox="0 0 14 9" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="m2 2 5 5 5-5"/></svg>',
     updown: '<svg viewBox="0 0 10 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6 5 3l3 3M2 10l3 3 3-3"/></svg>',
     plus: sv('<path d="M12 4.5v15M4.5 12h15"/>', false, 2.2),
-    compose: sv('<path d="M11.5 4.5h-5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5"/><path d="M18.3 3.7a1.9 1.9 0 0 1 2.7 2.7l-8.4 8.4-3.6.9.9-3.6z"/>'),
     keyboard: sv('<rect x="2.5" y="6" width="19" height="12.5" rx="2.6"/><path d="M6.3 9.8h.4M9.6 9.8h.4M12.9 9.8h.4M16.2 9.8h1.5M6.3 12.6h1.4M10 12.6h.4M13.3 12.6h.4M16.6 12.6h1.1M8.5 15.4h7"/>'),
     more: sv('<circle cx="5.5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="18.5" cy="12" r="1.8"/>', true),
     check: sv('<path d="m5 12.6 4.5 4.5L19 7.5"/>', false, 2.3),
@@ -875,8 +934,6 @@
     search: sv('<circle cx="10.6" cy="10.6" r="6.4"/><path d="m15.5 15.5 4.7 4.7"/>', false, 2),
     clear: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" style="fill:var(--clr-c)"/><path d="m8.6 8.6 6.8 6.8m0-6.8-6.8 6.8" style="stroke:var(--clr-x)" stroke-width="2" stroke-linecap="round"/></svg>',
     share: sv('<path d="M12 14.5v-11M7.9 7.6 12 3.5l4.1 4.1M8.2 9.5H6.6a2.1 2.1 0 0 0-2.1 2.1v6.8a2.1 2.1 0 0 0 2.1 2.1h10.8a2.1 2.1 0 0 0 2.1-2.1v-6.8a2.1 2.1 0 0 0-2.1-2.1h-1.6"/>', false, 1.8),
-    pin: sv('<path d="M9 3.5h6l-.9 5.6 3.4 3.2V14h-11v-1.7l3.4-3.2z"/><path d="M12 14v6.5"/>'),
-    unpin: sv('<path d="M9 3.5h6l-.9 5.6 3.4 3.2V14h-11v-1.7l3.4-3.2z"/><path d="M12 14v6.5M3.5 3.5l17 17"/>'),
     trash: sv('<path d="M4.5 6.5h15M9.5 6.5V5A1.5 1.5 0 0 1 11 3.5h2A1.5 1.5 0 0 1 14.5 5v1.5M6.5 6.5l.8 12.3a1.9 1.9 0 0 0 1.9 1.7h5.6a1.9 1.9 0 0 0 1.9-1.7l.8-12.3M10 10.5v6M14 10.5v6"/>'),
     playtv: sv('<rect x="2.5" y="4" width="19" height="13.5" rx="2.6"/><path d="M8 20.5h8"/><path d="m10.3 7.9 4.4 2.8-4.4 2.8z" fill="currentColor"/>'),
     photo: sv('<rect x="3" y="4.5" width="18" height="15" rx="2.6"/><circle cx="8.6" cy="9.6" r="1.6"/><path d="m3.6 17.2 5-4.8 3.6 3.4 2.6-2.4 5.6 5"/>'),
@@ -885,7 +942,10 @@
     newfolder: sv('<path d="M3 7.4a2 2 0 0 1 2-2h3.8c.5 0 1 .2 1.4.6l1.3 1.3h7.5a2 2 0 0 1 2 2v8.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.6v5.6M9.2 13.4h5.6"/>'),
     slides: sv('<rect x="3" y="7.5" width="14.5" height="12" rx="2.4"/><path d="M7 4.5h11.5a2.5 2.5 0 0 1 2.5 2.5v8.5"/><path d="m3.6 17.3 3.6-3.5 2.8 2.6 2.1-1.9 4.6 4.3"/>'),
     drive: sv('<rect x="2.5" y="7" width="19" height="10" rx="2.6"/><path d="M6.3 12h.4M15.8 12h2.2"/>'),
-    note: sv('<rect x="4.5" y="3" width="15" height="18" rx="3"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/>', false, 1.6),
+    memories: sv('<rect x="3" y="7.2" width="15" height="13" rx="2.6"/><path d="M7 4.2h11.4A2.6 2.6 0 0 1 21 6.8v9.6"/><circle cx="13.4" cy="11.4" r="1.3"/><path d="m3.6 18.2 4.2-4 3 2.8 2.1-1.9 4.5 4"/>', false, 1.6),
+    ontv: sv('<rect x="2.5" y="4" width="19" height="13.5" rx="2.6"/><path d="M8 20.5h8"/><path d="m6.6 14.6 3.3-3.1 2.3 2.1 1.7-1.5 3.6 2.5"/><circle cx="15.4" cy="8.6" r="1.2"/>'),
+    vidFill: sv('<path d="M2.5 8A2.5 2.5 0 0 1 5 5.5h9A2.5 2.5 0 0 1 16.5 8v8a2.5 2.5 0 0 1-2.5 2.5H5A2.5 2.5 0 0 1 2.5 16z"/><path d="m17.5 10.2 3.3-2.3a.8.8 0 0 1 1.2.7v6.8a.8.8 0 0 1-1.2.7l-3.3-2.3z"/>', true),
+    playBig: sv('<path d="M7 5.3v13.4a1.1 1.1 0 0 0 1.7.9l10.7-6.7a1.1 1.1 0 0 0 0-1.8L8.7 4.4A1.1 1.1 0 0 0 7 5.3z"/>', true),
     spin: '<svg class="spin" viewBox="0 0 24 24" aria-hidden="true">' + [0, 1, 2, 3, 4, 5, 6, 7].map(function (i) { return '<rect x="11" y="2.5" width="2" height="5.5" rx="1" opacity="' + (1 - i * 0.11).toFixed(2) + '" transform="rotate(' + (-i * 45) + ' 12 12)"/>'; }).join('') + '</svg>',
     okFill: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="currentColor"/><path d="m7.4 12.4 3.1 3.1 6.1-6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     warnFill: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="currentColor"/><path d="M12 6.8v6.4" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/><circle cx="12" cy="16.9" r="1.35" fill="#fff"/></svg>',
@@ -918,7 +978,7 @@
     youtube: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="5" width="21" height="14" rx="4.3" fill="#ff0033"/><path fill="#fff" d="M10 8.9v6.2l5.4-3.1z"/></svg>',
     // Tab bar (filled, like SF Symbols in a tab bar)
     tRemote: t28('<path fill-rule="evenodd" d="M11 1.5h6a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4h-6a4 4 0 0 1-4-4v-17a4 4 0 0 1 4-4zM14 4.6a3.9 3.9 0 1 0 0 7.8 3.9 3.9 0 0 0 0-7.8zM11.6 15.2a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm4.8 0a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm-4.8 4.4a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm4.8 0a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7z"/>'),
-    tNotes: t28('<path fill-rule="evenodd" d="M8 2.5h12A3.5 3.5 0 0 1 23.5 6v16a3.5 3.5 0 0 1-3.5 3.5H8A3.5 3.5 0 0 1 4.5 22V6A3.5 3.5 0 0 1 8 2.5zm1.2 6.3a1.05 1.05 0 0 0 0 2.1h9.6a1.05 1.05 0 0 0 0-2.1zm0 4.4a1.05 1.05 0 0 0 0 2.1h9.6a1.05 1.05 0 0 0 0-2.1zm0 4.4a1.05 1.05 0 0 0 0 2.1h6a1.05 1.05 0 0 0 0-2.1z"/>'),
+    tMemories: t28('<path d="M8.6 4h12.15A3.25 3.25 0 0 1 24 7.25V19.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path fill-rule="evenodd" d="M6.5 7.5h12A3.5 3.5 0 0 1 22 11v10a3.5 3.5 0 0 1-3.5 3.5h-12A3.5 3.5 0 0 1 3 21V11a3.5 3.5 0 0 1 3.5-3.5zm9.7 3.2a1.9 1.9 0 1 0 0 3.8 1.9 1.9 0 0 0 0-3.8zM5 22.4l4.6-4.8 3.3 3.3 2.1-2.1 5 3.6z"/>'),
     tSend: t28('<path d="M24.2 3.3c.8-.3 1.6.5 1.3 1.3l-7.3 19.6c-.3.9-1.6 1-2 .1l-3.1-7.1 6.6-7.6-7.7 6.5-7-3.1c-.9-.4-.8-1.7.1-2z"/>'),
     tSettings: t28('<path fill-rule="evenodd" d="M11.31 5.2 11.79 2.61A11.6 11.6 0 0 1 16.21 2.61L16.69 5.2A9.2 9.2 0 0 1 18.32 5.88L20.49 4.38A11.6 11.6 0 0 1 23.62 7.51L22.12 9.68A9.2 9.2 0 0 1 22.8 11.31L25.39 11.79A11.6 11.6 0 0 1 25.39 16.21L22.8 16.69A9.2 9.2 0 0 1 22.12 18.32L23.62 20.49A11.6 11.6 0 0 1 20.49 23.62L18.32 22.12A9.2 9.2 0 0 1 16.69 22.8L16.21 25.39A11.6 11.6 0 0 1 11.79 25.39L11.31 22.8A9.2 9.2 0 0 1 9.68 22.12L7.51 23.62A11.6 11.6 0 0 1 4.38 20.49L5.88 18.32A9.2 9.2 0 0 1 5.2 16.69L2.61 16.21A11.6 11.6 0 0 1 2.61 11.79L5.2 11.31A9.2 9.2 0 0 1 5.88 9.68L4.38 7.51A11.6 11.6 0 0 1 7.51 4.38L9.68 5.88A9.2 9.2 0 0 1 11.31 5.2ZM18 14A4 4 0 1 0 10 14 4 4 0 1 0 18 14Z"/>')
   };
@@ -1251,7 +1311,7 @@
   // Back and a tap on the current tab all pop. The stack changes at once; pages leave on screen afterwards.
   // A transition can be turned around or followed by another one mid-way (tap Back twice, or a row while the
   // last page is still leaving): everything moves on from where it is.
-  var stacks = { remote: [], send: [], notes: [], settings: [] };
+  var stacks = { remote: [], send: [], memories: [], settings: [] };
   var tabEl = {}; Object.keys(TABS).forEach(function (t) { tabEl[t] = $('tab-' + t); });
   var current = null, run = {}, pageW = window.innerWidth;
 
@@ -1480,7 +1540,7 @@
   // finger. Passive listeners only: pages scroll vertically on their own (touch-action: pan-y), a sideways
   // drag never scrolls, so nothing here ever holds up scrolling.
   var sw = null;
-  function overlayOpen() { return sheetOpen || dialogOpen || menuOpen || kbOpen || screenOpen; }
+  function overlayOpen() { return sheetOpen || dialogOpen || menuOpen || kbOpen || screenOpen || !!(mv && (mv.open || mv.closing)); }
   $('app').addEventListener('touchstart', function (e) {
     sw = null;
     if (!swipeBack || e.touches.length !== 1 || overlayOpen() || run[current]) return;
@@ -1547,6 +1607,7 @@
   }
   window.addEventListener('popstate', function (e) {
     var s = e.state && e.state.wf ? e.state : null;
+    if (mv.open) closeViewer();
     if (hist.waiting) { hist.waiting = false; clearTimeout(hist.timer); hist.depth = s ? s.depth : 0; if (s) hist.tab = s.tab; syncHistory(); return; }
     if (!s) { hist.depth = 0; hist.tab = null; route(location.hash.length > 1 ? location.hash : '#' + current); return; }
     hist.depth = s.depth; hist.tab = s.tab;
@@ -1573,14 +1634,14 @@
     }
     syncHistory();
     if (tab === 'remote') { loadTvs(); pollField(); }
-    if (tab === 'notes') loadNotes();
+    if (tab === 'memories') loadMemories();
     if (tab === 'send') { loadPhones(); if (!tvs.length) loadTvs(true); }
     if (tab === 'settings') { loadSettings(); loadTvs(!tvsShowing()); loadSmooth(); }
   }
-  // Addresses, old and new: #remote, #keyboard, #send, #send/to, #send/link, #send/files (and #files), #notes,
+  // Addresses, old and new: #remote, #keyboard, #send, #send/to, #send/link, #send/files (and #files), #memories (and #notes),
   // #settings and #settings/<page>: tvs (and #tv), smoothness, phone, connections, drive, posters, cameras, mail,
   // weather, away, shortcuts (and share), crash. A page further in opens with the pages above it, so Back goes to them.
-  var ALIAS = { tv: 'settings/tvs', files: 'send/files' };
+  var ALIAS = { tv: 'settings/tvs', files: 'send/files', notes: 'memories', photos: 'memories' };
   function route(hash) {
     var h = hash.replace(/^#/, ''), parts = (ALIAS[h] || h).split('/'), tab = parts[0], sub = parts[1] === 'share' ? 'shortcuts' : parts[1];
     selectTab(tab);
@@ -1615,6 +1676,14 @@
     var bar = $('tabbar'), bs = bar.querySelectorAll('button'), bw = (bar.clientWidth - 8) / bs.length;
     lens.w = bw; lens.xs = []; for (var i = 0; i < bs.length; i++) lens.xs.push(4 + i * bw);
     $('tb-lens').style.width = bw + 'px';
+    tbBtns.forEach(fitLabel);
+  }
+  // A label too long for its tab (Family Memories, on a narrower iPhone) shrinks a little until it fits, rather
+  // than losing its end.
+  function fitLabel(b) {
+    var s = b.querySelector('.tb-i span'); if (!s) return;
+    b.style.fontSize = '';
+    for (var f = 10.5; s.scrollWidth > s.clientWidth + 0.5 && f >= 8.5; f -= 0.5) b.style.fontSize = f + 'px';
   }
   function lensNow() {
     var m = lens.m; if (!m || m.a.playState === 'finished' || m.a.playState === 'idle') return lens.x;
@@ -2500,123 +2569,584 @@
   $('kb-clear').onclick = function () { $('kb-text').value = ''; if (field) sendText(false); $('kb-text').focus(); };
   $('kb-close').onclick = function () { closeKb(); };
 
-  // ---- Notes --------------------------------------------------------------------------------------
-  var notesData = [], noteFilter = '', draft = null, notesRoot = null, notePage = null;
-  function loadNotes() { api('/api/notes').then(function (d) { notesData = d.notes; renderNotes(true); }, err); }
-  function when(ms) {
-    if (!ms || ms < 1e11) return '';
-    var d = new Date(ms), now = new Date();
-    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    return d.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' });
+  // ---- Family Memories ----------------------------------------------------------------------------
+  // The TV's Family Memories (its photos and videos) as a grid, newest first, the way Photos shows a library. + adds
+  // photos and videos from this phone: a photo is shrunk to the size the TV keeps photos at (upright, as a JPEG) and
+  // keeps when it was taken (read from it first: shrinking drops that); they go one at a time, each tile filling its
+  // ring, then glide to their places by date. A tap opens one full screen (see the viewer below).
+  var mem = { items: [], fit: [1920, 1080], folder: null, loaded: false, failed: false, seq: 0, ups: [], batch: null, previews: {} };
+  var memRoot = null, upN = 0, upBusy = false, wakeLock = null;
+  var VIDEO_NAME = /\.(mov|mp4|m4v|3gp|mkv|webm|avi)$/i, MEDIA_NAME = /\.(jpe?g|png|heic|heif|webp|gif|avif|mov|mp4|m4v|3gp|mkv|webm|avi)$/i;
+  var RING = '<svg class="ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="rf" cx="18" cy="18" r="15" pathLength="100" transform="rotate(-90 18 18)"/></svg>';
+  function mkey(it) { return it.path + '|' + it.v; }
+  function thumbUrl(it) { return '/api/memories/thumb?path=' + q(it.path) + '&v=' + it.v; }
+  function photoUrl(it) { return '/api/memories/photo?path=' + q(it.path) + '&v=' + it.v; }
+  function isVideo(f) { return /^video\//.test(f.type) || VIDEO_NAME.test(f.name); }
+  function plural(n, one) { return n.toLocaleString() + ' ' + one + (n === 1 ? '' : 's'); }
+  function loadMemories() {
+    var seq = ++mem.seq;
+    return api('/api/memories').then(function (d) { if (seq === mem.seq) gotMemories(d); }, function (e) {
+      if (seq !== mem.seq) return;
+      if (!mem.loaded && !mem.failed) { mem.failed = true; glideMemories(); }
+      err(e);
+    });
   }
-  function noteById(id) { return notesData.filter(function (n) { return n.id === id; })[0]; }
-  // Rebuilt only when something changed. A change from the TV (a note pinned, added, deleted or edited) glides: notes
-  // move to their new places, new ones fade in, deleted ones fade out (morph); typing a search filters at once.
-  function renderNotes(glide) {
-    var k = noteFilter + '\u0001' + JSON.stringify(notesData); if (k === renderNotes.k) return; renderNotes.k = k;
-    if (glide) morph(notesRoot.scroller, buildNotes); else buildNotes();
+  // A listing in: the grid changes only when something did, and glides (what stayed moves to its new place).
+  function gotMemories(d) {
+    mem.fit = d.fit || mem.fit; mem.folder = d.folder;
+    var k = JSON.stringify(d.items);
+    if (mem.loaded && !mem.failed && k === gotMemories.k) return;
+    gotMemories.k = k; mem.items = d.items; mem.loaded = true; mem.failed = false;
+    // An upload the TV now lists hands its tile over (its preview too, until the TV's picture arrives).
+    var listed = {}; d.items.forEach(function (it) { listed[mkey(it)] = 1; });
+    mem.ups = mem.ups.filter(function (u) {
+      var k2 = u.tile.dataset.k; if (!u.done || !listed[k2]) return true;
+      if (u.canvas) mem.previews[k2] = u.canvas;
+      return false;
+    });
+    glideMemories();
   }
-  function buildNotes() {
-    var box = $('note-list'), f = noteFilter.trim().toLowerCase(); box.textContent = '';
-    var notes = f ? notesData.filter(function (n) { return (n.title + '\n' + n.body).toLowerCase().indexOf(f) >= 0; }) : notesData;
-    if (!notes.length) {
-      var c = box.appendChild(el('div', 'cuv')); c.dataset.k = 'cuv';
-      c.innerHTML = I.note; c.appendChild(el('b', null, f ? 'No Results' : 'No Notes'));
-      c.appendChild(el('span', null, f ? 'Nothing matches "' + noteFilter.trim() + '".' : 'Tap the pencil to write one.'));
+  // At once (a tab bar glide doesn't hold it up), but not under a finger: then once it's lifted.
+  function glideMemories() {
+    function go() { morph(memRoot.scroller, buildMemories); }
+    if (gesture) calm('memories', go); else go();
+  }
+  // Tiles are kept by photo (a tile that stays keeps its picture); uploads under way go first.
+  function buildMemories() {
+    var g = $('mem-grid'), old = {}, frag = doc.createDocumentFragment();
+    [].forEach.call(g.children, function (t) { if (t._it) old[t.dataset.k] = t; });
+    mem.ups.forEach(function (u) { frag.appendChild(u.tile); });
+    mem.items.forEach(function (it, i) {
+      var k = mkey(it), t = old[k] || memTile(it);
+      delete old[k]; delete mem.previews[k]; t._it = it; t.dataset.i = i; frag.appendChild(t);
+    });
+    g.textContent = ''; g.appendChild(frag);
+    var none = mem.loaded && !mem.items.length && !mem.ups.length;
+    setHidden($('mem-empty'), !none);
+    setHidden($('mem-wait'), mem.loaded || mem.failed || mem.ups.length > 0);
+    setHidden($('mem-err'), !mem.failed || mem.loaded);
+    memCount();
+  }
+  function memTile(it) {
+    var t = el('button', 'mtile'), k = mkey(it);
+    t.dataset.k = k; t.setAttribute('aria-label', (it.video ? 'Video, ' : 'Photo, ') + dayName(it.taken));
+    if (mem.previews[k]) t.appendChild(mem.previews[k]);   // just added from this phone: its preview until the TV's arrives
+    var img = el('img'); img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.draggable = false;
+    img.onload = function () { img.classList.add('in'); };
+    img.src = thumbUrl(it);
+    t.appendChild(img);
+    if (it.video) t.insertAdjacentHTML('beforeend', '<span class="vid">' + I.vidFill + '</span>');
+    return t;
+  }
+  function memCount() {
+    var p = 0, v = 0, b = mem.batch;
+    mem.items.forEach(function (it) { if (it.video) v++; else p++; });
+    var t = b ? 'Adding ' + Math.min(b.done + b.failed + 1, b.of) + ' of ' + b.of + '…'
+      : [p ? plural(p, 'Photo') : '', v ? plural(v, 'Video') : ''].filter(Boolean).join(', ');
+    swapText($('mem-count'), t);
+  }
+  $('mem-grid').addEventListener('click', function (e) {
+    var t = e.target.closest('.mtile'); if (!t) return;
+    if (t._up) { if (t._up.failed) upMenu(t._up); return; }
+    if (t._it) openViewer(+t.dataset.i, t);
+  });
+  // Press and hold a photo for its menu, as in Photos.
+  longPress($('mem-grid'), '.mtile', function (t) { if (t._it) contextMenu(t, memActions(t._it)); });
+  function memActions(it) {
+    var a = [{ label: it.video ? 'Play on TV' : 'Show on TV', icon: it.video ? 'playtv' : 'ontv', fn: function () { showOnTv(it); } }];
+    if (!it.video) a.push({ label: 'Set as TV Background', icon: 'photo', fn: function () { tvBackground(it); } });
+    a.push({ label: 'Save to iPhone', icon: 'save', fn: function () { download(it); } });
+    a.push('-', { label: 'Delete', icon: 'trash', danger: true, fn: function () { deleteMemory(it); } });
+    return a;
+  }
+  function showOnTv(it) { post('/api/memories/show', { path: it.path }).then(function () { toast(it.video ? 'Playing on the TV' : 'Showing on the TV'); }, err); }
+  function tvBackground(it) { post('/api/background', { path: it.path }).then(function () { toast('Set as the TV background'); }, err); }
+  function memSlideshow() {
+    if (!mem.items.some(function (it) { return !it.video; })) return toast('Add some photos first', true);
+    post('/api/slideshow', { folder: mem.folder, start: true }).then(function () { toast('Slideshow on the TV'); }, err);
+  }
+  function deleteMemory(it) {
+    confirmSheet(null, it.video ? 'This video will be deleted from the TV.' : 'This photo will be deleted from the TV.', it.video ? 'Delete Video' : 'Delete Photo', function () {
+      post('/api/memories/delete', { path: it.path }).then(function (d) {
+        if (mv.open) dropFromViewer(it);
+        gotMemories(d);
+      }, err);
+    });
+  }
+
+  // + : photos and videos from this phone (the Photos picker, the camera or Files).
+  $('mem-file').onchange = function () { if (this.files.length) addMemories(this.files); this.value = ''; };
+  $('mem-add').onclick = function () { $('mem-file').click(); };
+  function addMemories(list) {
+    var files = [].filter.call(list, function (f) { return /^(image|video)\//.test(f.type) || MEDIA_NAME.test(f.name); });
+    if (!files.length) return toast('Choose photos or videos', true);
+    var b = mem.batch = mem.batch || { of: 0, done: 0, failed: 0 };
+    b.of += files.length;
+    files.forEach(function (f) { mem.ups.push(upTile({ id: ++upN, file: f, video: isVideo(f) })); });
+    glideMemories();
+    memRoot.scroller.scrollTo({ top: 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+    awake(true);
+    nextUpload();
+  }
+  function upTile(u) {
+    var t = u.tile = el('div', 'mtile up' + (u.video ? ' film' : '')); t.dataset.k = 'u' + u.id; t._up = u;
+    if (u.video) t.insertAdjacentHTML('beforeend', '<span class="ph">' + I.vidFill + '</span>');
+    t.insertAdjacentHTML('beforeend', RING);
+    return u;
+  }
+  function setRing(u, f) { var r = u.tile.querySelector('.rf'); if (r) r.style.strokeDashoffset = (100 - clamp(f, 0, 1) * 100).toFixed(1); }
+  function nextUpload() {
+    if (upBusy) return;
+    var u = mem.ups.filter(function (x) { return !x.done && !x.failed; })[0];
+    if (!u) return finishUploads();
+    upBusy = true;
+    prepare(u).then(function (p) {
+      if (u.canvas && !u.tile.contains(u.canvas)) { u.tile.insertBefore(u.canvas, u.tile.firstChild); appear(u.canvas); }
+      return sendUpload(u, p);
+    }).then(function (item) {
+      u.done = true; u.tile.classList.add('ok'); setRing(u, 1); mem.batch.done++;
+      u.tile.dataset.k = mkey(item);   // so the grid's tile for it, once listed, glides from here
+    }, function (e) {
+      u.failed = true; u.error = (e && e.message) || String(e); mem.batch.failed++;
+      u.tile.classList.add('fail');
+    }).then(function () { upBusy = false; memCount(); nextUpload(); });
+  }
+  function finishUploads() {
+    awake(false);
+    var b = mem.batch; if (!b) return;
+    mem.batch = null;   // (the ones that failed stay, to try again; the rest until the TV lists them)
+    if (b.failed) toast(b.done ? 'Added ' + b.done + ', ' + b.failed + " couldn't be added" : (b.failed === 1 ? "Couldn't add it" : "Couldn't add them"), true);
+    else if (b.done) toast(b.done === 1 ? 'Added to Family Memories' : 'Added ' + b.done + ' to Family Memories');
+    gotMemories.k = null;
+    loadMemories();
+  }
+  function upMenu(u) {
+    sheet("Couldn't Add This " + (u.video ? 'Video' : 'Photo'), u.error, [
+      { label: 'Try Again', fn: function () {
+        u.failed = false; u.tile.classList.remove('fail'); setRing(u, 0);
+        mem.batch = mem.batch || { of: 0, done: 0, failed: 0 }; mem.batch.of++; memCount();
+        awake(true); nextUpload();
+      } },
+      { label: 'Remove', danger: true, fn: function () { mem.ups.splice(mem.ups.indexOf(u), 1); glideMemories(); } }
+    ]);
+  }
+  // The screen stays on while photos go up (a locked phone stops them).
+  function awake(on) {
+    try {
+      if (on && !wakeLock && navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; l.addEventListener('release', function () { wakeLock = null; }); }, function () {});
+      if (!on && wakeLock) { wakeLock.release(); wakeLock = null; }
+    } catch (e) {}
+  }
+  doc.addEventListener('visibilitychange', function () { if (!doc.hidden && mem.batch) awake(true); });
+  // A photo as the TV keeps it: no larger than the TV draws (a portrait photo as tall as the screen is wide), upright,
+  // as a JPEG; a JPEG already that small goes as it is. A photo the phone can't open goes as it is too (the TV may).
+  // One at a time: a full-size photo takes a lot of memory to open.
+  function prepare(u) {
+    var f = u.file;
+    if (u.video) return Promise.resolve({ blob: f, name: f.name || 'Video.mov' });
+    return Promise.all([takenAt(f), openImage(f)]).then(function (r) {
+      var taken = r[0], img = r[1], w = img.naturalWidth, h = img.naturalHeight, fw = mem.fit[0], fh = mem.fit[1];
+      if (h > w) { var t = fw; fw = fh; fh = t; }
+      var k = Math.min(1, fw / w, fh / h), W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
+      u.canvas = tilePreview(img, w, h);
+      var keep = k === 1 && f.type === 'image/jpeg';
+      return (keep ? Promise.resolve(f) : toJpeg(img, W, H)).then(function (blob) {
+        URL.revokeObjectURL(img.src);
+        return { blob: blob, name: keep ? f.name : jpegName(f.name), taken: taken };
+      });
+    }, function () { return { blob: f, name: f.name || 'Photo.jpg' }; });
+  }
+  function jpegName(name) { var b = (name || '').replace(/\.[^.]*$/, '').replace(/^\.+/, ''); return (b || 'Photo') + '.jpg'; }
+  function openImage(f) {
+    return new Promise(function (ok, no) {
+      var img = new Image(), url = URL.createObjectURL(f);
+      img.onload = function () { ok(img); };
+      img.onerror = function () { URL.revokeObjectURL(url); no(new Error("Couldn't open " + f.name)); };
+      img.src = url;
+    });
+  }
+  function canvas(w, h) { var c = el('canvas'); c.width = w; c.height = h; return c; }
+  // Shrunk in halves first, then to size: one big jump skips pixels (a soft, grainy photo).
+  function toJpeg(img, W, H) {
+    var src = img, w = img.naturalWidth, h = img.naturalHeight, spent = [];
+    while (w / 2 >= W * 1.5) {
+      var c = canvas(Math.round(w / 2), Math.round(h / 2)), x = c.getContext('2d');
+      x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, c.width, c.height);
+      spent.push(c); src = c; w = c.width; h = c.height;
+    }
+    var out = canvas(W, H), o = out.getContext('2d');
+    o.imageSmoothingQuality = 'high'; o.drawImage(src, 0, 0, W, H);
+    spent.forEach(function (c) { c.width = c.height = 0; });   // (Safari frees canvas memory only this way)
+    return new Promise(function (ok, no) {
+      out.toBlob(function (b) { out.width = out.height = 0; if (b) ok(b); else no(new Error("Couldn't shrink the photo")); }, 'image/jpeg', 0.9);
+    });
+  }
+  // The tile's own picture while it goes up: the middle square of the photo.
+  function tilePreview(img, w, h) {
+    var s = Math.min(w, h), c = canvas(240, 240);
+    c.className = 'pv'; c.getContext('2d').drawImage(img, (w - s) / 2, (h - s) / 2, s, s, 0, 0, 240, 240);
+    return c;
+  }
+  // When a JPEG was taken, from its EXIF (DateTimeOriginal, else DateTime): the camera's local time, read as this
+  // phone's. Null when it doesn't say.
+  function takenAt(f) {
+    if (f.type !== 'image/jpeg' && !/\.jpe?g$/i.test(f.name)) return Promise.resolve(null);
+    var blob = f.slice(0, 256 * 1024);
+    return (blob.arrayBuffer ? blob.arrayBuffer() : new Response(blob).arrayBuffer()).then(function (b) {
+      try { return exifTaken(new DataView(b)); } catch (e) { return null; }
+    }, function () { return null; });
+  }
+  function exifTaken(v) {
+    var n = v.byteLength, p = 2;
+    if (n < 4 || v.getUint16(0) !== 0xFFD8) return null;
+    while (p + 4 <= n) {
+      var m = v.getUint16(p), len = v.getUint16(p + 2);
+      if ((m & 0xFF00) !== 0xFF00 || m === 0xFFDA) return null;
+      if (m === 0xFFE1 && p + 10 <= n && v.getUint32(p + 4) === 0x45786966) return tiffTaken(v, p + 10, Math.min(n, p + 2 + len));   // "Exif"
+      p += 2 + len;
+    }
+    return null;
+  }
+  function tiffTaken(v, t, end) {
+    var le = v.getUint16(t) === 0x4949;
+    function u16(o) { return v.getUint16(t + o, le); }
+    function u32(o) { return v.getUint32(t + o, le); }
+    function tags(ifd) {
+      var out = {}, c = t + ifd + 2 <= end ? u16(ifd) : 0;
+      for (var i = 0; i < c && t + ifd + 14 + i * 12 <= end; i++) { var e = ifd + 2 + i * 12; out[u16(e)] = { type: u16(e + 2), count: u32(e + 4), at: e + 8 }; }
+      return out;
+    }
+    function text(e) {
+      if (!e || e.type !== 2) return null;
+      var o = e.count > 4 ? u32(e.at) : e.at, s = '';
+      for (var i = 0; i < e.count - 1 && t + o + i < end; i++) s += String.fromCharCode(v.getUint8(t + o + i));
+      return s;
+    }
+    var ifd0 = tags(u32(4)), exif = ifd0[0x8769] ? tags(u32(ifd0[0x8769].at)) : {};
+    var m = /^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/.exec(text(exif[0x9003]) || text(ifd0[0x0132]) || '');
+    if (!m || +m[1] < 1971) return null;   // (cameras that don't know write 0000:00:00)
+    return new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+  }
+  function sendUpload(u, p) {
+    return new Promise(function (ok, no) {
+      var x = new XMLHttpRequest();
+      x.open('POST', '/api/memories/add?name=' + q(p.name) + (p.taken ? '&taken=' + p.taken : ''));
+      x.upload.onprogress = function (e) { if (e.lengthComputable) setRing(u, e.loaded / e.total * 0.96); };
+      x.onload = function () {
+        if (x.status !== 200) return no(new Error(x.responseText || "The TV didn't take it"));
+        try { ok(JSON.parse(x.responseText).item); } catch (e) { no(e); }
+      };
+      x.onerror = function () { no(new Error('The connection to the TV was lost')); };
+      x.send(p.blob);
+    });
+  }
+  function dayName(ms) {
+    var d = new Date(ms), now = new Date(), y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (d.toDateString() === now.toDateString()) return 'Today';
+    if (d.toDateString() === y.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  // ---- Family Memories › one photo, full screen ------------------------------------------------------
+  // It grows out of its tile, and goes back into it on close (also when it's dragged down: it follows the finger,
+  // shrinking, as the grid shows through), cropped to the tile's square at the tile's end. Swiped sideways through
+  // the grid's order (the browser's own paging, so it glides at the display's own rate). Pinch or double-tap to
+  // zoom; a tap hides the bars. Show on TV puts it on the TV, and the TV follows while it's swiped. Its tile is
+  // hidden while it's open, as if lifted out of the grid. Only the photos either side are loaded.
+  var mv = { open: false, i: 0, list: [], slides: [], tv: false, onTv: null, lifted: null, blob: null, st: 0 };
+  var pager = $('mv-pager');
+  function tileOf(it) { var g = $('mem-grid'); return it ? [].filter.call(g.children, function (t) { return t._it && t._it.path === it.path; })[0] : null; }
+  function lift(t) { if (mv.lifted === t) return; if (mv.lifted) mv.lifted.classList.remove('lifted'); mv.lifted = t; if (t) t.classList.add('lifted'); }
+  function openViewer(i, tile) {
+    if (mv.open || mv.closing || overlayOpen() || !mem.items[i]) return;
+    mv.open = true; mv.list = mem.items.slice(); mv.i = i; mv.tv = false; mv.onTv = null; mv.blob = null;
+    pager.textContent = '';
+    mv.slides = mv.list.map(function () { return pager.appendChild(el('div', 'mv-s')); });
+    var box = $('mv'); box.classList.remove('bare'); box.classList.add('show');
+    pager.scrollLeft = i * pager.clientWidth;
+    fillAround(i); viewerInfo(); lift(tile); haptic();
+    zoom(true, tile);
+    settledSoon();
+  }
+  function closeViewer(from) {
+    if (!mv.open) return;
+    mv.open = false; mv.closing = true;
+    var t = tileOf(mv.list[mv.i]);
+    if (t) { reveal(t); lift(t); }
+    zoom(false, t, from, function () {
+      mv.closing = false; lift(null);
+      $('mv').classList.remove('show', 'bare', 'dragging'); $('mv-bg').style.opacity = '';
+      pager.textContent = ''; pager.classList.remove('zoomed'); mv.slides = []; mv.blob = null;
+    });
+  }
+  // The grid scrolled (at once, behind the photo) so the tile the photo goes back into is in view.
+  function reveal(t) {
+    var sc = memRoot.scroller, r = t.getBoundingClientRect(), top = safeTop + 60, bottom = window.innerHeight - 100;
+    if (r.top < top) sc.scrollTop += r.top - top; else if (r.bottom > bottom) sc.scrollTop += r.bottom - bottom;
+  }
+  // The photo's box flies between its tile and its place, cropped to the tile's square at the tile end; the
+  // background and the bars fade in (out) as it goes. With Reduce Motion, or no tile to go to, it fades.
+  function zoom(open, tile, from, done) {
+    var s = mv.slides[mv.i], ph = s && s._ph, box = $('mv'), bg = $('mv-bg'), bars = [$('mv-top'), $('mv-bar')];
+    var r = tile && tile.isConnected && tile.getBoundingClientRect(), b = s && s._b;
+    var sp = spring(open ? 0.44 : 0.38, open ? 0.86 : 0.94, from && from.v), fade = { duration: open ? 260 : 200, easing: open ? 'ease-out' : 'ease-in' };
+    [box, bg, ph].concat(bars).forEach(function (e) { if (e && e._zo) { e._zo.cancel(); e._zo = null; } });
+    function run(e, kf, t, keep) { return (e._zo = tracked(e.animate(kf, keep ? Object.assign({ fill: 'forwards' }, t) : t))); }
+    var last;
+    if (!ph || !r || !r.width || !b || reduceMotion.matches) {
+      last = run(box, [{ opacity: open ? 0 : 1 }, { opacity: open ? 1 : 0 }], fade, !open);
+    } else {
+      var k = Math.max(r.width / b.w, r.height / b.h);
+      var tx = r.left + r.width / 2 - (b.x + b.w * k / 2), ty = r.top + r.height / 2 - (b.y + b.h * k / 2);
+      var iw = r.width / k, ih = r.height / k, cx = ((b.w - iw) / 2).toFixed(1), cy = ((b.h - ih) / 2).toFixed(1);
+      var atTile = { transform: 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) scale(' + k.toFixed(4) + ')', clipPath: 'inset(' + cy + 'px ' + cx + 'px ' + cy + 'px ' + cx + 'px)' };
+      var atHome = { transform: (from && from.transform) || ph.style.transform || 'translate(0px,0px) scale(1)', clipPath: 'inset(0px 0px 0px 0px)' };
+      last = run(ph, open ? [atTile, atHome] : [atHome, atTile], { duration: sp.ms, easing: sp.easing }, !open);
+      run(bg, [{ opacity: open ? 0 : (from && from.bg != null ? from.bg : 1) }, { opacity: open ? 1 : 0 }], open ? { duration: sp.ms * 0.6, easing: 'ease-out' } : fade, !open);
+    }
+    bars.forEach(function (e) { run(e, [{ opacity: open ? 0 : +getComputedStyle(e).opacity }, { opacity: open ? 1 : 0 }], fade, !open); });
+    last.onfinish = function () {
+      [box, bg, ph].concat(bars).forEach(function (e) { if (e && e._zo) { e._zo.cancel(); e._zo = null; } });
+      if (done) done();
+    };
+  }
+  // A photo's box: fitted to the screen (aspect a, from its tile's picture or its own).
+  function fitBox(a) {
+    var W = pager.clientWidth || window.innerWidth, H = pager.clientHeight || window.innerHeight, w = W, h = W / a;
+    if (h > H) { h = H; w = H * a; }
+    return { x: (W - w) / 2, y: (H - h) / 2, w: w, h: h };
+  }
+  function placeBox(s) {
+    var b = s._b = fitBox(s._a || (pager.clientWidth / Math.max(1, pager.clientHeight)));
+    s._ph.style.left = b.x + 'px'; s._ph.style.top = b.y + 'px'; s._ph.style.width = b.w + 'px'; s._ph.style.height = b.h + 'px';
+  }
+  function fillAround(i) {
+    mv.slides.forEach(function (s, j) {
+      var d = Math.abs(j - i);
+      if (d <= 1 && !s._ph) fillSlide(s, mv.list[j]);
+      else if (d > 2 && s._ph) { s.textContent = ''; s._ph = null; s._z = null; }   // far behind: its pictures go
+    });
+  }
+  function fillSlide(s, it) {
+    var ph = s._ph = s.appendChild(el('div', 'mv-ph')), lo = el('img', 'lo'), t = tileOf(it), ti = t && t.querySelector('img');
+    if (ti && ti.naturalWidth) s._a = ti.naturalWidth / ti.naturalHeight;
+    lo.alt = ''; lo.draggable = false;
+    lo.onload = function () { if (!s._a && s._ph === ph) { s._a = lo.naturalWidth / lo.naturalHeight; placeBox(s); } };
+    lo.src = thumbUrl(it); ph.appendChild(lo);
+    if (it.video) {
+      var b = el('button', 'mv-play glass'); b.innerHTML = I.playBig; b.setAttribute('aria-label', 'Play on TV');
+      b.onclick = function () { showOnTv(it); }; s.appendChild(b);
+    } else {
+      var hi = el('img', 'hi'); hi.alt = ''; hi.draggable = false; hi.decoding = 'async';
+      hi.onload = function () { hi.classList.add('in'); }; hi.src = photoUrl(it); ph.appendChild(hi);
+    }
+    placeBox(s);
+  }
+  pager.addEventListener('scroll', function () {
+    if (!mv.open) return;
+    var i = clamp(Math.round(pager.scrollLeft / Math.max(1, pager.clientWidth)), 0, mv.list.length - 1);
+    if (i !== mv.i) { unzoom(mv.slides[mv.i]); mv.i = i; fillAround(i); viewerInfo(); }
+    settledSoon();
+  }, { passive: true });
+  function settledSoon() { clearTimeout(mv.st); mv.st = setTimeout(onPhoto, 160); }
+  // On a photo for a moment: the TV follows (Show on TV), its tile is the one lifted, and it's fetched for Share.
+  function onPhoto() {
+    var it = mv.open && mv.list[mv.i]; if (!it) return;
+    lift(tileOf(it));
+    if (mv.tv && !it.video && mv.onTv !== it.path) { mv.onTv = it.path; post('/api/memories/show', { path: it.path }).catch(tvLost); }
+    if (!it.video && !(mv.blob && mv.blob.path === it.path)) {
+      var want = it.path;
+      fetch(photoUrl(it)).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) {
+        var now = mv.open && mv.list[mv.i];
+        if (b && now && now.path === want) mv.blob = { path: want, file: new File([b], jpegName(it.name), { type: 'image/jpeg' }) };
+      }, function () {});
+    }
+  }
+  function viewerInfo() {
+    var it = mv.list[mv.i]; if (!it) return;
+    var time = new Date(it.taken).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    setText($('mv-date'), dayName(it.taken)); setText($('mv-time'), it.video ? 'Video · ' + time : time);
+    tvButton();
+  }
+  function tvButton() {
+    var it = mv.list[mv.i], on = !!(mv.tv && it && !it.video);
+    setText($('mv-tv-t'), it && it.video ? 'Play on TV' : on ? 'On TV' : 'Show on TV');
+    $('mv-tv').classList.toggle('on', on);
+  }
+  function tvLost(e) { mv.tv = false; mv.onTv = null; tvButton(); err(e); }
+  $('mv-tv').onclick = function () {
+    var it = mv.list[mv.i]; if (!it) return;
+    if (it.video) return showOnTv(it);
+    mv.tv = !mv.tv; mv.onTv = mv.tv ? it.path : null; tvButton(); haptic();
+    if (mv.tv) post('/api/memories/show', { path: it.path }).catch(tvLost);   // (the button says so: no toast over the photo)
+  };
+  $('mv-close').onclick = function () { closeViewer(); };
+  $('mv-del').onclick = function () { var it = mv.list[mv.i]; if (it) deleteMemory(it); };
+  $('mv-share').onclick = function () {
+    var it = mv.list[mv.i]; if (!it) return;
+    var f = mv.blob && mv.blob.path === it.path && mv.blob.file;
+    if (f && navigator.canShare && navigator.canShare({ files: [f] })) { navigator.share({ files: [f] }).catch(function () {}); return; }
+    download(it);
+  };
+  $('mv-more').onclick = function () {
+    var it = mv.list[mv.i]; if (!it) return;
+    var items = [];
+    if (!it.video) items.push({ label: 'Set as TV Background', icon: 'photo', fn: function () { tvBackground(it); } });
+    items.push({ label: 'Save to iPhone', icon: 'save', fn: function () { download(it); } });
+    items.push({ label: 'Slideshow on TV', icon: 'slides', fn: memSlideshow });
+    menu($('mv-more'), items);
+  };
+  // Deleted while it's open: it fades away and the next photo (the one before, at the end) takes its place.
+  function dropFromViewer(it) {
+    var j = mv.list.indexOf(it); if (j < 0) return;
+    if (mv.list.length === 1) { closeViewer(); return; }
+    var s = mv.slides[j];
+    function gone() {
+      mv.list.splice(j, 1); mv.slides.splice(j, 1); s.remove();
+      var i = Math.min(j, mv.list.length - 1);
+      mv.i = i; pager.scrollLeft = i * pager.clientWidth; fillAround(i); viewerInfo(); settledSoon();
+      var n = mv.slides[i]; if (n) appear(n);
+    }
+    if (reduceMotion.matches || j !== mv.i) return gone();
+    tracked(s.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.92)' }], { duration: 220, easing: 'ease-in', fill: 'forwards' })).onfinish = gone;
+  }
+
+  // Touch: one finger drags the photo down to close it (or pans a zoomed one); two pinch; a tap shows or hides the
+  // bars; a double tap zooms in where it lands (as close as fills the screen) or back out. The pager pans sideways
+  // by itself (touch-action: pan-x), so these listeners stay passive.
+  var mvT = null, lastTap = null;
+  function zoomOf(s) { return s._z || { s: 1, x: 0, y: 0 }; }
+  function ztf(z) { return 'translate(' + z.x.toFixed(1) + 'px,' + z.y.toFixed(1) + 'px) scale(' + z.s.toFixed(4) + ')'; }
+  function setZoom(s, z, sp) {
+    var ph = s._ph; if (!ph) return;
+    var from = ph._a ? getComputedStyle(ph).transform : ph.style.transform || 'none';
+    if (ph._a) { ph._a.cancel(); ph._a = null; }
+    s._z = z.s > 1.001 ? z : null; ph.style.transform = s._z ? ztf(z) : '';
+    pager.classList.toggle('zoomed', !!s._z);
+    if (sp && !reduceMotion.matches && from !== 'none' && from !== '') ph._a = tracked(ph.animate([{ transform: from }, { transform: ph.style.transform || 'none' }], { duration: sp.ms, easing: sp.easing }));
+    else if (sp && !reduceMotion.matches) ph._a = tracked(ph.animate([{ transform: 'none' }, { transform: ph.style.transform || 'none' }], { duration: sp.ms, easing: sp.easing }));
+  }
+  function unzoom(s) { if (s && s._z) setZoom(s, { s: 1, x: 0, y: 0 }); }
+  // Keeps a zoomed photo covering the screen where it's bigger than it, centered where it's smaller (rubber: how
+  // far past an edge it may go while a finger holds it, as a share of the overshoot).
+  function bound(s, z, rubber) {
+    var b = s._b, W = pager.clientWidth, H = pager.clientHeight;
+    function axis(v, at, size, view) {
+      var big = size * z.s;
+      if (big <= view) return (view - big) / 2 - at;
+      var lo = view - at - big, hi = -at;
+      return v > hi ? hi + (v - hi) * rubber : v < lo ? lo + (v - lo) * rubber : v;
+    }
+    return { s: z.s, x: axis(z.x, b.x, b.w, W), y: axis(z.y, b.y, b.h, H) };
+  }
+  function pts(e) { var a = e.touches[0], b = e.touches[1]; return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2, d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) }; }
+  pager.addEventListener('touchstart', function (e) {
+    var s = mv.slides[mv.i]; if (!mv.open || !s || !s._ph || !s._b || e.target.closest('button')) return;
+    if (s._ph._a) { var cur = new DOMMatrix(getComputedStyle(s._ph).transform); s._ph._a.cancel(); s._ph._a = null; if (s._z) { s._z = { s: cur.a, x: cur.e, y: cur.f }; s._ph.style.transform = ztf(s._z); } }
+    if (e.touches.length === 2) {
+      if (mvT && mvT.mode === 'drag') return;
+      if (mvT && mvT.counted) gesture--;   // (a pan becomes this pinch)
+      var p = pts(e); mvT = { mode: 'pinch', s: s, p0: p, z0: zoomOf(s) };
+      pager.classList.add('zoomed'); gesture++; mvT.counted = true;
       return;
     }
-    var pinned = notes.filter(function (n) { return n.pinned; });
-    [['Pinned', pinned], [pinned.length ? 'Notes' : null, notes.filter(function (n) { return !n.pinned; })]].forEach(function (part) {
-      if (!part[1].length) return;
-      if (part[0]) box.appendChild(el('div', 'head', part[0])).dataset.k = 'h' + part[0];
-      var g = el('div', 'group' + (part[0] ? '' : ' flush')); g.dataset.k = 'g' + (part[0] || 'Notes');
-      if (!part[0]) g.style.marginTop = '12px';
-      part[1].forEach(function (n) {
-        var row = el('button', 'row tap note'), text = el('span', 'txt');
-        var lines = n.body.split('\n').filter(function (l) { return l.trim(); });
-        var title = n.title || lines.shift() || 'New Note';
-        text.appendChild(el('span', 't', title));
-        var sub = [when(n.updated), lines.join(' ')].filter(Boolean).join('  ');
-        text.appendChild(el('span', 's', sub || 'No additional text'));
-        row.appendChild(text); row.dataset.id = n.id; row.dataset.k = 'n' + n.id;
-        row.onclick = function () { openNote(n, row); };
-        g.appendChild(row);
-      });
-      box.appendChild(g);
-    });
+    if (e.touches.length !== 1) return;
+    var t = e.touches[0];
+    mvT = { mode: s._z ? 'pan' : null, s: s, x0: t.clientX, y0: t.clientY, t0: e.timeStamp, z0: zoomOf(s), pts: [[e.timeStamp, t.clientY]] };
+  }, { passive: true });
+  pager.addEventListener('touchmove', function (e) {
+    var g = mvT; if (!g) return;
+    var s = g.s, b = s._b;
+    if (g.mode === 'pinch') {
+      if (e.touches.length < 2) return;
+      var p = pts(e), k = clamp(g.z0.s * p.d / Math.max(1, g.p0.d), 0.5, 8);
+      var ux = (g.p0.x - b.x - g.z0.x) / g.z0.s, uy = (g.p0.y - b.y - g.z0.y) / g.z0.s;   // the photo's point under the fingers
+      s._z = { s: k, x: p.x - b.x - k * ux, y: p.y - b.y - k * uy }; s._ph.style.transform = ztf(s._z);
+      return;
+    }
+    var t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
+    g.pts.push([e.timeStamp, t.clientY]); if (g.pts.length > 6) g.pts.shift();
+    if (g.mode === 'pan') {
+      if (!g.moved && Math.abs(dx) < 10 && Math.abs(dy) < 10) return;   // (not yet: it may be a tap)
+      g.moved = true;
+      if (!g.counted) { g.counted = true; gesture++; }
+      s._z = bound(s, { s: g.z0.s, x: g.z0.x + dx, y: g.z0.y + dy }, 0.35); s._ph.style.transform = ztf(s._z);
+      return;
+    }
+    if (!g.mode) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      if (dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.3) { g.mode = 'drag'; g.counted = true; gesture++; $('mv').classList.add('dragging'); }
+      else { g.mode = 'page'; return; }
+    }
+    if (g.mode !== 'drag') return;
+    // Down: it follows the finger, shrinking, and the background thins so the grid shows through.
+    var f = clamp(dy / pager.clientHeight, 0, 1), k2 = 1 - f * 0.4;
+    g.k = k2; g.bg = 1 - clamp(dy / (pager.clientHeight * 0.45), 0, 1);
+    g.tf = 'translate(' + (dx + b.w * (1 - k2) / 2).toFixed(1) + 'px,' + (Math.max(dy, -40) + b.h * (1 - k2) / 2).toFixed(1) + 'px) scale(' + k2.toFixed(4) + ')';
+    s._ph.style.transform = g.tf; $('mv-bg').style.opacity = g.bg.toFixed(3);
+  }, { passive: true });
+  function mvEnd(e) {
+    var g = mvT; if (!g) return;
+    var s = g.s;
+    if (g.mode === 'pinch' && e.touches.length === 1) {   // a finger left: the other one pans from here
+      var t = e.touches[0];
+      settleZoom(s);
+      mvT = { mode: s._z ? 'pan' : 'done', s: s, x0: t.clientX, y0: t.clientY, t0: e.timeStamp, z0: zoomOf(s), pts: [], counted: true };
+      if (!s._z) { mvT = null; gesture--; flush(); }
+      return;
+    }
+    if (e.touches.length) return;
+    mvT = null;
+    if (g.counted) gesture--;
+    if (g.mode === 'pan' && !g.moved) { if (e.timeStamp - g.t0 < 300) tapped(g); return; }   // a tap on a zoomed photo
+    if (g.mode === 'pinch' || g.mode === 'pan') { settleZoom(s); flush(); return; }
+    if (g.mode === 'drag') {
+      $('mv').classList.remove('dragging');
+      var v = 0; if (g.pts.length > 1) { var a = g.pts[0], z = g.pts[g.pts.length - 1]; v = (z[1] - a[1]) / Math.max(1, z[0] - a[0]); }
+      var dy = (g.pts.length ? g.pts[g.pts.length - 1][1] : g.y0) - g.y0;
+      if (dy > 110 || (v > 0.45 && dy > 30)) closeViewer({ transform: g.tf, bg: g.bg, v: v * 1000 / Math.max(80, pager.clientHeight) });
+      else {   // not far enough: back into place
+        var sp = spring(0.38, 0.86), bg = $('mv-bg');
+        s._ph.style.transform = '';
+        if (g.tf) s._ph._a = tracked(s._ph.animate([{ transform: g.tf }, { transform: 'translate(0px,0px) scale(1)' }], { duration: sp.ms, easing: sp.easing }));
+        bg.style.opacity = ''; tracked(bg.animate([{ opacity: g.bg }, { opacity: 1 }], { duration: 250, easing: 'ease-out' }));
+      }
+      flush(); return;
+    }
+    if (g.mode === null && e.timeStamp - g.t0 < 300) tapped(g);
   }
-  wireSearch($('note-search'), function (v) { noteFilter = v; renderNotes(); });
-  function pinNote(n, on) { post('/api/notes', { id: n.id, title: n.title, body: n.body, pinned: on }).then(function () { toast(on ? 'Pinned' : 'Unpinned'); loadNotes(); }, err); }
-  function deleteNote(id, after) {
-    confirmSheet(null, 'This note is deleted from the TV and every phone.', 'Delete Note', function () {
-      post('/api/notes/delete', { id: id }).then(function () { if (after) after(); loadNotes(); }, err);
-    });
+  pager.addEventListener('touchend', mvEnd, { passive: true });
+  pager.addEventListener('touchcancel', mvEnd, { passive: true });
+  // Pinched smaller than the screen: back to it; a zoomed photo moved past its edges: back inside them.
+  function settleZoom(s) {
+    var z = zoomOf(s), sp = spring(0.4, 0.9);
+    if (z.s <= 1.02) setZoom(s, { s: 1, x: 0, y: 0 }, sp);
+    else { var k = Math.min(z.s, 6); var c = bound(s, { s: k, x: z.x, y: z.y }, 0); setZoom(s, c, sp); }
   }
-  // Press and hold a note: Pin / Delete, like Notes on iPhone.
-  longPress($('note-list'), '.note', function (row) {
-    var n = noteById(row.dataset.id); if (!n) return;
-    contextMenu(row, [
-      { label: n.pinned ? 'Unpin Note' : 'Pin Note', icon: n.pinned ? 'unpin' : 'pin', fn: function () { pinNote(n, !n.pinned); } },
-      { label: 'Delete', icon: 'trash', danger: true, fn: function () { deleteNote(n.id); } }
-    ]);
+  function tapped(g) {
+    var s = g.s, now = g.t0, at = { x: g.x0, y: g.y0 };
+    if (lastTap && now - lastTap.t < 320 && Math.abs(at.x - lastTap.x) < 30 && Math.abs(at.y - lastTap.y) < 30) {
+      clearTimeout(lastTap.h); lastTap = null;
+      var sp = spring(0.42, 0.86), b = s._b;
+      if (s._z) { setZoom(s, { s: 1, x: 0, y: 0 }, sp); return; }
+      var k = Math.max(2, Math.min(4, Math.max(pager.clientWidth / b.w, pager.clientHeight / b.h)));
+      var ux = (at.x - b.x) / 1, uy = (at.y - b.y) / 1;
+      setZoom(s, bound(s, { s: k, x: at.x - b.x - k * ux, y: at.y - b.y - k * uy }, 0), sp);
+      return;
+    }
+    lastTap = { t: now, x: at.x, y: at.y, h: setTimeout(function () { lastTap = null; if (mv.open) $('mv').classList.toggle('bare'); }, 320) };
+  }
+  // A keyboard (an iPad's, a computer's): arrows page, Escape closes.
+  function pageBy(d) { var i = clamp(mv.i + d, 0, mv.list.length - 1); pager.scrollTo({ left: i * pager.clientWidth, behavior: reduceMotion.matches ? 'auto' : 'smooth' }); }
+  doc.addEventListener('keydown', function (e) {
+    if (!mv.open || sheetOpen || dialogOpen || menuOpen) return;
+    if (e.key === 'Escape') closeViewer(); else if (e.key === 'ArrowRight') pageBy(1); else if (e.key === 'ArrowLeft') pageBy(-1);
+  }, true);
+  window.addEventListener('resize', function () {
+    if (!mv.open) return;
+    mv.slides.forEach(function (s) { if (s._ph) { unzoom(s); placeBox(s); } });
+    pager.scrollLeft = mv.i * pager.clientWidth;
   });
-  function longDate(ms) { return ms && ms > 1e11 ? new Date(ms).toLocaleString([], { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; }
-  function grow() { var b = $('note-body'); b.style.height = 'auto'; b.style.height = b.scrollHeight + 'px'; }
-  $('note-body').addEventListener('input', grow);
-  // A note opens as a page of its own (pushed, like Notes). Done saves; going back keeps what was written.
-  function openNote(n, row) {
-    if (pushing('notes')) return;
-    draft = { n: n, title: n ? n.title : '', body: n ? n.body : '', pinned: !!(n && n.pinned), done: false };
-    showDraft(draft);
-    select(notesRoot, row);
-    push(notePage);
-    if (!n) $('note-title').focus({ preventScroll: true });   // within the tap, so iOS shows the keyboard
-  }
-  function showDraft(d) {
-    $('note-title').value = d.title; $('note-body').value = d.body;
-    $('note-date').textContent = d.n ? longDate(d.n.updated) : '';
-    grow();
-  }
-  function saveDraft(d, title, body) {
-    var data = { id: d.n ? d.n.id : '', title: title, body: body };
-    if (d.pinned !== !!(d.n && d.n.pinned)) data.pinned = d.pinned;
-    return post('/api/notes', data);
-  }
-  $('note-title').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $('note-body').focus(); } };
-  function noteSave() {
-    var d = draft, t = $('note-title').value, b = $('note-body').value;
-    if (!d) return;
-    if (!t.trim() && !b.trim()) { d.done = true; return goBack(); }
-    saveDraft(d, t, b).then(function () { d.done = true; closeNote(); toast('Saved on the TV'); loadNotes(); }, err);
-  }
-  function closeNote() { if (current === 'notes' && topOf('notes') === notePage) goBack(); }
-  function noteMore(btn) {
-    var d = draft; if (!d) return;
-    var items = [{ label: d.pinned ? 'Unpin Note' : 'Pin Note', icon: d.pinned ? 'unpin' : 'pin', fn: function () {
-      d.pinned = !d.pinned;
-      if (!d.n) return toast(d.pinned ? 'Pinned' : 'Unpinned');   // a new note is saved pinned
-      var t = $('note-title').value, b = $('note-body').value;
-      saveDraft(d, t, b).then(function () { d.n = { id: d.n.id, title: t, body: b, pinned: d.pinned, updated: d.n.updated }; toast(d.pinned ? 'Pinned' : 'Unpinned'); loadNotes(); }, function (e) { d.pinned = !d.pinned; err(e); });
-    } }];
-    if (d.n) items.push({ label: 'Delete Note', icon: 'trash', danger: true, fn: function () { deleteNote(d.n.id, function () { d.done = true; closeNote(); }); } });
-    menu(btn, items);
-  }
-  function notePopped() {
-    var d = draft; draft = null;
-    var t = $('note-title').value, b = $('note-body').value;
-    if (doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
-    if (!d || d.done) return;
-    d.done = true;
-    var changed = t !== (d.n ? d.n.title : '') || b !== (d.n ? d.n.body : '') || d.pinned !== !!(d.n && d.n.pinned);
-    if (!changed || (!t.trim() && !b.trim())) return;
-    saveDraft(d, t, b).then(function () { toast('Saved on the TV'); loadNotes(); }, function (e) {
-      alertBox({ title: "Couldn't Save the Note", message: e.message || String(e), actions: [{ label: 'Discard' }, { label: 'Edit', pref: true, fn: function () {
-        if (pushing('notes') || topOf('notes') === notePage) return;
-        if (current !== 'notes') selectTab('notes');
-        d.done = false; draft = d; d.title = t; d.body = b; showDraft(d); push(notePage);
-      } }] });
-    });
-  }
 
   // ---- This phone & announcements to it -------------------------------------------------------------
   function hello(alerts) {
@@ -2787,7 +3317,9 @@
   var roots0 = {
     remote: adopt('remote', 'remote-root', { titleView: rmTitle, actions: [{ icon: 'keyboard', label: 'Keyboard', id: 'kb-open2', fn: function () { openKb(true); } }] }),
     send: adopt('send', 'send-root', { large: true, actions: [{ text: 'Send', prom: true, id: 'n-send', fn: sendAnnouncement }] }),
-    notes: (notesRoot = adopt('notes', 'notes-root', { large: true, actions: [{ icon: 'compose', label: 'New note', fn: function () { openNote(null); } }] })),
+    memories: (memRoot = adopt('memories', 'mem-root', { large: true, actions: [
+      { icon: 'slides', label: 'Slideshow on TV', fn: memSlideshow },
+      { icon: 'plus', label: 'Add Photos', fn: function () { $('mem-file').click(); } }] })),
     settings: adopt('settings', 'set-main', { large: true })
   };
   Object.keys(roots0).forEach(function (t) { push(roots0[t], { animate: false }); });
@@ -2800,8 +3332,6 @@
   adopt('send', 'send-link', { focus: 'o-url' });
   filesRoot = PG['files-root'] = filesPage($('files-root').dataset.title, $('files-root'));
   filesRoot.o.onOpen = function () { var at = filesRoot.path || (roots[0] && roots[0].path); if (at) loadInto(filesRoot, at); };
-  notePage = adopt('notes', 'note-page', { plain: true, onPop: notePopped,
-    actions: [{ icon: 'more', label: 'More', id: 'note-more', fn: noteMore }, { text: 'Done', prom: true, id: 'note-save', fn: noteSave }] });
   // Settings pages: [page, bar buttons, the page it opens from when that isn't Settings itself]
   var SAVE = function (id) { return [{ text: 'Save', prom: true, id: id }]; };
   adopt('settings', 'set-tvs', { onShow: function () { loadTvs(); } });   // polls while it's showing

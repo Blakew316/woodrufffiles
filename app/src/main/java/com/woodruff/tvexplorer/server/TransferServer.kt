@@ -120,31 +120,11 @@ class TransferServer(
         }
     }
 
-    /** Body is the raw file bytes (sent by fetch/XHR), not multipart, so it can be streamed. */
     private fun upload(s: IHTTPSession): Response {
         val dir = resolve(param(s, "path"))
         if (!dir.isDirectory) throw IllegalArgumentException("Destination is not a folder")
-        val length = s.headers["content-length"]?.toLongOrNull() ?: throw IllegalArgumentException("Missing Content-Length")
         val target = FileOperations.uniqueTarget(dir, clean(param(s, "name")))
-        val partial = File(dir, ".${target.name}.part")
-        try {
-            FileOutputStream(partial).use { out ->
-                val buf = ByteArray(256 * 1024)
-                var remaining = length
-                val input = s.inputStream
-                while (remaining > 0) {
-                    val n = input.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
-                    if (n < 0) throw IOException("Upload interrupted")
-                    out.write(buf, 0, n)
-                    remaining -= n
-                }
-                out.fd.sync()
-            }
-            if (!partial.renameTo(target)) throw IOException("Couldn't save ${target.name}")
-        } catch (e: IOException) {
-            partial.delete()
-            throw e
-        }
+        receiveFile(s, target)
         onActivity("Received ${target.name}")
         return json(JSONObject().put("ok", true).put("name", target.name))
     }
@@ -188,5 +168,32 @@ class TransferServer(
         }
 
         private fun same(a: String, b: String) = MessageDigest.isEqual(a.toByteArray(), b.toByteArray())
+    }
+}
+
+/**
+ * Saves a request's body as [target]: the raw file bytes (sent by fetch/XHR, not multipart, so they stream), written
+ * aside and renamed into place, so the file is never seen half-written and a failed upload leaves nothing behind.
+ */
+internal fun receiveFile(s: IHTTPSession, target: File) {
+    val length = s.headers["content-length"]?.toLongOrNull() ?: throw IllegalArgumentException("Missing Content-Length")
+    val partial = File(target.parentFile, ".${target.name}.part")
+    try {
+        FileOutputStream(partial).use { out ->
+            val buf = ByteArray(256 * 1024)
+            var remaining = length
+            val input = s.inputStream
+            while (remaining > 0) {
+                val n = input.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+                if (n < 0) throw IOException("Upload interrupted")
+                out.write(buf, 0, n)
+                remaining -= n
+            }
+            out.fd.sync()
+        }
+        if (!partial.renameTo(target)) throw IOException("Couldn't save ${target.name}")
+    } catch (e: IOException) {
+        partial.delete()
+        throw e
     }
 }

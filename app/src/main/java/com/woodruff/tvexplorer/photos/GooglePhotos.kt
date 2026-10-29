@@ -282,6 +282,20 @@ object GooglePhotos {
 
     fun setReplace(on: Boolean) { _replace.value = on }
 
+    /** Reads which files came from picks, before anything else is saved in their folders (IO thread). */
+    fun ready() = loadPicked()
+
+    /** [file] is no longer a pick's: deleted, or something else took its name (IO thread). */
+    fun forget(file: File) {
+        loadPicked()
+        val dir = file.canonicalFile.parentFile
+        val inPhotos = dir == folder.canonicalFile
+        val inVideos = dir == videoFolder.canonicalFile
+        val gone = synchronized(picked) { picked.entries.removeAll { (_, k) -> k.name == file.name && (if (k.video) inVideos else inPhotos) } }
+        if (gone) savePicked()
+        countOnTv()
+    }
+
     private fun fileOf(k: Kept) = File(if (k.video) videoFolder else folder, k.name)
 
     private fun pickedFile() = File(app.filesDir, "google_photos_picked.json")

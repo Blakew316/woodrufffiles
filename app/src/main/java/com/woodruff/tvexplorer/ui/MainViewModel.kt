@@ -134,6 +134,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun reload() { _browser.value.location?.let(::load) }
 
+    /**
+     * Lists the folder on screen again where it is, for a change made elsewhere (photos a phone added to Family
+     * Memories): no loading state, and what stays keeps its place and the focus. A listing under way is fresh anyway.
+     */
+    fun refresh() {
+        val shown = _browser.value
+        val location = shown.location as? Location.Folder ?: return
+        if (shown.loading) return
+        viewModelScope.launch {
+            val s = _settings.value
+            val items = runCatching { files.list(location.dir, s.showHidden, s.sort) }.getOrNull() ?: return@launch
+            _browser.update { b ->
+                if (b.location != location || b.loading) b
+                else b.copy(items = items, selected = b.selected.filterTo(HashSet()) { p -> items.any { it.path == p } })
+            }
+        }
+    }
+
     fun search(query: String) {
         val root = _browser.value.folder ?: _roots.value.firstOrNull()?.dir ?: return
         if (query.isNotBlank()) open(Location.Search(root, query))

@@ -31,14 +31,19 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
     Home*), then **Photos & Files** (browse the TV's storage, play, set as background, save to iPhone, upload, and
     press and hold a folder to use it for the slideshow), **Open a Link** (YouTube, Apple Music or a video) and
     **Start Photo Slideshow**.
-  - **Notes**: the same notes as the TV's Notes screen, with search and pinning (press and hold, or **…**). A note
-    opens as its own page and is saved when you go back; tap the pencil to write one.
+  - **Family Memories**: the photos and videos in the TV's Family Memories, newest first, in a grid like the Photos
+    app's. **+** adds photos and videos from the iPhone: each photo is shrunk to the size the TV shows it at and keeps
+    when it was taken, and they go up one by one, each tile filling its ring. Tap one to see it full screen (it grows
+    out of its tile; swipe through, pinch or double-tap to zoom, drag down to put it back); **Show on TV** puts it on
+    the TV, which follows as you swipe, next to Share and Delete (and *Set as TV Background* under **…**; press and
+    hold a tile for the same). The slideshow button plays Family Memories on the TV.
   - **Settings**: this phone (name, lock-screen alerts), **TVs** (what's playing on each TV; tap one for a live
     picture of its screen), **Connections** (Google Drive, posters, cameras, mail), weather on Home, **Away From
     Home** (the Tailscale link) and **Shortcuts** (the links for iPhone Shortcuts).
 - **Library in the side menu**: **Movies** and **TV Shows** open the Drive folders of those names (created by you,
-  anywhere in My Drive, top level preferred) and stream from them. **Photos** and **Videos** show what you've added from
-  Google Photos (saved on the TV), each with an **Add from Google Photos** button. Google Drive and Google Photos
+  anywhere in My Drive, top level preferred) and stream from them. **Family Memories** (Photos and Videos) shows what
+  you've added from Google Photos or a phone (saved on the TV), with an **Add from Google Photos** button; what a phone
+  adds or deletes shows up while you're looking, and a photo a phone shows on the TV changes in place, cross-fading. Google Drive and Google Photos
   settings live in Settings.
 - **Filters**: Movies and TV Shows can be sorted (A–Z, recently added, newest, top rated), searched (type on the
   TV or the phone), and narrowed by decade and genre. Titles and years come from the file names ("The.Matrix.1999.
@@ -62,7 +67,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   each TV (Notification access; Settings shows an adb command for TVs that hide that setting). If the router gives a
   TV a new address, the others find it again by themselves within a few minutes. The phone's TV list answers at once:
   a sleeping TV shows as it was last seen, then as off.
-- **Notes** (side menu): pinned and recent notes, editable from the TV or any paired phone.
+- **Notes** (side menu): pinned and recent notes, written on the TV.
 - **Announcements**: each phone gets a name ("Mom's iPhone"). From the TV (Notifications → Announce) or a phone,
   pick who gets it. Phones that turned on *Lock-screen alerts* get a real notification through the free
   [ntfy](https://ntfy.sh) app. The others see it whenever Woodruff is open. The phone's *TV screen* switch shows it on

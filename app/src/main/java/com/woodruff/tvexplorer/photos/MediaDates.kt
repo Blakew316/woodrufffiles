@@ -33,6 +33,12 @@ object MediaDates {
         runCatching { file.setLastModified(takenMs) }
     }
 
+    /** Forgets [file]'s time: it was deleted, or something new took its name. */
+    fun forget(c: Context, file: File) {
+        load(c)
+        if (index.remove(file.absolutePath) != null) dirty = true
+    }
+
     /**
      * Capture time for each file (path → ms). Reads files, so call off the main thread.
      * Cheap checks first: the index, then the name (camera names carry the time). Only the rest

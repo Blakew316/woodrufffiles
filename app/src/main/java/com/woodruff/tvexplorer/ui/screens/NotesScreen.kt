@@ -56,7 +56,7 @@ import com.woodruff.tvexplorer.util.Format
 /** Sentinel for "new note" in the editor. */
 private val NEW = Note("", "", "", 0)
 
-/** Household notes: shopping lists, Wi-Fi passwords for guests, reminders. Also editable from the phone. */
+/** Household notes: shopping lists, Wi-Fi passwords for guests, reminders. */
 @Composable
 fun NotesScreen(vm: MainViewModel) {
     val context = LocalContext.current

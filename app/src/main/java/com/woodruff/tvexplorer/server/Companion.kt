@@ -40,6 +40,7 @@ import java.io.File
  * pairing key (checked by [TransferServer] before [handle] is called).
  */
 class CompanionRoutes(private val ctx: Context) {
+    private val memories = MemoriesRoutes(ctx) { launch(it) }
 
     /** The Google OAuth callback proves itself with the one-time `state`, not the pairing key. */
     fun public(s: IHTTPSession): Response? {
@@ -84,6 +85,8 @@ class CompanionRoutes(private val ctx: Context) {
     }
 
     fun handle(s: IHTTPSession): Response? = when {
+        // The phone's Family Memories tab.
+        s.uri.startsWith("/api/memories") -> memories.handle(s) { body(s) }
         s.uri == "/api/notify" && s.method == Method.POST -> {
             val b = body(s)
             val title = b.optString("title").ifBlank { b.optString("message") }.ifBlank { "Message from your phone" }

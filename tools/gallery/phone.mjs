@@ -1,6 +1,6 @@
 // Screenshots the phone app on an iPhone-sized screen, light and dark, for the UI gallery:
 // each tab, plus the keyboard sheet, Send's To page, Photos & Files (also scrolled, its large title collapsed into
-// the bar) and a file's action sheet, a note, Settings › TVs with a TV's screen, and a Settings page.
+// the bar) and a file's action sheet, a photo in Family Memories, Settings › TVs with a TV's screen, and a Settings page.
 // It runs like the Home Screen app: the web view under a "default" status bar (so no top safe area),
 // the home indicator's 34pt at the bottom, and navigator.standalone set.
 // Usage: node phone.mjs <output dir>   (with mock_server.py running on :8765)
@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 const out = process.argv[2] || 'gallery';
 mkdirSync(out, { recursive: true });
 const base = 'http://127.0.0.1:8765/';
-const tabs = ['remote', 'send', 'notes', 'settings'];
+const tabs = ['remote', 'send', 'memories', 'settings'];
 // Extra states: [name, tab, steps in turn]. A step is an element to tap (each tap opens a push, sheet or action
 // sheet) or { scroll: scroller, y } to scroll a page to y.
 const extras = [
@@ -19,7 +19,7 @@ const extras = [
   ['files', 'send', ['#send-root [data-page=files-root]']],                            // Photos & Files
   ['files-scrolled', 'send', ['#send-root [data-page=files-root]', { scroll: '#files-root .scroller', y: 90 }]],   // its large title collapsed into the bar
   ['files-actions', 'send', ['#send-root [data-page=files-root]', '#list [data-i="7"]']], // a video's action sheet
-  ['note', 'notes', ['#note-list .row']],                                              // a note, pushed
+  ['memories-photo', 'memories', ['#mem-grid .mtile:nth-child(3)']],                    // a photo, full screen
   ['settings-tvs', 'settings', ['#set-main [data-page=set-tvs]']],                     // every TV and what it plays
   ['tv-screen', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row']],       // a TV's screen (sheet)
   ['settings-drive', 'settings', ['#set-main [data-page=set-conn]', '#set-conn [data-page=set-drive]']],

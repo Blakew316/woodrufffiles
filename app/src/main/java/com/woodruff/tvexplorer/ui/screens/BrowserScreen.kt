@@ -49,6 +49,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.layout.width
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.photos.GooglePhotos
+import com.woodruff.tvexplorer.photos.FamilyMemories
 import com.woodruff.tvexplorer.photos.MediaDates
 import com.woodruff.tvexplorer.photos.PhotoFilter
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,9 @@ fun BrowserScreen(vm: MainViewModel) {
         p.startsWith(GooglePhotos.folder.path) || p.startsWith(GooglePhotos.videoFolder.path)
     } == true
     val photos by GooglePhotos.state.collectAsStateWithLifecycle()
+    // Photos and videos a phone added or deleted: the folder is listed again where it is.
+    val memoriesChanged by FamilyMemories.changes.collectAsStateWithLifecycle()
+    LaunchedEffect(memoriesChanged) { if (memoriesChanged > 0 && photosFolder) vm.refresh() }
     // Photos / Videos: filter and sort by when each was taken (read in the background, then cached).
     val dateFilterable = photosFolder && location is Location.Folder && !state.selecting
     var photoFilter by remember(location.key) { mutableStateOf(photoFilterMemory[location.key] ?: PhotoFilter()) }

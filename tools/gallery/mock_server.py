@@ -1,9 +1,12 @@
 """Stand-in for the TV's phone-connection server, with sample data, so the phone app can be
 screenshotted in CI for the UI gallery. Serves app/src/main/assets/web (pass that folder).
 
-It keeps changes in memory (notes, settings, mail accounts) like the TV would, serves a few nested
+It keeps changes in memory (settings, mail accounts, Family Memories) like the TV would, serves a few nested
 folders and two storages, and, with MOCK_LOG=<file>, appends every API request to that file as one
 JSON line ({"method", "path", "query", "body"}) so tests can check what the page sent.
+Family Memories: sample photos and videos, each picture drawn here (a landscape, in SVG); what the phone adds is
+kept and served back as it was sent, and GET /__mock/memories lists what was added (name, taken, bytes and, for a
+JPEG, its size) so tests can check what the page sent.
 Test-only controls, never used by the gallery: POST /__mock/inbox {title, body, from} queues an
 announcement for the phone, POST /__mock/crash {text} sets the "last crash", POST /__mock/field {field}
 sets (or clears, with null) the TV text box the keyboard types into, and POST /__mock/set {settings, tvs, phones}
@@ -51,10 +54,59 @@ TREE = {
 }
 ROOTS = [{'name': 'Internal storage', 'path': ROOT}, {'name': 'USB drive', 'path': USB}]
 
-NOTES = [
-    {'id': 'a', 'title': 'Groceries', 'body': 'Milk\nEggs\nCoffee beans', 'pinned': True, 'updated': 1},
-    {'id': 'b', 'title': 'Wi-Fi for guests', 'body': 'Network: Woodruff-Guest', 'pinned': False, 'updated': 1},
-]
+PHOTOS = ROOT + '/Pictures/Google Photos'
+VIDEOS = ROOT + '/Movies/Google Photos'
+DAY = 86_400_000
+
+
+def _memories():
+    """30 photos and 4 videos, a few days apart, newest first (as the TV lists them)."""
+    newest = int(time.mktime((2026, 10, 26, 16, 42, 0, 0, 0, -1)) * 1000)
+    out = []
+    for i in range(34):
+        video = i % 9 == 4
+        name = ('VID_%04d.mov' if video else 'IMG_%04d.jpg') % (4120 - i)
+        out.append({'path': (VIDEOS if video else PHOTOS) + '/' + name, 'name': name, 'video': video,
+                    'taken': newest - i * 3 * DAY - (i % 5) * 3_600_000, 'size': 840_000 + i * 17_000, 'v': 1761500000000 + i})
+    return out
+
+
+MEMORIES = _memories()
+ADDED = {}      # path -> (bytes, content type): what the phone sent, served back as it was
+MEM_LOG = []    # what the phone added, for tests
+PALETTES = [('#ffb36b', '#ff6f61', '#2f4858', '#4f6d7a'), ('#9be7ff', '#4ea8de', '#2d6a4f', '#52b788'),
+            ('#ffd6a5', '#f08080', '#6d597a', '#b56576'), ('#caf0f8', '#90e0ef', '#0077b6', '#023e8a'),
+            ('#fde68a', '#f59e0b', '#7c2d12', '#b45309'), ('#e0c3fc', '#8ec5fc', '#3a506b', '#5bc0be')]
+
+
+def landscape(i, w, h):
+    """A sample photo: sky, sun and two hills, in one of a few palettes; portrait for every third one."""
+    a, b, c, d = PALETTES[i % len(PALETTES)]
+    sx, sy, r = w * (0.25 + (i * 37 % 50) / 100), h * 0.32, min(w, h) * 0.09
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">'
+            '<defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient></defs>'
+            '<rect width="%d" height="%d" fill="url(#s)"/><circle cx="%.0f" cy="%.0f" r="%.0f" fill="#fff8e7" opacity=".9"/>'
+            '<path d="M0 %.0f Q %.0f %.0f %.0f %.0f T %d %.0f V %d H 0 Z" fill="%s"/>'
+            '<path d="M0 %.0f Q %.0f %.0f %.0f %.0f T %d %.0f V %d H 0 Z" fill="%s"/></svg>') % (
+        w, h, w, h, a, b, w, h, sx, sy, r,
+        h * 0.62, w * 0.25, h * 0.5, w * 0.5, h * 0.64, w, h * 0.6, h, d,
+        h * 0.78, w * 0.3, h * 0.66, w * 0.6, h * 0.8, w, h * 0.74, h, c)
+
+
+def jpeg_size(b):
+    """A JPEG's width and height (from its frame header); None for anything else."""
+    if b[:2] != b'\xff\xd8':
+        return None
+    i = 2
+    while i + 9 < len(b) and b[i] == 0xFF:
+        if b[i + 1] in (0xC0, 0xC1, 0xC2):
+            return [int.from_bytes(b[i + 7:i + 9], 'big'), int.from_bytes(b[i + 5:i + 7], 'big')]
+        i += 2 + int.from_bytes(b[i + 2:i + 4], 'big')
+    return None
+
+
+def memories_json():
+    return {'items': MEMORIES, 'folder': PHOTOS, 'fit': [1920, 1080], 'slideshow': True}
 PHONES = [
     {'id': 'p-blake', 'name': "Blake's iPhone", 'alerts': True},
     {'id': 'p-mom', 'name': "Mom's iPhone", 'alerts': True},
@@ -333,10 +385,22 @@ class Handler(BaseHTTPRequestHandler):
             messages = INBOX[:]
             del INBOX[:]
             return self.send({'messages': messages})
+        if path in ('/api/memories/thumb', '/api/memories/photo'):
+            where = query.get('path', [''])[0]
+            if where in ADDED:
+                return self.send(ADDED[where][0], ADDED[where][1], headers={'Cache-Control': 'private, max-age=31536000'})
+            i = next((n for n, m in enumerate(MEMORIES) if m['path'] == where), None)
+            if i is None:
+                return self.send("That isn't in Family Memories", 'text/plain', 400)
+            big, tall = path.endswith('photo'), i % 3 == 2
+            w, h = (1200, 1600) if big and tall else (1600, 1200) if big else (315, 420) if tall else (420, 315)
+            return self.send(landscape(i, w, h), 'image/svg+xml', headers={'Cache-Control': 'private, max-age=31536000'})
+        if path == '/__mock/memories':
+            return self.send(MEM_LOG)
         api = {
             '/api/roots': ROOTS,
             '/api/type': FIELD,
-            '/api/notes': {'notes': sorted(NOTES, key=lambda n: -n['updated'])},
+            '/api/memories': memories_json(),
             '/api/phones': {'phones': PHONES},
             '/api/settings': SETTINGS,
             '/api/tvs': TVS,
@@ -351,10 +415,11 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n)
         u = urlparse(self.path)
         path, query = u.path, parse_qs(u.query)
+        upload = path in ('/api/upload', '/api/memories/add')
         if not path.startswith('/__mock/'):
-            log('POST', self.path, raw if path != '/api/upload' else b'x' * len(raw))
+            log('POST', self.path, raw if not upload else b'x' * len(raw))
         try:
-            body = json.loads(raw) if raw and path != '/api/upload' else {}
+            body = json.loads(raw) if raw and not upload else {}
         except ValueError:
             body = {}
         if path == '/__mock/inbox':
@@ -386,18 +451,26 @@ class Handler(BaseHTTPRequestHandler):
             phone = {'id': body.get('id', 'p-blake'), 'name': body.get('name', "Blake's iPhone"),
                      'alerts': body.get('alerts', True), 'topic': 'woodruff-example'}
             return self.send({'phone': phone, 'phones': PHONES})
-        if path == '/api/notes':
-            note = next((x for x in NOTES if body.get('id') and x['id'] == body['id']), None)
-            if note is None:
-                note = {'id': 'n%d' % int(time.time() * 1000), 'pinned': False}
-                NOTES.append(note)
-            note.update({'title': body.get('title', ''), 'body': body.get('body', ''), 'updated': int(time.time() * 1000)})
-            if 'pinned' in body:
-                note['pinned'] = bool(body['pinned'])
-            return self.send({'note': note})
-        if path == '/api/notes/delete':
-            NOTES[:] = [x for x in NOTES if x['id'] != body.get('id')]
-            return self.send({'ok': True})
+        if path == '/api/memories/add':
+            name = query.get('name', [''])[0].rsplit('/', 1)[-1]
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in ('.jpg', '.jpeg', '.png', '.heic', '.gif', '.webp', '.mov', '.mp4', '.m4v'):
+                return self.send('Only photos and videos go in Family Memories', 'text/plain', 400)
+            video = ext in ('.mov', '.mp4', '.m4v')
+            taken = query.get('taken', [None])[0]
+            item = {'path': (VIDEOS if video else PHOTOS) + '/' + name, 'name': name, 'video': video,
+                    'taken': int(taken) if taken else int(time.time() * 1000), 'size': len(raw), 'v': int(time.time() * 1000)}
+            MEMORIES[:] = [m for m in MEMORIES if m['path'] != item['path']]
+            MEMORIES.append(item)
+            MEMORIES.sort(key=lambda m: (-m['taken'], m['name']))
+            ADDED[item['path']] = (raw, 'image/jpeg' if ext in ('.jpg', '.jpeg') else 'image/svg+xml' if video else 'application/octet-stream')
+            if video:
+                ADDED[item['path']] = (landscape(len(MEM_LOG), 420, 315), 'image/svg+xml')
+            MEM_LOG.append({'name': name, 'taken': int(taken) if taken else None, 'bytes': len(raw), 'jpeg': jpeg_size(raw)})
+            return self.send({'item': item})
+        if path == '/api/memories/delete':
+            MEMORIES[:] = [m for m in MEMORIES if m['path'] != body.get('path')]
+            return self.send(memories_json())
         if path == '/api/announce':
             return self.send({'ok': True, 'phones': len(body.get('phones') or []), 'tvs': 3 if body.get('tv', True) else 0})
         if path == '/api/settings/weather':
