@@ -8,6 +8,8 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -18,6 +20,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.MediaSession
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
@@ -50,6 +53,10 @@ class PlayerActivity : ComponentActivity() {
     private var lastSeen: RecentItem? = null
     /** The key whose OK / Back press was handled here: its release is ours too (PlayerView would pop the controls up). */
     private var swallowUp: Int? = null
+    /** How "Hey Google, pause", Alexa and Bluetooth buttons reach the player; one per player. */
+    private var session: MediaSession? = null
+    /** Playing or paused when the player last stopped, so it comes back the same way. */
+    private var savedPlayWhenReady: Boolean? = null
 
     /** Shares title / play state / position with other TVs and the phone (see NowPlaying). */
     private val reporter = android.os.Handler(android.os.Looper.getMainLooper())
@@ -64,10 +71,13 @@ class PlayerActivity : ComponentActivity() {
             }
             player?.let { p ->
                 updateSkip(p)
+                matchFrameRate(p)
+                queueNextSeason(p)
                 p.currentMediaItem?.let { item ->
                     lastSeen = RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0)
                 }
             }
+            updateScreenOn()
             if (leader && ++syncTicks % 10 == 0) sendSync()
             reporter.postDelayed(this, 1_000)
         }
@@ -75,7 +85,6 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         recent = RecentStore(this)
         com.woodruff.tvexplorer.cloud.EpisodeShows.load(this) // which show name-less episodes belong to
         view = PlayerView(this).apply {
@@ -85,7 +94,6 @@ class PlayerActivity : ComponentActivity() {
             setShowPreviousButton(true)
             // Subtitles button, and the settings (gear) menu with audio track and speed.
             setShowSubtitleButton(true)
-            keepScreenOn = true
         }
         // Our own button next to them: sleep timer and "Skip intro" setup.
         runCatching {
@@ -131,6 +139,16 @@ class PlayerActivity : ComponentActivity() {
             }
             visibility = android.view.View.GONE
         }
+        // "Someone's at the door" when the doorbell rings, in the same corner.
+        doorbell = android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 20f
+            setPadding(48, 32, 48, 32)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xE6101820.toInt()); cornerRadius = 36f
+            }
+            visibility = android.view.View.GONE
+        }
         // What's playing, big at the top whenever the controls are up (they had no title at all).
         titleBar = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
@@ -151,6 +169,8 @@ class PlayerActivity : ComponentActivity() {
             // The corner buttons would cover the controls' own (and OK goes to the controls then).
             if (v == android.view.View.VISIBLE) { skip.visibility = android.view.View.GONE; nextEp.visibility = android.view.View.GONE }
             else player?.let { updateSkip(it) }
+            // The doorbell's card waits behind them too.
+            doorbell.visibility = if (ringing && v != android.view.View.VISIBLE) android.view.View.VISIBLE else android.view.View.GONE
         })
         val root = android.widget.FrameLayout(this)
         root.addView(view)
@@ -158,7 +178,17 @@ class PlayerActivity : ComponentActivity() {
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.TOP,
         ))
-        root.addView(upNext, android.widget.FrameLayout.LayoutParams(
+        // The doorbell's card sits above Up next's when both are up.
+        root.addView(android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.END
+            addView(doorbell, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = 24 })
+            addView(upNext, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+            ))
+        }, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.END,
         ).apply { setMargins(0, 0, 72, 72) })
@@ -214,10 +244,27 @@ class PlayerActivity : ComponentActivity() {
         })
     }
 
-    /** Watched to the end: out of Continue watching, and marked ✓ on its poster / episode row. */
+    /**
+     * Watched to the end: out of Continue watching, marked ✓ on its poster / episode row, and the
+     * show's next episode offered there instead.
+     */
     private fun finished(key: String) {
         recent.remove(key)
         Watched.mark(this, key)
+        upNextAfter(key)
+        // The family's other TVs hear at once (as the player closes, onStop sends it instead).
+        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) com.woodruff.tvexplorer.cloud.FamilySync.pushNow(this)
+    }
+
+    /** The episode queued after [key], when it's the same show's: "Next" on Home and the show's page. */
+    private fun upNextAfter(key: String) {
+        val p = player ?: return
+        val queue = (0 until p.mediaItemCount).map { p.getMediaItemAt(it) }
+        val i = UpNext.indexAfter(queue.map { it.mediaId }, key) ?: return
+        val title = queue[i - 1].mediaMetadata.title?.toString().orEmpty()
+        val next = queue[i]
+        val nextTitle = next.mediaMetadata.title?.toString().orEmpty()
+        if (ShowPrefs.isEpisode(title) && showFor(next.mediaId, nextTitle) == showFor(key, title)) recent.saveUpNext(next.mediaId, nextTitle)
     }
 
     // ---- Scrubbing preview ----------------------------------------------------------------------
@@ -269,6 +316,8 @@ class PlayerActivity : ComponentActivity() {
     private val leader get() = intent.getBooleanExtra(EXTRA_TOGETHER, false)
     private var syncTicks = 0
     private var followJob: kotlinx.coroutines.Job? = null
+    /** When the leader last said where it is (this TV follows one): the screen stays on meanwhile. */
+    private var syncedAt: Long? = null
 
     private fun sendSync() {
         val p = player ?: return
@@ -284,6 +333,7 @@ class PlayerActivity : ComponentActivity() {
     private fun follow(u: WatchSync.Update) {
         val p = player ?: return
         if (leader) return
+        syncedAt = android.os.SystemClock.elapsedRealtime()
         // Where the leader is now: its position plus the time the message took (clocks roughly agree on a LAN).
         val lag = (System.currentTimeMillis() - u.sentAt).coerceIn(0, 2_000)
         val target = u.positionMs + if (u.playing) lag else 0
@@ -358,7 +408,7 @@ class PlayerActivity : ComponentActivity() {
         show() // refreshes introEnd when the episode changed
         val end = introEnd
         val pos = p.currentPosition
-        val free = upNext.visibility != android.view.View.VISIBLE && !view.isControllerFullyVisible
+        val free = upNext.visibility != android.view.View.VISIBLE && !view.isControllerFullyVisible && !ringing
         skip.visibility = if (end > 0 && pos in 1_000 until end - 2_000 && free) android.view.View.VISIBLE else android.view.View.GONE
         // The last 40 s of an episode with the next one of the same show queued: the credits,
         // roughly. Not for films or home videos (it said "Next episode" over the end of a movie).
@@ -517,8 +567,143 @@ class PlayerActivity : ComponentActivity() {
         if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.play() }
     }
 
+    // ---- Screen on -----------------------------------------------------------------------------
+
+    private var screenOn: Boolean? = null
+
+    /**
+     * The screen stays on while it plays or is about to (a stall, a voice question that takes the
+     * sound for a moment, the TV switching its refresh rate), and for the whole of a Watch together.
+     * Paused or ended, the TV's own screensaver can come on.
+     */
+    private fun updateScreenOn() {
+        val p = player
+        val together = leader || syncedAt?.let { android.os.SystemClock.elapsedRealtime() - it < 60_000 } == true
+        val on = together || (p != null && (p.playWhenReady || heldForRate) &&
+            (p.playbackState == Player.STATE_BUFFERING || p.playbackState == Player.STATE_READY))
+        if (on == screenOn) return
+        screenOn = on
+        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    // ---- Match frame rate ----------------------------------------------------------------------
+
+    /** Settings → Appearance → Match frame rate, as it was when this player started. */
+    private var matchRate = false
+    private var rateSwitch: FrameRateMatch.Switch? = null
+    /** The item whose frame rate was seen to (once each). */
+    private var rateMatchedFor: String? = null
+    /** Playback waits while the TV switches its refresh rate (it was playing). */
+    private var heldForRate = false
+
+    /**
+     * Once an item's frame rate and length are known, the TV switches to a refresh rate that suits
+     * it; playback waits for that (a few seconds at most).
+     */
+    private fun matchFrameRate(p: ExoPlayer) {
+        if (!matchRate) return
+        val key = p.currentMediaItem?.mediaId ?: return
+        if (rateMatchedFor == key) return
+        val fps = p.currentTracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
+            ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).frameRate } } ?: return
+        if (p.duration == C.TIME_UNSET) return
+        rateMatchedFor = key
+        if (p.duration < FrameRateMatch.MIN_LENGTH_MS) return
+        val switch = rateSwitch ?: FrameRateMatch.Switch(this).also { rateSwitch = it }
+        val wasHeld = heldForRate
+        if (switch.start(fps) { if (player === p && heldForRate) { heldForRate = false; p.playWhenReady = true } }) {
+            if (p.playWhenReady) { heldForRate = true; p.playWhenReady = false }
+        } else if (wasHeld) {
+            // The previous item's switch was dropped for this one, which needs none: play on.
+            heldForRate = false
+            p.playWhenReady = true
+        }
+    }
+
+    // ---- Next season ---------------------------------------------------------------------------
+
+    /** The episode whose next season was looked for (once each). */
+    private var nextSeasonFor: String? = null
+
+    /**
+     * The last episode in the queue is in its final minutes: find the first episode of the show's
+     * next season and queue it, so Up next carries on into it. Dropped if the player closes first.
+     */
+    private fun queueNextSeason(p: ExoPlayer) {
+        val item = p.currentMediaItem ?: return
+        val key = item.mediaId
+        if (nextSeasonFor == key || p.hasNextMediaItem() || p.duration <= 0 || p.duration - p.currentPosition > NEXT_SEASON_LEAD_MS) return
+        nextSeasonFor = key
+        val ref = MediaRef.parse(key) as? MediaRef.Drive ?: return
+        val name = item.mediaMetadata.title?.toString().orEmpty()
+        val show = com.woodruff.tvexplorer.cloud.EpisodeShows.map.value[key]
+        if (show == null || !ShowPrefs.isEpisode(name)) return
+        val app = applicationContext
+        lifecycleScope.launch {
+            val next = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val t = token().ifEmpty { return@withContext null }
+                    val showFolder = com.woodruff.tvexplorer.cloud.DriveFile(show, "", com.woodruff.tvexplorer.cloud.DriveFile.FOLDER_MIME, 0, 0, null)
+                    val inShow = com.woodruff.tvexplorer.cloud.FolderCache.list(app, t, showFolder) ?: return@withContext null
+                    val season = UpNext.seasonOf(inShow, com.woodruff.tvexplorer.cloud.DriveApi.parentOf(t, ref.id), name) ?: return@withContext null
+                    val folder = UpNext.nextSeason(inShow, season) ?: return@withContext null
+                    com.woodruff.tvexplorer.cloud.FolderCache.list(app, t, folder)
+                        ?.let { UpNext.firstEpisode(it, com.woodruff.tvexplorer.tmdb.Tmdb.seasonNumber(folder.name)) }
+                }
+            }.getOrNull() ?: return@launch
+            if (player !== p || p.hasNextMediaItem() || p.currentMediaItem?.mediaId != key) return@launch
+            val nextRef = MediaRef.Drive(next.id)
+            // Known as this show's whatever it's called (Continue watching's poster, the same-show checks).
+            com.woodruff.tvexplorer.cloud.EpisodeShows.remember(app, mapOf(nextRef.key to show))
+            p.addMediaItem(
+                MediaItem.Builder().setMediaId(nextRef.key).setUri(nextRef.uri)
+                    .setMediaMetadata(MediaMetadata.Builder().setTitle(com.woodruff.tvexplorer.util.Format.title(next.name)).build()).build(),
+            )
+        }
+    }
+
+    // ---- Doorbell ------------------------------------------------------------------------------
+
+    private lateinit var doorbell: android.widget.TextView
+    /** The doorbell's card is up (for 20 s, or until Back). */
+    private var ringing = false
+    /** The camera that rang, for OK; null when this TV's cameras aren't signed in (a linked TV's ring). */
+    private var ringingCamera: String? = null
+    private var doorbellJob: kotlinx.coroutines.Job? = null
+    private val hideDoorbell = Runnable { dismissDoorbell() }
+
+    /**
+     * The doorbell rang: a card over the film for 20 s. OK opens that camera live; the player keeps
+     * its place while it's covered, and Back there returns to the film.
+     */
+    private fun showDoorbell(camera: String) {
+        val nest = com.woodruff.tvexplorer.nest.Nest.state.value
+        val canLook = nest.step == com.woodruff.tvexplorer.nest.NestStep.CONNECTED
+        val label = nest.cameras.firstOrNull { it.name == camera }?.label
+        ringingCamera = camera.takeIf { canLook }
+        val line = listOfNotNull(label, "OK to look".takeIf { canLook }).joinToString("  ·  ")
+        doorbell.text = if (line.isEmpty()) "Someone's at the door" else "Someone's at the door\n$line"
+        ringing = true
+        view.hideController()
+        doorbell.visibility = android.view.View.VISIBLE
+        player?.let { updateSkip(it) } // Skip intro / Next episode make way
+        countdown.removeCallbacks(hideDoorbell)
+        countdown.postDelayed(hideDoorbell, 20_000)
+    }
+
+    private fun dismissDoorbell() {
+        countdown.removeCallbacks(hideDoorbell)
+        ringing = false
+        ringingCamera = null
+        if (::doorbell.isInitialized) doorbell.visibility = android.view.View.GONE
+    }
+
     override fun onStart() {
         super.onStart()
+        // A press handled just before another screen covered this one (OK on the doorbell's card):
+        // its release went there, so don't swallow the next one here.
+        swallowUp = null
         com.woodruff.tvexplorer.util.FrameStats.screen = "Player"
         com.woodruff.tvexplorer.util.FrameStats.attach(this)
         preview = ScrubPreview(::previewSource)
@@ -531,9 +716,13 @@ class PlayerActivity : ComponentActivity() {
         if (savedQueue == null && chosen != null && chosen !in keys) { keys = listOf(chosen) + keys; titles = listOf("") + titles }
         if (keys.isEmpty()) { finish(); return }
         val start = savedIndex ?: keys.indexOf(chosen).coerceAtLeast(0)
-        // A new player: no subtitles switched on by this activity yet, nothing stalled.
+        // A new player: no subtitles switched on by this activity yet, nothing stalled. The refresh
+        // rate and the next season are seen to again (the TV may have switched back meanwhile).
         autoSubsOn = false
         stalledKey = null
+        rateMatchedFor = null
+        nextSeasonFor = null
+        matchRate = FrameRateMatch.enabled(this)
         val startPos = savedPosition ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
 
         val items = keys.mapIndexed { i, key ->
@@ -545,14 +734,28 @@ class PlayerActivity : ComponentActivity() {
                 .build()
         }
 
+        // The buffer is Java memory in Woodruff's own heap. Where that's small (192 MB or less), it
+        // gets at most half of it: a Blu-ray remux would fill Media3's ~140 MB otherwise.
+        val heapMb = getSystemService(android.app.ActivityManager::class.java)?.memoryClass ?: 256
+        val smallHeap = heapMb <= 192
         player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()))
             // Start as soon as 1 s is buffered (2 s after a stall) instead of the default 2.5 / 5 s,
-            // so Play feels immediate; it keeps filling up to 50 s ahead while it plays.
+            // so Play feels immediate; it keeps filling up to 50 s ahead while it plays. The last 10 s
+            // (5 on a small heap) stay too, so a short rewind is instant instead of a new download.
             .setLoadControl(
                 androidx.media3.exoplayer.DefaultLoadControl.Builder()
                     .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
+                    .setBackBuffer(if (smallHeap) 5_000 else 10_000, /* retainBackBufferFromKeyframe = */ true)
+                    .apply { if (smallHeap) setTargetBufferBytes(heapMb * 1024 * 1024 / 2) }
                     .build(),
             )
+            // Other apps go quiet while it plays, a voice question pauses it for a moment, and it
+            // pauses when headphones are unplugged.
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+            .setHandleAudioBecomingNoisy(true)
+            // Match frame rate switches the TV itself: Media3's own switching only asks for seamless
+            // changes, which TV boxes can't make.
+            .apply { if (matchRate) setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF) }
             .build().also { p ->
             // Known before its first events: the show's track choices are looked up through it (a
             // null player here applied show ""'s, so the first episode ignored the saved choice).
@@ -587,10 +790,14 @@ class PlayerActivity : ComponentActivity() {
                         return
                     }
                     // Unsupported codec etc.: say so and move on rather than sitting on a black screen.
+                    // The whole cause goes to the log: the TV running out of memory partway through a
+                    // big remux otherwise looks just like a bad file.
+                    android.util.Log.w("Player", "Can't play $key: ${error.errorCodeName}", error)
                     val why = when {
                         http == 401 || http == 403 -> "Google Drive refused it (sign in to Google Drive again in Settings)"
                         http == 404 -> "it's no longer in Google Drive"
                         http != null -> "Google Drive error $http"
+                        generateSequence<Throwable>(error) { it.cause }.take(10).any { it is OutOfMemoryError } -> "this TV ran out of memory"
                         else -> error.errorCodeName
                     }
                     Toast.makeText(this@PlayerActivity, "Can't play ${p.currentMediaItem?.mediaMetadata?.title ?: "this file"}: $why", Toast.LENGTH_LONG).show()
@@ -615,6 +822,8 @@ class PlayerActivity : ComponentActivity() {
                     if (changed.isNotEmpty()) rememberTracks(p, tracks, changed)
                     // Unless they chose the subtitles themselves, those follow the speech.
                     if (androidx.media3.common.C.TRACK_TYPE_TEXT !in changed) englishSubtitlesIfForeign(p, tracks)
+                    // Known before the first frame plays: the TV can switch while nothing's lost.
+                    matchFrameRate(p)
                 }
 
                 override fun onTrackSelectionParametersChanged(parameters: androidx.media3.common.TrackSelectionParameters) {
@@ -629,11 +838,13 @@ class PlayerActivity : ComponentActivity() {
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
+                    updateScreenOn()
                     // Last item of a music queue (no pause at the end): leave like a video does.
                     if (state == Player.STATE_ENDED) { p.currentMediaItem?.mediaId?.let(::finished); finish() }
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    updateScreenOn()
                     if (playWhenReady || reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) return
                     if (sleepAtEnd) { sleepNow(); return }
                     if (p.hasNextMediaItem()) startUpNext()
@@ -665,13 +876,22 @@ class PlayerActivity : ComponentActivity() {
             p.pauseAtEndOfMediaItems = true
             p.setMediaItems(items, start, startPos)
             applyShowTracks(p)
-            p.playWhenReady = true
+            // Back to it (from the doorbell, the screensaver): as it was, so paused stays paused. A
+            // new film plays.
+            p.playWhenReady = savedPlayWhenReady ?: true
             p.prepare()
             view.player = p
+            // Voice ("Hey Google, pause", Alexa) and Bluetooth buttons. The remote's own media keys
+            // still go to PlayerView first and only unhandled ones reach the session, so none acts
+            // twice. A new id each time: Watch together and Play on TV open a second player before
+            // the first one stops, and Media3 refuses a duplicate.
+            session = runCatching { MediaSession.Builder(this, p).setId("player-${++sessionIds}").build() }.getOrNull()
             if (items.size == 1) fillQueueFromFolder(p)
         }
+        updateScreenOn()
         reporter.post(report)
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
+        doorbellJob = lifecycleScope.launch { com.woodruff.tvexplorer.nest.Doorbell.rings.collect { showDoorbell(it) } }
     }
 
     override fun onStop() {
@@ -682,20 +902,30 @@ class PlayerActivity : ComponentActivity() {
         reporter.removeCallbacks(report)
         retry.removeCallbacksAndMessages(null)
         followJob?.cancel(); followJob = null
+        doorbellJob?.cancel(); doorbellJob = null
+        dismissDoorbell()
         cancelUpNext()
         countdown.removeCallbacks(sleep)
+        rateSwitch?.cancel()
         com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = null
+        // Before the player it speaks for.
+        session?.release(); session = null
         player?.let { p ->
             savedIndex = p.currentMediaItemIndex
             savedPosition = p.currentPosition
+            // Waiting for the TV's refresh rate isn't a pause.
+            savedPlayWhenReady = p.playWhenReady || heldForRate
             savedQueue = (0 until p.mediaItemCount).map { p.getMediaItemAt(it) }.let { items ->
                 items.map { it.mediaId } to items.map { it.mediaMetadata.title?.toString() ?: "" }
             }
             p.currentMediaItem?.let { item ->
                 keepPlace(RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0))
             }
+            // The family's other TVs get where it stopped now, before this TV may go to sleep.
+            com.woodruff.tvexplorer.cloud.FamilySync.pushNow(this)
             p.release()
         }
+        heldForRate = false
         player = null
         super.onStop()
     }
@@ -779,6 +1009,16 @@ class PlayerActivity : ComponentActivity() {
         if (event.keyCode == KeyEvent.KEYCODE_MENU || event.keyCode == KeyEvent.KEYCODE_INFO) {
             showOptions(); return true
         }
+        // The doorbell's card first: OK looks at the door, Back closes the card.
+        if (doorbell.visibility == android.view.View.VISIBLE) {
+            val camera = ringingCamera
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (camera != null) {
+                    dismissDoorbell(); startActivity(DoorbellActivity.intent(this, camera)); return true
+                }
+                KeyEvent.KEYCODE_BACK -> { dismissDoorbell(); return true }
+            }
+        }
         if (nextEp.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { nextEp.visibility = android.view.View.GONE; playNext(); return true }
@@ -817,6 +1057,10 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_START = "start"
         private const val EXTRA_POSITION = "position"
         private const val EXTRA_TOGETHER = "together"
+        /** How near the end of a season's last episode the next season is looked for. */
+        private const val NEXT_SEASON_LEAD_MS = 3 * 60_000L
+        /** Media session ids must differ, and two players can overlap for a moment. */
+        private var sessionIds = 0
 
         /** [keys] are [MediaRef] keys; [titles] line up with them. */
         fun intent(context: Context, keys: List<String>, titles: List<String>, start: String, positionMs: Long? = null, together: Boolean = false): Intent =

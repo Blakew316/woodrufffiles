@@ -80,6 +80,8 @@ dependencies {
     implementation(libs.androidx.tv.material)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
+    // The player's media session: voice ("Hey Google, pause", Alexa) and Bluetooth buttons.
+    implementation(libs.media3.session)
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
     implementation(libs.nanohttpd)
