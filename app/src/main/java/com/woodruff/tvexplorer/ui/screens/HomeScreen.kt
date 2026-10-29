@@ -96,6 +96,9 @@ import com.woodruff.tvexplorer.notify.Board
 import com.woodruff.tvexplorer.photos.Memories
 import androidx.compose.runtime.produceState
 import com.woodruff.tvexplorer.nest.CameraStills
+import com.woodruff.tvexplorer.nest.CameraStreams
+import com.woodruff.tvexplorer.cloud.FamilySync
+import com.woodruff.tvexplorer.player.Watched
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -125,8 +128,11 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     var recent by remember { mutableStateOf(store.continueWatching()) }
     var removeFor by remember { mutableStateOf<RecentItem?>(null) }
     // Coming back from the player: pick up the position it just saved (and a fresh token for the
-    // Google-hosted posters: the one from start-up lasts an hour).
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching(); drive.refreshToken() }
+    // Google-hosted posters: the one from start-up lasts an hour), and what the other TVs watched.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching(); drive.refreshToken(); FamilySync.pullSoon(context) }
+    // Another TV's progress merged in while Home is up: show it.
+    val syncSeen = remember { FamilySync.updates.value }
+    LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) recent = store.continueWatching() } }
     val play = { r: RecentItem -> context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key)) }
     // Recently added movies and shows, after what's in progress.
     val added by drive.recentlyAdded.collectAsStateWithLifecycle()
@@ -169,10 +175,11 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
 
     removeFor?.let { r ->
         ActionMenu(
-            title = r.title, subtitle = "${(r.progress * 100).toInt()}% watched",
+            title = r.title, subtitle = if (r.upNext) upNextCaption(r.title) else "${(r.progress * 100).toInt()}% watched",
             onDismiss = { removeFor = null },
             actions = listOfNotNull(
-                MenuAction("Play from where you left off", Sym.PlayArrow) { play(r) },
+                // Up next hasn't started: it plays from the beginning.
+                MenuAction(if (r.upNext) "Play" else "Play from where you left off", Sym.PlayArrow) { play(r) },
                 // Same Drive video on every linked TV, from the same spot.
                 if (linked.isNotEmpty() && MediaRef.parse(r.key) is MediaRef.Drive) MenuAction("Watch together on all TVs", Sym.Groups) {
                     scope.launch {
@@ -181,6 +188,11 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
                         context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key, r.positionMs, together = true))
                     }
                 } else null,
+                // As finishing it in the player does: off Continue watching, with a ✓ on its poster
+                // (both reach the other TVs too).
+                MenuAction("Mark as watched", Sym.CheckCircle) {
+                    store.remove(r.key); Watched.mark(context, r.key); recent = store.continueWatching()
+                },
                 MenuAction("Remove from Continue watching", Sym.Delete, destructive = true) {
                     store.remove(r.key); recent = store.continueWatching()
                 },
@@ -188,6 +200,9 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         )
     }
 }
+
+/** An up-next tile's caption, in place of the progress bar: "Next · S2 E5" ("Up next" without an episode number). */
+internal fun upNextCaption(title: String): String = episodeCode(title)?.let { "Next · $it" } ?: "Up next"
 
 // ---- Family message board ------------------------------------------------------------------
 
@@ -395,10 +410,19 @@ private fun ResumeTile(
             val poster = art?.posterUrl?.takeIf { token != null || !isGoogle(it) }
             ResumeArt(r, poster, token)
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp)) {
-                // A poster carries its own title; an episode still says which one it is.
-                val label = if (poster == null) Format.title(r.title) else episodeCode(r.title)
+                // A poster carries its own title; an episode still says which one it is (up next, the caption does).
+                val label = when {
+                    poster == null -> Format.title(r.title)
+                    r.upNext -> null
+                    else -> episodeCode(r.title)
+                }
                 if (label != null) Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                UsageBar(r.progress, Modifier.padding(top = 4.dp))
+                // The next episode hasn't started: which one it is, instead of an empty bar.
+                if (r.upNext) Text(
+                    upNextCaption(r.title), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
+                )
+                else UsageBar(r.progress, Modifier.padding(top = 4.dp))
             }
         }
     }
@@ -438,7 +462,8 @@ private fun ResumeArt(r: RecentItem, poster: String?, token: String?) {
 @Composable
 private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
     val context = LocalContext.current
-    var tvs by remember { mutableStateOf(DashboardSamples.tvs ?: emptyList()) }
+    // Starts from what the TVs were doing when last asked (instead of "Looking…"), then refreshes.
+    var tvs by remember { mutableStateOf(DashboardSamples.tvs ?: TvLinks.lastStatuses()) }
     var selected by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (DashboardSamples.tvs != null) return@LaunchedEffect
@@ -551,27 +576,30 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
         delay(600)
         focusedCam = r
     }
-    // "One at a time" (and low-memory TVs): one tile streams, moving on every 20 s; the others
-    // show their last frame. The tile you're on always plays.
+    // "One at a time" (and low-memory TVs): one tile streams, moving on every minute; the others
+    // show their last frame. The tile you're on always plays. (Each move stops one stream and
+    // starts another, and Google allows only so many of those an hour per camera.)
     val mode = Appearance.homeCameras
     val rotate = mode == Appearance.HomeCameras.ROTATE || (lowRam && mode == Appearance.HomeCameras.ALL)
     var turn by remember { mutableIntStateOf(0) }
-    LaunchedEffect(rotate, onScreen) { while (rotate && onScreen) { delay(20_000); turn++ } }
+    LaunchedEffect(rotate, onScreen) { while (rotate && onScreen) { delay(60_000); turn++ } }
     LaunchedEffect(visible) { onScreen = false; if (visible) { delay(1_500); onScreen = true } }
+    val liveTiles = onScreen && mode != Appearance.HomeCameras.OFF
+    val shown = cams.take(4)
+    val rotating = if (rotate && liveTiles && state.step == NestStep.CONNECTED) rotatingTile(shown.map { it.name }, focusedCam, turn) else null
+    // When it moves on, the camera it was showing closes now instead of staying up for another
+    // screen, so one at a time really is one (as are any still up from the Command center).
+    LaunchedEffect(rotating) { if (rotating != null) CameraStreams.closeIdle() }
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
             // Four at a glance in a 2×2 grid; the rest are in the Command center.
             samples != null -> CameraGrid4(samples.take(4)) { _, name -> CameraTile(name, null, live = false, onClick = {}) }
-            state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4(cams.take(4)) { i, cam ->
+            state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4(shown) { i, cam ->
                 // Play live on their own, like the Command center.
                 key(cam.name) {
                     CameraTile(
                         cam.label, cam,
-                        live = onScreen && cam.webRtc && mode != Appearance.HomeCameras.OFF && when {
-                            !rotate -> true
-                            focusedCam != null -> focusedCam == cam.name
-                            else -> i == turn % minOf(cams.size, 4)
-                        },
+                        live = liveTiles && cam.webRtc && (!rotate || rotating == cam.name),
                         onFocus = { f -> if (f) focusRaw = cam.name else if (focusRaw == cam.name) focusRaw = null },
                         onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) },
                     )
@@ -585,6 +613,16 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
             }
         }
     }
+}
+
+/**
+ * "One at a time": which of Home's camera [tiles] plays live. The one you're on, else the one whose
+ * [turn] it is (they take turns in order); null when there are none.
+ */
+internal fun rotatingTile(tiles: List<String>, focused: String?, turn: Int): String? = when {
+    focused != null && focused in tiles -> focused
+    tiles.isEmpty() -> null
+    else -> tiles[turn.mod(tiles.size)]
 }
 
 /**

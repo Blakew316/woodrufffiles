@@ -55,10 +55,12 @@ object Rtc {
 }
 
 /**
- * One live camera view. Google's live streams end after about five minutes, so this extends the
- * stream every four, and reconnects from scratch if extending or the connection fails.
+ * One camera's live stream, shown by any number of views at once ([CameraStreams] shares it): each
+ * view [attach]es its picture and [detach]es it, and the stream runs from [start] until [close].
+ * Google's live streams end after about five minutes, so this extends the stream every four, and
+ * reconnects from scratch if extending or the connection fails.
  */
-class CameraStream(private val context: Context, private val camera: Camera, private val sink: VideoSink) {
+class CameraStream(private val context: Context, private val camera: Camera) {
     sealed interface Status {
         data object Connecting : Status
         data object Live : Status
@@ -70,13 +72,24 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
     val status: StateFlow<Status> = _status
     @Volatile private var pc: PeerConnection? = null
     @Volatile private var sessionId: String? = null
-    @Volatile private var audio: AudioTrack? = null
     @Volatile private var audioOn = false
     @Volatile private var dropped: CompletableDeferred<Unit>? = null
     @Volatile private var job: Job? = null
     @Volatile private var onClosed: (() -> Unit)? = null
 
+    // The views' pictures (each with whether it wants sound) and the current connection's tracks,
+    // guarded by [tracks] alone, never this object's monitor: onTrack runs on WebRTC's signaling
+    // thread and takes this lock, while teardown() and setAudio() hold the monitor and wait on that
+    // same thread (closing the connection, switching the sound), so one lock for both would deadlock.
+    private val tracks = Any()
+    private val sinks = LinkedHashMap<VideoSink, Boolean>()
+    /** The connection whose tracks these are; onTrack from an older one is ignored. */
+    private var live: Any? = null
+    private var video: VideoTrack? = null
+    private var audio: AudioTrack? = null
+
     fun start() {
+        if (job != null) return
         job = scope.launch {
             try { run() } finally {
                 // Only this coroutine ever touches the connection, so tearing down here (after any
@@ -122,16 +135,49 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
         }
     }
 
-    /** Synchronized with [teardown], so it never touches a track that's being disposed. */
-    @Synchronized
-    fun setAudio(on: Boolean) {
-        audioOn = on
-        audio?.setEnabled(on)
+    /**
+     * Shows this stream in [sink], now and after every reconnect. [wantsAudio]: play its sound while
+     * attached (attaching the same sink again just changes that).
+     */
+    fun attach(sink: VideoSink, wantsAudio: Boolean) {
+        synchronized(tracks) {
+            val isNew = sinks.put(sink, wantsAudio) == null
+            // Only a track of the live connection: teardown() lets go of it under this lock first.
+            if (isNew) video?.let { v -> runCatching { v.addSink(sink) }.onFailure { Log.w("CameraStream", "attach", it) } }
+        }
+        updateAudio()
     }
 
     /**
-     * Stops the stream; [then] runs (on a background thread) once the connection is fully torn
-     * down, so the video renderer is only released after nothing can draw into it.
+     * Stops showing this stream in [sink]. Once this returns no frame reaches it any more (WebRTC
+     * waits for one being delivered), so the view's renderer can be released straight after.
+     */
+    fun detach(sink: VideoSink) {
+        synchronized(tracks) {
+            if (sinks.remove(sink) == null) return
+            video?.let { v -> runCatching { v.removeSink(sink) }.onFailure { Log.w("CameraStream", "detach", it) } }
+        }
+        updateAudio()
+    }
+
+    /** Sound plays while any attached view wants it. */
+    private fun updateAudio() {
+        val want = synchronized(tracks) { sinks.containsValue(true) }
+        if (want != audioOn) setAudio(want)
+    }
+
+    /** Synchronized with [teardown], so it never touches a track that's being disposed. */
+    @Synchronized
+    private fun setAudio(on: Boolean) {
+        audioOn = on
+        // Called outside [tracks]: switching the sound waits on the signaling thread, where onTrack takes that lock.
+        val track = synchronized(tracks) { audio }
+        runCatching { track?.setEnabled(on) }
+    }
+
+    /**
+     * Stops the stream (only [CameraStreams] does, once no view shows it); [then] runs (on a
+     * background thread) once the connection is fully torn down and Google told to stop.
      */
     fun close(then: () -> Unit = {}) {
         onClosed = then
@@ -145,10 +191,13 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
         val config = PeerConnection.RTCConfiguration(
             listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()),
         ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
+        // Marks this connection's callbacks, so late ones from it change nothing after teardown.
+        val token = Any()
 
         val conn = factory.createPeerConnection(config, object : PeerConnection.Observer {
             override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+                if (synchronized(tracks) { live !== token }) return
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> _status.value = Status.Live
                     // DISCONNECTED often recovers by itself; FAILED doesn't.
@@ -168,13 +217,23 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
             override fun onRenegotiationNeeded() {}
             override fun onTrack(transceiver: RtpTransceiver?) {
                 when (val track = transceiver?.receiver?.track()) {
-                    is VideoTrack -> track.addSink(sink)
-                    is AudioTrack -> { audio = track; track.setEnabled(audioOn) }
+                    // Every view attached so far gets this connection's picture (and later ones in attach()).
+                    is VideoTrack -> synchronized(tracks) {
+                        if (live !== token) return@synchronized
+                        video = track
+                        sinks.keys.forEach { s -> runCatching { track.addSink(s) }.onFailure { Log.w("CameraStream", "addSink", it) } }
+                    }
+                    is AudioTrack -> {
+                        val mine = synchronized(tracks) { (live === token).also { if (it) audio = track } }
+                        // Already on the signaling thread, and teardown can't dispose it until this returns.
+                        if (mine) runCatching { track.setEnabled(audioOn) }
+                    }
                     else -> Unit
                 }
             }
         }) ?: throw IllegalStateException("WebRTC isn't available on this TV")
         pc = conn
+        synchronized(tracks) { live = token }
 
         // Google requires audio, then video, then a data channel in the offer, in that order.
         val recvOnly = RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY)
@@ -193,11 +252,23 @@ class CameraStream(private val context: Context, private val camera: Camera, pri
         setDescription { obs -> conn.setRemoteDescription(obs, SessionDescription(SessionDescription.Type.ANSWER, session.answerSdp)) }
     }
 
-    /** Synchronized: [close] and the reconnect loop may both tear down; a double dispose crashes natively. */
+    /**
+     * Synchronized: a double dispose crashes natively, and [setAudio] mustn't touch a track while
+     * it's disposed. Only the stream's own coroutine calls this.
+     */
     @Synchronized
     private fun teardown() {
         dropped = null
-        audio = null
+        // First the views stop being fed, under the lock attach(), detach() and onTrack use: from here
+        // on nothing touches this connection's tracks (they're disposed below), and its late onTrack
+        // changes nothing. The connection is closed outside the lock: closing waits on the signaling
+        // thread, where onTrack may be waiting for it.
+        synchronized(tracks) {
+            live = null
+            video?.let { v -> sinks.keys.forEach { s -> runCatching { v.removeSink(s) } } }
+            video = null
+            audio = null
+        }
         val p = pc ?: return
         pc = null
         runCatching { p.close() }

@@ -3,7 +3,9 @@ package com.woodruff.tvexplorer.ui.screens
 import com.woodruff.tvexplorer.ui.icons.Sym
 import android.util.Log
 import com.woodruff.tvexplorer.nest.CameraStills
+import com.woodruff.tvexplorer.nest.CameraStreams
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 
@@ -37,6 +39,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -285,6 +288,7 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
 /**
  * One live camera view, streaming only while Woodruff is on screen: with the slideshow, a video
  * or another app on top, the stream stops (it was decoding underneath) and resumes on return.
+ * Views of the same camera share one stream, in this activity or another (the doorbell over a film).
  */
 @Composable
 internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false) {
@@ -302,13 +306,17 @@ private class Renderer(
 )
 
 /**
- * One WebRTC live view. The renderer and stream live exactly as long as this composable.
+ * One WebRTC live view. The renderer lives exactly as long as this composable; the stream is shared
+ * (CameraStreams): the view joins the camera's running stream, or starts one, and lets go when it
+ * leaves. Off to another screen, the stream stays up a moment for it, so Home or the grid to full
+ * screen (and back) and a doorbell ring show the picture at once; Woodruff leaving the screen closes it.
  * [fill]: a tile — the picture fills it and takes its rounded corners (a TextureView); otherwise
  * the whole frame is shown, letterboxed if need be (a SurfaceView, the cheapest to draw).
  */
 @Composable
 private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean) {
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val renderer = remember {
         if (fill) com.woodruff.tvexplorer.nest.TextureRenderer(context, Rtc.egl.eglBaseContext).let { t ->
             Renderer(t, t, { l -> t.addFrameListener(l, 0.3f) }, { t.release() })
@@ -320,16 +328,39 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean) {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }.let { s -> Renderer(s, s, { l -> s.addFrameListener(l, 0.3f) }, { s.release() }) }
     }
-    val stream = remember { CameraStream(context, cam, renderer.sink) }
+    // Declared first so it's undone last (effects end in reverse order): the renderer is released
+    // only after its picture has been detached from the stream below.
     DisposableEffect(Unit) {
-        stream.start()
+        onDispose { runCatching { renderer.release() }.onFailure { Log.w("LiveVideo", "release", it) } }
+    }
+    val wantsAudio by rememberUpdatedState(audio)
+    var hold by remember { mutableStateOf<CameraStreams.Hold?>(null) }
+    DisposableEffect(cam.name, lifecycle) {
+        // Attached while this screen is started. Stopping (a film, another app) lets go at once,
+        // straight from the lifecycle rather than the next recomposition.
+        var mine: CameraStreams.Hold? = null
+        val watcher = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START && mine == null) {
+                val h = CameraStreams.acquire(context, cam, renderer.sink, wantsAudio)
+                mine = h
+                hold = h
+            } else if (event == Lifecycle.Event.ON_STOP) {
+                mine?.let { CameraStreams.release(it, linger = false) }
+                mine = null
+                hold = null
+            }
+        }
+        lifecycle.addObserver(watcher)
         onDispose {
-            stream.close()
-            runCatching { renderer.release() }.onFailure { Log.w("LiveVideo", "release", it) }
+            lifecycle.removeObserver(watcher)
+            // Off to another screen: the stream stays up a moment, in case that one shows this camera too.
+            mine?.let { CameraStreams.release(it, linger = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+            mine = null
         }
     }
-    LaunchedEffect(audio) { stream.setAudio(audio) }
-    val status by stream.status.collectAsState()
+    LaunchedEffect(audio) { hold?.let { CameraStreams.setAudio(it, audio) } }
+    val stream = hold?.stream
+    val status = if (stream == null) CameraStream.Status.Connecting else stream.status.collectAsState().value
     // Keep a small recent frame of this camera for tiles that aren't streaming.
     LaunchedEffect(status) {
         while (status == CameraStream.Status.Live) {
@@ -340,10 +371,10 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean) {
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { renderer.view }, modifier = Modifier.fillMaxSize())
-        when (val s = status) {
+        when (status) {
             CameraStream.Status.Live -> Unit
             CameraStream.Status.Connecting -> Placeholder("Connecting…")
-            is CameraStream.Status.Failed -> Placeholder(s.message + "\nRetrying…")
+            is CameraStream.Status.Failed -> Placeholder(status.message + "\nRetrying…")
         }
     }
 }
