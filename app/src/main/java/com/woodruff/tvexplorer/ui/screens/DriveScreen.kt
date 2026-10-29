@@ -4,18 +4,16 @@ import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Context
 import androidx.compose.foundation.layout.height
 import com.woodruff.tvexplorer.ui.theme.ambientBackdrop
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.Animatable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,13 +43,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,10 +69,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BrushPainter
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -92,6 +95,7 @@ import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.ImageViewerActivity
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.PlayerActivity
+import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.ui.MainViewModel
@@ -103,13 +107,22 @@ import com.woodruff.tvexplorer.R
 import com.woodruff.tvexplorer.ui.components.FileGlyph
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.icon
-import com.woodruff.tvexplorer.ui.theme.CardStyle
+import com.woodruff.tvexplorer.ui.motion.FocusMotionState
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TvCard
+import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.dpadGate
+import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 
 @Composable
 fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
-    val state by drive.state.collectAsStateWithLifecycle()
+    // Without the download progress and messages (AppRoot shows those): a download's progress,
+    // every 150 ms, no longer recomposes this screen and its posters.
+    val state by drive.screen.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var menuFor by remember { mutableStateOf<DriveFile?>(null) }
     var searching by remember { mutableStateOf(false) }
@@ -138,43 +151,58 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 
     val filter = state.filter
+    // Read once here and handed down: the tiles don't read the screen's state themselves, so a
+    // change to it recomposes them only when what they show changed.
+    val token = state.token
+    val library = state.library
+    val filterable = state.filterable
     // Movies, where a folder is a film kept in it (in TV Shows, a show or a season).
     val films = state.stack.firstOrNull() == DrivePlace.Movies
     // Mark as watched / unwatched (Watched can't be observed) and another TV's ✓s and progress
-    // merged in: either way the posters' ✓s and progress bars are read again.
+    // merged in: either way the posters' ✓s and progress bars are read again — by the tiles, which
+    // read this count as they compose, so a ✓ redraws them and not the grid or the rows around them.
     val marks = remember { mutableIntStateOf(0) }
-    val synced by FamilySync.updates.collectAsStateWithLifecycle()
-    val marked = marks.intValue + synced
-    val seen: (DriveFile) -> Boolean = remember(marked, films) { { f: DriveFile -> posterWatched(context, f, films) } }
+    val synced = FamilySync.updates.collectAsStateWithLifecycle()
+    val marked = remember { derivedStateOf { marks.intValue + synced.value } }
+    // Reads [marked] as well: a tile asking while it composes is composed again when a ✓ changes.
+    val seen: (DriveFile) -> Boolean = remember(films) { { f: DriveFile -> marked.value; posterWatched(context, f, films) } }
     // Movies / TV Shows top level: filtered and sorted; everywhere else as Drive lists it.
-    val shown = remember(state.files, state.filterable, filter, films) {
+    val shown = remember(state.files, filterable, filter, films) {
         when {
-            !state.filterable -> state.files
+            !filterable -> state.files
+            // The Overview shows rows, worked out on their own: no sorting the whole library for it.
+            filter.overview -> state.files
             // As watched when it was chosen: a ✓ marked meanwhile doesn't pull a title (and the focus) away.
             filter.unwatched -> Library.apply(state.files, filter, watchedFor(context, state.files, films))
             else -> Library.apply(state.files, filter)
         }
     }
+    // For the handlers below, which read it when they run: they stay the same lambdas when it
+    // changes, so the tiles holding them aren't recomposed for it.
+    val latestShown by rememberUpdatedState(shown)
     // A film in Movies / TV Shows plays on its own: no rolling on into the next title (and the
     // queue is never cut short of the one chosen). In a folder, the media around it queue up after it.
     val onOpen: (DriveFile) -> Unit = { f ->
         // An episode opened inside a show's folders: remember the show for the ones queued with it.
         val showFolder = (state.stack.getOrNull(1) as? DrivePlace.Folder)?.takeIf { state.stack.firstOrNull() == DrivePlace.TvShows }
         if (showFolder != null && f.kind == FileKind.VIDEO) {
-            com.woodruff.tvexplorer.cloud.EpisodeShows.remember(context, shown.filter { it.kind == FileKind.VIDEO }.associate { MediaRef.Drive(it.id).key to showFolder.id })
+            com.woodruff.tvexplorer.cloud.EpisodeShows.remember(context, latestShown.filter { it.kind == FileKind.VIDEO }.associate { MediaRef.Drive(it.id).key to showFolder.id })
         }
-        openDriveFile(context, f, if (state.filterable) listOf(f) else shown, drive::open, onOther = { menuFor = it })
+        openDriveFile(context, f, if (state.filterable) listOf(f) else latestShown, drive::open, onOther = { menuFor = it })
     }
 
     var moreOpen by remember { mutableStateOf(false) }
-    // In the Filter panel at a library's top; the More menu in a show's folders.
-    val driveActions = listOf(
-        MenuAction("Refresh", Sym.Refresh, run = drive::refresh),
-        MenuAction("My Drive", Sym.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
-        MenuAction("All videos", Sym.Movie) { drive.openRoot(DrivePlace.Videos()) },
-        MenuAction("Shared with me", Sym.FolderShared) { drive.openRoot(DrivePlace.SharedWithMe) },
-        MenuAction("Sign out of Google Drive", Sym.Logout, destructive = true, run = drive::signOut),
-    )
+    // In the Filter panel at a library's top; the More menu in a show's folders. Made once: a new
+    // list on every recomposition recomposed the header with it.
+    val driveActions = remember(drive) {
+        listOf(
+            MenuAction("Refresh", Sym.Refresh, run = drive::refresh),
+            MenuAction("My Drive", Sym.AddToDrive) { drive.openRoot(DrivePlace.MyDrive) },
+            MenuAction("All videos", Sym.Movie) { drive.openRoot(DrivePlace.Videos()) },
+            MenuAction("Shared with me", Sym.FolderShared) { drive.openRoot(DrivePlace.SharedWithMe) },
+            MenuAction("Sign out of Google Drive", Sym.Logout, destructive = true, run = drive::signOut),
+        )
+    }
     // A title's detail page (Movies / TV Shows top level): choosing a poster opens it first, as on Apple TV.
     var detailFor by remember { mutableStateOf<DriveFile?>(null) }
     val choose: (DriveFile) -> Unit = { f -> if (state.filterable) detailFor = f else onOpen(f) }
@@ -211,12 +239,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         if (watched) { RecentStore(context).remove(key); Watched.mark(context, key) } else Watched.unmark(context, key)
         marks.intValue++
     }
-    if (state.library) PosterBackdrop(focusedArt, state.token)
-    Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = if (state.library) 18.dp else 32.dp)) {
-        if (state.library) {
+    if (library) PosterBackdrop(focusedArt, token)
+    Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = if (library) 18.dp else 32.dp)) {
+        if (library) {
             // Movies / TV Shows: title, filters and the Drive buttons share one short row, so the
             // posters start near the top of the screen.
-            if (state.filterable) {
+            if (filterable) {
                 // The library's top level: Movies / TV Shows, the search field and Filter (with everything else).
                 Box(Modifier.onFocusChanged { headerFocused.value = it.hasFocus }) {
                     LibraryHeader(
@@ -270,10 +298,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 state.files.isEmpty() -> EmptyState("Nothing here")
                 shown.isEmpty() -> EmptyState("No matches")
                 // The Overview tab: a featured title and rows. ("All" is the whole library A–Z.)
-                state.filterable && filter.overview -> key(state.place) {
+                filterable && filter.overview -> key(state.place) {
                     // One per library: Movies and TV Shows each open at their own place, with their own focus.
                     LibraryRows(
-                        state.files, state.token, placeKey = state.place.toString(),
+                        state.files, token, placeKey = state.place.toString(),
                         isShows = state.stack.firstOrNull() == DrivePlace.TvShows,
                         canTakeFocus = { !headerFocused.value },
                         onChoose = choose, onPlay = onOpen, onMenu = { menuFor = it },
@@ -282,20 +310,18 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     )
                 }
                 else -> {
-                    // Back to a list you've been in: the item you left from is focused (and scrolled to)
-                    // again, instead of the first one.
+                    // Back to a list you've been in: the item you left from is focused again (and the
+                    // grid opens where it is), instead of the first one.
                     val placeKey = state.place.toString()
                     val target = remember(state.place) { driveFocus[placeKey]?.takeIf { id -> shown.any { it.id == id } } ?: shown.first().id }
                     val first = remember(state.place) { FocusRequester() }
-                    val grid = remember(state.place) { LazyGridState() }
-                    // How far through each title is, read once per visit and on coming back from the player (not per tile).
-                    var resumes by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-                    // (The first resume arrives with the first frame, when it was just read: skip it.)
-                    var resumedOnce by remember { mutableStateOf(false) }
-                    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { if (resumedOnce) resumes++ else resumedOnce = true }
-                    val progressOf = remember(state.place, resumes, marked) {
-                        RecentStore(context).all().filter { it.progress < 0.97f }.associate { it.key to it.progress }
-                    }
+                    // Made at the item to come back to: its row opens where the pivot puts a focused
+                    // row, so taking the focus there scrolls nothing (scrolling there after the first
+                    // frame was a visible jump).
+                    val grid = remember(state.place) { LazyGridState(firstVisibleItemIndex = shown.indexOfFirst { it.id == target }.coerceAtLeast(0)) }
+                    // How far through each title is: read off the main thread once per visit, on coming
+                    // back from the player and when a ✓ changes; read by the tiles alone.
+                    val progressOf = rememberProgress(marked, state.place)
                     // Load the posters a couple of rows past the focus into the image cache, so they're
                     // already there when the grid scrolls to them instead of popping in.
                     // Only once the focus rests: on every press of a held key, a dozen poster loads
@@ -312,51 +338,57 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     val prefetch: (String) -> Unit = { id -> positions[id]?.let { prefetchFrom.intValue = it } }
                     // A season's episodes: wide picture cards (each episode's picture), as streaming
                     // apps show them, instead of tall poster tiles.
-                    val episodeGrid = state.library && state.stack.firstOrNull() == DrivePlace.TvShows && state.stack.size >= 2 &&
-                        shown.count { it.kind == FileKind.VIDEO } * 2 > shown.size
-                    LazyVerticalGrid(
-                        state = grid,
-                        // Movies / TV Shows: tall poster tiles, more per row.
-                        columns = GridCells.Adaptive(if (episodeGrid) 260.dp else if (state.library) 150.dp else 230.dp),
-                        // Posters lift and grow when focused (about 23 dp up for the first row): leave them
-                        // room so the top of the outline isn't cut off.
-                        contentPadding = if (state.library) PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp)
-                        else PaddingValues(top = 8.dp, bottom = 48.dp, start = 6.dp, end = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(if (state.library) 30.dp else 22.dp),
-                        verticalArrangement = Arrangement.spacedBy(if (state.library) 30.dp else 22.dp),
-                    ) {
-                        items(shown, key = { it.id }) { f ->
-                            // animateItem: changing the sort or category glides the posters to their new
-                            // places (and fades the ones coming and going) instead of jumping.
-                            val mod = Modifier.animateItem().then(if (f.id == target) Modifier.focusRequester(first) else Modifier)
-                                .onFocusChanged {
-                                    if (it.hasFocus) {
-                                        driveFocus[placeKey] = f.id
-                                        if (state.library) { focusedArt.value = posterArt(f); if (!episodeGrid) prefetch(f.id) }
+                    val episodeGrid = remember(shown, library, state.stack) {
+                        library && state.stack.firstOrNull() == DrivePlace.TvShows && state.stack.size >= 2 &&
+                            shown.count { it.kind == FileKind.VIDEO } * 2 > shown.size
+                    }
+                    // The focused row comes to rest at the top, where the first row sits (Apple TV
+                    // style): every move down glides the grid by one row.
+                    PivotScroll(grid, if (library) Pivot(offset = 30.dp) else Pivot(offset = 8.dp)) {
+                        LazyVerticalGrid(
+                            state = grid,
+                            // Movies / TV Shows: tall poster tiles, more per row.
+                            columns = GridCells.Adaptive(if (episodeGrid) 260.dp else if (library) 150.dp else 230.dp),
+                            // Posters lift and grow when focused (about 17 dp up for the first row): leave them
+                            // room so the top of the outline isn't cut off.
+                            contentPadding = if (library) PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp)
+                            else PaddingValues(top = 8.dp, bottom = 48.dp, start = 6.dp, end = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(if (library) 30.dp else 22.dp),
+                            verticalArrangement = Arrangement.spacedBy(if (library) 30.dp else 22.dp),
+                        ) {
+                            items(shown, key = { it.id }) { f ->
+                                // animateItem: changing the sort or category glides the posters to their new
+                                // places instead of jumping. No fades (each fading tile was drawn offscreen):
+                                // titles coming and going just appear and go.
+                                val mod = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
+                                    .then(if (f.id == target) Modifier.focusRequester(first) else Modifier)
+                                    .onFocusChanged {
+                                        if (it.hasFocus) {
+                                            driveFocus[placeKey] = f.id
+                                            if (library) { focusedArt.value = posterArt(f); if (!episodeGrid) prefetch(f.id) }
+                                        }
+                                        if (filterable) rest(f, it.hasFocus)
                                     }
-                                    if (state.filterable) rest(f, it.hasFocus)
-                                }
-                            if (episodeGrid && f.kind == FileKind.VIDEO) EpisodeCard(
-                                f, state.token,
-                                progress = progressOf[MediaRef.Drive(f.id).key],
-                                watched = seen(f),
-                                modifier = mod,
-                                // Its menu: Play, Mark as watched / unwatched, Download.
-                                onLongClick = { menuFor = f },
-                                onClick = { choose(f) },
-                            )
-                            else if (state.library) PosterTile(
-                                f, state.token, onClick = { choose(f) }, onLongClick = { menuFor = f }, modifier = mod,
-                                label = if (state.filterable) Library.label(f) else null,
-                                progress = progressOf[MediaRef.Drive(f.id).key],
-                                watched = seen(f),
-                            )
-                            else DriveTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
+                                if (episodeGrid && f.kind == FileKind.VIDEO) EpisodeCard(
+                                    f, token,
+                                    progress = progressOf.value?.get(MediaRef.Drive(f.id).key),
+                                    watched = seen(f),
+                                    modifier = mod,
+                                    // Its menu: Play, Mark as watched / unwatched, Download.
+                                    onLongClick = { menuFor = f },
+                                    onClick = { choose(f) },
+                                )
+                                else if (library) PosterTile(
+                                    f, token, onClick = { choose(f) }, onLongClick = { menuFor = f }, modifier = mod,
+                                    label = if (filterable) Library.label(f) else null,
+                                    progress = progressOf.value?.get(MediaRef.Drive(f.id).key),
+                                    watched = seen(f),
+                                )
+                                else DriveTile(f, token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
+                            }
                         }
                     }
                     LaunchedEffect(state.place) {
-                        val i = shown.indexOfFirst { it.id == target }
-                        if (i > 0) runCatching { grid.scrollToItem(i) }
                         withFrameNanos {}
                         // Not while choosing a category in the header: the focus stays on the tabs.
                         if (!headerFocused.value) runCatching { first.requestFocus() }
@@ -371,14 +403,13 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 
     if (searching) {
-        LibrarySearch(state.place.title, state.files, state.token, onOpen = { f -> searching = false; choose(f) }, onDismiss = { searching = false })
+        LibrarySearch(state.place.title, state.files, token, onOpen = { f -> searching = false; choose(f) }, onDismiss = { searching = false })
     }
     // Searching used to narrow the grid itself; it has its own screen now, so an old search left in
     // the saved filter would hide titles with nothing on screen saying why.
     LaunchedEffect(state.place, filter.query) { if (state.filterable && filter.query.isNotBlank()) drive.setFilter(filter.copy(query = "")) }
 
     detailFor?.let { f ->
-        val token = state.token
         val isShow = state.stack.firstOrNull() == DrivePlace.TvShows
         TitleDetail(
             f, posterArt(f), token, all = state.files, isShow = isShow,
@@ -408,9 +439,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     menuFor?.let { f ->
         // What Mark as watched acts on: the video, or the film kept in this folder — its folder listed
         // now if it hasn't been (the line appears once the film is known).
-        val watchKey by produceState(if (state.library) posterWatchKey(f, films) else null, f) {
-            if (value == null && state.library && films && f.isFolder) {
-                val inside = withContext(Dispatchers.IO) { FolderCache.peek(context, f.id) } ?: FolderCache.list(context, state.token, f)
+        val watchKey by produceState(if (library) posterWatchKey(f, films) else null, f) {
+            if (value == null && library && films && f.isFolder) {
+                val inside = withContext(Dispatchers.IO) { FolderCache.peek(context, f.id) } ?: FolderCache.list(context, token, f)
                 value = inside?.let(::folderFilm)?.let { MediaRef.Drive(it.id).key }
             }
         }
@@ -501,6 +532,37 @@ internal fun posterWatched(context: Context, f: DriveFile, films: Boolean): Bool
     posterWatchKey(f, films)?.let { Watched.isWatched(context, it) } == true
 
 /**
+ * How far through each title is (see [progressByKey]), read on a background thread: on opening, on
+ * coming back from the player, when [marks] changes (a ✓, another TV's progress) and when [key]
+ * does (a new place). Until it's read, the last read (null the very first time), so a screen coming
+ * back shows its bars at once. Hand the State itself to the tiles and read it there: a change then
+ * redraws the tiles, not the grid or the rows around them.
+ */
+@Composable
+internal fun rememberProgress(marks: androidx.compose.runtime.State<Int>, key: Any? = Unit): androidx.compose.runtime.State<Map<String, Float>?> {
+    val context = LocalContext.current
+    // Bumped on coming back from the player. (The first resume arrives with the first frame, when
+    // it was just read: skipped.)
+    val resumes = remember { mutableIntStateOf(0) }
+    val resumedOnce = remember { BooleanArray(1) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        if (resumedOnce[0]) resumes.intValue++ else resumedOnce[0] = true
+    }
+    return produceState(remember { lastProgress }, key) {
+        androidx.compose.runtime.snapshotFlow { resumes.intValue to marks.value }.collectLatest {
+            value = withContext(Dispatchers.Default) { progressByKey(RecentStore(context).all()).also { lastProgress = it } }
+        }
+    }
+}
+
+/** The progress last read (see [rememberProgress]). */
+@Volatile private var lastProgress: Map<String, Float>? = null
+
+/** Each title part-way through, by media key, to its progress (0..1); finished ones (97% on) get no bar. */
+internal fun progressByKey(recent: List<RecentItem>): Map<String, Float> =
+    recent.filter { it.progress < 0.97f }.associate { it.key to it.progress }
+
+/**
  * What the Unwatched filter leaves out. Movies: a film with its ✓ (a film in its own folder: that
  * film's, once known). TV Shows: a show already started — an episode known to sit under it has a ✓,
  * or something of it is in progress or up next.
@@ -514,9 +576,9 @@ private fun watchedFor(context: Context, files: List<DriveFile>, films: Boolean)
 
 /**
  * Movie / show poster, Apple TV style: 2:3 artwork that, when focused, lifts off the page: a
- * little bigger, raised, with a soft shadow beneath and a gentle sheen. No tilting or moving
- * art. The lift animates in the draw layer, so it costs no recomposition.
- * Without artwork, a title card in the brand colors.
+ * little bigger, raised, with a soft shadow beneath. No tilting or moving art. A [TvCard]: the lift
+ * is a layer transform and the rest follows the focus while drawing, so focusing it recomposes
+ * nothing and nothing is drawn offscreen. Without artwork, a title card in the brand colors.
  */
 @Composable
 internal fun PosterTile(
@@ -532,125 +594,100 @@ internal fun PosterTile(
     val title = label ?: f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
     // Posters already show their title, so the label only appears on focus; frames and title cards always have it.
     val poster = f.posterUrl != null && (token != null || !isGoogle(f.posterUrl))
-    var focused by remember { mutableStateOf(false) }
-    // 0 → 1: how far "up" the tile is.
-    val lift = remember { Animatable(0f) }
-    LaunchedEffect(focused) {
-        // A soft spring rather than a timed curve: it rises and settles like something with weight.
-        if (focused) lift.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow))
-        else lift.animateTo(0f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium))
-    }
-    Surface(
+    // The picture it can show (Drive-hosted art needs the token, which only Google gets).
+    val picture = posterArt(f)?.takeIf { token != null || !isGoogle(it) }
+    val motion = rememberFocusMotionState()
+    TvCard(
         onClick = onClick,
+        shape = Shapes.card,
+        modifier = modifier.aspectRatio(2f / 3f),
         onLongClick = onLongClick,
-        // Drawn above its neighbours while lifted, so they don't cover its grown edges.
-        modifier = modifier.zIndex(if (focused) 1f else 0f).onMenuKey(onLongClick).aspectRatio(2f / 3f).onFocusChanged { focused = it.isFocused }
-            // The shadow it casts on the page: a soft dark oval below the tile, painted from a
-            // gradient made once (cheaper than a real elevation shadow while it animates).
-            .drawWithCache {
-                // Centred on the oval (as lifted) and clear at its sides, so it fades out instead of
-                // ending in a hard edge across the posters beside it. The middle stop sits about where
-                // it comes out from under the tile, keeping it as dark there as before.
-                val shadow = Brush.radialGradient(
-                    0f to Color.Black.copy(alpha = 0.6f), 0.75f to Color.Black.copy(alpha = 0.25f), 1f to Color.Transparent,
-                    center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.62f + 14.dp.toPx()),
-                    radius = size.width * 0.72f, // the oval's half-width
-                )
-                onDrawBehind {
-                    val l = lift.value.coerceIn(0f, 1f)
-                    if (l > 0.01f) drawOval(
-                        shadow, alpha = l,
-                        topLeft = androidx.compose.ui.geometry.Offset(-size.width * 0.22f, size.height * 0.08f + 14.dp.toPx() * l),
-                        size = androidx.compose.ui.geometry.Size(size.width * 1.44f, size.height * 1.08f),
-                    )
-                }
-            }
-            .graphicsLayer {
-                // Lifted: a little bigger and raised off its shadow.
-                val sc = 1f + 0.12f * lift.value
-                scaleX = sc; scaleY = sc
-                translationY = -6.dp.toPx() * lift.value
-            },
-        shape = CardStyle.shape(),
-        colors = CardStyle.colors(),
+        motion = motion,
+        focusedScale = TvMotion.PosterScale,
+        lift = TvMotion.PosterLift,
+        shadow = true,
+        // Nothing is painted under a picture: it covers the tile, and each fill under it was one more
+        // pass over the tile's pixels on every frame (Movies is held up by the graphics chip). A
+        // title card gets the card's glass, brightening with the focus.
+        color = if (picture == null) Palette.surface else Color.Transparent,
+        focusedColor = if (picture == null) Palette.surfaceHigh else Color.Transparent,
         // No focus outline or extra zoom: the lift is the focus.
-        border = androidx.tv.material3.ClickableSurfaceDefaults.border(
-            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)), shape = Shapes.card),
-            focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)), shape = Shapes.card),
-        ),
-        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        borderWidth = 1.dp,
+        borderColor = Color.White.copy(alpha = 0.08f),
+        focusedBorderColor = Color.White.copy(alpha = 0.35f),
     ) {
-        Box(
-            Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))
-                // The sheen: a soft highlight near the top while lifted. The gradient is made once per
-                // size (no allocations while animating).
-                .drawWithCache {
-                    val r = size.maxDimension * 0.75f
-                    val glint = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.3f), Color.Transparent), center = androidx.compose.ui.geometry.Offset.Zero, radius = r)
-                    onDrawWithContent {
-                        drawContent()
-                        val l = lift.value.coerceIn(0f, 1f) * 0.6f
-                        if (l > 0.01f) {
-                            val cx = size.width * 0.5f
-                            val cy = size.height * 0.2f
-                            translate(cx, cy) { drawCircle(glint, radius = r, center = androidx.compose.ui.geometry.Offset.Zero, alpha = l) }
-                        }
-                    }
-                },
-        ) {
-            val art = posterArt(f)
-            // The art stays put inside the frame; only the whole tile lifts.
-            val depth = Modifier.fillMaxSize()
-            if (art == null || (token == null && isGoogle(art))) {
-                // Title card: large initial and the name, so tiles stay readable without art.
-                Text(
-                    title.trim().take(1).uppercase(), style = MaterialTheme.typography.displayLarge,
-                    color = Palette.accent.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center),
-                )
-            } else if (LocalPosterPainter.current != null) {
-                LocalPosterPainter.current!!(art)?.let {
-                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = depth)
-                }
-            } else {
-                // Built once per tile (not on every focus change that recomposes it).
-                val request = remember(art, token) {
-                    ImageRequest.Builder(context).data(art)
-                        // The Google token only ever goes to Google's own image servers, never to TMDB.
-                        .apply { if (isGoogle(art) && token != null) addHeader("Authorization", "Bearer $token") }
-                        .size(320, 480).crossfade(150).build() // the tile's real size on a 1080p TV: faster decode, less memory
-                }
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = depth,
-                )
+        if (picture == null) {
+            // Title card: the brand gradient, a large initial and the name, so tiles stay readable without art.
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background))))
+            Text(
+                title.trim().take(1).uppercase(), style = MaterialTheme.typography.displayLarge,
+                color = Palette.accent.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center),
+            )
+        } else if (LocalPosterPainter.current != null) {
+            LocalPosterPainter.current!!(picture)?.let {
+                androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
-            val titled = !poster || focused
-            if (titled || caption != null) Box(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))))
-                    .padding(start = 12.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
-            ) {
-                Column {
-                    if (titled) Text(title, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (caption != null) Text(
-                        caption, color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelMedium, maxLines = 1,
-                        modifier = if (titled) Modifier.padding(top = 2.dp) else Modifier,
-                    )
-                }
+        } else {
+            // Built once per tile (not on every recomposition).
+            val request = remember(picture, token) {
+                ImageRequest.Builder(context).data(picture)
+                    // The Google token only ever goes to Google's own image servers, never to TMDB.
+                    .apply { if (isGoogle(picture) && token != null) addHeader("Authorization", "Bearer $token") }
+                    .size(320, 480).crossfade(150).build() // the tile's real size on a 1080p TV: faster decode, less memory
             }
-            // Part-watched: a bar along the bottom edge, Netflix style.
-            if (progress != null && progress > 0.01f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {
-                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Palette.accent))
-            }
-            // Watched: a ✓ badge top right.
-            if (watched) Box(
-                Modifier.align(Alignment.TopEnd).padding(8.dp).size(26.dp).background(Color.White, androidx.compose.foundation.shape.CircleShape),
-                contentAlignment = Alignment.Center,
-            ) { TvIcon(Sym.Check, size = 18.dp, tint = Color(0xFF0B1220)) }
+            // A picture that won't load leaves the title card's gradient, as it had under it before.
+            val failed = remember(Palette.light) { BrushPainter(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background))) }
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                error = failed,
+                // The card clips to its rounded shape already: no second clip (and layer) per tile.
+                clipToBounds = false,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
+        // The name along the bottom: always on a frame or a title card; on a poster, whose art shows
+        // its title, it fades in with the focus. Always laid out, so focusing measures nothing, and
+        // faded while drawing (ModulateAlpha: no offscreen copy, and nothing drawn when hidden).
+        Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .then(if (poster && caption == null) Modifier.fadeWithFocus(motion) else Modifier)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))))
+                .padding(start = 12.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
+        ) {
+            Column {
+                Text(
+                    title, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    // Over a caption (always shown), only the name fades.
+                    modifier = if (poster && caption != null) Modifier.fadeWithFocus(motion) else Modifier,
+                )
+                if (caption != null) Text(
+                    caption, color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelMedium, maxLines = 1,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+        // Part-watched: a bar along the bottom edge, Netflix style.
+        if (progress != null && progress > 0.01f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {
+            Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Palette.accent))
+        }
+        // Watched: a ✓ badge top right.
+        if (watched) Box(
+            Modifier.align(Alignment.TopEnd).padding(8.dp).size(26.dp).background(Color.White, androidx.compose.foundation.shape.CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { TvIcon(Sym.Check, size = 18.dp, tint = Color(0xFF0B1220)) }
     }
+}
+
+/**
+ * Shows this as far as [motion] is focused, faded while drawing: the focus animation redraws it
+ * without recomposing, and ModulateAlpha fades what it draws in place instead of drawing it into
+ * an offscreen buffer first.
+ */
+private fun Modifier.fadeWithFocus(motion: FocusMotionState): Modifier = graphicsLayer {
+    alpha = motion.fraction.coerceIn(0f, 1f)
+    compositingStrategy = CompositingStrategy.ModulateAlpha
 }
 
 /**
@@ -669,7 +706,9 @@ private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: 
     LaunchedEffect(art) {
         androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { kotlinx.coroutines.delay(350); shown = it }
     }
-    androidx.compose.animation.Crossfade(shown, animationSpec = tween(520, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "backdrop") { url ->
+    // Faded as each picture draws (FadeBetween): Crossfade drew both full-screen pictures into
+    // offscreen buffers on every frame of the fade.
+    FadeBetween(shown, remember { tween<Float>(520, easing = androidx.compose.animation.core.FastOutSlowInEasing) }, label = "backdrop") { url ->
         if (url != null) {
             val painter = LocalPosterPainter.current
             if (painter != null) painter(url)?.let {
@@ -689,6 +728,39 @@ private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: 
 }
 
 /**
+ * Compose's Crossfade, with each side faded as it draws (ModulateAlpha) instead of through an
+ * offscreen buffer: Crossfade's plain alpha layer drew each side whole into a buffer first, on every
+ * frame of the fade (two full-screen buffers for the backdrop). The same look for content drawn in
+ * one piece, like a picture, or without overlaps, like lines of text.
+ */
+@Composable
+internal fun <T> FadeBetween(
+    targetState: T,
+    animationSpec: FiniteAnimationSpec<Float>,
+    label: String,
+    modifier: Modifier = Modifier,
+    content: @Composable (T) -> Unit,
+) {
+    val transition = updateTransition(targetState, label)
+    val visible = remember { mutableStateListOf<T>().apply { add(transition.currentState) } }
+    if (transition.currentState == transition.targetState) {
+        // Settled: only the one showing stays.
+        if (visible.size != 1 || visible[0] != transition.targetState) visible.removeAll { it != transition.targetState }
+    }
+    if (transition.targetState !in visible) visible.add(transition.targetState)
+    Box(modifier) {
+        visible.forEach { state ->
+            key(state) {
+                val alpha by transition.animateFloat(transitionSpec = { animationSpec }, label = label) { if (it == state) 1f else 0f }
+                Box(Modifier.graphicsLayer { this.alpha = alpha; compositingStrategy = CompositingStrategy.ModulateAlpha }) {
+                    content(state)
+                }
+            }
+        }
+    }
+}
+
+/**
  * Search, Apple TV style: its own full screen with a big search field at the top and the matching
  * posters below, updating with every letter (TV keyboard or the phone's Keyboard page). Down goes
  * from the field into the results; OK opens one; Back closes.
@@ -697,49 +769,66 @@ private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: 
 private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, onOpen: (DriveFile) -> Unit, onDismiss: () -> Unit) {
     var query by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
     val field = remember { FocusRequester() }
-    val results = remember(all, query.text) {
-        if (query.text.isBlank()) emptyList()
-        else Library.apply(all, com.woodruff.tvexplorer.cloud.LibraryFilter(query = query.text.trim()))
+    // Narrowed on a background thread as you type (on the main thread, each letter held up a frame
+    // in a big library). What shows is the last search worked out: its words and what matched.
+    val found by produceState<Pair<String, List<DriveFile>>>("" to emptyList(), all, query.text) {
+        val q = query.text.trim()
+        val matches = if (q.isEmpty()) emptyList<DriveFile>()
+        else withContext(Dispatchers.Default) { Library.apply(all, com.woodruff.tvexplorer.cloud.LibraryFilter(query = q)) }
+        value = q to matches
     }
+    val (searched, results) = found
+    val grid = rememberLazyGridState()
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(field)
-        com.woodruff.tvexplorer.ui.ScreenEnter {
-        Box(Modifier.fillMaxSize().ambientBackdrop()) {
-            Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TvIcon(Sym.Search, size = 34.dp, tint = Palette.muted)
-                    com.woodruff.tvexplorer.ui.components.RemoteTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        label = "Search $title",
-                        placeholder = "Search $title",
-                        onSubmit = {},
-                        modifier = Modifier.weight(1f).padding(start = 16.dp),
-                        textModifier = Modifier.focusRequester(field),
-                    )
-                }
-                Text(
-                    when {
-                        query.text.isBlank() -> "Type a title or a year. You can also type on your phone (Phone → Keyboard)."
-                        results.isEmpty() -> "Nothing in $title matches \u201c${query.text.trim()}\u201d"
-                        else -> "${results.size} result${if (results.size == 1) "" else "s"}"
-                    },
-                    color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 14.dp, start = 4.dp),
-                )
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
-                    contentPadding = PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(30.dp),
-                    verticalArrangement = Arrangement.spacedBy(30.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(results, key = { it.id }) { f ->
-                        PosterTile(f, token, onClick = { onOpen(f) }, onLongClick = { onOpen(f) }, modifier = Modifier.animateItem(), label = Library.label(f))
+        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
+        Box(Modifier.fillMaxSize().dpadGate()) {
+            com.woodruff.tvexplorer.ui.ScreenEnter {
+                Box(Modifier.fillMaxSize().ambientBackdrop()) {
+                    Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TvIcon(Sym.Search, size = 34.dp, tint = Palette.muted)
+                            com.woodruff.tvexplorer.ui.components.RemoteTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                label = "Search $title",
+                                placeholder = "Search $title",
+                                onSubmit = {},
+                                modifier = Modifier.weight(1f).padding(start = 16.dp),
+                                textModifier = Modifier.focusRequester(field),
+                            )
+                        }
+                        Text(
+                            when {
+                                searched.isEmpty() -> "Type a title or a year. You can also type on your phone (Phone → Keyboard)."
+                                results.isEmpty() -> "Nothing in $title matches \u201c$searched\u201d"
+                                else -> "${results.size} result${if (results.size == 1) "" else "s"}"
+                            },
+                            color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 14.dp, start = 4.dp),
+                        )
+                        // The focused row comes to rest where the first row sits, as in the library's grid.
+                        PivotScroll(grid, Pivot(offset = 30.dp)) {
+                            LazyVerticalGrid(
+                                state = grid,
+                                columns = GridCells.Adaptive(150.dp),
+                                contentPadding = PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp),
+                                horizontalArrangement = Arrangement.spacedBy(30.dp),
+                                verticalArrangement = Arrangement.spacedBy(30.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                items(results, key = { it.id }) { f ->
+                                    // Glides into place as the results change; no fades (each was drawn offscreen).
+                                    PosterTile(
+                                        f, token, onClick = { onOpen(f) }, onLongClick = { onOpen(f) },
+                                        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null), label = Library.label(f),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
         }
     }
 }
@@ -749,19 +838,25 @@ internal val LocalPosterPainter = androidx.compose.runtime.staticCompositionLoca
 
 internal fun isGoogle(url: String): Boolean = com.woodruff.tvexplorer.cloud.isGoogleUrl(url)
 
+/**
+ * A Drive file outside the libraries: its picture (or symbol), name and size. The card's glass and
+ * lit rim are CardStyle's; the rim, a gradient, is drawn with the content and the focus ring by the card.
+ */
 @Composable
 private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
     val context = LocalContext.current
-    Surface(
+    TvCard(
         onClick = onClick,
+        shape = Shapes.card,
+        modifier = modifier,
         onLongClick = onLongClick,
-        modifier = modifier.onMenuKey(onLongClick),
-        shape = CardStyle.shape(),
-        colors = CardStyle.colors(),
-        border = CardStyle.border(),
-        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        focusedScale = TvMotion.CardScale,
+        color = Palette.surface,
+        focusedColor = Palette.surfaceHigh,
+        borderWidth = 2.dp,
+        focusedBorderColor = Palette.focusRim,
     ) {
-        Column {
+        Column(Modifier.fillMaxWidth().border(1.dp, Palette.rim, Shapes.card)) {
             Box(
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Palette.background),
                 contentAlignment = Alignment.Center,
@@ -843,7 +938,12 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
             }
             if (state.busy) Text("Finishing sign-in…", color = Palette.accent)
             state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium) }
-            if (!setup) OutlinedButton(onClick = onReset) { Text("Use a different Google Cloud client") }
+            if (!setup) OutlinedButton(
+                onClick = onReset,
+                // Grows on focus as a layer (tv-material's own growth recomposed it every frame).
+                modifier = Modifier.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.1f),
+                scale = androidx.tv.material3.OutlinedButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.1f),
+            ) { Text("Use a different Google Cloud client") }
         }
     }
 }

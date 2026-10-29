@@ -31,6 +31,7 @@ import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.photos.PhotoFilter
 import com.woodruff.tvexplorer.ui.SmoothEase
 import com.woodruff.tvexplorer.ui.components.FocusWhenReady
+import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.theme.Palette
 
 /**
@@ -48,7 +49,8 @@ fun PhotoFilterSheet(dates: Collection<Long>, filter: PhotoFilter, onChange: (Ph
     LaunchedEffect(Unit) { enter.animateTo(1f, tween(340, easing = SmoothEase)) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         FocusWhenReady(first)
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
+        Box(Modifier.fillMaxSize().dpadGate(), contentAlignment = Alignment.CenterEnd) {
             LazyColumn(
                 modifier = Modifier
                     .graphicsLayer {

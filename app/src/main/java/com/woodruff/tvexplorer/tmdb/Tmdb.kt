@@ -517,10 +517,14 @@ object Tmdb {
     fun seasonNumber(folder: String): Int? {
         val f = folder.trim().lowercase()
         if (f == "specials" || f == "extras") return 0
-        Regex("(?:season|series|staffel|saison|temporada)\\s*(\\d{1,3})").find(f)?.let { return it.groupValues[1].toInt() }
-        Regex("^s(\\d{1,3})$").find(f)?.let { return it.groupValues[1].toInt() }
+        SEASON_WORD.find(f)?.let { return it.groupValues[1].toInt() }
+        SEASON_SHORT.find(f)?.let { return it.groupValues[1].toInt() }
         return null
     }
+
+    // Compiled once: a show's page asks for each of its season folders while it composes.
+    private val SEASON_WORD = Regex("(?:season|series|staffel|saison|temporada)\\s*(\\d{1,3})")
+    private val SEASON_SHORT = Regex("^s(\\d{1,3})$")
 
     // v2 holds full matches; the old file (posters only) is dropped so titles get their genres.
     private fun cacheFile(c: Context) = File(c.applicationContext.filesDir, "tmdb_cache4.json") // 4: adds synopsis, backdrop and TMDB id

@@ -14,9 +14,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -64,6 +67,13 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx get() = getApplication<Application>()
     private val _state = MutableStateFlow(DriveState(step = initialStep()))
     val state: StateFlow<DriveState> = _state.asStateFlow()
+    /**
+     * [state] as the Drive screen shows it: without the download progress and the messages (AppRoot
+     * shows those). Progress changes every 150 ms while a file downloads; on [state] each change
+     * recomposed the whole screen of posters, though nothing on it had changed.
+     */
+    val screen: StateFlow<DriveState> = _state.map { it.copy(operation = null, message = null) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, _state.value.copy(operation = null, message = null))
     private var loadJob: Job? = null
     private var opJob: Job? = null
     private var prepJob: Job? = null
@@ -539,10 +549,13 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
  * sit under ([shows], from [EpisodeShows]: an episode's show, a film's folder), else by its own
  * Drive id (a film at the top of Movies), else by its film or show name.
  */
-fun artworkFor(index: Map<String, DriveFile>, key: String, title: String, shows: Map<String, String>): DriveFile? =
-    shows[key]?.let { index["id:$it"] }
+fun artworkFor(index: Map<String, DriveFile>, key: String, title: String, shows: Map<String, String>): DriveFile? {
+    // No posters known yet (the libraries still loading): nothing to find, so no name worked out.
+    if (index.isEmpty()) return null
+    return shows[key]?.let { index["id:$it"] }
         ?: (if (key.startsWith("drive:")) index["id:" + key.removePrefix("drive:")] else null)
         ?: matchKeyOf(title).takeIf { it.isNotBlank() }?.let { index[it] }
+}
 
 /**
  * [Library.showMatchKey] of the libraries' names and of what's in progress, worked out on a

@@ -179,7 +179,10 @@ object DriveApi {
     }
 
     /** Drive thumbnails come at 220px ("=s220"); ask for a size that's sharp on a TV poster. */
-    fun big(link: String) = link.replace(Regex("=s\\d+(-c)?$"), "") + "=s720"
+    fun big(link: String) = link.replace(THUMB_SIZE, "") + "=s720"
+
+    // Compiled once: posters and episode cards ask for every tile they compose.
+    private val THUMB_SIZE = Regex("=s\\d+(-c)?$")
 
     /** The first folder named one of [names]: at the top of My Drive if there is one, else anywhere. */
     private fun findFolder(token: String, names: List<String>): String? {

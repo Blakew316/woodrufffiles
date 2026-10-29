@@ -50,6 +50,9 @@ import com.woodruff.tvexplorer.ui.components.ConfirmDialog
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.SearchBar
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.motion.dpadGate
+import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
 
@@ -76,8 +79,6 @@ fun LibraryHeader(
     switcher: (@Composable () -> Unit)? = null,
 ) {
     var filtering by remember { mutableStateOf(false) }
-    val genres = remember(all) { Library.genres(all) }
-    val decades = remember(all) { Library.decades(all) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (switcher != null) switcher()
         else Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
@@ -86,7 +87,7 @@ fun LibraryHeader(
         // Says what the posters are narrowed to ("Action · Newest"), so nothing's missing without a reason.
         RoundButton(Sym.Tune, filterLabel(filter), { filtering = true }, active = !filter.overview)
     }
-    if (filtering) FilterSheet(all, genres, decades, filter, onChange, more, onDismiss = { filtering = false })
+    if (filtering) FilterSheet(all, filter, onChange, more, onDismiss = { filtering = false })
 }
 
 /** "Filter" on the Overview; otherwise what the grid shows: "All", "Action · 1990s", "Unwatched · Newest". */
@@ -96,12 +97,20 @@ private fun filterLabel(f: LibraryFilter): String {
     return (shown + listOfNotNull(f.sort.label.takeIf { f.sort != LibrarySort.TITLE })).joinToString(" · ")
 }
 
+/**
+ * tv-material's scale for a Surface that [tvFocusMotion] grows by [focused]: none of its own on focus
+ * (its growth was read while composing, so it re-ran the composition on every frame), and back to
+ * normal size while OK is held, as its press always did.
+ */
+internal fun surfacePressScale(focused: Float) = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / focused)
+
 /** A round glass icon button (a pill with its label when it has one); white with dark content when focused. */
 @Composable
 internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String?, onClick: () -> Unit, active: Boolean = false) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.padding(start = 12.dp),
+        // Grows on focus as a layer (tv-material's own growth recomposed it every frame).
+        modifier = Modifier.padding(start = 12.dp).tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.08f),
         shape = ClickableSurfaceDefaults.shape(Shapes.pill),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (active) Palette.text.copy(alpha = 0.22f) else Palette.surfaceHigh,
@@ -110,7 +119,7 @@ internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
             focusedContentColor = Palette.background,
         ),
         border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Palette.rim), shape = Shapes.pill)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
+        scale = surfacePressScale(1.08f),
     ) {
         Row(Modifier.padding(horizontal = if (label != null) 20.dp else 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
             TvIcon(icon, size = 22.dp)
@@ -130,13 +139,14 @@ internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 @Composable
 private fun FilterSheet(
     all: List<DriveFile>,
-    genres: List<String>,
-    decades: List<Int>,
     filter: LibraryFilter,
     onChange: (LibraryFilter) -> Unit,
     more: List<MenuAction>,
     onDismiss: () -> Unit,
 ) {
+    // Worked out when the panel opens, not with every recomposition of the screen behind it.
+    val genres = remember(all) { Library.genres(all) }
+    val decades = remember(all) { Library.decades(all) }
     val sorts = remember(all) {
         LibrarySort.entries.filter { s ->
             when (s) {
@@ -155,7 +165,8 @@ private fun FilterSheet(
     LaunchedEffect(Unit) { enter.animateTo(1f, androidx.compose.animation.core.tween(340, easing = com.woodruff.tvexplorer.ui.SmoothEase)) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(first)
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
+        Box(Modifier.fillMaxSize().dpadGate(), contentAlignment = Alignment.CenterEnd) {
             LazyColumn(
                 state = list,
                 modifier = Modifier
@@ -256,7 +267,8 @@ internal fun SheetOption(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        // Grows on focus as a layer (tv-material's own growth recomposed it every frame).
+        modifier = modifier.fillMaxWidth().tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.02f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
@@ -264,7 +276,7 @@ internal fun SheetOption(
             focusedContainerColor = Palette.text,
             focusedContentColor = Palette.background,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = surfacePressScale(1.02f),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))

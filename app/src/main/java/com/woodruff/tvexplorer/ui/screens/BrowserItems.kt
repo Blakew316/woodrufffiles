@@ -2,20 +2,26 @@ package com.woodruff.tvexplorer.ui.screens
 
 import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -23,13 +29,12 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.ListItem
-import androidx.tv.material3.ListItemDefaults
+import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -39,8 +44,10 @@ import com.woodruff.tvexplorer.photos.VideoThumbs
 import com.woodruff.tvexplorer.ui.components.FileGlyph
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.icon
-import com.woodruff.tvexplorer.ui.theme.CardStyle
+import com.woodruff.tvexplorer.ui.motion.TvCard
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.util.Format
 import java.io.File
 
@@ -56,6 +63,10 @@ private fun FileItem.subtitle(): String = buildString {
     append(Format.date(lastModified))
 }
 
+/**
+ * A file in the list. A [TvCard] laid out as tv-material's ListItem was (its sizes, its colors), but
+ * focus only redraws it: no offscreen drawing, nothing recomposed while it grows.
+ */
 @Composable
 fun FileRow(
     item: FileItem,
@@ -65,29 +76,50 @@ fun FileRow(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ListItem(
-        selected = selected,
+    TvCard(
         onClick = onClick,
+        shape = RowShape,
+        modifier = modifier.semantics { this.selected = selected },
         onLongClick = onLongClick,
-        modifier = modifier.onMenuKey(onLongClick),
-        colors = ListItemDefaults.colors(
-            selectedContainerColor = Palette.accentSoft,
-            focusedContainerColor = Palette.surfaceHigh,
-            focusedContentColor = Palette.text,
-        ),
-        border = ListItemDefaults.border(
-            focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, Palette.accent)),
-        ),
-        scale = ListItemDefaults.scale(focusedScale = 1.01f),
-        leadingContent = {
-            if (selecting) TvIcon(if (selected) Sym.CheckCircle else Sym.RadioButtonUnchecked)
-            else FileGlyph(item.name, item.kind, size = 34.dp)
-        },
-        headlineContent = { Text(if (item.isDirectory) item.name else Format.title(item.name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text(item.subtitle(), maxLines = 1, color = Palette.muted) },
-    )
+        focusedScale = 1.01f,
+        color = if (selected) Palette.accentSoft else Color.Transparent,
+        focusedColor = Palette.surfaceHigh,
+        borderWidth = 2.dp,
+        focusedBorderColor = Palette.accent,
+    ) {
+        // A selected row's words and symbols in the color tv-material gave them.
+        CompositionLocalProvider(LocalContentColor provides if (selected) MaterialTheme.colorScheme.onSecondaryContainer else Palette.text) {
+            Row(
+                Modifier.fillMaxWidth().defaultMinSize(minHeight = 64.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Its symbol at 80%, as the list item drew it: here through the tint, not a layer.
+                Box(Modifier.defaultMinSize(minWidth = 32.dp, minHeight = 32.dp), contentAlignment = Alignment.Center) {
+                    CompositionLocalProvider(LocalContentColor provides LocalContentColor.current.copy(alpha = 0.8f)) {
+                        if (selecting) TvIcon(if (selected) Sym.CheckCircle else Sym.RadioButtonUnchecked)
+                        else FileGlyph(item.name, item.kind, size = 34.dp)
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (item.isDirectory) item.name else Format.title(item.name), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(item.subtitle(), maxLines = 1, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
 }
 
+/** A list row's corners, as tv-material's ListItem had them. */
+private val RowShape = RoundedCornerShape(8.dp)
+
+/**
+ * A file in the grid: its picture (or symbol), name and size. The card's glass and lit rim are
+ * CardStyle's; the rim, a gradient, is drawn with the content and the focus ring by the card.
+ */
 @Composable
 fun FileTile(
     item: FileItem,
@@ -97,21 +129,18 @@ fun FileTile(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
+    TvCard(
         onClick = onClick,
+        shape = Shapes.card,
+        modifier = modifier,
         onLongClick = onLongClick,
-        modifier = modifier.onMenuKey(onLongClick),
-        shape = CardStyle.shape(),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) Palette.accentSoft else Palette.surface,
-            focusedContainerColor = Palette.surfaceHigh,
-            contentColor = Palette.text,
-            focusedContentColor = Palette.text,
-        ),
-        border = CardStyle.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        focusedScale = TvMotion.CardScale,
+        color = if (selected) Palette.accentSoft else Palette.surface,
+        focusedColor = Palette.surfaceHigh,
+        borderWidth = 2.dp,
+        focusedBorderColor = Palette.focusRim,
     ) {
-        Column {
+        Column(Modifier.fillMaxWidth().border(1.dp, Palette.rim, Shapes.card)) {
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -132,7 +161,7 @@ fun FileTile(
                 if (selecting) {
                     TvIcon(
                         if (selected) Sym.CheckCircle else Sym.RadioButtonUnchecked,
-                        tint = androidx.compose.ui.graphics.Color.White,
+                        tint = Color.White,
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                     )
                 }

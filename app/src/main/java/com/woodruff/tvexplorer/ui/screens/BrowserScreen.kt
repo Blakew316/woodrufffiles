@@ -14,11 +14,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +40,8 @@ import com.woodruff.tvexplorer.data.FileItem
 import com.woodruff.tvexplorer.ui.Location
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.components.ToolButton
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.OpenResult
 import com.woodruff.tvexplorer.util.Opener
@@ -231,45 +233,51 @@ fun BrowserScreen(vm: MainViewModel) {
 private val photoFilterMemory = HashMap<String, PhotoFilter>()
 
 /**
- * Returns to the item you were on when you come back to a folder: scrolls to it, then focuses it
- * (when [canTakeFocus]). Without this, TV users lose their place every time they press Back.
+ * Returns to the item you were on when you come back to a folder: the list or grid is created there
+ * (rather than scrolled there after its first frame, which was a visible jump), then the item takes
+ * the focus (when [canTakeFocus]). Without this, TV users lose their place every time they press Back.
  */
 @Composable
-private fun rememberRestoredFocus(vm: MainViewModel, key: String, count: Int, canTakeFocus: () -> Boolean, scrollTo: suspend (Int) -> Unit): Pair<Int, FocusRequester> {
+private fun rememberRestoredFocus(vm: MainViewModel, key: String, count: Int, canTakeFocus: () -> Boolean): Pair<Int, FocusRequester> {
     val target = remember(key) { vm.focusFor(key).coerceIn(0, (count - 1).coerceAtLeast(0)) }
     val requester = remember(key) { FocusRequester() }
     LaunchedEffect(key) {
-        scrollTo(target)
         withFrameNanos { }
         if (canTakeFocus()) runCatching { requester.requestFocus() }
     }
     return target to requester
 }
 
+/** Where a focused row or tile comes to rest as the list scrolls: just inside the top, Apple TV style. */
+private val ListPivot = Pivot(offset = 8.dp)
+
 @Composable
 private fun FileList(
     vm: MainViewModel, key: String, items: List<FileItem>, selected: Set<String>,
     onOpen: (FileItem) -> Unit, onMenu: (FileItem) -> Unit, canTakeFocus: () -> Boolean,
 ) {
-    val listState = rememberLazyListState()
-    val (target, requester) = rememberRestoredFocus(vm, key, items.size, canTakeFocus) { listState.scrollToItem(it) }
-    LazyColumn(
-        state = listState,
-        // Room above the first row: the list clips at its top, which cut off its focused outline.
-        contentPadding = PaddingValues(top = 6.dp, bottom = 48.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        itemsIndexed(items, key = { _, it -> it.path }) { i, item ->
-            FileRow(
-                item = item,
-                selecting = selected.isNotEmpty(),
-                selected = item.path in selected,
-                onClick = { onOpen(item) },
-                onLongClick = { onMenu(item) },
-                modifier = Modifier
-                    .then(if (i == target) Modifier.focusRequester(requester) else Modifier)
-                    .onFocusChanged { if (it.isFocused) vm.rememberFocus(key, i) },
-            )
+    val (target, requester) = rememberRestoredFocus(vm, key, items.size, canTakeFocus)
+    val listState = remember(key) { LazyListState(firstVisibleItemIndex = target) }
+    PivotScroll(listState, ListPivot) {
+        LazyColumn(
+            state = listState,
+            // Room above the first row: the list clips at its top, which cut off its focused outline.
+            // As much as the pivot leaves, so a row restored at the top doesn't scroll when focused.
+            contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            itemsIndexed(items, key = { _, it -> it.path }) { i, item ->
+                FileRow(
+                    item = item,
+                    selecting = selected.isNotEmpty(),
+                    selected = item.path in selected,
+                    onClick = { onOpen(item) },
+                    onLongClick = { onMenu(item) },
+                    modifier = Modifier
+                        .then(if (i == target) Modifier.focusRequester(requester) else Modifier)
+                        .onFocusChanged { if (it.isFocused) vm.rememberFocus(key, i) },
+                )
+            }
         }
     }
 }
@@ -279,26 +287,28 @@ private fun FileGrid(
     vm: MainViewModel, key: String, items: List<FileItem>, selected: Set<String>,
     onOpen: (FileItem) -> Unit, onMenu: (FileItem) -> Unit, canTakeFocus: () -> Boolean,
 ) {
-    val gridState = rememberLazyGridState()
-    val (target, requester) = rememberRestoredFocus(vm, key, items.size, canTakeFocus) { gridState.scrollToItem(it) }
-    LazyVerticalGrid(
-        state = gridState,
-        columns = GridCells.Adaptive(220.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp, start = 8.dp, end = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        itemsIndexed(items, key = { _, it -> it.path }) { i, item ->
-            FileTile(
-                item = item,
-                selecting = selected.isNotEmpty(),
-                selected = item.path in selected,
-                onClick = { onOpen(item) },
-                onLongClick = { onMenu(item) },
-                modifier = Modifier
-                    .then(if (i == target) Modifier.focusRequester(requester) else Modifier)
-                    .onFocusChanged { if (it.isFocused) vm.rememberFocus(key, i) },
-            )
+    val (target, requester) = rememberRestoredFocus(vm, key, items.size, canTakeFocus)
+    val gridState = remember(key) { LazyGridState(firstVisibleItemIndex = target) }
+    PivotScroll(gridState, ListPivot) {
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Adaptive(220.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp, start = 8.dp, end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            itemsIndexed(items, key = { _, it -> it.path }) { i, item ->
+                FileTile(
+                    item = item,
+                    selecting = selected.isNotEmpty(),
+                    selected = item.path in selected,
+                    onClick = { onOpen(item) },
+                    onLongClick = { onMenu(item) },
+                    modifier = Modifier
+                        .then(if (i == target) Modifier.focusRequester(requester) else Modifier)
+                        .onFocusChanged { if (it.isFocused) vm.rememberFocus(key, i) },
+                )
+            }
         }
     }
 }
