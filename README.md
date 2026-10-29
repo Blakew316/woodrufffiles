@@ -206,6 +206,24 @@ and installs it with Android's package installer (which only accepts an update s
 Each release is built with its build number as the version (release v2.0.N is version N), which is how the app
 tells a newer release apart.
 
+## How it moves
+
+Everything moves the way tvOS does, and only in the drawing layer (nothing is re-composed or laid out again on
+each frame of an animation), so a busy moment doesn't stall a motion that's under way:
+
+- **Lists** (Settings, the side menu, menus, Mail, Notifications, Apps, the filter panels) share one highlight that
+  glides from the row you leave to the row you land on, following the list as it scrolls; holding an arrow keeps
+  it gliding. The words on a row change colour as the highlight arrives.
+- **Posters** grow and lift on focus; poster rows keep the focused poster at the row's leading edge and glide the
+  row under it, like the Apple TV app. Lists and grids keep the focus at a steady spot as they scroll.
+- **Pop-ups** (every dialog, the doorbell's camera) zoom in from just larger and fade; the filter panels slide in
+  from the right; a title's page and search grow in. Android runs these window animations itself, so they stay
+  smooth even when the app is busy. The player, photos and the slideshow open and close the same way.
+- **Screens** chosen in the side menu cross-fade with a slight scale; the menu glides in and out; Settings pages
+  slide like iOS; notices and messages glide in.
+
+Every spring and duration is in `ui/motion/TvMotion.kt`; the gliding highlight is `ui/motion/FocusPlatter.kt`.
+
 ## Smoothness report
 
 To find out why moving around isn't smooth on a particular TV:
