@@ -111,10 +111,19 @@ class MainActivity : ComponentActivity() {
      * repeats queue up and the focus keeps sliding after the button is let go, which is what makes
      * scrolling feel laggy. [DpadGate] lets a repeat through only once the previous move has been
      * drawn, and drops stale ones; single presses always go through. (Dialog windows, whose keys
-     * never come through here, have the same gate: Modifier.dpadGate().)
+     * never come through here, have the same gate: Modifier.dpadGate().) Each key that goes through
+     * is timed for Settings → Smoothness: the frames after it count as navigating, and a key that
+     * keeps the main thread busy shows up in the phone's Smoothness Report.
      */
-    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
-        DpadGate.shouldDrop(event) || super.dispatchKeyEvent(event)
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (DpadGate.shouldDrop(event)) return true
+        val started = com.woodruff.tvexplorer.util.FrameStats.keyStarted(event)
+        try {
+            return super.dispatchKeyEvent(event)
+        } finally {
+            com.woodruff.tvexplorer.util.FrameStats.keyFinished(event, started)
+        }
+    }
 
     /** The remote's search button (if the TV hands it to apps): voice search. */
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {

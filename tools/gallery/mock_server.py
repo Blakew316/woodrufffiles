@@ -8,8 +8,10 @@ Test-only controls, never used by the gallery: POST /__mock/inbox {title, body, 
 announcement for the phone, POST /__mock/crash {text} sets the "last crash", POST /__mock/field {field}
 sets (or clears, with null) the TV text box the keyboard types into, and POST /__mock/set {settings, tvs, phones}
 changes the sample settings (merged), the linked TVs or the phones (replaced).
-Remote keys are checked like the TV does; the Kids Room TV has no Netflix, so a test can see that error."""
-import json, os, sys, time
+Remote keys are checked like the TV does; the Kids Room TV has no Netflix, so a test can see that error.
+GET /api/diagnostics answers with a sample Smoothness Report (and X-Recording-Left, like the TV); POST
+/api/diagnostics/record starts a 3-minute "recording" here, so the phone page's countdown can be seen."""
+import json, math, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -86,6 +88,176 @@ TVS = {'tvs': [
      'playing': {'title': 'Backyard Science · S2 E4', 'app': 'YouTube', 'playing': True, 'position': 410000, 'duration': 1320000}},
     {'id': 'c', 'name': 'Bedroom', 'online': False, 'onScreen': False, 'playing': None},
 ]}
+# The phone's Smoothness Report (Settings › TVs): what a TV sends after a 3-minute recording, made by the
+# app's own report code from realistic numbers. {recording} is where it stands: see diagnostics().
+SMOOTHNESS = """Woodruff Family · smoothness report
+Made Oct 29, 2:05 PM
+App 2.0.143 (build 143) · up 38 min
+Sony BRAVIA 4K VH2 (BRAVIA_VH2)
+Android 12 (API 31)
+CPU: 4 cores, 4 × 1.80 GHz · MediaTek MT5895
+RAM: 2.8 GB, 1.1 GB free · low-RAM: no
+Java heap: 61 MB used of 256 MB
+Display: 3840×2160 @ 60 Hz (app draws 1920×1080)
+ also: 3840×2160 @ 59.94, 50, 30, 25, 24, 23.98 Hz
+       1920×1080 @ 60, 50 Hz
+Animation scales: window 1×, transition 1×, animator 1×
+App code: compiled for speed
+
+{recording}
+Navigating: drawn within 1 s of a remote key.
+Idle: the rest (video, animations alone).
+Late: past its deadline (set by Android).
+Slow: over 25 ms. Stutter: over 50 ms.
+Late frames, average ms in each phase:
+ wait   waiting to start (main thread busy)
+ input  input batched into the frame
+ anim   animation and composition
+ layout measure and layout
+ draw   recording the drawing
+ sync   uploading pictures
+ gfx    issuing commands, swapping buffers
+ RT     queued behind the render thread
+ GPU    the graphics chip's own time
+
+== Home ==
+Navigating: 2,140 frames
+ late 28% · slow 18% · 45 stutters
+ ms p50 13 · p90 33 · p99 85 · max 106
+ late: wait 12.8 · input 0.0 · anim 9.6
+  layout 1.6 · draw 3.2 · sync 1.1
+  gfx 2.1 · RT 1.6 · GPU 8.0
+Idle: 4,410 frames
+ late 2% · slow 1% · no stutters
+ ms p50 9 · p90 13 · p99 29 · max 44
+ late: wait 2.9 · input 0.0 · anim 4.8
+  layout 0.0 · draw 3.6 · sync 5.8
+  gfx 4.8 · RT 7.0 · GPU 9.7
+
+== Movies ==
+Navigating: 1,630 frames
+ late 27% · slow 16% · 24 stutters
+ ms p50 13 · p90 31 · p99 67 · max 100
+ late: wait 12.1 · input 0.0 · anim 9.1
+  layout 1.5 · draw 3.0 · sync 1.0
+  gfx 2.0 · RT 1.5 · GPU 7.6
+Idle: 220 frames
+ late 0% · slow 0% · no stutters
+ ms p50 9 · p90 13 · p99 13 · max 29
+ late: wait 2.9 · input 0.0 · anim 4.8
+  layout 0.0 · draw 3.6 · sync 5.8
+  gfx 4.8 · RT 7.0 · GPU 9.7
+
+== Settings ==
+Navigating: 610 frames
+ late 16% · slow 10% · 12 stutters
+ ms p50 12 · p90 26 · p99 82 · max 105
+ late: wait 2.9 · input 0.0 · anim 10.3
+  layout 1.7 · draw 3.4 · sync 1.1
+  gfx 2.3 · RT 12.6 · GPU 8.6
+Idle: 40 frames
+ late 0% · slow 0% · no stutters
+ ms p50 9 · p90 12 · p99 13 · max 13
+ late: none
+
+== Command_center ==
+Navigating: 320 frames
+ late 5% · slow 3% · 2 stutters
+ ms p50 10 · p90 15 · p99 35 · max 67
+ late: wait 2.7 · input 0.0 · anim 9.7
+  layout 1.6 · draw 3.2 · sync 1.1
+  gfx 2.1 · RT 11.8 · GPU 8.1
+Idle: 5,100 frames
+ late 2% · slow 1% · no stutters
+ ms p50 9 · p90 13 · p99 32 · max 44
+ late: wait 3.1 · input 0.0 · anim 5.1
+  layout 0.0 · draw 3.8 · sync 6.1
+  gfx 5.1 · RT 7.4 · GPU 10.2
+
+== Remote keys ==
+213 presses (and held repeats) handled
+ ms p50 5 · p90 37 · p99 98 · max 107
+ over 16 ms: 42 · over 50 ms: 7
+ (A key's time shows as "wait" in the next frame.)
+
+== Hot spots ==
+Main thread busy over 12 ms, sampled every
+5 ms: 168 samples ≈ 840 ms.
+By Woodruff code (with the 2 calls above it):
+1. 58 samples ≈ 290 ms
+   AndroidParagraph.<init>:140
+   ParagraphLayoutCache.layoutText:381
+   LibraryRowsKt.PosterCard:412
+2. 41 samples ≈ 205 ms
+   ComposerImpl.startGroup (Composer.kt:1500)
+   ComposerImpl.startRestartGroup (Composer.kt:2210)
+   HomeScreenKt.CameraTile:733
+3. 33 samples ≈ 165 ms
+   BitmapFactory.decodeStreamInternal:790
+   BitmapFactory.decodeStream:765
+   BackdropKt.loadBackdrop:96
+4. 22 samples ≈ 110 ms
+   FocusOwnerImpl.moveFocus:302
+   AndroidComposeView.dispatchKeyEvent:1210
+   MainActivity.dispatchKeyEvent:122
+5. 14 samples ≈ 70 ms
+   (no Woodruff code on the stack)
+By top of stack:
+1. 58 samples ≈ 290 ms
+   TextLayout.<init>:238
+   AndroidParagraph.<init>:140
+   ParagraphLayoutCache.layoutText:381
+2. 41 samples ≈ 205 ms
+   ComposerImpl.startGroup (Composer.kt:1500)
+   ComposerImpl.startRestartGroup (Composer.kt:2210)
+   HomeScreenKt.CameraTile:733
+3. 33 samples ≈ 165 ms
+   BitmapFactory.nativeDecodeStream (native)
+   BitmapFactory.decodeStreamInternal:790
+   BitmapFactory.decodeStream:765
+4. 22 samples ≈ 110 ms
+   FocusOwnerImpl.moveFocus:302
+   AndroidComposeView.dispatchKeyEvent:1210
+   MainActivity.dispatchKeyEvent:122
+5. 14 samples ≈ 70 ms
+   VMRuntime.trackExternalAllocation (native)
+   Bitmap.nativeCreate (native)
+   Bitmap.createBitmap:1113
+
+== Long main-thread work (over 12 ms) ==
+1. 41 times, 1,394 ms, longest 54 ms
+   Choreographer$FrameHandler: Choreographer$FrameDisplayEventReceiver
+2. 12 times, 420 ms, longest 57 ms
+   Remote key (MainActivity.dispatchKeyEvent)
+3. 5 times, 95 ms, longest 25 ms
+   Handler: AndroidUiDispatcher$dispatchCallback$1
+4. 3 times, 87 ms, longest 38 ms
+   Handler: DispatchedContinuation[Dispatchers.Main, Continuation at HomeScreenKt$HomeScreen$2$1.invokeSuspend(HomeScreen.kt:214)]
+
+== Garbage collection (during the recording) ==
+14 collections, 212 ms
+2 blocking, 61 ms
+"""
+RECORD_S = 180
+DIAG = {'started': 0.0}
+
+
+def diagnostics():
+    """The report as it stands, and the seconds the mock recording still runs (0 when none is)."""
+    left, now = 0, time.time()
+    if DIAG['started']:
+        ran = now - DIAG['started']
+        left = max(0, math.ceil(RECORD_S - ran))  # rounded up, like the TV's countdown
+    if left:
+        r = int(ran)
+        rec = 'Recording: running, %d:%02d left\nFrames below: since it started (%d:%02d).' % (left // 60, left % 60, r // 60, r % 60)
+    else:
+        ago = now - DIAG['started'] - RECORD_S if DIAG['started'] else 6 * 60 + 12
+        rec = 'Recording: finished %s ago (3:00 long)\nFrames below: during that recording.' % (
+            'under a minute' if ago < 60 else '%d min' % (ago // 60))
+    return SMOOTHNESS.replace('{recording}', rec), left
+
+
 KEYS = {'up', 'down', 'left', 'right', 'ok', 'back', 'home', 'playpause', 'mute', 'volup', 'voldown', 'netflix', 'youtube'}
 TYPES = {'.png': 'image/png', '.webmanifest': 'application/manifest+json'}
 
@@ -153,6 +325,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/download':
             name = query.get('path', ['file'])[0].rsplit('/', 1)[-1]
             return self.send(b'sample file', 'application/octet-stream', headers={'Content-Disposition': 'attachment; filename="%s"' % name})
+        if path == '/api/diagnostics':
+            report, left = diagnostics()
+            return self.send(report, 'text/plain; charset=utf-8', headers={'X-Recording-Left': str(left), 'Cache-Control': 'no-store'})
         if path == '/api/inbox':
             messages = INBOX[:]
             del INBOX[:]
@@ -203,6 +378,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/tvs/key' and body.get('id') == 'b' and body.get('key') == 'netflix':
                 return self.send("Kids Room: Netflix isn't installed on this TV", 'text/plain', 400)
             return self.send({'ok': True})
+        if path == '/api/diagnostics/record':
+            DIAG['started'] = time.time()
+            return self.send({'ok': True, 'seconds': RECORD_S})
         if path == '/api/phone/hello':
             phone = {'id': body.get('id', 'p-blake'), 'name': body.get('name', "Blake's iPhone"),
                      'alerts': body.get('alerts', True), 'topic': 'woodruff-example'}

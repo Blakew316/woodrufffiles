@@ -206,6 +206,25 @@ and installs it with Android's package installer (which only accepts an update s
 Each release is built with its build number as the version (release v2.0.N is version N), which is how the app
 tells a newer release apart.
 
+## Smoothness report
+
+To find out why moving around isn't smooth on a particular TV:
+
+- Settings → Advanced → *Smoothness* on the TV sums up, screen by screen, the frames drawn **while navigating**
+  (within a second of a remote press): how many were slow (over 25 ms), the stutters (over 50 ms) and what they
+  were mostly spent on. Camera video and animations running by themselves are counted apart, so they neither
+  water it down nor add to it.
+- **OK** on that row, or **Record 3 Minutes** in the phone app (Settings → TVs → *Smoothness Report*), starts
+  counting again and records the next 3 minutes in detail: whenever one piece of main-thread work (a message, or
+  a remote key being handled) runs over 12 ms, its stack is sampled every 5 ms; long work is added up by kind, and
+  garbage collection is counted. Nothing of this runs outside a recording.
+- The phone page shows the whole report as text, with **Copy Report**: this TV (model, Android version, CPU,
+  memory, display modes, animation scales, whether the app's code is compiled), each screen's navigating and
+  idle frames (late, slow, stutters, p50/p90/p99, and where late frames spent their time), how long remote keys
+  take, and the recording's hot spots. Release builds keep class and method names and line numbers
+  (`-dontobfuscate`), so the stack frames are readable. Also at `GET /api/diagnostics` (plain text) and
+  `POST /api/diagnostics/record`, with the pairing key like the other `/api` routes.
+
 ## Install on your TV
 
 1. Download **WoodruffFamily.apk** from the latest release:

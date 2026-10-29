@@ -304,7 +304,21 @@ class CompanionRoutes(private val ctx: Context) {
         }
 
         s.uri == "/api/settings" && s.method == Method.GET -> json(settingsJson(s))
-        s.uri == "/api/crash/clear" && s.method == Method.POST -> { com.woodruff.tvexplorer.util.CrashLog.clear(ctx); json(settingsJson(s)) }
+        // Its body is read too (unread, it would be taken as the start of the phone's next request on this connection).
+        s.uri == "/api/crash/clear" && s.method == Method.POST -> { body(s); com.woodruff.tvexplorer.util.CrashLog.clear(ctx); json(settingsJson(s)) }
+        // The phone's Smoothness Report (Settings › TVs): plain text. X-Recording-Left: the seconds the
+        // detailed recording still runs, 0 when none is running.
+        s.uri == "/api/diagnostics" && s.method == Method.GET -> {
+            val left = (com.woodruff.tvexplorer.util.MainThreadWatch.state().leftMs + 999) / 1000
+            NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", com.woodruff.tvexplorer.util.FrameStats.report(ctx))
+                .apply { addHeader("Cache-Control", "no-store"); addHeader("X-Recording-Left", left.toString()) }
+        }
+        // Record on the phone: like OK on the TV's Smoothness row, counts afresh and records 3 minutes in detail.
+        s.uri == "/api/diagnostics/record" && s.method == Method.POST -> {
+            body(s) // read, so the connection can carry the next request
+            com.woodruff.tvexplorer.util.FrameStats.reset()
+            json(JSONObject().put("ok", true).put("seconds", com.woodruff.tvexplorer.util.MainThreadWatch.RECORD_MS / 1000))
+        }
         s.uri == "/api/settings/google" && s.method == Method.POST -> {
             val b = body(s)
             val id = b.optString("client_id").trim()
