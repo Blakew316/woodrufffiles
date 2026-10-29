@@ -194,7 +194,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
                     store.remove(r.key); Watched.mark(context, r.key); recent = store.continueWatching()
                 },
                 MenuAction("Remove from Continue watching", Sym.Delete, destructive = true) {
-                    store.remove(r.key); recent = store.continueWatching()
+                    store.removeShow(r); recent = store.continueWatching()
                 },
             ),
         )

@@ -1,6 +1,8 @@
 package com.woodruff.tvexplorer.player
 
 import android.content.Context
+import com.woodruff.tvexplorer.cloud.FamilySync
+import com.woodruff.tvexplorer.cloud.Stamped
 
 /**
  * Per-show player choices, remembered across episodes: audio and subtitle language, and where the
@@ -41,19 +43,78 @@ object ShowPrefs {
         return l.isNotEmpty() && l !in setOf("und", "mis", "mul", "zxx", "unknown") && !isEnglish(l)
     }
 
+    // Each choice is kept with when it was made ("@" + its key), so the family's other TVs take the
+    // newest one ([FamilySync]). One from before that has no time and counts as the oldest.
     private fun p(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun audio(c: Context, show: String): String? = p(c).getString("a:$show", null)
     fun text(c: Context, show: String): String? = p(c).getString("t:$show", null)
     fun setLanguages(c: Context, show: String, audio: String?, text: String?) {
-        p(c).edit().apply {
-            if (audio != null) putString("a:$show", audio)
-            if (text != null) putString("t:$show", text)
-        }.apply()
+        if (audio == null && text == null) return
+        val at = System.currentTimeMillis()
+        synchronized(this) {
+            p(c).edit().apply {
+                if (audio != null) putString("a:$show", audio).putLong("@a:$show", at)
+                if (text != null) putString("t:$show", text).putLong("@t:$show", at)
+            }.apply()
+        }
+        FamilySync.changed(c)
     }
 
     fun introEnd(c: Context, show: String): Long = p(c).getLong("i:$show", 0L)
     fun setIntroEnd(c: Context, show: String, ms: Long) {
-        p(c).edit().apply { if (ms > 0) putLong("i:$show", ms) else remove("i:$show") }.apply()
+        val at = System.currentTimeMillis()
+        synchronized(this) {
+            // Taken off, its time stays: the other TVs take theirs off too.
+            p(c).edit().apply { if (ms > 0) putLong("i:$show", ms) else remove("i:$show"); putLong("@i:$show", at) }.apply()
+        }
+        FamilySync.changed(c)
+    }
+
+    /** A key this keeps per show: "i:" skip-intro mark, "a:" audio or "t:" subtitle language. */
+    internal fun isChoice(key: String): Boolean = key.startsWith("i:") || key.startsWith("a:") || key.startsWith("t:")
+
+    /** For [FamilySync]: every choice with when it was made; one taken off has no value. */
+    internal fun stamps(c: Context): Map<String, Stamped> {
+        val all = p(c).all
+        val out = HashMap<String, Stamped>()
+        for ((k, v) in all) {
+            if (k.startsWith("@")) {
+                val key = k.substring(1)
+                if (v is Long && isChoice(key) && key !in all) out[key] = Stamped(null, v)
+            } else if (isChoice(k)) {
+                val value = when (v) {
+                    is Long -> v.toString()
+                    is String -> v
+                    else -> null
+                } ?: continue
+                out[k] = Stamped(value, all["@$k"] as? Long ?: 0L)
+            }
+        }
+        return out
+    }
+
+    /**
+     * For [FamilySync]: [merge] turns the choices into the merged ones, in one locked step. Not
+     * sent on again (they came from the other TVs). True when anything changed.
+     */
+    internal fun syncWith(c: Context, merge: (Map<String, Stamped>) -> Map<String, Stamped>): Boolean = synchronized(this) {
+        val before = stamps(c)
+        val edit = p(c).edit()
+        var changed = false
+        for ((k, s) in merge(before)) {
+            if (before[k] == s || !isChoice(k)) continue
+            val value = s.value
+            when {
+                value == null -> edit.remove(k)
+                // Kept as a number, as setIntroEnd keeps it.
+                k.startsWith("i:") -> edit.putLong(k, value.toLongOrNull() ?: continue)
+                else -> edit.putString(k, value)
+            }
+            edit.putLong("@$k", s.at)
+            changed = true
+        }
+        if (changed) edit.apply()
+        changed
     }
 }

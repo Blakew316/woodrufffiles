@@ -84,7 +84,18 @@ import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Button
 import com.woodruff.tvexplorer.BuildConfig
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.cloud.GoogleAuth
+import com.woodruff.tvexplorer.notify.Chime
+import com.woodruff.tvexplorer.player.FrameRateMatch
+import com.woodruff.tvexplorer.util.Qr
+import kotlinx.coroutines.withTimeoutOrNull
 import com.woodruff.tvexplorer.mail.MailAccount
 import com.woodruff.tvexplorer.mail.MailAccounts
 import com.woodruff.tvexplorer.mail.MailClient
@@ -130,6 +141,7 @@ private sealed interface SettingsDialog {
     data object BrowseTypes : SettingsDialog
     data class RemoveTv(val tv: LinkedTv) : SettingsDialog
     data class RemovePhone(val phone: Phone) : SettingsDialog
+    data object DriveAgain : SettingsDialog
 }
 
 /**
@@ -186,6 +198,12 @@ fun SettingsScreen(vm: MainViewModel) {
     val photosConnected = remember(v, showPhotos) { GoogleAuth.isConnected(context, GoogleAuth.Grant.PHOTOS) }
     val accounts = remember(v) { MailAccounts.list(context) }
     val overlay = remember(v) { Settings.canDrawOverlays(context) }
+    // This TV's own switches: nothing on the phone shows them, so they only refresh this screen.
+    val shareProgress = remember(v) { FamilySync.enabled(context) }
+    val shareProblem = remember(v) { FamilySync.problem(context) }
+    val shareSignIn = remember(v) { FamilySync.needsNewSignIn(context) }
+    val chime = remember(v) { Chime.enabled(context) }
+    val matchFrameRate = remember(v) { FrameRateMatch.enabled(context) }
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
     LaunchedEffect(Unit) { Phones.load(context) }
     val phones by Phones.items.collectAsStateWithLifecycle()
@@ -207,11 +225,21 @@ fun SettingsScreen(vm: MainViewModel) {
                 opener(SettingsPage.ADVANCED, null, spaced = true),
             )
         }
-        SettingsPage.ACCOUNTS -> listOf(
+        SettingsPage.ACCOUNTS -> listOfNotNull(
             SettingItem(
                 Sym.AddToDrive, "Google Drive", if (connected) "Signed in" else if (configured) "Not signed in" else "Not set up",
                 about = "Movies, TV Shows and files from your Google Drive. OK opens it.",
             ) { vm.show(Screen.DRIVE) },
+            // Through Drive, so it lives with it. Why it isn't working shows on the right.
+            SettingItem(
+                Sym.Autorenew, "Share progress with other TVs", onOff(shareProgress), detail = shareProblem,
+                about = "Continue watching, ✓s and Skip intro follow you to every TV signed in to the same Google account. OK turns it on or off.",
+            ) { FamilySync.setEnabled(context, !shareProgress); version++ },
+            // Only while the Drive sign-in lacks the shared folder (from before it was asked for).
+            if (shareSignIn) SettingItem(
+                Sym.Key, "Sign in to Google Drive again",
+                about = "Lets this TV share progress with your other TVs. Scan a code with your phone; the library stays as it is.",
+            ) { dialog = SettingsDialog.DriveAgain } else null,
             SettingItem(
                 Sym.PhotoLibrary, "Google Photos", if (photosConnected) "Connected" else "Connect",
                 about = "Brings photos and videos into Family Memories.",
@@ -260,6 +288,11 @@ fun SettingsScreen(vm: MainViewModel) {
             },
             // Turn off on extra TVs if Google starts limiting camera requests.
             SettingItem(Sym.Videocam, "Cameras on Home", Appearance.homeCameras.label, about = "What Home shows of the cameras. OK changes it.") { Appearance.nextHomeCameras(context) },
+            // Off unless asked for: each switch of the TV's refresh rate blanks the screen.
+            SettingItem(
+                Sym.Movie, "Match frame rate", onOff(matchFrameRate),
+                about = "Shows films at their own frame rate, so slow pans don't stutter. The screen goes black for a moment when a film starts and stops.",
+            ) { FrameRateMatch.setEnabled(context, !matchFrameRate); version++ },
         )
         SettingsPage.SCREENSAVER -> listOf(
             SettingItem(Sym.Bedtime, "Start when idle", if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min", about = "How long the TV sits unused before the slideshow starts. OK changes it.") { Appearance.nextIdle(context) },
@@ -343,6 +376,10 @@ fun SettingsScreen(vm: MainViewModel) {
                     if (r is OpenResult.Failed) dialog = SettingsDialog.OverlayHelp
                 }
             },
+            SettingItem(
+                Sym.Notifications, "Chime for announcements", onOff(chime),
+                about = "A short chime when an announcement or the doorbell pops up, so it's noticed over a film. Never for mail. OK turns it on or off.",
+            ) { Chime.setEnabled(context, !chime); version++ },
             SettingItem(Sym.PlayCircle, "See what other apps are playing", onOff(seesOtherApps), about = "Lets Home and your other TVs show what's playing in other apps.") {
                 val r = Opener.firstThatStarts(context, listOf(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.MediaAccessHelp
@@ -528,6 +565,75 @@ fun SettingsScreen(vm: MainViewModel) {
             "This TV hides the setting. From a computer with adb connected to the TV, run:\n\nadb shell appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow",
             "OK", onConfirm = {}, onDismiss = { dialog = null },
         )
+        SettingsDialog.DriveAgain -> DriveAgainDialog(
+            onDone = {
+                dialog = null
+                version++
+                // Google's consent screen lets each permission be unticked.
+                vm.say(if (FamilySync.needsNewSignIn(context)) "Sharing wasn't allowed. Try again and leave every box ticked." else "This TV now shares progress with your other TVs")
+            },
+            onDismiss = { dialog = null },
+        )
+    }
+}
+
+/**
+ * The Drive sign-in once more, without signing out first, so Google adds the app's hidden folder
+ * (sharing progress between TVs) to it; the library stays. The code from the phone is swapped for
+ * tokens by the Drive sign-in (DriveViewModel), as at the first sign-in.
+ */
+@Composable
+private fun DriveAgainDialog(onDone: () -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var url by remember { mutableStateOf<String?>(null) }
+    var finishing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        TransferService.start(context)
+        val server = TransferService.state.first { it.running || it.error != null }
+        val base = server.base
+        if (base == null) {
+            error = server.error ?: "The phone connection couldn't start."
+            return@LaunchedEffect
+        }
+        while (true) {
+            val attempt = GoogleAuth.newAttempt(context, base)
+            CompanionHub.expect(attempt)
+            val signedIn = GoogleAuth.driveSignIns.value
+            url = attempt.authUrl
+            finishing = false
+            // The phone is back from Google; the sign-in then finishes in the background.
+            CompanionHub.googleCodes.first { it.second.state == attempt.state }
+            url = null
+            finishing = true
+            if (withTimeoutOrNull(30_000) { GoogleAuth.driveSignIns.first { it > signedIn } } != null) {
+                onDone()
+                return@LaunchedEffect
+            }
+            error = "Signing in didn't finish. Scan the new code to try again."
+        }
+    }
+    DialogFrame("Sign in to Google Drive again", onDismiss, width = 680) {
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(220.dp).clip(RoundedCornerShape(16.dp)).background(Color.White), contentAlignment = Alignment.Center) {
+                val target = url
+                if (target != null) {
+                    val qr = remember(target) { Qr.bitmap(target, 600).asImageBitmap() }
+                    Image(qr, contentDescription = "QR code", modifier = Modifier.size(220.dp))
+                } else {
+                    Text(if (finishing) "Signing in…" else "Preparing…", color = Color.Black)
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Scan with your phone and sign in with the same Google account as before.")
+                Text(
+                    "Leave every box ticked: the new one lets this TV share Continue watching, ✓s and Skip intro with your other TVs.",
+                    color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
+                )
+                error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium) }
+            }
+        }
+        ButtonRow { OutlinedButton(onClick = onDismiss) { Text("Close") } }
     }
 }
 
@@ -560,14 +666,14 @@ private enum class SettingsPage(val title: String, val icon: ImageVector, val ab
     ACCOUNTS("Accounts", Sym.AccountCircle, "Google Drive, Photos, Calendar, cameras and mail."),
     MAIL("Mail", Sym.Email, "The mail accounts the Command Center shows."),
     KEYS("Keys & sign-out", Sym.Key, "The keys from Google and TMDB, and signing out."),
-    LOOK("Appearance", Sym.DarkMode, "Light or dark, a background photo, and the cameras on Home."),
+    LOOK("Appearance", Sym.DarkMode, "Light or dark, a background photo, the cameras on Home, and frame-rate matching."),
     SCREENSAVER("Screensaver", Sym.Slideshow, "A slideshow of your photos when the TV sits idle."),
     DEVICES("TVs & phones", Sym.Tv, "This TV's name, your phones and the other TVs in the house."),
     PHONES("Phones", Sym.Smartphone, "Phones connected to this TV."),
     TVS("Other TVs", Sym.Link, "Link TVs to see what each one is playing and watch together."),
     STORAGE("Storage & apps", Sym.Storage, "Drives, files by type, apps, iCloud and video calls."),
     UPDATES("Updates", Sym.SystemUpdate, "New versions of Woodruff Family."),
-    ADVANCED("Advanced", Sym.Tune, "Smoothness, permissions, pairing and credits."),
+    ADVANCED("Advanced", Sym.Tune, "Smoothness, alerts, permissions, pairing and credits."),
 }
 
 /**

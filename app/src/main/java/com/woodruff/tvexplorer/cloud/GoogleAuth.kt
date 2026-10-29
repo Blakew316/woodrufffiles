@@ -5,8 +5,11 @@ import android.util.Base64
 import com.woodruff.tvexplorer.settings.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
@@ -38,11 +41,18 @@ object GoogleAuth {
     const val K_NEST_PROJECT = "nest.project_id"
 
     /**
+     * Drive's hidden app folder, asked for with the Drive sign-in: only this app sees it, and it's
+     * the one place in Drive the app can write (Continue watching shared between TVs, [FamilySync]).
+     */
+    const val APPDATA = "https://www.googleapis.com/auth/drive.appdata"
+
+    /**
      * What a sign-in grants. Each has its own tokens, so connecting cameras never touches the
      * Drive sign-in and vice versa. Both use the same OAuth client.
      */
     enum class Grant(prefix: String, val scope: String) {
-        DRIVE("google", "https://www.googleapis.com/auth/drive.readonly"),
+        // The family's files stay read-only; appdata is the app's own hidden folder (see APPDATA).
+        DRIVE("google", "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.appdata"),
         /** Google Home / Nest cameras through Device Access (Smart Device Management API). */
         // Pub/Sub too, for doorbell rings (they only arrive as Pub/Sub events).
         NEST("nest", "https://www.googleapis.com/auth/sdm.service https://www.googleapis.com/auth/pubsub"),
@@ -54,10 +64,14 @@ object GoogleAuth {
         val refreshKey = "$prefix.refresh"
         val accessKey = "$prefix.access"
         val expiresKey = "$prefix.expires"
+        /** The scopes Google actually granted (its consent screen lets each one be unticked). */
+        val scopesKey = "$prefix.scopes"
+        /** Everything stored for this sign-in, removed together when it ends. */
+        val stored: Array<String> get() = arrayOf(refreshKey, accessKey, expiresKey, scopesKey)
     }
 
     private val K_REFRESH = Grant.DRIVE.refreshKey
-    private fun allTokens() = Grant.entries.flatMap { listOf(it.refreshKey, it.accessKey, it.expiresKey) }.toTypedArray()
+    private fun allTokens() = Grant.entries.flatMap { it.stored.toList() }.toTypedArray()
 
     private fun s(c: Context) = SecretStore.get(c)
 
@@ -68,6 +82,10 @@ object GoogleAuth {
      * Google ends it (an approval that expired): the same account usually signs back in then.
      */
     val driveSignOuts: SharedFlow<Unit> = _driveSignOuts.asSharedFlow()
+
+    private val _driveSignIns = MutableStateFlow(0)
+    /** Counts Drive sign-ins finished on this TV, so a screen showing the QR code knows when it's done. */
+    val driveSignIns: StateFlow<Int> = _driveSignIns.asStateFlow()
 
     /** One-time move from the 1.2–1.4 plain prefs into encrypted storage, so nobody re-enters keys. */
     fun migrate(c: Context) {
@@ -84,13 +102,20 @@ object GoogleAuth {
     fun isConnected(c: Context, grant: Grant = Grant.DRIVE) = s(c).get(grant.refreshKey) != null
     fun clientId(c: Context): String? = s(c).get(K_CLIENT_ID)
 
+    /**
+     * Whether Google granted [scope] with [grant]'s sign-in. False when it isn't known: a sign-in
+     * from before the scopes were kept counts once its next token arrives (within the hour).
+     */
+    fun hasScope(c: Context, scope: String, grant: Grant = Grant.DRIVE): Boolean =
+        s(c).get(grant.scopesKey)?.split(' ')?.contains(scope) == true
+
     /** Device Access project ID (a UUID from console.nest.google.com/device-access). */
     fun nestProject(c: Context): String? = s(c).get(K_NEST_PROJECT)?.takeIf { it.isNotBlank() }
 
     fun saveNestProject(c: Context, id: String?) {
         val clean = id?.trim()?.takeIf { it.isNotEmpty() }
         if (clean != null) require(Regex("[0-9a-fA-F-]{20,64}").matches(clean)) { "The Project ID looks like 1a2b3c4d-…, from the Device Access Console" }
-        if (clean != nestProject(c)) s(c).remove(Grant.NEST.refreshKey, Grant.NEST.accessKey, Grant.NEST.expiresKey)
+        if (clean != nestProject(c)) s(c).remove(*Grant.NEST.stored)
         s(c).put(K_NEST_PROJECT, clean)
     }
 
@@ -147,20 +172,29 @@ object GoogleAuth {
     }
 
     /** Swaps the one-time code for tokens and stores them. */
-    suspend fun exchange(c: Context, code: String, attempt: Attempt) = withContext(Dispatchers.IO) {
-        val st = s(c)
-        val params = mutableListOf(
-            "code" to code,
-            "client_id" to (st.get(K_CLIENT_ID) ?: throw IOException("Google isn't set up")),
-            "client_secret" to (st.get(K_CLIENT_SECRET) ?: ""),
-            "redirect_uri" to REDIRECT_URI,
-            "grant_type" to "authorization_code",
-        )
-        attempt.verifier?.let { params += "code_verifier" to it }
-        val json = post(*params.toTypedArray())
-        val refresh = json.optString("refresh_token").ifEmpty { throw IOException("Google didn't return a refresh token. Try signing in again.") }
-        storeAccess(c, json, attempt.grant)
-        st.put(attempt.grant.refreshKey, refresh)
+    suspend fun exchange(c: Context, code: String, attempt: Attempt) {
+        withContext(Dispatchers.IO) {
+            val st = s(c)
+            val params = mutableListOf(
+                "code" to code,
+                "client_id" to (st.get(K_CLIENT_ID) ?: throw IOException("Google isn't set up")),
+                "client_secret" to (st.get(K_CLIENT_SECRET) ?: ""),
+                "redirect_uri" to REDIRECT_URI,
+                "grant_type" to "authorization_code",
+            )
+            attempt.verifier?.let { params += "code_verifier" to it }
+            val json = post(*params.toTypedArray())
+            val refresh = json.optString("refresh_token").ifEmpty { throw IOException("Google didn't return a refresh token. Try signing in again.") }
+            storeAccess(c, json, attempt.grant)
+            // Google always says what it granted; without that, take it as what was asked for.
+            if (json.optString("scope").isBlank()) st.put(attempt.grant.scopesKey, attempt.grant.scope)
+            st.put(attempt.grant.refreshKey, refresh)
+        }
+        if (attempt.grant == Grant.DRIVE) {
+            _driveSignIns.value = _driveSignIns.value + 1
+            // Now with the shared folder, usually: swap progress with the other TVs.
+            FamilySync.signedIn(c)
+        }
     }
 
     /** A valid access token, refreshing it when it's about to expire. Null when signed out. */
@@ -185,7 +219,7 @@ object GoogleAuth {
             json.getString("access_token")
         } catch (e: RevokedException) {
             // Approval expired (7-day limit in Testing mode) or was revoked: sign in again.
-            st.remove(grant.refreshKey, grant.accessKey, grant.expiresKey)
+            st.remove(*grant.stored)
             null
         } catch (e: IOException) {
             null
@@ -195,7 +229,7 @@ object GoogleAuth {
     /** Forgets tokens on this TV and asks Google to revoke them. Keeps the client ID/secret. */
     suspend fun signOut(c: Context, grant: Grant = Grant.DRIVE) = withContext(Dispatchers.IO) {
         val refresh = s(c).get(grant.refreshKey)
-        s(c).remove(grant.refreshKey, grant.accessKey, grant.expiresKey)
+        s(c).remove(*grant.stored)
         if (grant == Grant.DRIVE) _driveSignOuts.tryEmit(Unit)
         if (refresh != null) runCatching {
             (URL("https://oauth2.googleapis.com/revoke?token=${enc(refresh)}").openConnection() as HttpURLConnection).apply {
@@ -212,6 +246,8 @@ object GoogleAuth {
     private fun storeAccess(c: Context, json: JSONObject, grant: Grant) {
         s(c).put(grant.accessKey, json.getString("access_token"))
         s(c).put(grant.expiresKey, (System.currentTimeMillis() + json.optLong("expires_in", 3600) * 1000).toString())
+        // What it's good for, from the sign-in and every refresh (an unchanged value isn't written again).
+        json.optString("scope").takeIf { it.isNotBlank() }?.let { s(c).put(grant.scopesKey, it) }
     }
 
     private class RevokedException(msg: String) : IOException(msg)
