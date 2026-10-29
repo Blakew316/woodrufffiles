@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import com.woodruff.tvexplorer.cloud.GoogleAuth
+import com.woodruff.tvexplorer.notify.Chime
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.tvs.TvLinks
@@ -99,7 +100,7 @@ object Doorbell {
         when (kind) {
             "person" -> Notices.post(app, NoticeSource.SYSTEM, "Person at $where", "Seen on the $where camera")
             "motion" -> Notices.post(app, NoticeSource.SYSTEM, "Motion at $where", "Seen on the $where camera")
-            else -> { Notices.post(app, NoticeSource.SYSTEM, "Someone's at the door", where); _rings.tryEmit(camera) }
+            else -> { Notices.post(app, NoticeSource.SYSTEM, "Someone's at the door", where, chime = Chime.Sound.DOORBELL); _rings.tryEmit(camera) }
         }
         if (relay) scope.launch { TvLinks.forEachLinked(app) { TvLinks.doorbell(it, camera, label, kind) } }
     }

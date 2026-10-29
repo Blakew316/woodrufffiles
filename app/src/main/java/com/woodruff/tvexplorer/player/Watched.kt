@@ -26,6 +26,24 @@ object Watched {
         c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet(KEY, next).apply()
     }
 
+    /** Marks every key in one write (a whole season). */
+    fun markAll(c: Context, keys: Collection<String>) {
+        val now = load(c)
+        if (now.containsAll(keys)) return
+        val next = (now + keys).let { if (it.size > 4000) it.drop(it.size - 4000).toSet() else it }
+        this.keys = next
+        c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet(KEY, next).apply()
+    }
+
+    /** Clears every key in one write. */
+    fun unmarkAll(c: Context, keys: Collection<String>) {
+        val now = load(c)
+        if (keys.none { it in now }) return
+        val next = now - keys.toSet()
+        this.keys = next
+        c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet(KEY, next).apply()
+    }
+
     fun unmark(c: Context, key: String) {
         val now = load(c)
         if (key !in now) return

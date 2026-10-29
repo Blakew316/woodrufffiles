@@ -66,7 +66,8 @@ object Notices {
         }
     }
 
-    fun post(context: Context, source: NoticeSource, title: String, body: String, link: String? = null) {
+    /** [chime]: also play that sound (announcements and the doorbell; never mail). */
+    fun post(context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null) {
         load(context)
         val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link)
         _items.update { (listOf(n) + it).take(MAX) }

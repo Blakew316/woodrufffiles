@@ -171,6 +171,9 @@ object TvLinks {
         listOf(me.await()) + others.awaitAll()
     }
 
+    /** The statuses last fetched (empty before the first), for a screen to start from. */
+    fun lastStatuses(): List<TvStatus> = recent?.second.orEmpty()
+
     fun find(id: String): LinkedTv? = _linked.value.firstOrNull { it.id == id }
 
     fun screen(tv: LinkedTv): ByteArray? {
