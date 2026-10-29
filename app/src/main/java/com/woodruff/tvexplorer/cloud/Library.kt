@@ -1,7 +1,9 @@
 package com.woodruff.tvexplorer.cloud
 
+import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.tmdb.Tmdb
 import java.text.Normalizer
+import java.util.Calendar
 
 /**
  * What's known about a movie or show: the title and year parsed from its name, plus genres and
@@ -29,8 +31,10 @@ data class LibraryFilter(
     val query: String = "",
     /** The Overview tab: a featured title and rows (Continue watching, genres) instead of the A–Z grid. */
     val overview: Boolean = false,
+    /** Only what hasn't been watched: films without a ✓, shows not started. */
+    val unwatched: Boolean = false,
 ) {
-    val narrowed: Boolean get() = genre != null || decade != null || query.isNotBlank()
+    val narrowed: Boolean get() = genre != null || decade != null || query.isNotBlank() || unwatched
 }
 
 /** Sorting and filtering for the Movies / TV Shows grids. Pure functions, so they're unit tested. */
@@ -72,6 +76,71 @@ object Library {
     fun genres(files: List<DriveFile>): List<String> =
         files.flatMap { info(it).genres }.groupingBy { it }.eachCount()
             .entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).map { it.key }
+
+    /**
+     * The Overview's featured titles: five of the library's well-rated titles with wide art, picked
+     * at random — a new five each [day] ([today]), the same five all day, on every TV.
+     */
+    fun featured(files: List<DriveFile>, day: Long): List<DriveFile> {
+        val pool = files.filter { info(it).backdrop != null }
+        val good = pool.filter { (info(it).rating ?: 0.0) >= 6.5 }.let { if (it.size >= 5) it else pool }
+        return good.shuffled(java.util.Random(day)).take(5)
+    }
+
+    /** Today, for [featured]: a number that changes at midnight. */
+    fun today(): Long = Calendar.getInstance().let { it.get(Calendar.YEAR) * 1000L + it.get(Calendar.DAY_OF_YEAR) }
+
+    /**
+     * What each of [recent] (newest first) is in this library, for the Overview's Continue watching
+     * row: a film by its own key; an episode, or a film in its own folder, by the entry it's known
+     * to sit under ([shows]: media key → entry id), else a show by its name. Each entry once, with
+     * its newest item. [matchKey] is [showMatchKey] (or a remembered copy of it).
+     */
+    fun continuing(
+        files: List<DriveFile>, recent: List<RecentItem>, shows: Map<String, String>,
+        matchKey: (String) -> String = { showMatchKey(it) },
+    ): List<Pair<DriveFile, RecentItem>> {
+        val byId = files.associateBy { it.id }
+        // The folders' names are only worked out if something isn't found by its key.
+        val byName by lazy { files.filter { it.isFolder }.associateBy { matchKey(it.name) } }
+        return recent.mapNotNull { r ->
+            val own = if (r.key.startsWith(DRIVE)) byId[r.key.removePrefix(DRIVE)] else null
+            val entry = own ?: shows[r.key]?.let { byId[it] } ?: byName[matchKey(r.title)]
+            entry?.let { it to r }
+        }.distinctBy { it.first.id }
+    }
+
+    /** The Overview's rows: Continue watching ([watching]) when something's in progress, then [overviewRows]. */
+    fun overview(files: List<DriveFile>, watching: List<DriveFile>): List<Pair<String, List<DriveFile>>> = buildList {
+        if (watching.isNotEmpty()) add("Continue watching" to watching)
+        addAll(overviewRows(files, watching.mapTo(HashSet()) { it.id }))
+    }
+
+    /**
+     * What the Overview shows first, to load ahead: the first featured title's wide art (on [day]),
+     * and the posters of the first few titles in its top two rows ([watching]: Continue watching).
+     */
+    fun overviewArt(files: List<DriveFile>, watching: List<DriveFile>, day: Long): Pair<String?, List<String>> {
+        val backdrop = featured(files, day).firstOrNull()?.let { info(it).backdrop }
+        val posters = overview(files, watching).take(2).flatMap { (_, row) -> row.take(6) }.mapNotNull { it.posterUrl }
+        return backdrop to posters
+    }
+
+    /**
+     * The TV Shows entries already started, for the Unwatched filter: an episode known to sit under
+     * one ([shows]: media key → entry id) has a ✓ ([watched]), or something of it is in [recent]
+     * (found as [continuing] finds it). A loose video counts by its own ✓.
+     */
+    fun startedShows(
+        files: List<DriveFile>, recent: List<RecentItem>, shows: Map<String, String>, watched: (String) -> Boolean,
+        matchKey: (String) -> String = { showMatchKey(it) },
+    ): Set<String> {
+        val started = HashSet<String>()
+        shows.forEach { (key, entry) -> if (watched(key)) started += entry }
+        files.forEach { if (!it.isFolder && watched(DRIVE + it.id)) started += it.id }
+        continuing(files, recent, shows, matchKey).forEach { started += it.first.id }
+        return started
+    }
 
     /**
      * The Overview's rows under Continue watching ([shown]: the ids already in it): Recently added,
@@ -156,14 +225,19 @@ object Library {
     fun decades(files: List<DriveFile>): List<Int> =
         files.mapNotNull { info(it).year?.let { y -> y / 10 * 10 } }.distinct().sortedDescending()
 
-    fun apply(files: List<DriveFile>, filter: LibraryFilter): List<DriveFile> {
+    /**
+     * [files] narrowed and sorted as [filter] says. [watched] is what the Unwatched filter leaves
+     * out (a film's ✓, a show started): the screen knows that, so this stays pure.
+     */
+    fun apply(files: List<DriveFile>, filter: LibraryFilter, watched: (DriveFile) -> Boolean = { false }): List<DriveFile> {
         // Each file paired with its info once: comparisons then read the pair, rather than looking
         // the file up in a map (which hashes the whole DriveFile on every comparison).
         val words = normalize(filter.query).split(' ').filter { it.isNotEmpty() }
-        val kept = files.map { it to info(it) }.filter { (_, i) ->
+        val kept = files.map { it to info(it) }.filter { (f, i) ->
             (filter.genre == null || filter.genre in i.genres) &&
                 (filter.decade == null || (i.year != null && i.year / 10 * 10 == filter.decade)) &&
-                (words.isEmpty() || words.all { it in i.searchText })
+                (words.isEmpty() || words.all { it in i.searchText }) &&
+                (!filter.unwatched || !watched(f))
         }
         val byTitle = compareBy<Pair<DriveFile, MediaInfo>> { it.second.sortKey }
         return when (filter.sort) {
@@ -182,6 +256,9 @@ object Library {
     fun normalize(s: String): String =
         Normalizer.normalize(s, Normalizer.Form.NFD).replace(MARKS, "").lowercase()
             .replace(NON_WORD, " ").trim()
+
+    /** How a Drive file's media key starts ("drive:<id>", as MediaRef.Drive writes it). */
+    private const val DRIVE = "drive:"
 
     // Compiled once: these run for every title on every sort, filter and search keystroke.
     private val ARTICLE = Regex("^(the|a|an) ")

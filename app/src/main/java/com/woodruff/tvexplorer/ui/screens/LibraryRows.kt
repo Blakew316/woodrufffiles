@@ -21,12 +21,14 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -51,21 +53,19 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
-import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.EpisodeShows
-import com.woodruff.tvexplorer.cloud.GoogleAuth
+import com.woodruff.tvexplorer.cloud.FolderCache
 import com.woodruff.tvexplorer.cloud.Library
+import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.RecentStore
-import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Shapes
-import java.util.Calendar
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Where the focus was in each library's rows (row name to title id), to put it back on return. */
 private val rowsFocus = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
@@ -91,44 +91,37 @@ internal fun LibraryRows(
     onMenu: (DriveFile) -> Unit,
     /** The focused title's art, for the backdrop behind the screen. */
     onFocusArt: (String?) -> Unit,
+    /** Whether a title has its ✓ (a film kept in its own folder: that film's, once known). */
+    seen: (DriveFile) -> Boolean = { false },
+    /** Changes when ✓s or progress may have changed while here (marked from a menu, or another TV's). */
+    marks: Int = 0,
+    /** A title taking (true) or losing the focus, banner included: a folder's listing is fetched ahead. */
+    onRest: (DriveFile, Boolean) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
-    // What's being watched, as of opening: the rows keep their titles while you're here, so a film
-    // finished meanwhile doesn't pull its tile (and the focus) out from under you...
-    val recentAtOpen = remember { RecentStore(context).all().filter { it.progress in 0.02f..0.97f } }
+    // What's being watched, as of opening — in progress or up next, one per show: the rows keep
+    // their titles while you're here, so a film finished meanwhile doesn't pull its tile (and the
+    // focus) out from under you...
+    val recentAtOpen = remember { RecentStore(context).continueWatching() }
     // ...while the progress bars and ✓s refresh on coming back from the player. (The first resume
     // arrives with the first frame: nothing has changed by then.)
     var resumes by remember { mutableIntStateOf(0) }
     var resumedOnce by remember { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { if (resumedOnce) resumes++ else resumedOnce = true }
-    val progressOf = remember(resumes) { RecentStore(context).all().filter { it.progress < 0.97f }.associate { it.key to it.progress } }
+    val progressOf = remember(resumes, marks) { RecentStore(context).all().filter { it.progress < 0.97f }.associate { it.key to it.progress } }
 
-    val rows = remember(files) {
-        val byKey = files.associateBy { MediaRef.Drive(it.id).key }
-        // A film you're part-way through, or a show (or a film in its own folder) by name — the
-        // folders' names are only worked out if something isn't found by its own key.
-        val byName by lazy { files.filter { it.isFolder }.associateBy { Library.showMatchKey(it.name) } }
-        // An episode whose name doesn't say its show ("S01E013_Pilot"): the show it's known to sit under.
+    // The rows, and what each Continue watching tile stands for: the film, or the show's episode in
+    // progress or up next.
+    val (rows, playing) = remember(files) {
+        // An episode whose name doesn't say its show ("S01E013_Pilot"): the show it's known to sit
+        // under. Names are matched by keys worked out ahead, off the main thread (matchKeyOf).
         EpisodeShows.load(context)
-        val known = EpisodeShows.map.value
-        val continuing = recentAtOpen.mapNotNull { r ->
-            byKey[r.key] ?: known[r.key]?.let { byKey[MediaRef.Drive(it).key] } ?: byName[Library.showMatchKey(r.title)]
-        }.distinctBy { it.id }
-        val watching = continuing.take(20)
-        buildList {
-            if (watching.isNotEmpty()) add("Continue watching" to watching)
-            // Then Recently added, Top rated and the genres, each title in one row only.
-            addAll(Library.overviewRows(files, watching.mapTo(HashSet()) { it.id }))
-        }
+        val watching = Library.continuing(files, recentAtOpen, EpisodeShows.map.value, ::matchKeyOf).take(20)
+        // Then Recently added, Top rated and the genres, each title in one row only.
+        Library.overview(files, watching.map { it.first }) to watching.associate { (f, r) -> f.id to r }
     }
-    // Featured: five of the library's well-rated titles with wide art, picked at random — a new
-    // five each day (the same five all day, on every TV).
-    val featured = remember(files) {
-        val pool = files.filter { Library.info(it).backdrop != null }
-        val good = pool.filter { (Library.info(it).rating ?: 0.0) >= 6.5 }.let { if (it.size >= 5) it else pool }
-        val today = Calendar.getInstance().let { it.get(Calendar.YEAR) * 1000L + it.get(Calendar.DAY_OF_YEAR) }
-        good.shuffled(java.util.Random(today)).take(5)
-    }
+    // Featured: five of the library's well-rated titles with wide art, a new five each day.
+    val featured = remember(files) { Library.featured(files, Library.today()) }
     // Coming back (from a show's folders, say): the row and title you left from.
     val restore = remember {
         rowsFocus[placeKey]?.let { (row, id) ->
@@ -164,7 +157,7 @@ internal fun LibraryRows(
                 } else findingFilm?.cancel() // moved on before its film was found: it doesn't start later
             }) {
                 HeroCarousel(
-                    featured, token, isShows, heroFocus,
+                    featured, token, isShows, heroFocus, onRest = onRest,
                     onPlay = { f ->
                         if (!f.isFolder) onPlay(f)
                         else if (isShows) onChoose(f)
@@ -193,6 +186,8 @@ internal fun LibraryRows(
                     ) {
                         itemsIndexed(items, key = { _, f -> f.id }) { c, f ->
                             val key = MediaRef.Drive(f.id).key
+                            // In Continue watching: what the tile stands for — its progress, or what's next.
+                            val now = playing[f.id]
                             val requester = when {
                                 restore != null && restore.first == r && restore.second == c -> restoreTile
                                 r == 0 && c == 0 -> firstTile
@@ -207,10 +202,12 @@ internal fun LibraryRows(
                                             rowsFocus[placeKey] = title to f.id
                                             onFocusArt(posterArt(f))
                                         }
+                                        onRest(f, it.isFocused)
                                     },
                                 label = Library.label(f),
-                                progress = progressOf[key],
-                                watched = !f.isFolder && Watched.isWatched(context, key),
+                                progress = if (now?.upNext == true) null else progressOf[now?.key ?: key],
+                                watched = seen(f),
+                                caption = now?.takeIf { it.upNext }?.let { upNextCaption(it.title) },
                             )
                         }
                     }
@@ -234,16 +231,23 @@ internal fun LibraryRows(
 
 /**
  * The film kept in [folder], picked as its title page picks it ([folderFilm]); null for a collection
- * or a film in parts, when there's no video, or when the folder can't be listed. Listed with a
- * current token (the screen's can be an hour old).
+ * or a film in parts, when there's no video, or when the folder can't be listed. Its listing as
+ * last seen when there is one (fetched ahead while the banner had the focus), else listed now.
  */
-private suspend fun filmIn(context: Context, token: String?, folder: DriveFile): DriveFile? = try {
-    val t = GoogleAuth.token(context) ?: token
-    if (t == null) null else folderFilm(DriveApi.list(t, DrivePlace.Folder(folder.id, folder.name)))
-} catch (e: CancellationException) {
-    throw e
-} catch (e: Exception) {
-    null
+private suspend fun filmIn(context: Context, token: String?, folder: DriveFile): DriveFile? =
+    (FolderCache.inMemory(folder.id) ?: withContext(Dispatchers.IO) { FolderCache.peek(context, folder.id) } ?: FolderCache.list(context, token, folder))
+        ?.let(::folderFilm)
+
+/**
+ * The banner's picture of [f] — its wide art, else its poster — at the size the banner shows it;
+ * null when there's none it may show (Drive-hosted art needs the token, which only Google gets).
+ */
+private fun heroRequest(context: Context, f: DriveFile, token: String?): ImageRequest? {
+    val art = Library.info(f).backdrop ?: posterArt(f) ?: return null
+    if (token == null && isGoogle(art)) return null
+    return ImageRequest.Builder(context).data(art)
+        .apply { if (isGoogle(art) && token != null) addHeader("Authorization", "Bearer $token") }
+        .size(1280, 720).build()
 }
 
 /**
@@ -255,21 +259,37 @@ private suspend fun filmIn(context: Context, token: String?, folder: DriveFile):
 @Composable
 private fun HeroCarousel(
     items: List<DriveFile>, token: String?, isShows: Boolean, focus: FocusRequester,
+    /** The title showing taking (true) or losing the focus with the banner: a folder's listing is fetched ahead. */
+    onRest: (DriveFile, Boolean) -> Unit,
     onPlay: (DriveFile) -> Unit, onDetails: (DriveFile) -> Unit,
 ) {
     val context = LocalContext.current
     var index by remember(items) { mutableIntStateOf(0) }
+    var focused by remember { mutableStateOf(false) }
+    val latestToken by rememberUpdatedState(token)
     // Paused while a title's page, a menu or the filters cover it (they take the window's focus):
     // unseen, it went on loading and cross-fading art behind them.
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     LaunchedEffect(items, windowFocused) {
         while (windowFocused && items.size > 1) {
-            kotlinx.coroutines.delay(12_000) // a calm pace
+            kotlinx.coroutines.delay(10_000)
+            // The next title's picture, fetched a couple of seconds ahead, so it fades in whole.
+            heroRequest(context, items[(index + 1) % items.size], latestToken)?.let { coil.Coil.imageLoader(context).enqueue(it) }
+            kotlinx.coroutines.delay(2_000) // a calm pace: 12 s a title
             index = (index + 1) % items.size
         }
     }
     val current = items[index.coerceIn(0, items.lastIndex)]
-    Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp).height(300.dp).clip(RoundedCornerShape(28.dp)).background(Color.Black)) {
+    // The title showing while the banner has the focus: a folder's listing is fetched ahead, so its
+    // Play finds the film at once (and its page opens complete).
+    DisposableEffect(current, focused) {
+        if (focused) onRest(current, true)
+        onDispose { if (focused) onRest(current, false) }
+    }
+    Box(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp).height(300.dp).clip(RoundedCornerShape(28.dp)).background(Color.Black)
+            .onFocusChanged { focused = it.hasFocus },
+    ) {
         androidx.compose.animation.Crossfade(
             current,
             animationSpec = androidx.compose.animation.core.tween(700, easing = androidx.compose.animation.core.FastOutSlowInEasing),
@@ -277,13 +297,9 @@ private fun HeroCarousel(
         ) { f ->
             Box(Modifier.fillMaxSize()) {
                 val info = remember(f) { Library.info(f) }
-                val art = info.backdrop ?: posterArt(f)
-                if (art != null && (token != null || !isGoogle(art))) {
-                    val request = remember(art, token) {
-                        ImageRequest.Builder(context).data(art)
-                            .apply { if (isGoogle(art) && token != null) addHeader("Authorization", "Bearer $token") }
-                            .size(1280, 720).build()
-                    }
+                // The same request as the one fetched ahead, so it's a memory-cache hit.
+                val request = remember(f, token) { heroRequest(context, f, token) }
+                if (request != null) {
                     AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 }
                 Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.85f), 0.6f to Color.Black.copy(alpha = 0.25f), 1f to Color.Transparent)))

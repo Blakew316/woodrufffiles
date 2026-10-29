@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.horizontalScroll
@@ -45,7 +47,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -75,8 +79,12 @@ import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveState
 import com.woodruff.tvexplorer.cloud.DriveViewModel
+import com.woodruff.tvexplorer.cloud.EpisodeShows
+import com.woodruff.tvexplorer.cloud.FamilySync
+import com.woodruff.tvexplorer.cloud.FolderCache
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibrarySort
+import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.cloud.SignInStep
 import com.woodruff.tvexplorer.util.Qr
@@ -84,6 +92,8 @@ import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.ImageViewerActivity
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.PlayerActivity
+import com.woodruff.tvexplorer.player.RecentStore
+import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ActionMenu
@@ -128,9 +138,22 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
 
     val filter = state.filter
+    // Movies, where a folder is a film kept in it (in TV Shows, a show or a season).
+    val films = state.stack.firstOrNull() == DrivePlace.Movies
+    // Mark as watched / unwatched (Watched can't be observed) and another TV's ✓s and progress
+    // merged in: either way the posters' ✓s and progress bars are read again.
+    val marks = remember { mutableIntStateOf(0) }
+    val synced by FamilySync.updates.collectAsStateWithLifecycle()
+    val marked = marks.intValue + synced
+    val seen: (DriveFile) -> Boolean = remember(marked, films) { { f: DriveFile -> posterWatched(context, f, films) } }
     // Movies / TV Shows top level: filtered and sorted; everywhere else as Drive lists it.
-    val shown = remember(state.files, state.filterable, filter) {
-        if (state.filterable) Library.apply(state.files, filter) else state.files
+    val shown = remember(state.files, state.filterable, filter, films) {
+        when {
+            !state.filterable -> state.files
+            // As watched when it was chosen: a ✓ marked meanwhile doesn't pull a title (and the focus) away.
+            filter.unwatched -> Library.apply(state.files, filter, watchedFor(context, state.files, films))
+            else -> Library.apply(state.files, filter)
+        }
     }
     // A film in Movies / TV Shows plays on its own: no rolling on into the next title (and the
     // queue is never cut short of the one chosen). In a folder, the media around it queue up after it.
@@ -162,6 +185,32 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Whether the focus is in the header (choosing a category): the posters or rows that the choice
     // brings up then don't take it. Read only when they open, so no redraws when it changes.
     val headerFocused = remember { mutableStateOf(false) }
+    // The folder (a show, a film kept in its own folder) the focus rests on at a library's top: after
+    // half a second its listing is fetched — just the listing — so its title page, or the banner's
+    // Play, has it at once. Moving on cancels it.
+    val restingOn = remember(state.place) { mutableStateOf<DriveFile?>(null) }
+    val rest: (DriveFile, Boolean) -> Unit = { f, focused ->
+        if (focused) restingOn.value = f.takeIf { it.isFolder }
+        else if (restingOn.value?.id == f.id) restingOn.value = null
+    }
+    LaunchedEffect(state.place) {
+        androidx.compose.runtime.snapshotFlow { restingOn.value }.collectLatest { f ->
+            if (f == null || FolderCache.inMemory(f.id) != null) return@collectLatest
+            kotlinx.coroutines.delay(500)
+            // Listed before (saved on disk): that copy will do, the title page refreshes it.
+            val listed = withContext(Dispatchers.IO) { FolderCache.peek(context, f.id) }
+                ?: FolderCache.list(context, state.token, f) ?: return@collectLatest
+            // A film watched before: now that it's known, its folder's poster shows the ✓.
+            val film = if (films) folderFilm(listed) else null
+            if (film != null && Watched.isWatched(context, MediaRef.Drive(film.id).key)) marks.intValue++
+        }
+    }
+    // Mark as watched (as finishing it does: the ✓, and off Continue watching), or unwatched again.
+    // Both reach the family's other TVs too.
+    val markWatched: (String, Boolean) -> Unit = { key, watched ->
+        if (watched) { RecentStore(context).remove(key); Watched.mark(context, key) } else Watched.unmark(context, key)
+        marks.intValue++
+    }
     if (state.library) PosterBackdrop(focusedArt, state.token)
     Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = if (state.library) 18.dp else 32.dp)) {
         if (state.library) {
@@ -229,6 +278,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         canTakeFocus = { !headerFocused.value },
                         onChoose = choose, onPlay = onOpen, onMenu = { menuFor = it },
                         onFocusArt = { focusedArt.value = it },
+                        seen = seen, marks = marked, onRest = rest,
                     )
                 }
                 else -> {
@@ -243,8 +293,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     // (The first resume arrives with the first frame, when it was just read: skip it.)
                     var resumedOnce by remember { mutableStateOf(false) }
                     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { if (resumedOnce) resumes++ else resumedOnce = true }
-                    val progressOf = remember(state.place, resumes) {
-                        com.woodruff.tvexplorer.player.RecentStore(context).all().filter { it.progress < 0.97f }.associate { it.key to it.progress }
+                    val progressOf = remember(state.place, resumes, marked) {
+                        RecentStore(context).all().filter { it.progress < 0.97f }.associate { it.key to it.progress }
                     }
                     // Load the posters a couple of rows past the focus into the image cache, so they're
                     // already there when the grid scrolls to them instead of popping in.
@@ -284,18 +334,22 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                                         driveFocus[placeKey] = f.id
                                         if (state.library) { focusedArt.value = posterArt(f); if (!episodeGrid) prefetch(f.id) }
                                     }
+                                    if (state.filterable) rest(f, it.hasFocus)
                                 }
                             if (episodeGrid && f.kind == FileKind.VIDEO) EpisodeCard(
                                 f, state.token,
                                 progress = progressOf[MediaRef.Drive(f.id).key],
-                                watched = com.woodruff.tvexplorer.player.Watched.isWatched(context, MediaRef.Drive(f.id).key),
+                                watched = seen(f),
                                 modifier = mod,
-                            ) { choose(f) }
+                                // Its menu: Play, Mark as watched / unwatched, Download.
+                                onLongClick = { menuFor = f },
+                                onClick = { choose(f) },
+                            )
                             else if (state.library) PosterTile(
                                 f, state.token, onClick = { choose(f) }, onLongClick = { menuFor = f }, modifier = mod,
                                 label = if (state.filterable) Library.label(f) else null,
                                 progress = progressOf[MediaRef.Drive(f.id).key],
-                                watched = !f.isFolder && com.woodruff.tvexplorer.player.Watched.isWatched(context, MediaRef.Drive(f.id).key),
+                                watched = seen(f),
                             )
                             else DriveTile(f, state.token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
                         }
@@ -346,11 +400,20 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             openLabel = if (isShow) "All folders" else "Open",
             onChoose = { detailFor = it },
             onOpen = { detailFor = null; onOpen(f) },
-            onDismiss = { detailFor = null },
+            // Back on the posters: ✓s read again (marked on the page, or a film found in its folder there).
+            onDismiss = { detailFor = null; marks.intValue++ },
         )
     }
 
     menuFor?.let { f ->
+        // What Mark as watched acts on: the video, or the film kept in this folder — its folder listed
+        // now if it hasn't been (the line appears once the film is known).
+        val watchKey by produceState(if (state.library) posterWatchKey(f, films) else null, f) {
+            if (value == null && state.library && films && f.isFolder) {
+                val inside = withContext(Dispatchers.IO) { FolderCache.peek(context, f.id) } ?: FolderCache.list(context, state.token, f)
+                value = inside?.let(::folderFilm)?.let { MediaRef.Drive(it.id).key }
+            }
+        }
         ActionMenu(
             title = f.name,
             subtitle = if (f.isFolder) "Folder" else "${Format.bytes(f.size)} · ${Format.date(f.modified)}",
@@ -359,6 +422,14 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 if (f.isFolder) add(MenuAction("Open", Sym.AddToDrive) { drive.open(DrivePlace.Folder(f.id, f.name)) })
                 if (f.kind == FileKind.VIDEO || f.kind == FileKind.AUDIO) add(MenuAction("Play", Sym.PlayArrow) { onOpen(f) })
                 if (f.kind == FileKind.IMAGE) add(MenuAction("View", Sym.Visibility) { onOpen(f) })
+                // One line: whichever of the two it isn't.
+                watchKey?.takeIf { f.isFolder || f.kind == FileKind.VIDEO }?.let { key ->
+                    val watched = Watched.isWatched(context, key)
+                    add(
+                        if (watched) MenuAction("Mark as unwatched", Sym.RadioButtonUnchecked) { markWatched(key, false) }
+                        else MenuAction("Mark as watched", Sym.CheckCircle) { markWatched(key, true) },
+                    )
+                }
                 if (!f.isFolder && !f.isGoogleDoc) add(MenuAction("Download to this TV", Sym.Download) { drive.download(f) })
                 if (f.isGoogleDoc) add(MenuAction("Google Docs files can't be opened on TV", Sym.Visibility) {})
             },
@@ -415,6 +486,33 @@ private fun openDriveFile(context: Context, f: DriveFile, all: List<DriveFile>, 
 internal fun posterArt(f: DriveFile): String? = f.posterUrl ?: f.thumbnailLink?.takeIf { f.kind == FileKind.VIDEO }?.let(DriveApi::big)
 
 /**
+ * The media key whose ✓ a library poster shows, and that Mark as watched sets: a file's own, or for
+ * a film kept in its own folder ([films]: in Movies) that film's — only once the folder's listing is
+ * in memory ([FolderCache.inMemory]): nothing is fetched or read from disk while drawing.
+ */
+internal fun posterWatchKey(f: DriveFile, films: Boolean): String? = when {
+    !f.isFolder -> MediaRef.Drive(f.id).key
+    films -> FolderCache.inMemory(f.id)?.let(::folderFilm)?.let { MediaRef.Drive(it.id).key }
+    else -> null
+}
+
+/** Whether a library poster gets its ✓ (see [posterWatchKey]). */
+internal fun posterWatched(context: Context, f: DriveFile, films: Boolean): Boolean =
+    posterWatchKey(f, films)?.let { Watched.isWatched(context, it) } == true
+
+/**
+ * What the Unwatched filter leaves out. Movies: a film with its ✓ (a film in its own folder: that
+ * film's, once known). TV Shows: a show already started — an episode known to sit under it has a ✓,
+ * or something of it is in progress or up next.
+ */
+private fun watchedFor(context: Context, files: List<DriveFile>, films: Boolean): (DriveFile) -> Boolean {
+    if (films) return { f -> posterWatched(context, f, films = true) }
+    EpisodeShows.load(context)
+    val started = Library.startedShows(files, RecentStore(context).all(), EpisodeShows.map.value, { Watched.isWatched(context, it) }, ::matchKeyOf)
+    return { f -> f.id in started }
+}
+
+/**
  * Movie / show poster, Apple TV style: 2:3 artwork that, when focused, lifts off the page: a
  * little bigger, raised, with a soft shadow beneath and a gentle sheen. No tilting or moving
  * art. The lift animates in the draw layer, so it costs no recomposition.
@@ -427,6 +525,8 @@ internal fun PosterTile(
     progress: Float? = null,
     /** Watched to the end: a ✓ in the corner. */
     watched: Boolean = false,
+    /** A short line along the bottom, in place of a progress bar ("Next · S2 E5"). */
+    caption: String? = null,
 ) {
     val context = LocalContext.current
     val title = label ?: f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
@@ -526,12 +626,19 @@ internal fun PosterTile(
                     modifier = depth,
                 )
             }
-            if (!poster || focused) Box(
+            val titled = !poster || focused
+            if (titled || caption != null) Box(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))))
                     .padding(start = 12.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
             ) {
-                Text(title, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Column {
+                    if (titled) Text(title, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (caption != null) Text(
+                        caption, color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelMedium, maxLines = 1,
+                        modifier = if (titled) Modifier.padding(top = 2.dp) else Modifier,
+                    )
+                }
             }
             // Part-watched: a bar along the bottom edge, Netflix style.
             if (progress != null && progress > 0.01f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {

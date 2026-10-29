@@ -8,7 +8,8 @@ import java.io.File
 /**
  * The last listing of each library place (Movies, TV Shows, a show's seasons), kept on disk with
  * its TMDB details, so the grid appears the moment the screen opens — even right after the app
- * starts — while the fresh listing loads behind it.
+ * starts — while the fresh listing loads behind it. Movies and TV Shows are also read at launch, so
+ * Home has their posters and Recently added (and search finds them) from the start.
  */
 object ListingCache {
     private fun dir(c: Context) = File(c.applicationContext.cacheDir, "listings").apply { mkdirs() }

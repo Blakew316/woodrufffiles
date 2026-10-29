@@ -56,9 +56,9 @@ import com.woodruff.tvexplorer.ui.theme.Shapes
 /*
  * Movies / TV Shows browsing, Apple TV style:
  *   - one row: Movies / TV Shows (or the title), a search field you can see, and Filter;
- *   - Filter opens a panel on the right with everything else as plain lists: Overview or All,
- *     Sort, Genre and Decade (applied instantly, so the posters behind change as you go), then the
- *     Drive actions (Refresh, My Drive, Sign out…);
+ *   - Filter opens a panel on the right with everything else as plain lists: Overview, All or
+ *     Unwatched, Sort, Genre and Decade (applied instantly, so the posters behind change as you
+ *     go), then the Drive actions (Refresh, My Drive, Sign out…);
  *   - OK on the search field opens its own full screen (see LibrarySearch in DriveScreen.kt).
  */
 
@@ -89,10 +89,10 @@ fun LibraryHeader(
     if (filtering) FilterSheet(all, genres, decades, filter, onChange, more, onDismiss = { filtering = false })
 }
 
-/** "Filter" on the Overview; otherwise what the grid shows: "All", "Action · 1990s", "All · Newest". */
+/** "Filter" on the Overview; otherwise what the grid shows: "All", "Action · 1990s", "Unwatched · Newest". */
 private fun filterLabel(f: LibraryFilter): String {
     if (f.overview) return "Filter"
-    val shown = listOfNotNull(f.genre, f.decade?.let { "${it}s" }).ifEmpty { listOf("All") }
+    val shown = listOfNotNull("Unwatched".takeIf { f.unwatched }, f.genre, f.decade?.let { "${it}s" }).ifEmpty { listOf("All") }
     return (shown + listOfNotNull(f.sort.label.takeIf { f.sort != LibrarySort.TITLE })).joinToString(" · ")
 }
 
@@ -123,9 +123,9 @@ internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 }
 
 /**
- * Filter panel on the right: Overview or All, then Sort, Genre and Decade as short lists, every
- * choice applied at once (the posters behind update); then the library's other actions [more]. Back
- * closes it.
+ * Filter panel on the right: Overview, All or Unwatched, then Sort, Genre and Decade as short lists,
+ * every choice applied at once (the posters behind update); then the library's other actions [more].
+ * Back closes it.
  */
 @Composable
 private fun FilterSheet(
@@ -175,16 +175,21 @@ private fun FilterSheet(
                         Text("Filter", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                     }
                 }
-                // The Overview (a featured title and rows) or the whole library as a grid.
+                // The Overview (a featured title and rows), or the library as a grid: all of it, or
+                // what hasn't been watched.
                 item { SheetHeading("Show") }
                 item(key = "overview") {
                     // How the library opens, nothing narrowed or re-sorted behind it (the rows don't show a sort).
                     SheetOption("Overview", filter.overview, Modifier.focusRequester(first)) { onChange(LibraryFilter(overview = true)) }
                 }
                 item(key = "all") {
-                    SheetOption("All titles", !filter.overview && filter.genre == null && filter.decade == null) {
-                        onChange(filter.copy(overview = false, genre = null, decade = null))
+                    SheetOption("All titles", !filter.overview && !filter.unwatched && filter.genre == null && filter.decade == null) {
+                        onChange(filter.copy(overview = false, unwatched = false, genre = null, decade = null))
                     }
+                }
+                // Films without a ✓, shows not started; a genre or decade chosen with it still applies.
+                item(key = "unwatched") {
+                    SheetOption("Unwatched", !filter.overview && filter.unwatched) { onChange(filter.copy(overview = false, unwatched = true)) }
                 }
                 // A sort, genre or decade describes the grid: choosing one leaves the Overview for it.
                 item { SheetHeading("Sort by") }
@@ -202,7 +207,7 @@ private fun FilterSheet(
                     items(decades, key = { "d-$it" }) { d -> SheetOption("${d}s", filter.decade == d) { onChange(filter.copy(decade = d, overview = false)) } }
                 }
                 // Right after the filters it clears, and before the Drive actions: never reached through Sign out.
-                if (!filter.overview && (filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)) {
+                if (!filter.overview && (filter.unwatched || filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)) {
                     item { Spacer(Modifier.size(10.dp)) }
                     item(key = "clear") {
                         SheetOption("Clear filters", false, accent = true) {

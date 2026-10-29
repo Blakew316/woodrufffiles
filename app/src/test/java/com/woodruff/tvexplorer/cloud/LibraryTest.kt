@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.cloud
 
+import com.woodruff.tvexplorer.player.RecentItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,6 +59,41 @@ class LibraryTest {
 
     @Test fun filtersCombine() =
         assertEquals(listOf("Dune Part Two"), titles(Library.apply(all, LibraryFilter(genre = "Sci-Fi", decade = 2020))))
+
+    @Test fun unwatchedLeavesOutWhatsBeenWatched() {
+        val seen = setOf(matrix.id, nemo.id)
+        assertEquals(listOf("Amélie", "Dune Part Two"), titles(Library.apply(all, LibraryFilter(unwatched = true), watched = { it.id in seen })))
+        // Only when it's chosen: otherwise what's been watched stays.
+        assertEquals(4, Library.apply(all, LibraryFilter(), watched = { true }).size)
+        // Nothing known to be watched: everything's unwatched.
+        assertEquals(4, Library.apply(all, LibraryFilter(unwatched = true)).size)
+    }
+
+    @Test fun unwatchedCombinesWithGenreAndSort() {
+        assertEquals(listOf("Dune Part Two"), titles(Library.apply(all, LibraryFilter(unwatched = true, genre = "Sci-Fi"), watched = { it === matrix })))
+        assertEquals(
+            listOf("Dune Part Two", "Amélie", "Finding Nemo"),
+            titles(Library.apply(all, LibraryFilter(unwatched = true, sort = LibrarySort.RATING), watched = { it === matrix })),
+        )
+    }
+
+    @Test fun aShowIsStartedByAWatchedEpisodeOrOneInProgress() {
+        fun show(id: String, name: String) = DriveFile(id, name, DriveFile.FOLDER_MIME, 0, 0, null)
+        fun playing(key: String, title: String, upNext: Boolean = false) = RecentItem(key, title, 600_000, 1_200_000, 0, upNext)
+        val shows = listOf(show("office", "The Office (US)"), show("dark", "Dark (2017)"), show("lost", "Lost"), show("bluey", "Bluey"))
+        val clip = DriveFile("clip", "Pilot.mkv", "video/x-matroska", 0, 0, null)
+        // Where each played episode is known to sit (EpisodeShows).
+        val under = mapOf("drive:e1" to "office", "drive:e2" to "dark", "drive:e3" to "bluey")
+        val watched = setOf("drive:e1", "drive:clip")
+        val recent = listOf(
+            playing("drive:e2", "S01E01.mkv"), // Dark: in progress, known to be its episode
+            playing("drive:e9", "Lost - S02E03.mkv", upNext = true), // Lost: up next, by its name
+        )
+        val started = Library.startedShows(shows + clip, recent, under, { it in watched })
+        // The Office by its watched episode, a loose video by its own ✓; Bluey's episode was only queued.
+        assertEquals(setOf("office", "dark", "lost", "clip"), started)
+        assertEquals(listOf("Bluey"), titles(Library.apply(shows, LibraryFilter(unwatched = true), watched = { it.id in started })))
+    }
 
     @Test fun genreAndDecadeChoices() {
         assertEquals("Sci-Fi", Library.genres(all).first()) // most common first

@@ -2,9 +2,11 @@ package com.woodruff.tvexplorer.cloud
 
 import android.app.Application
 import android.os.Environment
+import android.view.Choreographer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.woodruff.tvexplorer.data.FileOperations
+import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.server.CompanionHub
 import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.ui.Operation
@@ -19,7 +21,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import com.woodruff.tvexplorer.tmdb.Tmdb
 import java.io.File
 
@@ -102,24 +106,74 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 else if (_state.value.library) { cache.clear(); prefetchLibraries(); load() }
             }
         }
-        prefetchLibraries()
+        prefetchLibraries(seed = true)
     }
 
-    /** Warm Movies and TV Shows in the background at launch, so the sidebar opens them instantly. */
-    private fun prefetchLibraries() {
+    /**
+     * Warm Movies and TV Shows in the background, so Home has their posters and Recently added,
+     * search finds them and the sidebar opens them instantly. [seed] (at launch only: after a new
+     * TMDB key, the saved copies are what's being replaced) starts from the copies saved last time,
+     * read just after the first frame, so all that works at once rather than after the refresh.
+     */
+    private fun prefetchLibraries(seed: Boolean = false) {
         prefetchJob?.cancel()
+        // Part of this job, so signing out (which cancels it) can't bring the old library back.
         prefetchJob = viewModelScope.launch {
+            if (seed && _state.value.connected) {
+                afterNextFrame()
+                val saved = withContext(Dispatchers.IO) {
+                    listOf(DrivePlace.Movies, DrivePlace.TvShows).associateWith { place ->
+                        ListingCache.read(ctx, place)?.let(Library::prepare)?.also { learnMatchKeys(it) }
+                    }
+                }
+                // Not over a fresher copy: a library opened meanwhile has loaded its own.
+                saved.forEach { (place, files) -> if (!files.isNullOrEmpty()) cache.putIfAbsent(place, files) }
+                if (saved.values.any { !it.isNullOrEmpty() }) updateRecentlyAdded()
+            }
             // Let the first screen settle (focus, cameras, dashboard) before the Drive and TMDB work.
             delay(4_000)
             val token = GoogleAuth.token(ctx) ?: return@launch
             // Home's Google-hosted posters need it too, before Streaming is ever opened.
             _state.update { if (it.connected && it.token != token) it.copy(token = token) else it }
+            // What each library shows first, from the saved copy, for opening it before the fresh one is in.
+            for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) cache[place]?.let { warm(token, listOf(place), it) }
             for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
-                runCatching { posters(token, listOf(place), parse(DriveApi.list(token, place))) }.onSuccess { cache[place] = it }
+                // What was known before (the saved copy) stands in for a TMDB lookup that fails this time.
+                val before = cache[place]?.associateBy { it.id }
+                runCatching { carryOver(posters(token, listOf(place), parse(DriveApi.list(token, place))), before) }.onSuccess { files ->
+                    cache[place] = files
+                    warm(token, listOf(place), files)
+                    // Saved, so the next start begins from this copy rather than the last Streaming visit's.
+                    withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
+                }
             }
             ensureActive() // cancelled (signed out, or a newer prefetch): leave Recently added alone
             updateRecentlyAdded()
         }
+    }
+
+    /**
+     * Returns just after the next frame is drawn (at launch: the first one), so the work after it
+     * doesn't hold up the first screen; after a second at most (no frames while the screen is off).
+     */
+    private suspend fun afterNextFrame() {
+        withTimeoutOrNull(1_000) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                val choreographer = Choreographer.getInstance()
+                val callback = Choreographer.FrameCallback { if (cont.isActive) cont.resumeWith(Result.success(Unit)) }
+                choreographer.postFrameCallback(callback)
+                cont.invokeOnCancellation { choreographer.removeFrameCallback(callback) }
+            }
+        }
+    }
+
+    /**
+     * The show-match keys of a library's folders and of what's in progress, worked out now, on this
+     * background thread: the Overview's Continue watching row then only looks them up ([matchKeyOf]).
+     */
+    private fun learnMatchKeys(files: List<DriveFile>) {
+        for (f in files) if (f.isFolder) matchKeyOf(f.name)
+        for (r in RecentStore(ctx).all()) matchKeyOf(r.title)
     }
 
 
@@ -135,7 +189,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             val index = HashMap<String, DriveFile>()
             for (f in entries) {
                 index["id:" + f.id] = f
-                Library.showMatchKey(f.name).takeIf { it.isNotBlank() }?.let { index.putIfAbsent(it, f) }
+                matchKeyOf(f.name).takeIf { it.isNotBlank() }?.let { index.putIfAbsent(it, f) }
             }
             ensureActive()
             _artwork.value = index
@@ -273,7 +327,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         unplaced.clear()
         EpisodeShows.clear(ctx)
         DriveApi.forgetFolders()
-        viewModelScope.launch(Dispatchers.IO) { ListingCache.clear(ctx) }
+        matchKeys.clear()
+        // The saved listings, and the title pages' folder listings with them.
+        viewModelScope.launch(Dispatchers.IO) { ListingCache.clear(ctx); FolderCache.clear(ctx) }
     }
 
     /**
@@ -319,7 +375,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      * Movies: the movies themselves. TV Shows: shows at the top, seasons one level down.
      */
     private suspend fun posters(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> =
-        tmdb(token, stack, DriveApi.withPosters(token, files))
+        tmdb(stack, DriveApi.withPosters(token, files))
 
     private fun tmdbMode(stack: List<DrivePlace>) = when {
         stack.first() == DrivePlace.Movies && stack.size == 1 -> Tmdb.Mode.MOVIES
@@ -330,29 +386,42 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         else -> Tmdb.Mode.NONE
     }
 
-    private suspend fun tmdb(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> =
+    private suspend fun tmdb(stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> =
         Tmdb.fill(ctx, files, tmdbMode(stack), show = stack.getOrNull(1)?.title, season = stack.getOrNull(2)?.title)
             .let { withContext(Dispatchers.Default) { Library.prepare(it) } }
-            .also { warmPosters(token, it) }
 
     /**
-     * Downloads the first screenfuls of poster images into Coil's caches ahead of time, so tiles
-     * appear with art instead of popping in. Google-hosted art gets the Drive token; TMDB never does.
+     * Downloads what a listing shows first into Coil's caches ahead of time, so it appears with its
+     * art instead of popping in. Movies and TV Shows open on the Overview: its featured picture, at
+     * the banner's size, and the first posters of its top two rows. A filtered grid or a show's
+     * seasons: the first posters in order. Google-hosted art gets the Drive token; TMDB never does.
      */
-    private fun warmPosters(token: String, files: List<DriveFile>) {
-        val loader = coil.Coil.imageLoader(ctx)
-        files.asSequence().mapNotNull { it.posterUrl }.take(12).forEach { url ->
-            val google = isGoogleUrl(url)
-            loader.enqueue(
-                coil.request.ImageRequest.Builder(ctx).data(url).size(320, 480) // same size as the tiles: a memory-cache hit
-                    .apply { if (google) addHeader("Authorization", "Bearer $token") }
-                    .build(),
-            )
+    private fun warm(token: String, stack: List<DrivePlace>, files: List<DriveFile>) {
+        val top = stack.size == 1 && stack.first() is DrivePlace.Named
+        val filter = _state.value.filters[stack.first().title] ?: LibraryFilter(overview = true)
+        viewModelScope.launch(Dispatchers.Default) {
+            val (backdrop, posters) = if (top && filter.overview) {
+                // The rows as LibraryRows makes them: Continue watching, then Recently added and the rest.
+                EpisodeShows.load(ctx)
+                val watching = Library.continuing(files, RecentStore(ctx).continueWatching(), EpisodeShows.map.value, ::matchKeyOf)
+                Library.overviewArt(files, watching.take(20).map { it.first }, Library.today())
+            } else {
+                null to (if (top) Library.apply(files, filter) else files).asSequence().mapNotNull { it.posterUrl }.take(12).toList()
+            }
+            val loader = coil.Coil.imageLoader(ctx)
+            fun request(url: String, width: Int, height: Int) = coil.request.ImageRequest.Builder(ctx).data(url).size(width, height)
+                .apply { if (isGoogleUrl(url)) addHeader("Authorization", "Bearer $token") }
+                .build()
+            // The same sizes the banner and the tiles ask for: memory-cache hits.
+            backdrop?.let { loader.enqueue(request(it, 1280, 720)) }
+            posters.forEach { loader.enqueue(request(it, 320, 480)) }
         }
     }
 
-    /** Movies / TV Shows top level: titles and years parsed once, on a background thread. */
-    private suspend fun parse(files: List<DriveFile>) = withContext(Dispatchers.Default) { Library.prepare(Library.withInfo(files)) }
+    /** Movies / TV Shows top level: titles, years and match keys worked out once, on a background thread. */
+    private suspend fun parse(files: List<DriveFile>) = withContext(Dispatchers.Default) {
+        Library.prepare(Library.withInfo(files)).also { learnMatchKeys(it) }
+    }
 
     private fun load() {
         loadJob?.cancel()
@@ -368,7 +437,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             var shownSaved = false
             var saved: List<DriveFile>? = null
             if (cached == null && library) {
-                saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place)?.let(Library::prepare) }
+                saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place)?.let(Library::prepare)?.also { if (filterable) learnMatchKeys(it) } }
                 if (!saved.isNullOrEmpty()) {
                     cache[place] = saved
                     shownSaved = true
@@ -398,7 +467,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
                 if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
                     // A lookup that failed this time (TMDB unreachable) keeps what was found before.
-                    val withTmdb = carryOver(tmdb(token, stack, files), before)
+                    val withTmdb = carryOver(tmdb(stack, files), before)
+                    warm(token, stack, withTmdb)
                     cache[place] = withTmdb
                     _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
                     withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb) }
@@ -472,4 +542,16 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 fun artworkFor(index: Map<String, DriveFile>, key: String, title: String, shows: Map<String, String>): DriveFile? =
     shows[key]?.let { index["id:$it"] }
         ?: (if (key.startsWith("drive:")) index["id:" + key.removePrefix("drive:")] else null)
-        ?: Library.showMatchKey(title).takeIf { it.isNotBlank() }?.let { index[it] }
+        ?: matchKeyOf(title).takeIf { it.isNotBlank() }?.let { index[it] }
+
+/**
+ * [Library.showMatchKey] of the libraries' names and of what's in progress, worked out on a
+ * background thread as each listing arrives (and for anything else the first time it's asked).
+ * Matching what's being watched to its show then only looks them up, rather than running a dozen
+ * regexes per title while a screen draws its first frame. Forgotten on signing out.
+ */
+private val matchKeys = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+/** [Library.showMatchKey], remembered ([matchKeys]). */
+internal fun matchKeyOf(name: String): String =
+    matchKeys[name] ?: Library.showMatchKey(name).also { if (matchKeys.size < 10_000) matchKeys[name] = it }
