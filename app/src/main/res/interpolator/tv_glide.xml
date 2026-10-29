@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Apple's ease-out, off quickly and gliding to a stop: TvMotion.GlideEase, for the windows the
+    system animates (dialogs, pop-ups, side sheets, the player's screens).
+-->
+<pathInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:controlX1="0.16"
+    android:controlY1="1"
+    android:controlX2="0.3"
+    android:controlY2="1" />

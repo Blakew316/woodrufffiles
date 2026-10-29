@@ -3,6 +3,9 @@
 package com.woodruff.tvexplorer.ui.motion
 
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
@@ -43,8 +46,72 @@ object TvMotion {
      */
     val RowScroll: AnimationSpec<Float> = spring(dampingRatio = 1f, stiffness = 1200f)
     val ColumnScroll: AnimationSpec<Float> = spring(dampingRatio = 1f, stiffness = 1000f)
+    /**
+     * A poster row gliding along so the focused poster rests at its leading edge (PivotScroll), as in
+     * the Apple TV app: softer than [RowScroll], so every step right reads as the row gliding, and
+     * critically damped, so it eases into the row's end instead of being cut off there.
+     */
+    val PosterRowGlide: AnimationSpec<Float> = spring(dampingRatio = 1f, stiffness = 600f)
     /** A poster row is about 5 posters wide: all of it is composed ahead, while the TV is idle (+1). */
     const val PosterRowPrefetch = 6
+
+    // ---- The focus platter: one highlight gliding from row to row (FocusPlatter) ----------------
+
+    /**
+     * The platter gliding from the row the focus leaves to the row it lands on: a glide you can see
+     * (90 % of the way in 140 ms, within 1 % of it by 200) that overshoots by half a percent and
+     * settles back, as tvOS's focus does (FocusPlatterTest holds it to these numbers). Each row's own
+     * focus (its growth, its words turning dark) runs on the same spring, so they change as the
+     * platter arrives, and lists with a platter scroll on it too, so the platter and the rows under it
+     * move as one.
+     */
+    const val GlideDamping = 0.86f
+    const val GlideStiffness = 550f
+    val Glide: SpringSpec<Float> = spring(dampingRatio = GlideDamping, stiffness = GlideStiffness)
+    /** The platter showing up on the row the focus comes into a list at: a quick fade as it grows from [PlatterAppearScale]. */
+    const val PlatterInStiffness = 900f
+    /** The platter fading out where it is as the focus leaves the list (both critically damped). */
+    const val PlatterOutStiffness = 1100f
+    const val PlatterAppearScale = 0.94f
+
+    // ---- Screens, pages and banners, in their drawing layers (fades with ModulateAlpha) ----------
+
+    /** A screen chosen in the side menu coming in: a fade and a gentle zoom from [ScreenEnterScale]. */
+    val ScreenIn: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 380f)
+    /** The screen it replaces fading out (and shrinking a touch, to [ScreenLeaveScale]): quicker. */
+    val ScreenOut: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 800f)
+    const val ScreenEnterScale = 0.97f
+    const val ScreenLeaveScale = 0.985f
+    /** A Settings page fading in as it slides [PageShift] of its width in from the side; the old one goes the other way. */
+    val PageIn: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 500f)
+    val PageOut: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 1000f)
+    const val PageShift = 0.1f
+    /** The side menu gliding in from the left edge, the screen behind it dimming with it, and back. */
+    val RailReveal: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 420f)
+    /** A banner (a notice, a message) gliding in from its edge with a soft settle; going, quicker and without one. */
+    val BannerIn: SpringSpec<Float> = spring(dampingRatio = GlideDamping, stiffness = 380f)
+    val BannerOut: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 700f)
+
+    // ---- Windows: dialogs, pop-ups, side sheets and the player's screens ------------------------
+    // WindowManager animates these on the system's own thread, so they stay smooth while the app is
+    // busy building the new window. They're res/anim files (the system can't run Kotlin); the numbers
+    // below are the same ones, and WindowMotionTest checks the files against them.
+
+    /** Apple's ease-out, off quickly and gliding to a stop (res/interpolator/tv_glide.xml). */
+    val GlideEase: Easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+    /** A window arriving: its zoom (and slide) take this long, */
+    const val PresentMs = 300
+    /** its fade a little less, so it's solid while it settles. */
+    const val PresentFadeMs = 200
+    /** Going: quicker, the same moves in reverse. */
+    const val DismissMs = 180
+    /** A dialog or pop-up comes in from just larger than itself (tvOS's alerts do), and leaves toward [DialogDismissScale]. */
+    const val DialogScale = 1.06f
+    const val DialogDismissScale = 1.04f
+    /** A full-screen page (a title, search, the player) grows in from just smaller, as screens do, and shrinks back going. */
+    const val PageScale = 0.97f
+    /** A side sheet slides in from the right edge by this share of the screen's width (and back out). */
+    const val SheetShiftPercent = 7
 }
 
 /** Where the focused item's leading edge comes to rest: [fraction] of the visible length, plus [offset]. */

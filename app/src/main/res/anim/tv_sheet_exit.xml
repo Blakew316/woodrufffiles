@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A side sheet going: back out to the right edge, quicker. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false"
+    android:zAdjustment="top">
+    <translate
+        android:duration="180"
+        android:fromXDelta="0"
+        android:interpolator="@interpolator/tv_glide"
+        android:toXDelta="7%" />
+    <alpha
+        android:duration="180"
+        android:fromAlpha="1.0"
+        android:interpolator="@interpolator/tv_glide"
+        android:toAlpha="0.0" />
+</set>

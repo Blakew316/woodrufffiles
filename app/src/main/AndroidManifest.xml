@@ -64,12 +64,13 @@
             android:exported="false"
             android:theme="@style/Theme.TVExplorer.Player" />
 
-        <!-- The doorbell camera, opened from the player's "Someone's at the door" card; Back returns to the film. -->
+        <!-- The doorbell camera, opened from the player's "Someone's at the door" card; Back returns to
+             the film. It comes and goes like a pop-up over the film (its theme's window animation). -->
         <activity
             android:name=".player.DoorbellActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode"
             android:exported="false"
-            android:theme="@style/Theme.TVExplorer.Player" />
+            android:theme="@style/Theme.TVExplorer.Doorbell" />
 
         <service
             android:name=".server.TransferService"

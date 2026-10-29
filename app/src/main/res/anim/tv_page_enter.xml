@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A full-screen page (a title's page, search, the player) arriving: grows in from just smaller (TvMotion.PageScale) as it fades in, as screens do. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <scale
+        android:duration="300"
+        android:fromXScale="0.97"
+        android:fromYScale="0.97"
+        android:interpolator="@interpolator/tv_glide"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:toXScale="1.0"
+        android:toYScale="1.0" />
+    <alpha
+        android:duration="200"
+        android:fromAlpha="0.0"
+        android:interpolator="@interpolator/tv_glide"
+        android:toAlpha="1.0" />
+</set>

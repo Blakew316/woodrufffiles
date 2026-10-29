@@ -22,18 +22,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.DialogFrame
-import com.woodruff.tvexplorer.ui.components.ListItemFocusScale
+import com.woodruff.tvexplorer.ui.components.ListRowShape
+import com.woodruff.tvexplorer.ui.components.PlatterListItem
+import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
-import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.TvOutlinedButton
-import com.woodruff.tvexplorer.ui.components.growOnFocus
-import com.woodruff.tvexplorer.ui.components.listItemPressScale
+import com.woodruff.tvexplorer.ui.motion.TintIcon
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.theme.Palette
 import kotlinx.coroutines.launch
 
@@ -90,15 +91,23 @@ fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
     DialogFrame("Add another TV", onDismiss, width = 640) {
         Text(if (found.isEmpty()) "Looking for TVs with Woodruff Family on this Wi-Fi…" else "Choose a TV:", color = Palette.muted)
         // Room above the first row and below the last: a focused row grows past them, and the list clips there.
-        LazyColumn(Modifier.heightIn(max = 260.dp), contentPadding = PaddingValues(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // One highlight glides from TV to TV.
+        val platter = rememberFocusPlatter()
+        val scheme = MaterialTheme.colorScheme
+        LazyColumn(
+            Modifier.heightIn(max = 260.dp).focusPlatterHost(platter, ListRowShape, scheme.inverseSurface),
+            contentPadding = PaddingValues(vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             items(found, key = { it.base }) { f ->
-                ListItem(
-                    selected = false, onClick = { chosen = f },
-                    modifier = Modifier.growOnFocus(ListItemFocusScale),
-                    scale = listItemPressScale(ListItemFocusScale),
-                    leadingContent = { TvIcon(Sym.Tv) },
-                    headlineContent = { Text(f.name) },
-                    supportingContent = { Text(f.base.removePrefix("http://"), color = Palette.muted) },
+                PlatterListItem(
+                    platter,
+                    onClick = { chosen = f },
+                    content = scheme.onSurface,
+                    focusedContent = scheme.inverseOnSurface,
+                    leading = { tint -> TintIcon(Sym.Tv, tint.soft) },
+                    headline = { tint -> RowText(f.name, tint.color) },
+                    supporting = { Text(f.base.removePrefix("http://"), color = Palette.muted) },
                 )
             }
         }

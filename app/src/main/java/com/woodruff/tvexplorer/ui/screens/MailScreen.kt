@@ -51,21 +51,24 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.material3.ListItem
-import androidx.tv.material3.ListItemDefaults
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.mail.MailClient
 import com.woodruff.tvexplorer.mail.MailViewModel
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
+import com.woodruff.tvexplorer.ui.components.ListRowShape
+import com.woodruff.tvexplorer.ui.components.PlatterListItem
+import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
-import com.woodruff.tvexplorer.ui.components.growOnFocus
-import com.woodruff.tvexplorer.ui.components.listItemPressScale
 import com.woodruff.tvexplorer.ui.motion.Pivot
 import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
@@ -108,34 +111,40 @@ fun MailScreen(vm: MainViewModel) {
             else -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 val list = rememberLazyListState()
                 val openRow = remember { FocusRequester() }
-                // The focused message comes to rest a third of the way down, as on Apple TV.
-                PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.ColumnScroll) {
+                // One glass highlight gliding from message to message.
+                val platter = rememberFocusPlatter()
+                val scheme = MaterialTheme.colorScheme
+                // The focused message comes to rest a third of the way down, as on Apple TV, the list
+                // gliding on the platter's spring so the two move as one.
+                PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.Glide) {
                     LazyColumn(
-                        Modifier.width(300.dp).fillMaxHeight(),
+                        Modifier.width(300.dp).fillMaxHeight().focusPlatterHost(platter, ListRowShape, Palette.surfaceHigh),
                         state = list,
                         contentPadding = PaddingValues(bottom = 40.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         items(state.messages, key = { it.uid }) { m ->
-                            ListItem(
-                                selected = m.uid == state.openUid,
+                            val open = m.uid == state.openUid
+                            // The colours tv-material's list item gave it: the open message's words in the
+                            // selected colour off the focus.
+                            PlatterListItem(
+                                platter,
                                 onClick = { mail.open(m) },
-                                modifier = (if (m.uid == state.openUid) Modifier.focusRequester(openRow) else Modifier).growOnFocus(1.01f),
-                                colors = ListItemDefaults.colors(
-                                    selectedContainerColor = Palette.accentSoft,
-                                    focusedContainerColor = Palette.surfaceHigh,
-                                    focusedContentColor = Palette.text,
-                                ),
-                                scale = listItemPressScale(1.01f),
-                                leadingContent = {
-                                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (m.seen) androidx.compose.ui.graphics.Color.Transparent else Palette.accent))
+                                content = if (open) scheme.onSecondaryContainer else scheme.onSurface,
+                                focusedContent = Palette.text,
+                                modifier = (if (open) Modifier.focusRequester(openRow) else Modifier).semantics { selected = open },
+                                container = if (open) Palette.accentSoft else androidx.compose.ui.graphics.Color.Transparent,
+                                focusedScale = 1.01f,
+                                leading = {
+                                    // At 80 %, as the list item drew it.
+                                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (m.seen) androidx.compose.ui.graphics.Color.Transparent else Palette.accent.copy(alpha = 0.8f)))
                                 },
-                                headlineContent = {
-                                    Text(m.from, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (m.seen) FontWeight.Normal else FontWeight.SemiBold)
+                                headline = { tint ->
+                                    RowText(m.from, tint.color, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (m.seen) FontWeight.Normal else FontWeight.SemiBold)
                                 },
-                                supportingContent = {
+                                supporting = { tint ->
                                     Column {
-                                        Text(m.subject, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                                        RowText(m.subject, tint.soft, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                                         Text(Format.date(m.date), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
                                     }
                                 },

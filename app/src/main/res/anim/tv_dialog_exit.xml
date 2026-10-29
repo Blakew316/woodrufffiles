@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A dialog or pop-up going: the way it came, quicker (TvMotion.DismissMs, DialogDismissScale). Kept above what it uncovers. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false"
+    android:zAdjustment="top">
+    <scale
+        android:duration="180"
+        android:fromXScale="1.0"
+        android:fromYScale="1.0"
+        android:interpolator="@interpolator/tv_glide"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:toXScale="1.04"
+        android:toYScale="1.04" />
+    <alpha
+        android:duration="180"
+        android:fromAlpha="1.0"
+        android:interpolator="@interpolator/tv_glide"
+        android:toAlpha="0.0" />
+</set>

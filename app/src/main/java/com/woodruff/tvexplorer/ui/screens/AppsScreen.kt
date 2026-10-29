@@ -30,8 +30,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import androidx.tv.material3.ListItem
-import androidx.tv.material3.ListItemDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.AppEntry
@@ -39,13 +37,15 @@ import com.woodruff.tvexplorer.data.AppRepository
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ActionMenu
+import com.woodruff.tvexplorer.ui.components.ListRowShape
 import com.woodruff.tvexplorer.ui.components.MenuAction
+import com.woodruff.tvexplorer.ui.components.PlatterListItem
 import com.woodruff.tvexplorer.ui.components.ToolButton
-import com.woodruff.tvexplorer.ui.components.growOnFocus
-import com.woodruff.tvexplorer.ui.components.listItemPressScale
 import com.woodruff.tvexplorer.ui.motion.Pivot
 import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.OpenResult
@@ -85,21 +85,29 @@ fun AppsScreen(vm: MainViewModel) {
             )
             ToolButton(Sym.Refresh, null, { generation++ })
         }
-        // The focused app comes to rest a third of the way down, as on Apple TV.
+        // The focused app comes to rest a third of the way down, as on Apple TV; one glass highlight
+        // glides from app to app, the list gliding with it on its spring.
         val list = rememberLazyListState()
-        PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.ColumnScroll) {
-            LazyColumn(state = list, contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        val platter = rememberFocusPlatter()
+        PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.Glide) {
+            LazyColumn(
+                Modifier.focusPlatterHost(platter, ListRowShape, Palette.surfaceHigh),
+                state = list,
+                contentPadding = PaddingValues(bottom = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 items(apps.orEmpty(), key = { it.packageName }) { app ->
-                    ListItem(
-                        selected = false,
+                    // Its words keep their colour on the glass highlight, as they did.
+                    PlatterListItem(
+                        platter,
                         onClick = { menuFor = app },
+                        content = MaterialTheme.colorScheme.onSurface,
+                        focusedContent = Palette.text,
                         onLongClick = { menuFor = app },
-                        modifier = Modifier.growOnFocus(1.01f),
-                        colors = ListItemDefaults.colors(focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text),
-                        scale = listItemPressScale(1.01f),
-                        leadingContent = { AppIcon(repo, app.packageName) },
-                        headlineContent = { Text(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        supportingContent = {
+                        focusedScale = 1.01f,
+                        leading = { AppIcon(repo, app.packageName) },
+                        headline = { Text(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supporting = {
                             Text(
                                 "${app.packageName} · v${app.versionName} · ${Format.bytes(app.apkSize)}" + if (app.isSystem) " · System" else "",
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, color = Palette.muted,
@@ -148,6 +156,7 @@ private fun AppIcon(repo: AppRepository, packageName: String) {
             }.getOrNull()
         }
     }
-    bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(width = 64.dp, height = 36.dp)) }
+    // At 80 %, as the list item drew its leading picture (here as it's drawn, not through a layer).
+    bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, alpha = 0.8f, modifier = Modifier.size(width = 64.dp, height = 36.dp)) }
 }
 

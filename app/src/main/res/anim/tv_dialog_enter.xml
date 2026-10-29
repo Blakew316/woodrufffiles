@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A dialog or pop-up arriving, as tvOS's alerts do: in from just larger (TvMotion.DialogScale) as it fades in. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <scale
+        android:duration="300"
+        android:fromXScale="1.06"
+        android:fromYScale="1.06"
+        android:interpolator="@interpolator/tv_glide"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:toXScale="1.0"
+        android:toYScale="1.0" />
+    <alpha
+        android:duration="200"
+        android:fromAlpha="0.0"
+        android:interpolator="@interpolator/tv_glide"
+        android:toAlpha="1.0" />
+</set>

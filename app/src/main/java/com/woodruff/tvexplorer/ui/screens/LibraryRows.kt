@@ -69,6 +69,9 @@ import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.motion.bringWholeIntoView
 import com.woodruff.tvexplorer.ui.motion.posterRowState
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
@@ -164,7 +167,7 @@ internal fun LibraryRows(
     val rowStates = remember { HashMap<String, LazyListState>() }
     // The column follows the focus as the app's lists do (keeping it clear of the edges), but only as
     // far as it can scroll: back up on the banner, the one scroll comes to rest at the top rather
-    // than aiming past it and stopping dead there. The rows keep the app's own (they're unchanged).
+    // than aiming past it and stopping dead there. The rows set their own (PivotScroll, below).
     val appScroll = LocalBringIntoViewSpec.current
     val columnScroll = remember(appScroll, list) { WithinEnds(appScroll, list) }
     CompositionLocalProvider(LocalBringIntoViewSpec provides columnScroll) {
@@ -201,12 +204,15 @@ internal fun LibraryRows(
             rows.forEachIndexed { r, (title, items) ->
                 item(key = "row:$title", contentType = "row") {
                     // The row's whole visible width is composed ahead when the column prefetches it. Back
-                    // in a row: the title left from shows second, clear of the scroll margin (shown first,
-                    // it sat inside the margin and the row slid most of a poster as it took the focus).
+                    // in a row: the title left from shows first, where the focus rests in a row (below),
+                    // so it takes the focus without the row moving at all.
                     val rowState = rowStates.getOrPut(title) {
-                        posterRowState(firstVisibleItemIndex = if (restore != null && restore.first == r) (restore.second - 1).coerceAtLeast(0) else 0)
+                        posterRowState(firstVisibleItemIndex = if (restore != null && restore.first == r) restore.second else 0)
                     }
-                    CompositionLocalProvider(LocalBringIntoViewSpec provides appScroll) {
+                    // The focused poster rests at the row's leading edge, in line with its title and the
+                    // first poster, as in the Apple TV app: each step along glides the whole row instead
+                    // of walking the focus to the far edge first (and the row eases into its end).
+                    PivotScroll(rowState, Pivot(offset = 18.dp), TvMotion.PosterRowGlide) {
                         Column {
                             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 18.dp, bottom = 2.dp))
                             LazyRow(

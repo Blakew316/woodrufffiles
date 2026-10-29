@@ -32,8 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.ListItem
-import androidx.tv.material3.ListItemDefaults
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.notify.Chime
@@ -43,16 +43,20 @@ import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
-import com.woodruff.tvexplorer.ui.components.ListItemFocusScale
+import com.woodruff.tvexplorer.ui.components.ListRowShape
+import com.woodruff.tvexplorer.ui.components.PlatterListItem
+import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.TvOutlinedButton
-import com.woodruff.tvexplorer.ui.components.growOnFocus
-import com.woodruff.tvexplorer.ui.components.listItemPressScale
+import com.woodruff.tvexplorer.ui.motion.FocusPlatter
 import com.woodruff.tvexplorer.ui.motion.Pivot
 import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TintIcon
 import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 
@@ -81,15 +85,23 @@ fun NotificationsScreen(vm: MainViewModel) {
             EmptyState("No notifications")
             return@Column
         }
-        // The focused notification comes to rest a third of the way down, as on Apple TV.
+        // The focused notification comes to rest a third of the way down, as on Apple TV; one glass
+        // highlight glides from one to the next, the list gliding with it on its spring.
         val list = rememberLazyListState()
-        PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.ColumnScroll) {
-            LazyColumn(state = list, contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val platter = rememberFocusPlatter()
+        PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.Glide) {
+            LazyColumn(
+                Modifier.focusPlatterHost(platter, ListRowShape, Palette.surfaceHigh),
+                state = list,
+                contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 items(items, key = { it.id }) { n ->
-                    ListItem(
-                        selected = false,
+                    // Its words keep their colour on the glass highlight, as they did.
+                    PlatterListItem(
+                        platter,
                         onClick = {
-                            val link = n.link ?: return@ListItem
+                            val link = n.link ?: return@PlatterListItem
                             val media = Regex("\\.(mp4|mkv|webm|m3u8|mov|mp3|m4a)(\\?|$)", RegexOption.IGNORE_CASE).containsMatchIn(link)
                             runCatching {
                                 context.startActivity(
@@ -98,16 +110,15 @@ fun NotificationsScreen(vm: MainViewModel) {
                                 )
                             }.onFailure { vm.say("No app on this TV can open that link") }
                         },
-                        modifier = Modifier.growOnFocus(ListItemFocusScale),
-                        colors = ListItemDefaults.colors(focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text),
-                        scale = listItemPressScale(ListItemFocusScale),
-                        leadingContent = {
+                        content = MaterialTheme.colorScheme.onSurface,
+                        focusedContent = Palette.text,
+                        leading = {
                             TvIcon(
                                 when (n.source) { NoticeSource.PHONE -> Sym.PhoneIphone; NoticeSource.MAIL -> Sym.Email; NoticeSource.SYSTEM -> Sym.Info },
                             )
                         },
-                        headlineContent = { Text(n.title, maxLines = 2) },
-                        supportingContent = {
+                        headline = { Text(n.title, maxLines = 2) },
+                        supporting = {
                             Column {
                                 if (n.body.isNotBlank()) Text(n.body, maxLines = 3, style = MaterialTheme.typography.bodyMedium)
                                 Text(Format.date(n.at), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
@@ -157,16 +168,22 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
             Text("No phones yet. Open Woodruff on a phone (scan the QR in Phone) and give it a name under Settings → This phone.", color = Palette.muted)
         }
         // Room above the first row and below the last: a focused row grows past them, and the list clips there.
-        LazyColumn(Modifier.heightIn(max = 220.dp), contentPadding = PaddingValues(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        // One highlight glides from row to row.
+        val platter = rememberFocusPlatter()
+        LazyColumn(
+            Modifier.heightIn(max = 220.dp).focusPlatterHost(platter, ListRowShape, MaterialTheme.colorScheme.inverseSurface),
+            contentPadding = PaddingValues(vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             items(phones, key = { it.id }) { p ->
                 val on = p.id in chosen
-                CheckRow(p.name, on) { chosen = if (on) chosen - p.id else chosen + p.id }
+                CheckRow(p.name, on, platter) { chosen = if (on) chosen - p.id else chosen + p.id }
             }
             // Keys apart from the phones' ids (which have no spaces or colons).
-            item(key = "this tv") { CheckRow("This TV", onTv) { onTv = !onTv } }
+            item(key = "this tv") { CheckRow("This TV", onTv, platter) { onTv = !onTv } }
             items(tvs, key = { "tv:" + it.id }) { tv ->
                 val on = tv.id in chosenTvs
-                CheckRow(tv.name, on) { chosenTvs = if (on) chosenTvs - tv.id else chosenTvs + tv.id }
+                CheckRow(tv.name, on, platter) { chosenTvs = if (on) chosenTvs - tv.id else chosenTvs + tv.id }
             }
         }
         ButtonRow {
@@ -177,16 +194,22 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
 }
 
-/** A phone or TV to send to, ticked or not. */
+/**
+ * A phone or TV to send to, ticked or not, in the colours tv-material's list item gave it (a ticked
+ * one sits in the selected tint); the list's [platter] glides to it with the focus.
+ */
 @Composable
-private fun CheckRow(name: String, on: Boolean, onClick: () -> Unit) {
-    ListItem(
-        selected = on,
+private fun CheckRow(name: String, on: Boolean, platter: FocusPlatter, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    PlatterListItem(
+        platter,
         onClick = onClick,
-        modifier = Modifier.growOnFocus(ListItemFocusScale),
-        scale = listItemPressScale(ListItemFocusScale),
-        leadingContent = { TvIcon(if (on) Sym.CheckBox else Sym.CheckBoxOutlineBlank) },
-        headlineContent = { Text(name) },
+        content = if (on) scheme.onSecondaryContainer else scheme.onSurface,
+        focusedContent = scheme.inverseOnSurface,
+        modifier = Modifier.semantics { selected = on },
+        container = if (on) scheme.secondaryContainer.copy(alpha = 0.4f) else androidx.compose.ui.graphics.Color.Transparent,
+        leading = { tint -> TintIcon(if (on) Sym.CheckBox else Sym.CheckBoxOutlineBlank, tint.soft) },
+        headline = { tint -> RowText(name, tint.color) },
     )
 }
 

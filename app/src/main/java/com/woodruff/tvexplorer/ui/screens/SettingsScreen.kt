@@ -3,16 +3,7 @@ package com.woodruff.tvexplorer.ui.screens
 import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Intent
 import android.os.SystemClock
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicText
@@ -29,13 +20,16 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.tv.material3.LocalTextStyle
-import com.woodruff.tvexplorer.ui.SmoothEase
+import com.woodruff.tvexplorer.ui.motion.FocusPlatter
 import com.woodruff.tvexplorer.ui.motion.FocusTintIcon
+import com.woodruff.tvexplorer.ui.motion.GlideBetween
 import com.woodruff.tvexplorer.ui.motion.Pivot
 import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.motion.TvCard
 import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.util.FrameStats
 import android.net.Uri
 import android.provider.Settings
@@ -188,8 +182,9 @@ fun SettingsScreen(vm: MainViewModel) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { version++ }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
 
-    // Slow frames per screen since the app started (read afresh each time a page opens). One state
-    // for the screen's life, so the Advanced rows kept below always read the current one.
+    // Slow frames per screen since counting started (read afresh each time a page opens, and every
+    // second while Advanced is open, below). One state for the screen's life, so the Advanced rows kept
+    // below always read the current one.
     var smoothness by remember { mutableStateOf(FrameStats.summary()) }
     // The pages opened from the first one, in order: the last is on screen.
     var path by remember { mutableStateOf(emptyList<SettingsPage>()) }
@@ -224,6 +219,16 @@ fun SettingsScreen(vm: MainViewModel) {
     // Whether Android has compiled the app's code yet: asked (off the main thread) only while Advanced is open.
     val appCode by produceState<String?>(null, here) {
         if (here == SettingsPage.ADVANCED) value = withContext(Dispatchers.IO) { appCodeStatus() }
+    }
+    // While Advanced is open the Smoothness row reads itself again every second, so a recording counts
+    // down live. Only that page ticks, and the same text again changes nothing, so nothing is redrawn
+    // unless the text did change.
+    LaunchedEffect(here) {
+        if (here != SettingsPage.ADVANCED) return@LaunchedEffect
+        while (true) {
+            delay(1000)
+            smoothness = FrameStats.summary()
+        }
     }
 
     fun rows(page: SettingsPage): List<SettingItem> = when (page) {
@@ -370,7 +375,7 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
         )
         SettingsPage.ADVANCED -> listOf(
-            SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames on each screen since the app started, and what they were spent on. OK starts counting again.") {
+            SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames while navigating on each screen, and what they were spent on. OK starts counting again and records 3 minutes for the phone's Smoothness Report.") {
                 FrameStats.reset(); smoothness = FrameStats.summary()
             },
             // The speed profile at work (baseline-prof.txt): right after an update when it installed with
@@ -425,10 +430,17 @@ fun SettingsScreen(vm: MainViewModel) {
     Row(Modifier.fillMaxSize().padding(start = 40.dp, end = 56.dp)) {
         // The list, on the left.
         Column(Modifier.width(480.dp).fillMaxHeight()) {
-            Crossfade(here, animationSpec = tween(220), label = "settings-title") { p ->
+            // The page's name fades across to the next one's (in its drawing layer).
+            GlideBetween(
+                here, enter = TvMotion.PageIn, exit = TvMotion.PageOut, fill = false,
+                layer = { shown, _, _ -> alpha = shown },
+            ) { p ->
                 Text(p.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 16.dp, top = 30.dp, bottom = 10.dp))
             }
-            AnimatedContent(
+            // A page opened slides in from the right as the one it replaces slides out to the left (and
+            // the other way going back), both fading, on springs, in their drawing layers: nothing is
+            // laid out again per frame. The old page stays until it's gone, as before.
+            GlideBetween(
                 path,
                 Modifier.weight(1f).fillMaxWidth()
                     // Left goes back a page (on the first page it brings up the sidebar, as everywhere),
@@ -440,13 +452,14 @@ fun SettingsScreen(vm: MainViewModel) {
                             true
                         } else false
                     },
-                transitionSpec = {
-                    val dir = if (targetState.size >= initialState.size) 1 else -1
-                    (fadeIn(tween(220, delayMillis = 60)) + slideInHorizontally(tween(320, easing = SmoothEase)) { dir * it / 10 }) togetherWith
-                        (fadeOut(tween(120)) + slideOutHorizontally(tween(320, easing = SmoothEase)) { -dir * it / 10 }) using
-                        SizeTransform(clip = false)
+                enter = TvMotion.PageIn,
+                exit = TvMotion.PageOut,
+                forward = { from, to -> to.size >= from.size },
+                layer = { shown, entering, forward ->
+                    alpha = shown
+                    val away = (1f - shown) * size.width * TvMotion.PageShift
+                    translationX = if (entering == forward) away else -away
                 },
-                label = "settings-page",
             ) { shown ->
                 val page = shown.lastOrNull() ?: SettingsPage.HOME
                 val items = rowsOf(page)
@@ -790,10 +803,11 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
         withFrameNanos {} // once the page is laid out
         (focus.getOrNull(focusOn) ?: focus.firstOrNull())?.let { runCatching { it.requestFocus() } }
     }
-    // The focused row rests 40% of the way down, Apple TV style, the list gliding on a spring to
-    // keep it there.
+    // The focused row rests 40% of the way down, Apple TV style, the list gliding to keep it there on
+    // the platter's own spring: the white platter and the rows under it move as one.
     val scroll = rememberScrollState()
-    PivotScroll(scroll, Pivot(fraction = 0.4f), TvMotion.ColumnScroll) {
+    val platter = rememberFocusPlatter()
+    PivotScroll(scroll, Pivot(fraction = 0.4f), TvMotion.Glide) {
         Column(
             Modifier.fillMaxSize()
                 // Right opens a group too, like stepping into it.
@@ -805,6 +819,9 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
                     } else false
                 }
                 .verticalScroll(scroll)
+                // The one white platter, gliding from row to row: on the scrolling content, so it
+                // scrolls with the rows; before the padding, so a grown first row's isn't cut off.
+                .focusPlatterHost(platter, SettingRowShape, Palette.text)
                 // A little room above the first row: the scrolling column clips at its top edge.
                 .padding(top = 8.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -812,6 +829,7 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
             items.forEachIndexed { i, item ->
                 SettingRow(
                     item,
+                    platter,
                     // Before the row's own focus target, so it hears the row's focus.
                     Modifier.padding(top = if (item.spaced) 22.dp else 0.dp)
                         .focusRequester(focus[i])
@@ -855,7 +873,7 @@ private fun AboutPanel(
     val fade = remember(p, i) { Animatable(if (shownOne[0]) 0f else 1f) }
     LaunchedEffect(fade) {
         shownOne[0] = true
-        fade.animateTo(1f, tween(180))
+        fade.animateTo(1f, TvMotion.PageIn)
     }
     Box(modifier.graphicsLayer { alpha = fade.value; compositingStrategy = CompositingStrategy.ModulateAlpha }) {
         val item = rowsOf(p).getOrNull(i)
@@ -904,13 +922,17 @@ private fun SettingAbout(item: SettingItem, inside: List<SettingItem>?) {
     }
 }
 
+/** A row's corners, and the platter's. */
+private val SettingRowShape = RoundedCornerShape(14.dp)
+
 /**
  * A row like the Apple TV's: plain until focused, then white with dark text. Sized as tv-material's
- * ListItem laid it out, but its platter, text and symbols follow the focus as they draw, so taking
- * or losing the focus recomposes nothing.
+ * ListItem laid it out. The white is the list's [platter], gliding over from the row the focus left;
+ * the row's text and symbols turn dark as it arrives, as they draw, so taking or losing the focus
+ * recomposes nothing.
  */
 @Composable
-private fun SettingRow(item: SettingItem, modifier: Modifier, onClick: () -> Unit) {
+private fun SettingRow(item: SettingItem, platter: FocusPlatter, modifier: Modifier, onClick: () -> Unit) {
     val motion = rememberFocusMotionState()
     val text = Palette.text
     val onWhite = Palette.background
@@ -918,12 +940,12 @@ private fun SettingRow(item: SettingItem, modifier: Modifier, onClick: () -> Uni
     val titleColor = if (item.danger) Palette.danger else text
     TvCard(
         onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
+        shape = SettingRowShape,
         modifier = modifier,
         motion = motion,
         focusedScale = TvMotion.RowScale,
         color = Color.Transparent,
-        focusedColor = text,
+        platter = platter,
     ) {
         Row(Modifier.defaultMinSize(minHeight = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             // Plain symbols in the row's color (dark on the white focus), Apple style, a little faded.

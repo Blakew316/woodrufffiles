@@ -112,6 +112,8 @@ import com.woodruff.tvexplorer.ui.motion.Pivot
 import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.motion.TvCard
 import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.DialogWindowMotion
+import com.woodruff.tvexplorer.ui.motion.WindowMotion
 import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
 import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
@@ -780,50 +782,51 @@ private fun LibrarySearch(title: String, all: List<DriveFile>, token: String?, o
     val (searched, results) = found
     val grid = rememberLazyGridState()
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        // Grows into place as it fades in, and back out, as the system moves its window (smooth even
+        // while the page is still being built), so the page doesn't ease in itself.
+        DialogWindowMotion(WindowMotion.Page)
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(field)
         // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
         Box(Modifier.fillMaxSize().dpadGate()) {
-            com.woodruff.tvexplorer.ui.ScreenEnter {
-                Box(Modifier.fillMaxSize().ambientBackdrop()) {
-                    Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TvIcon(Sym.Search, size = 34.dp, tint = Palette.muted)
-                            com.woodruff.tvexplorer.ui.components.RemoteTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                label = "Search $title",
-                                placeholder = "Search $title",
-                                onSubmit = {},
-                                modifier = Modifier.weight(1f).padding(start = 16.dp),
-                                textModifier = Modifier.focusRequester(field),
-                            )
-                        }
-                        Text(
-                            when {
-                                searched.isEmpty() -> "Type a title or a year. You can also type on your phone (Phone → Keyboard)."
-                                results.isEmpty() -> "Nothing in $title matches \u201c$searched\u201d"
-                                else -> "${results.size} result${if (results.size == 1) "" else "s"}"
-                            },
-                            color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = 14.dp, start = 4.dp),
+            Box(Modifier.fillMaxSize().ambientBackdrop()) {
+                Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TvIcon(Sym.Search, size = 34.dp, tint = Palette.muted)
+                        com.woodruff.tvexplorer.ui.components.RemoteTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            label = "Search $title",
+                            placeholder = "Search $title",
+                            onSubmit = {},
+                            modifier = Modifier.weight(1f).padding(start = 16.dp),
+                            textModifier = Modifier.focusRequester(field),
                         )
-                        // The focused row comes to rest where the first row sits, as in the library's grid.
-                        PivotScroll(grid, Pivot(offset = 30.dp)) {
-                            LazyVerticalGrid(
-                                state = grid,
-                                columns = GridCells.Adaptive(150.dp),
-                                contentPadding = PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp),
-                                horizontalArrangement = Arrangement.spacedBy(30.dp),
-                                verticalArrangement = Arrangement.spacedBy(30.dp),
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
-                                items(results, key = { it.id }) { f ->
-                                    // Glides into place as the results change; no fades (each was drawn offscreen).
-                                    PosterTile(
-                                        f, token, onClick = { onOpen(f) }, onLongClick = { onOpen(f) },
-                                        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null), label = Library.label(f),
-                                    )
-                                }
+                    }
+                    Text(
+                        when {
+                            searched.isEmpty() -> "Type a title or a year. You can also type on your phone (Phone → Keyboard)."
+                            results.isEmpty() -> "Nothing in $title matches \u201c$searched\u201d"
+                            else -> "${results.size} result${if (results.size == 1) "" else "s"}"
+                        },
+                        color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 14.dp, start = 4.dp),
+                    )
+                    // The focused row comes to rest where the first row sits, as in the library's grid.
+                    PivotScroll(grid, Pivot(offset = 30.dp)) {
+                        LazyVerticalGrid(
+                            state = grid,
+                            columns = GridCells.Adaptive(150.dp),
+                            contentPadding = PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp),
+                            horizontalArrangement = Arrangement.spacedBy(30.dp),
+                            verticalArrangement = Arrangement.spacedBy(30.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            items(results, key = { it.id }) { f ->
+                                // Glides into place as the results change; no fades (each was drawn offscreen).
+                                PosterTile(
+                                    f, token, onClick = { onOpen(f) }, onLongClick = { onOpen(f) },
+                                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null), label = Library.label(f),
+                                )
                             }
                         }
                     }

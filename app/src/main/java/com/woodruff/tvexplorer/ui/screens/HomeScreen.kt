@@ -87,6 +87,13 @@ import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.icon
+import com.woodruff.tvexplorer.ui.motion.FocusPlatter
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TvCard
+import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.motion.posterRowState
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
 import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
@@ -419,12 +426,17 @@ private fun ContinuePanel(
         val r = recent.firstOrNull()
         if (r == null && added.isNotEmpty()) {
             // The whole row is composed ahead while the TV is idle, not each poster as it slides in.
-            LazyRow(
-                Modifier.fillMaxWidth().weight(1f), state = remember { posterRowState() },
-                horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-            ) {
-                items(added, key = { "new-" + it.second.id }) { a ->
-                    PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+            // The focused poster rests at the row's leading edge and the row glides along to it, as
+            // in the Apple TV app.
+            val row = remember { posterRowState() }
+            PivotScroll(row, Pivot(offset = 14.dp), TvMotion.PosterRowGlide) {
+                LazyRow(
+                    Modifier.fillMaxWidth().weight(1f), state = row,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                ) {
+                    items(added, key = { "new-" + it.second.id }) { a ->
+                        PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+                    }
                 }
             }
             return@Panel
@@ -441,20 +453,24 @@ private fun ContinuePanel(
         }
         // Posters, like the libraries, newest first; a bar shows how far through. A row clips at its
         // ends, so it leaves room there for a focused tile's grown edge and outline. The whole row is
-        // composed ahead while the TV is idle, not each poster as it slides in.
-        LazyRow(
-            Modifier.fillMaxWidth().weight(1f), state = remember { posterRowState() }, horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-        ) {
-            item(key = r.key) {
-                ResumeTile(r, arts[r.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
-            }
-            items(recent.drop(1).take(8), key = { it.key }) { m ->
-                ResumeTile(m, arts[m.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
-            }
-            // Then what's new in Movies and TV Shows.
-            items(added, key = { "new-" + it.second.id }) { a ->
-                PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+        // composed ahead while the TV is idle, not each poster as it slides in. The focused poster
+        // rests at the row's leading edge and the row glides along to it, as in the Apple TV app.
+        val row = remember { posterRowState() }
+        PivotScroll(row, Pivot(offset = 14.dp), TvMotion.PosterRowGlide) {
+            LazyRow(
+                Modifier.fillMaxWidth().weight(1f), state = row, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+            ) {
+                item(key = r.key) {
+                    ResumeTile(r, arts[r.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
+                }
+                items(recent.drop(1).take(8), key = { it.key }) { m ->
+                    ResumeTile(m, arts[m.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
+                }
+                // Then what's new in Movies and TV Shows.
+                items(added, key = { "new-" + it.second.id }) { a ->
+                    PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+                }
             }
         }
     }
@@ -785,14 +801,22 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
             add(GlanceItem(Sym.EditNote, n.title.ifBlank { first }, if (n.title.isBlank()) "Note" else first, false) { vm.show(Screen.NOTES) })
         }
     }.take(4)
+    // One glass highlight gliding from row to row, under them on the panel's glass (not cut at the
+    // rows' ends: the panel doesn't clip a grown row either).
+    val platter = rememberFocusPlatter()
     Panel("At a glance", modifier) {
         if (items.isEmpty()) Text("All caught up.", color = Palette.muted)
-        items.forEach { g -> GlanceRow(g) }
+        Column(Modifier.focusPlatterHost(platter, GlanceRowShape, Palette.surfaceHigh, clip = false)) {
+            items.forEach { g -> GlanceRow(g, platter) }
+        }
     }
 }
 
+/** A glance row's corners, and its highlight's. */
+private val GlanceRowShape = RoundedCornerShape(10.dp)
+
 @Composable
-private fun GlanceRow(g: GlanceItem) {
+private fun GlanceRow(g: GlanceItem, platter: FocusPlatter) {
     val content: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) { TvIcon(g.icon, size = 20.dp) }
@@ -805,16 +829,13 @@ private fun GlanceRow(g: GlanceItem) {
     }
     val click = g.onClick
     if (click == null) Box(Modifier.padding(bottom = 2.dp)) { content() }
-    else Surface(
+    // Its words stay as they are (the theme's text colour) on the glass highlight, the panel's
+    // [platter], which glides over from the row the focus left.
+    else TvCard(
         onClick = click,
-        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed it on
-        // every frame of it. Held OK still shrinks it back.
-        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp).tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.03f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent, contentColor = Palette.text,
-            focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.03f),
+        shape = GlanceRowShape,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+        focusedScale = 1.03f,
+        platter = platter,
     ) { content() }
 }

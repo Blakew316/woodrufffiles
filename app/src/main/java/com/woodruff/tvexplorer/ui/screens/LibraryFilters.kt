@@ -20,8 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,10 +45,19 @@ import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
 import com.woodruff.tvexplorer.ui.components.ConfirmDialog
 import com.woodruff.tvexplorer.ui.components.MenuAction
+import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.SearchBar
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.rememberRowTint
+import com.woodruff.tvexplorer.ui.motion.DialogWindowMotion
+import com.woodruff.tvexplorer.ui.motion.FocusPlatter
+import com.woodruff.tvexplorer.ui.motion.TintIcon
+import com.woodruff.tvexplorer.ui.motion.TvCard
+import com.woodruff.tvexplorer.ui.motion.WindowMotion
 import com.woodruff.tvexplorer.ui.motion.dpadGate
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
@@ -160,24 +166,23 @@ private fun FilterSheet(
     var confirming by remember { mutableStateOf<MenuAction?>(null) }
     val list = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    // Glides in from the right edge, as Apple TV's side panels do.
-    val enter = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(Unit) { enter.animateTo(1f, androidx.compose.animation.core.tween(340, easing = com.woodruff.tvexplorer.ui.SmoothEase)) }
+    // One white highlight gliding from choice to choice.
+    val platter = rememberFocusPlatter()
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // Glides in from the right edge, as Apple TV's side panels do, and back out: the system moves
+        // the window (smooth even while the panel is still being built), so the panel doesn't move itself.
+        DialogWindowMotion(WindowMotion.SideSheet)
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(first)
         // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
         Box(Modifier.fillMaxSize().dpadGate(), contentAlignment = Alignment.CenterEnd) {
             LazyColumn(
                 state = list,
                 modifier = Modifier
-                    .graphicsLayer {
-                        alpha = enter.value
-                        translationX = (1f - enter.value) * 64.dp.toPx()
-                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
-                    }
                     .width(400.dp).fillMaxHeight().padding(vertical = 28.dp, horizontal = 28.dp)
                     .background(Palette.glass, RoundedCornerShape(30.dp))
-                    .border(1.dp, Palette.rim, RoundedCornerShape(30.dp)),
+                    .border(1.dp, Palette.rim, RoundedCornerShape(30.dp))
+                    // Over the panel's glass, under its choices.
+                    .focusPlatterHost(platter, SheetOptionShape, Palette.text),
                 contentPadding = PaddingValues(18.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
@@ -191,37 +196,37 @@ private fun FilterSheet(
                 item { SheetHeading("Show") }
                 item(key = "overview") {
                     // How the library opens, nothing narrowed or re-sorted behind it (the rows don't show a sort).
-                    SheetOption("Overview", filter.overview, Modifier.focusRequester(first)) { onChange(LibraryFilter(overview = true)) }
+                    SheetOption(platter, "Overview", filter.overview, Modifier.focusRequester(first)) { onChange(LibraryFilter(overview = true)) }
                 }
                 item(key = "all") {
-                    SheetOption("All titles", !filter.overview && !filter.unwatched && filter.genre == null && filter.decade == null) {
+                    SheetOption(platter, "All titles", !filter.overview && !filter.unwatched && filter.genre == null && filter.decade == null) {
                         onChange(filter.copy(overview = false, unwatched = false, genre = null, decade = null))
                     }
                 }
                 // Films without a ✓, shows not started; a genre or decade chosen with it still applies.
                 item(key = "unwatched") {
-                    SheetOption("Unwatched", !filter.overview && filter.unwatched) { onChange(filter.copy(overview = false, unwatched = true)) }
+                    SheetOption(platter, "Unwatched", !filter.overview && filter.unwatched) { onChange(filter.copy(overview = false, unwatched = true)) }
                 }
                 // A sort, genre or decade describes the grid: choosing one leaves the Overview for it.
                 item { SheetHeading("Sort by") }
                 items(sorts, key = { "s-" + it.name }) { s ->
-                    SheetOption(s.label, !filter.overview && filter.sort == s) { onChange(filter.copy(sort = s, overview = false)) }
+                    SheetOption(platter, s.label, !filter.overview && filter.sort == s) { onChange(filter.copy(sort = s, overview = false)) }
                 }
                 if (genres.isNotEmpty()) {
                     item { SheetHeading("Genre") }
-                    item(key = "g-all") { SheetOption("All genres", !filter.overview && filter.genre == null) { onChange(filter.copy(genre = null, overview = false)) } }
-                    items(genres, key = { "g-$it" }) { g -> SheetOption(g, filter.genre == g) { onChange(filter.copy(genre = g, overview = false)) } }
+                    item(key = "g-all") { SheetOption(platter, "All genres", !filter.overview && filter.genre == null) { onChange(filter.copy(genre = null, overview = false)) } }
+                    items(genres, key = { "g-$it" }) { g -> SheetOption(platter, g, filter.genre == g) { onChange(filter.copy(genre = g, overview = false)) } }
                 }
                 if (decades.isNotEmpty()) {
                     item { SheetHeading("Decade") }
-                    item(key = "d-all") { SheetOption("Any decade", !filter.overview && filter.decade == null) { onChange(filter.copy(decade = null, overview = false)) } }
-                    items(decades, key = { "d-$it" }) { d -> SheetOption("${d}s", filter.decade == d) { onChange(filter.copy(decade = d, overview = false)) } }
+                    item(key = "d-all") { SheetOption(platter, "Any decade", !filter.overview && filter.decade == null) { onChange(filter.copy(decade = null, overview = false)) } }
+                    items(decades, key = { "d-$it" }) { d -> SheetOption(platter, "${d}s", filter.decade == d) { onChange(filter.copy(decade = d, overview = false)) } }
                 }
                 // Right after the filters it clears, and before the Drive actions: never reached through Sign out.
                 if (!filter.overview && (filter.unwatched || filter.genre != null || filter.decade != null || filter.sort != LibrarySort.TITLE)) {
                     item { Spacer(Modifier.size(10.dp)) }
                     item(key = "clear") {
-                        SheetOption("Clear filters", false, accent = true) {
+                        SheetOption(platter, "Clear filters", false, accent = true) {
                             // Back to how the library opens: the Overview.
                             onChange(LibraryFilter(overview = true))
                             // This option goes away with the filters: put the focus back at the top
@@ -238,7 +243,7 @@ private fun FilterSheet(
                     item { SheetHeading("Google Drive") }
                     items(more, key = { "a-" + it.label }) { a ->
                         // Sign out asks first: it's one row past the filters, and one stray OK would undo the sign-in.
-                        SheetOption(a.label, false, destructive = a.destructive) { if (a.destructive) confirming = a else { onDismiss(); a.run() } }
+                        SheetOption(platter, a.label, false, destructive = a.destructive) { if (a.destructive) confirming = a else { onDismiss(); a.run() } }
                     }
                 }
             }
@@ -260,27 +265,31 @@ internal fun SheetHeading(text: String) {
     )
 }
 
-/** [destructive]: red (Sign out), dark like the rest once focused on the white highlight. */
+/** A choice's corners, and the sheet's white highlight's. */
+internal val SheetOptionShape = RoundedCornerShape(16.dp)
+
+/**
+ * A choice in a side sheet: plain until focused, then white with dark words, the sheet's white
+ * [platter] gliding over from the choice the focus left while its words turn dark as they draw.
+ * [destructive]: red (Sign out), dark like the rest once focused on the white highlight.
+ */
 @Composable
 internal fun SheetOption(
-    label: String, checked: Boolean, modifier: Modifier = Modifier, accent: Boolean = false, destructive: Boolean = false, onClick: () -> Unit,
+    platter: FocusPlatter, label: String, checked: Boolean, modifier: Modifier = Modifier, accent: Boolean = false, destructive: Boolean = false, onClick: () -> Unit,
 ) {
-    Surface(
+    val motion = rememberFocusMotionState()
+    val tint = rememberRowTint(motion, if (destructive) Palette.danger else if (accent) Palette.accent else Palette.text, Palette.background)
+    TvCard(
         onClick = onClick,
-        // Grows on focus as a layer (tv-material's own growth recomposed it every frame).
-        modifier = modifier.fillMaxWidth().tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.02f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            contentColor = if (destructive) Palette.danger else if (accent) Palette.accent else Palette.text,
-            focusedContainerColor = Palette.text,
-            focusedContentColor = Palette.background,
-        ),
-        scale = surfacePressScale(1.02f),
+        shape = SheetOptionShape,
+        modifier = modifier.fillMaxWidth(),
+        motion = motion,
+        focusedScale = 1.02f,
+        platter = platter,
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (checked) TvIcon(Sym.Check, size = 22.dp)
+            RowText(label, tint.color, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (checked) TintIcon(Sym.Check, tint.color, size = 22.dp)
         }
     }
 }

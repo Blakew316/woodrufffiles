@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.ui.motion
 
 import android.view.KeyEvent as NativeKeyEvent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
@@ -71,22 +73,42 @@ fun rememberFocusMotionState(): FocusMotionState = remember { FocusMotionState()
  * Grows (and lifts) an item when it takes the focus, on [TvMotion]'s springs, as a layer transform: no
  * recomposition and no layout per frame. Put it BEFORE the item's focus target (focusable, or a
  * tv-material Surface's own), so it hears that target's focus. [shadow]: a soft oval under the focused
- * item, outside its growing layer (drawn only while focused).
+ * item, outside its growing layer (drawn only while focused). [focusIn] / [focusOut]: the springs it
+ * grows and shrinks on (a row on a [FocusPlatter] uses the platter's glide, so it changes as it arrives).
  */
-fun Modifier.tvFocusMotion(state: FocusMotionState, focusedScale: Float = TvMotion.CardScale, lift: Dp = 0.dp, shadow: Boolean = false): Modifier =
-    this then FocusMotionElement(state, focusedScale, lift, shadow)
+fun Modifier.tvFocusMotion(
+    state: FocusMotionState,
+    focusedScale: Float = TvMotion.CardScale,
+    lift: Dp = 0.dp,
+    shadow: Boolean = false,
+    focusIn: AnimationSpec<Float> = TvMotion.FocusIn,
+    focusOut: AnimationSpec<Float> = TvMotion.FocusOut,
+): Modifier = this then FocusMotionElement(state, focusedScale, lift, shadow, focusIn, focusOut)
 
-private data class FocusMotionElement(val state: FocusMotionState, val focusedScale: Float, val lift: Dp, val shadow: Boolean) :
-    ModifierNodeElement<FocusMotionNode>() {
-    override fun create() = FocusMotionNode(state, focusedScale, lift, shadow)
+private data class FocusMotionElement(
+    val state: FocusMotionState,
+    val focusedScale: Float,
+    val lift: Dp,
+    val shadow: Boolean,
+    val focusIn: AnimationSpec<Float>,
+    val focusOut: AnimationSpec<Float>,
+) : ModifierNodeElement<FocusMotionNode>() {
+    override fun create() = FocusMotionNode(state, focusedScale, lift, shadow, focusIn, focusOut)
     override fun update(node: FocusMotionNode) {
         if (node.state !== state) node.reset()   // a lazy item reused for another key
         node.state = state; node.focusedScale = focusedScale; node.lift = lift; node.shadow = shadow
+        node.focusIn = focusIn; node.focusOut = focusOut
     }
 }
 
-private class FocusMotionNode(var state: FocusMotionState, var focusedScale: Float, var lift: Dp, var shadow: Boolean) :
-    Modifier.Node(), FocusEventModifierNode, LayoutModifierNode, DrawModifierNode {
+private class FocusMotionNode(
+    var state: FocusMotionState,
+    var focusedScale: Float,
+    var lift: Dp,
+    var shadow: Boolean,
+    var focusIn: AnimationSpec<Float>,
+    var focusOut: AnimationSpec<Float>,
+) : Modifier.Node(), FocusEventModifierNode, LayoutModifierNode, DrawModifierNode {
     private var focused = false
     // Drawn above its neighbours while focused (and while shrinking back), so it grows over them.
     private var raised = false
@@ -111,7 +133,7 @@ private class FocusMotionNode(var state: FocusMotionState, var focusedScale: Flo
         // Started at once (no hop to the next frame), and picking up the current speed: a quick
         // reversal curves back instead of snapping.
         job = coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            s.progress.animateTo(if (now) 1f else 0f, if (now) TvMotion.FocusIn else TvMotion.FocusOut)
+            s.progress.animateTo(if (now) 1f else 0f, if (now) focusIn else focusOut)
             if (!now && s === state && !focused && raised) { raised = false; invalidatePlacement() }
         }
     }
@@ -156,6 +178,8 @@ private class FocusMotionNode(var state: FocusMotionState, var focusedScale: Flo
  * A focusable card without tv-material's Surface: no offscreen drawing, no per-frame recomposition and
  * no coroutines until it's focused. Grows on focus ([focusedScale], [lift], [shadow]); its colour and
  * border follow the focus in the draw phase. OK clicks; holding OK (or Menu) is the long click.
+ * [platter]: a row of a list whose focus highlight glides from row to row ([FocusPlatter]); it then
+ * grows (and its colours change) on the platter's glide, and [focusedColor] is usually see-through.
  */
 @Composable
 fun TvCard(
@@ -172,12 +196,20 @@ fun TvCard(
     borderWidth: Dp = 0.dp,
     borderColor: Color = Color.Transparent,
     focusedBorderColor: Color = borderColor,
+    platter: FocusPlatter? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val longPressed = remember { BooleanArray(1) }
     Box(
         modifier
-            .tvFocusMotion(motion, focusedScale, lift, shadow)
+            // Inside the caller's padding and before the focus target: it hears the focus, and the
+            // platter covers the card itself.
+            .then(if (platter != null) Modifier.focusPlatterItem(platter, motion, focusedScale) else Modifier)
+            .tvFocusMotion(
+                motion, focusedScale, lift, shadow,
+                focusIn = if (platter != null) TvMotion.Glide else TvMotion.FocusIn,
+                focusOut = if (platter != null) TvMotion.Glide else TvMotion.FocusOut,
+            )
             .onKeyEvent { okKey(it, longPressed, onClick, onLongClick) }
             .focusable()
             .semantics(mergeDescendants = true) {
@@ -226,6 +258,17 @@ fun FocusTintIcon(icon: ImageVector, motion: FocusMotionState, rest: Color, focu
         modifier.size(size).drawBehind {
             val tint = lerp(rest, focused, motion.fraction.coerceIn(0f, 1f))
             with(painter) { draw(this@drawBehind.size, colorFilter = ColorFilter.tint(tint)) }
+        },
+    )
+}
+
+/** An icon tinted by [tint], asked while drawing (a row's colour following its focus): no recomposition. */
+@Composable
+fun TintIcon(icon: ImageVector, tint: ColorProducer, size: Dp = 24.dp, modifier: Modifier = Modifier) {
+    val painter = rememberVectorPainter(com.woodruff.tvexplorer.ui.icons.symbolAt(icon, size))
+    Box(
+        modifier.size(size).drawBehind {
+            with(painter) { draw(this@drawBehind.size, colorFilter = ColorFilter.tint(tint())) }
         },
     )
 }

@@ -4,7 +4,6 @@ import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.focusGroup
 import androidx.compose.runtime.mutableStateOf
@@ -18,10 +17,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -57,10 +52,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.runtime.mutableIntStateOf
-import kotlin.math.roundToInt
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -76,14 +68,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.cloud.DriveViewModel
 import com.woodruff.tvexplorer.ui.components.ProgressDialog
-import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.screens.AppsScreen
 import com.woodruff.tvexplorer.ui.screens.BrowserScreen
 import com.woodruff.tvexplorer.ui.screens.DriveScreen
@@ -110,9 +100,23 @@ import androidx.compose.runtime.produceState
 import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.woodruff.tvexplorer.ui.components.growOnFocus
-import com.woodruff.tvexplorer.ui.components.pressScale
 import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.FocusPlatter
+import com.woodruff.tvexplorer.ui.motion.GlideBetween
+import com.woodruff.tvexplorer.ui.motion.TintIcon
+import com.woodruff.tvexplorer.ui.motion.TvCard
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
+import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
+import com.woodruff.tvexplorer.ui.components.RowText
+import com.woodruff.tvexplorer.ui.components.rememberRowTint
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.layout
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -136,6 +140,13 @@ fun AppRoot(vm: MainViewModel) {
     LaunchedEffect(driveTop) { driveTop?.takeIf { it == DrivePlace.Movies || it == DrivePlace.TvShows }?.let { lastLibrary = it } }
     val homeFocus = remember { FocusRequester() }
     val contentFocus = remember { FocusRequester() }
+    // The screen on show (not one gliding out under it): where the focus goes into the content, as it
+    // went into the content before (its first item, unless the screen puts it somewhere itself).
+    val screenFocus = remember { FocusRequester() }
+    val switchScope = rememberCoroutineScope()
+    val enterScreen: () -> Unit = {
+        if (runCatching { screenFocus.requestFocus() }.isFailure) runCatching { contentFocus.requestFocus() }
+    }
     var railFocused by remember { mutableStateOf(false) }
     var contentFocused by remember { mutableStateOf(false) }
     var enterContent by remember { mutableIntStateOf(0) }
@@ -198,24 +209,43 @@ fun AppRoot(vm: MainViewModel) {
                 }
                 .focusRequester(contentFocus).focusGroup(),
         ) {
-                // Switch screens in one step, not a cross-fade: during a fade the Command center's
-                // live video views were torn down by the transition, which crashed on some TVs.
                 CompositionLocalProvider(LocalOpenSidebar provides { railWanted = true }) {
-                key(if (screen in COMMAND_SCREENS) Screen.CAMERAS else screen) {
-                  // Each screen eases in (a quick fade and a few dp of rise) instead of popping in.
-                  // Only the new screen animates; the old one is gone at once (a cross-fade kept the
-                  // camera views alive during the switch, which crashed on some TVs).
-                  ScreenEnter {
-                    when (screen) {
+                // A screen chosen in the side menu fades in growing into place while the one it
+                // replaces fades out over it, on springs, in their drawing layers (nothing laid out
+                // again per frame). The old one goes at once instead when the focus was in it (Back to
+                // Home, a shortcut on Home: the focus moves into the new screen as it always did) or
+                // when it shows live video (the Command center, Home's cameras): those views are torn
+                // down in an ordinary recomposition, as they must be (a cross-fade doing it crashed some TVs).
+                GlideBetween(
+                    if (screen in COMMAND_SCREENS) Screen.CAMERAS else screen,
+                    Modifier.fillMaxSize(),
+                    enter = TvMotion.ScreenIn,
+                    exit = TvMotion.ScreenOut,
+                    animateFirst = true,
+                    instant = { old, _ -> contentFocused || old == Screen.CAMERAS || (old == Screen.HOME && Appearance.homeLive) },
+                    holder = { leaving ->
+                        if (!leaving) Modifier.focusRequester(screenFocus).focusGroup()
+                        // A screen on its way out never keeps the focus: a press that lands in it goes
+                        // on into the new screen.
+                        else Modifier.onFocusChanged { if (it.hasFocus) switchScope.launch { runCatching { screenFocus.requestFocus() } } }.focusGroup()
+                    },
+                    layer = { shown, entering, _ ->
+                        alpha = shown
+                        val from = if (entering) TvMotion.ScreenEnterScale else TvMotion.ScreenLeaveScale
+                        val s = from + (1f - from) * shown
+                        scaleX = s; scaleY = s
+                    },
+                ) { s ->
+                    when (s) {
                         Screen.HOME -> HomeScreen(vm, drive)
                         Screen.BROWSER -> BrowserScreen(vm)
                         Screen.DRIVE -> DriveScreen(vm, drive)
+                        // The Command center's pages switch inside it (its pills), with the live one.
                         Screen.MAIL, Screen.NOTIFICATIONS, Screen.NOTES, Screen.CAMERAS -> CommandHub(screen, vm)
                         Screen.APPS -> AppsScreen(vm)
                         Screen.TRANSFER -> TransferScreen(vm)
                         Screen.SETTINGS -> SettingsScreen(vm)
                     }
-                  }
                 }
                 }
                 MainMessage(vm, Modifier.align(Alignment.BottomCenter))
@@ -223,41 +253,30 @@ fun AppRoot(vm: MainViewModel) {
                 NoticeBanner(Modifier.align(Alignment.TopEnd)) { vm.show(Screen.NOTIFICATIONS) }
         }
         // Dim the dashboard while the menu is open over it.
-        // Animated values are read only while drawing / laying out, so the 220 ms open and close
-        // animations don't recompose the whole window on every frame.
-        // One fully damped spring drives the menu's width, its colour, its labels and this dimming
-        // together: it starts quickly, eases to a stop without overshoot, and picks up smoothly if
-        // the menu reverses half-way (a timed curve restarts and jerks).
-        val reveal = animateFloatAsState(if (open) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 420f), label = "rail")
+        // One fully damped spring drives the menu's slide and this dimming together: it starts
+        // quickly, eases to a stop without overshoot, and picks up smoothly if the menu reverses
+        // half-way (a timed curve restarts and jerks). Both read it only in their drawing layers, so
+        // opening and closing the menu recompose and lay out nothing.
+        val reveal = animateFloatAsState(if (open) 1f else 0f, TvMotion.RailReveal, label = "rail")
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = reveal.value; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha }.background(Brush.horizontalGradient(0f to Palette.background.copy(alpha = 0.92f), 0.6f to Palette.background.copy(alpha = 0.55f), 1f to Palette.background.copy(alpha = 0.25f))))
-        // Side menu: icons only until it has focus, then it opens to full labels over the content.
-        // Opens quick and settles softly (no linear robot slide).
+        // Side menu: hidden until called, then it glides in from the left edge with its labels, over
+        // the content, and back out the same way. Its white highlight glides from item to item.
+        val railPlatter = rememberFocusPlatter()
         Column(
             Modifier
-                // Clipped to the width the layout below reports, so the closed menu (width 0) draws
-                // nothing. (Placed after the layout, the clip used the full open width it measures,
-                // and the "hidden" menu stayed painted over the left of every screen.)
-                .clipToBounds()
-                // The rows are measured once at the width the menu is heading to; each animation frame
-                // then only changes how much of it shows (re-measuring 13 rows per frame cost frames).
-                .layout { measurable, constraints ->
-                    // Always measured at its open width (hidden is width 0, which can't hold the rows).
-                    val target = RAIL_OPEN.roundToPx()
-                    val closed = RAIL_CLOSED.toPx()
-                    val w = (closed + (RAIL_OPEN.toPx() - closed) * reveal.value).roundToInt()
-                    val p = measurable.measure(constraints.copy(minWidth = target, maxWidth = target))
-                    layout(w, p.height) { p.place(0, 0) }
-                }
+                // Laid out once, at its open width; each frame of the glide only moves its layer (out
+                // past the left edge by however much of it is hidden: closed, it draws nothing).
+                .width(RAIL_OPEN)
                 .fillMaxHeight()
-                // Fades from the slim tint to the open menu's frosted glass with the slide (drawn, not recomposed).
-                .drawBehind { drawRect(androidx.compose.ui.graphics.lerp(Palette.surface, Palette.glass, reveal.value)) }
+                .graphicsLayer { translationX = -(1f - reveal.value) * size.width }
+                .drawBehind { drawRect(Palette.glass) }
                 .onFocusChanged { railFocused = it.hasFocus }
                 // Right goes into the content (the open menu covers its left edge, so a plain geometric
                 // search would skip the first column).
                 .onPreviewKeyEvent { e ->
                     when {
                         e.type == KeyEventType.KeyDown && e.key == Key.DirectionRight -> {
-                            runCatching { contentFocus.requestFocus() }
+                            enterScreen()
                             contentFocused
                         }
                         // Back from the menu returns to the screen (on Home it leaves the app, as
@@ -265,34 +284,37 @@ fun AppRoot(vm: MainViewModel) {
                         // screen adds its own BackHandler when it opens, after AppRoot's, and that one
                         // won — Back went Home or up a folder behind the menu, and then out of the app.
                         e.key == Key.Back && screen != Screen.HOME -> {
-                            if (e.type == KeyEventType.KeyUp) runCatching { contentFocus.requestFocus() }
+                            if (e.type == KeyEventType.KeyUp) enterScreen()
                             true
                         }
                         else -> false
                     }
                 }
+                // On the menu's glass, behind its items; before the padding, so the first and last
+                // items' grown platters aren't cut off.
+                .focusPlatterHost(railPlatter, RailItemShape, Palette.text)
                 .padding(vertical = 28.dp, horizontal = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
               CompositionLocalProvider(LocalRailActive provides railActive, LocalRailFocusable provides (open || railWanted)) {
-                Brand(open, Modifier.padding(start = 6.dp, bottom = 24.dp))
+                Brand(Modifier.padding(start = 6.dp, bottom = 24.dp))
                 // Choosing a screen in the menu goes straight into it (the menu closes behind).
                 val go: (() -> Unit) -> Unit = { action -> action(); enterContent++ }
-                RailItem("Home", Sym.Home, screen == Screen.HOME, open, Modifier.focusRequester(homeFocus)) { go { vm.show(Screen.HOME) } }
+                RailItem("Home", Sym.Home, screen == Screen.HOME, railPlatter, Modifier.focusRequester(homeFocus)) { go { vm.show(Screen.HOME) } }
                 // Streaming: Movies and TV Shows (switched at the top of the tab), from those Drive folders.
-                RailItem("Streaming", Sym.Streaming, screen == Screen.DRIVE && (driveTop == DrivePlace.Movies || driveTop == DrivePlace.TvShows), open) {
+                RailItem("Streaming", Sym.Streaming, screen == Screen.DRIVE && (driveTop == DrivePlace.Movies || driveTop == DrivePlace.TvShows), railPlatter) {
                     go { drive.openRoot(lastLibrary); vm.show(Screen.DRIVE) }
                 }
                 // Family Memories: the photos and videos picked from Google Photos, saved on the TV.
                 val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browserPath?.startsWith(dir.path) == true }
-                RailItem("Family Memories", Sym.PhotoLibrary, inFolder(GooglePhotos.folder) || inFolder(GooglePhotos.videoFolder), open) {
+                RailItem("Family Memories", Sym.PhotoLibrary, inFolder(GooglePhotos.folder) || inFolder(GooglePhotos.videoFolder), railPlatter) {
                     go { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }) }
                 }
                 // Command Center: cameras, mail, notifications and notes (switched at the top).
-                RailItem("Command Center", Sym.Videocam, screen in COMMAND_SCREENS, open) { go { vm.show(Screen.CAMERAS) } }
+                RailItem("Command Center", Sym.Videocam, screen in COMMAND_SCREENS, railPlatter) { go { vm.show(Screen.CAMERAS) } }
                 // Set apart at the bottom, so it's clear it's Settings you're going to.
                 Spacer(Modifier.weight(1f))
-                RailItem("Settings", Sym.Settings, screen == Screen.SETTINGS, open) { go { vm.show(Screen.SETTINGS) } }
+                RailItem("Settings", Sym.Settings, screen == Screen.SETTINGS, railPlatter) { go { vm.show(Screen.SETTINGS) } }
               }
         }
     }
@@ -343,14 +365,14 @@ fun AppRoot(vm: MainViewModel) {
         withFrameNanos {}
         withFrameNanos {}
         // Unless the screen already put the focus somewhere itself (the title you left from, say).
-        if (!contentFocused) runCatching { contentFocus.requestFocus() }
+        if (!contentFocused) enterScreen()
     }
     // A screen changed from inside the content (Back to Home, a dashboard shortcut): the focused
     // item went away with the old screen, so put focus in the new one unless it took it itself.
     LaunchedEffect(screen) {
         withFrameNanos {}
         withFrameNanos {}
-        if (!railFocused && !contentFocused) runCatching { contentFocus.requestFocus() }
+        if (!railFocused && !contentFocused) enterScreen()
     }
     // The smoothness meter's name for what's on screen: Movies and TV Shows apart, and set again on
     // coming back from the player (which counts its frames as "Player").
@@ -364,30 +386,26 @@ fun AppRoot(vm: MainViewModel) {
         // Start in the content with the menu closed (unless the screen already took the focus, as the
         // Command Center does on a notification tap); fall back to the menu if nothing there takes focus.
         delay(300)
-        if (!contentFocused) runCatching { contentFocus.requestFocus() }
+        if (!contentFocused) enterScreen()
         delay(100)
         if (!contentFocused) railWanted = true
     }
 }
 
 /**
- * Apple's ease-out: moves off quickly and glides to a stop, with no visible end — the curve behind
- * the "buttery" feel of tvOS transitions.
- */
-internal val SmoothEase = androidx.compose.animation.core.CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
-
-/**
- * A screen (or a page over it) easing in, as on Apple TV: a fade with a gentle zoom from just
- * under full size. Runs in the draw layer only, so it costs no recomposition or layout.
+ * A page easing in over the one before it (a title picked on a title's page), as on Apple TV: a fade
+ * with a gentle zoom from just under full size, on the screens' spring. Runs in the draw layer only,
+ * so it costs no recomposition or layout. [animate] false: there at once (the window it's in is
+ * gliding in already).
  */
 @Composable
-internal fun ScreenEnter(content: @Composable () -> Unit) {
-    val p = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(Unit) { p.animateTo(1f, tween(320, easing = SmoothEase)) }
+internal fun ScreenEnter(animate: Boolean = true, content: @Composable () -> Unit) {
+    val p = remember { androidx.compose.animation.core.Animatable(if (animate) 0f else 1f) }
+    LaunchedEffect(Unit) { p.animateTo(1f, TvMotion.ScreenIn) }
     // ModulateAlpha: fades without first drawing the whole screen into an offscreen buffer.
     Box(Modifier.fillMaxSize().graphicsLayer {
         alpha = p.value
-        val s = 0.97f + 0.03f * p.value
+        val s = TvMotion.ScreenEnterScale + (1f - TvMotion.ScreenEnterScale) * p.value
         scaleX = s; scaleY = s
         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
     }) { content() }
@@ -436,7 +454,8 @@ internal fun scrimMatrix(scrim: Color, alpha: Float): FloatArray {
     )
 }
 
-private val RAIL_CLOSED = 0.dp
+/** A side menu item's corners, and its gliding highlight's. */
+private val RailItemShape = RoundedCornerShape(14.dp)
 
 /** The rail item for the screen on show, which takes the focus when the sidebar is called. */
 private val LocalRailActive = androidx.compose.runtime.staticCompositionLocalOf<FocusRequester?> { null }
@@ -553,9 +572,12 @@ private fun MainMessage(vm: MainViewModel, modifier: Modifier) {
     MessageBanner(message, vm::dismissMessage, modifier)
 }
 
-/** Top-left brand: the Woodruff Family app-icon tile (the triangle emblem) and the wordmark. */
+/**
+ * Top-left brand: the Woodruff Family app-icon tile (the triangle emblem) and the wordmark. Always
+ * all there: the menu glides out of sight closed, and keeps its wordmark and labels as it glides.
+ */
 @Composable
-private fun Brand(open: Boolean, modifier: Modifier = Modifier) {
+private fun Brand(modifier: Modifier = Modifier) {
     val resources = LocalContext.current.resources
     // Decoded once, off the main thread: read while composing, the PNG held up the first frame
     // (the menu starts hidden, so it's ready long before it shows).
@@ -566,7 +588,7 @@ private fun Brand(open: Boolean, modifier: Modifier = Modifier) {
         Box(Modifier.size(44.dp)) {
             logo?.let { Image(it, contentDescription = "Woodruff Family logo", modifier = Modifier.fillMaxSize()) }
         }
-        if (open) Column(Modifier.padding(start = 12.dp)) {
+        Column(Modifier.padding(start = 12.dp)) {
             Text("WOODRUFF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Palette.text, letterSpacing = 1.sp)
             Text("FAMILY", style = MaterialTheme.typography.labelMedium, color = Palette.accent, letterSpacing = 6.sp)
         }
@@ -583,33 +605,39 @@ private fun RailLabel(text: String, open: Boolean) {
     )
 }
 
+/**
+ * A side menu item. Monochrome, as on Apple TV: the current screen's sits in soft glass, and the
+ * focused one turns white, the menu's white [platter] gliding over to it from the item the focus left
+ * while its symbol and name turn dark as they draw.
+ */
 @Composable
-private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun RailItem(label: String, icon: ImageVector, active: Boolean, platter: FocusPlatter, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val activeFocus = LocalRailActive.current
     val focusable = LocalRailFocusable.current
-    Surface(
+    val motion = rememberFocusMotionState()
+    val tint = rememberRowTint(motion, Palette.text, Palette.background)
+    val glass = if (active) Palette.text.copy(alpha = 0.12f) else Color.Transparent
+    TvCard(
         onClick = onClick,
+        shape = RailItemShape,
         modifier = modifier
             .then(if (active && activeFocus != null) Modifier.focusRequester(activeFocus) else Modifier)
             .focusProperties { canFocus = focusable }
-            .fillMaxWidth()
-            .growOnFocus(1.04f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            // Monochrome, as on Apple TV: the current screen sits in soft glass, the focused item turns white.
-            containerColor = if (active) Palette.text.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent,
-            contentColor = Palette.text,
-            focusedContainerColor = Palette.text,
-            focusedContentColor = Palette.background,
-        ),
-        scale = pressScale(1.04f),
+            .fillMaxWidth(),
+        motion = motion,
+        focusedScale = TvMotion.RailScale,
+        color = glass,
+        // The soft glass gives way to the platter.
+        focusedColor = glass.copy(alpha = 0f),
+        platter = platter,
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvIcon(icon)
-            if (open) {
-                Spacer(Modifier.width(14.dp))
-                Text(label, maxLines = 1, overflow = TextOverflow.Clip, softWrap = false, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
-            }
+            TintIcon(icon, tint.color)
+            Spacer(Modifier.width(14.dp))
+            RowText(
+                label, tint.color, maxLines = 1, overflow = TextOverflow.Clip, softWrap = false,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            )
         }
     }
 }
@@ -623,18 +651,22 @@ private fun NoticeBanner(modifier: Modifier, onOpen: () -> Unit) {
     // Collected here, so a notice coming or going redraws only this card.
     val notice by Notices.latest.collectAsStateWithLifecycle()
     LaunchedEffect(notice) { if (notice != null) { delay(7000); Notices.dismissLatest() } }
+    // The last one shown, so it's still there as it glides away (a new one replaces it at once).
+    val kept = remember { Kept<com.woodruff.tvexplorer.notify.Notice>() }
+    notice?.let { kept.value = it }
+    // Glides down into place from the top edge, and back up (see bannerGlide).
     AnimatedVisibility(
         visible = notice != null,
-        enter = fadeIn() + slideInVertically { -it },
-        exit = fadeOut() + slideOutVertically { -it },
+        enter = EnterTransition.None,
+        exit = ExitTransition.None,
         modifier = modifier.padding(top = 24.dp, end = 24.dp),
     ) {
-        val n = notice ?: return@AnimatedVisibility
+        val n = notice ?: kept.value ?: return@AnimatedVisibility
         Surface(
             shape = RoundedCornerShape(20.dp),
             colors = SurfaceDefaults.colors(containerColor = Palette.glass, contentColor = Palette.text),
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(20.dp)),
-            modifier = Modifier.width(360.dp),
+            modifier = Modifier.bannerGlide(transition, fromTop = true).width(360.dp),
         ) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
                 Text(
@@ -648,25 +680,51 @@ private fun NoticeBanner(modifier: Modifier, onOpen: () -> Unit) {
     }
 }
 
-/** Toast-like status pill that slides up and hides itself after a few seconds. */
+/** Toast-like status pill that glides up into place and hides itself after a few seconds. */
 @Composable
 private fun MessageBanner(message: String?, onTimeout: () -> Unit, modifier: Modifier) {
     LaunchedEffect(message) {
         if (message != null) { delay(4500); onTimeout() }
     }
+    // The last words shown, so they're still there as the pill glides away (new ones replace them at once).
+    val kept = remember { Kept<String>() }
+    message?.let { kept.value = it }
     AnimatedVisibility(
         visible = message != null,
-        enter = fadeIn() + slideInVertically { it },
-        exit = fadeOut() + slideOutVertically { it },
+        enter = EnterTransition.None,
+        exit = ExitTransition.None,
         modifier = modifier.padding(bottom = 36.dp),
     ) {
         Surface(
             shape = RoundedCornerShape(28.dp),
             colors = SurfaceDefaults.colors(containerColor = Palette.glass, contentColor = Palette.text),
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(28.dp)),
+            modifier = Modifier.bannerGlide(transition, fromTop = false),
         ) {
-            Text(message.orEmpty(), modifier = Modifier.padding(horizontal = 28.dp, vertical = 14.dp))
+            Text((message ?: kept.value).orEmpty(), modifier = Modifier.padding(horizontal = 28.dp, vertical = 14.dp))
         }
     }
 }
 
+/** The last thing a banner showed, for it to keep showing while it glides away. */
+private class Kept<T : Any> { var value: T? = null }
+
+/**
+ * A banner gliding in from its edge (the top, or the bottom) with a soft settle as it fades in, and
+ * quicker back out, on [TvMotion]'s banner springs: moved and faded in its drawing layer (ModulateAlpha),
+ * so nothing is laid out again per frame. Driven by the AnimatedVisibility's own [transition], which
+ * keeps the banner until it's gone.
+ */
+@Composable
+private fun Modifier.bannerGlide(transition: Transition<EnterExitState>, fromTop: Boolean): Modifier {
+    val shown = transition.animateFloat(
+        transitionSpec = { if (targetState == EnterExitState.Visible) TvMotion.BannerIn else TvMotion.BannerOut },
+        label = "banner",
+    ) { if (it == EnterExitState.Visible) 1f else 0f }
+    return graphicsLayer {
+        val p = shown.value
+        alpha = p.coerceIn(0f, 1f)
+        translationY = (1f - p) * size.height * (if (fromTop) -1f else 1f)
+        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+    }
+}

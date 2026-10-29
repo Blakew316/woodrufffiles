@@ -38,8 +38,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.window.Dialog
-import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
@@ -47,11 +47,18 @@ import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.OpProgress
 import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.server.TransferService
+import com.woodruff.tvexplorer.ui.motion.FocusPlatter
+import com.woodruff.tvexplorer.ui.motion.TintIcon
 import com.woodruff.tvexplorer.ui.motion.dpadGate
+import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 
-/** Shared dialog frame: dark card, title, then content. */
+/**
+ * Shared dialog frame: dark card, title, then content. Its window glides in and out (the app theme's
+ * dialog animation, run by the system), so the card itself doesn't animate.
+ */
 @Composable
 fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
@@ -72,23 +79,34 @@ fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content:
 
 data class MenuAction(val label: String, val icon: ImageVector, val destructive: Boolean = false, val run: () -> Unit)
 
-/** The long-press / menu-key action list for a file or app. First entry gets focus. */
+/**
+ * The long-press / menu-key action list for a file or app. First entry gets focus. Its highlight
+ * glides from action to action (a [FocusPlatter] in the list colours tv-material's ListItem had).
+ */
 @Composable
 fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDismiss: () -> Unit) {
     val first = remember { FocusRequester() }
+    val platter = rememberFocusPlatter()
+    val scheme = MaterialTheme.colorScheme
     DialogFrame(title, onDismiss, width = 460) {
         if (subtitle != null) Text(subtitle, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
         // Room above the first row and below the last: a focused row grows past them, and the
         // list clips there.
-        LazyColumn(contentPadding = PaddingValues(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(
+            Modifier.focusPlatterHost(platter, ListRowShape, scheme.inverseSurface),
+            contentPadding = PaddingValues(vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             itemsIndexed(actions) { i, a ->
-                ListItem(
-                    selected = false,
+                PlatterListItem(
+                    platter,
                     onClick = { onDismiss(); a.run() },
-                    modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).growOnFocus(ListItemFocusScale),
-                    scale = listItemPressScale(ListItemFocusScale),
-                    leadingContent = { TvIcon(a.icon) },
-                    headlineContent = { Text(a.label, color = if (a.destructive) Palette.danger else androidx.compose.ui.graphics.Color.Unspecified) },
+                    content = scheme.onSurface,
+                    focusedContent = scheme.inverseOnSurface,
+                    modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
+                    leading = { tint -> TintIcon(a.icon, tint.soft) },
+                    // Delete and the like stay red, on the platter too.
+                    headline = { tint -> RowText(a.label, if (a.destructive) ColorProducer { Palette.danger } else tint.color) },
                 )
             }
         }

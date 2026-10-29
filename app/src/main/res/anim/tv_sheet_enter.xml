@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A side sheet arriving: slides in from the right edge (TvMotion.SheetShiftPercent of the screen) as it fades in. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <translate
+        android:duration="300"
+        android:fromXDelta="7%"
+        android:interpolator="@interpolator/tv_glide"
+        android:toXDelta="0" />
+    <alpha
+        android:duration="200"
+        android:fromAlpha="0.0"
+        android:interpolator="@interpolator/tv_glide"
+        android:toAlpha="1.0" />
+</set>

@@ -5,9 +5,60 @@
         <item name="android:colorBackground">@color/background</item>
         <item name="android:statusBarColor">@color/background</item>
         <item name="android:navigationBarColor">@color/background</item>
+        <!-- Every dialog window glides in and out (see ThemeOverlay.TVExplorer.Dialog). -->
+        <item name="android:dialogTheme">@style/ThemeOverlay.TVExplorer.Dialog</item>
     </style>
+    <!-- The player, photos, the slideshow: they fade in growing into place, and back out (the screen
+         behind stays put underneath, so there's no flash of black between them). -->
     <style name="Theme.TVExplorer.Player">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowFullscreen">true</item>
+        <item name="android:windowAnimationStyle">@style/Animation.TVExplorer.Activity</item>
+    </style>
+    <!-- The doorbell's camera, over the film: it comes in like a pop-up. -->
+    <style name="Theme.TVExplorer.Doorbell" parent="Theme.TVExplorer.Player">
+        <item name="android:windowAnimationStyle">@style/Animation.TVExplorer.PopUpActivity</item>
+    </style>
+
+    <!--
+        Android's dialog window as before (the Material one, dimming the screen behind), only coming
+        and going as tvOS's do. Compose's Dialog windows take the theme's dialogTheme: its own window
+        style (DialogWindowTheme) sets neither that nor an animation (androidx.compose.ui 1.7.6 and
+        1.12.1). The system runs the animation on its own thread, and fades the dim with it.
+    -->
+    <style name="ThemeOverlay.TVExplorer.Dialog" parent="@android:style/ThemeOverlay.Material.Dialog">
+        <item name="android:windowAnimationStyle">@style/Animation.TVExplorer.Dialog</item>
+    </style>
+
+    <!-- Windows (the numbers are TvMotion's). A dialog or pop-up: in from just larger, fading in. -->
+    <style name="Animation.TVExplorer.Dialog" parent="@android:style/Animation">
+        <item name="android:windowEnterAnimation">@anim/tv_dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/tv_dialog_exit</item>
+    </style>
+    <!-- A full-screen page (a title's page, search): grows in from just smaller, as screens do. -->
+    <style name="Animation.TVExplorer.Page" parent="@android:style/Animation">
+        <item name="android:windowEnterAnimation">@anim/tv_page_enter</item>
+        <item name="android:windowExitAnimation">@anim/tv_page_exit</item>
+    </style>
+    <!-- A panel at the right edge (the filters): slides in from that edge, and back out. -->
+    <style name="Animation.TVExplorer.SideSheet" parent="@android:style/Animation">
+        <item name="android:windowEnterAnimation">@anim/tv_sheet_enter</item>
+        <item name="android:windowExitAnimation">@anim/tv_sheet_exit</item>
+    </style>
+
+    <!-- Screens of their own (activities): the one arriving grows in like a page; the one under it stays.
+         Anything else (a whole task coming or going) as Android does it, from Animation.Activity. -->
+    <style name="Animation.TVExplorer.Activity" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/tv_page_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/tv_hold_enter</item>
+        <item name="android:activityCloseEnterAnimation">@anim/tv_hold_exit</item>
+        <item name="android:activityCloseExitAnimation">@anim/tv_page_exit</item>
+    </style>
+    <!-- ...and one that pops up over the film (the doorbell's camera): in from just larger, like a dialog. -->
+    <style name="Animation.TVExplorer.PopUpActivity" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/tv_dialog_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/tv_hold_enter</item>
+        <item name="android:activityCloseEnterAnimation">@anim/tv_hold_exit</item>
+        <item name="android:activityCloseExitAnimation">@anim/tv_dialog_exit</item>
     </style>
 </resources>

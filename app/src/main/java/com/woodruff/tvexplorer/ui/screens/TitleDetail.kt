@@ -76,6 +76,8 @@ import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.motion.TvCard
 import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.motion.bringWholeIntoView
+import com.woodruff.tvexplorer.ui.motion.DialogWindowMotion
+import com.woodruff.tvexplorer.ui.motion.WindowMotion
 import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.motion.posterRowState
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
@@ -120,14 +122,21 @@ fun TitleDetail(
     onChoose: (DriveFile) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Whether a title has been shown yet: the first comes with the window gliding in (below), so it
+    // doesn't ease in as well; the ones picked after it do.
+    val shownOne = remember { BooleanArray(1) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // The page grows into place as it fades in, and back out, as the system moves its window
+        // (smooth even while the page is still being built).
+        DialogWindowMotion(WindowMotion.Page)
         // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
         Box(Modifier.fillMaxSize().dpadGate()) {
             // One page per title: a title picked from "More like this" starts afresh, with nothing (cast,
             // seasons, the first episode, scroll, focus) carried over from the one before.
             key(f.id) {
-                // Eases in (fade and a gentle zoom) rather than popping up.
-                com.woodruff.tvexplorer.ui.ScreenEnter {
+                // A title picked here eases in (fade and a gentle zoom) rather than popping up.
+                val ease = remember { shownOne[0].also { shownOne[0] = true } }
+                com.woodruff.tvexplorer.ui.ScreenEnter(animate = ease) {
                     TitlePage(f, art, token, all, isShow, artHeaders, onPlay, onPlayEpisode, onPlayKey, openLabel, onOpen, onChoose)
                 }
             }
