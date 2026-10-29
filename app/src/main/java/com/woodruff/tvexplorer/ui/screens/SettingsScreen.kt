@@ -114,8 +114,13 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.util.OpenResult
 import com.woodruff.tvexplorer.util.Opener
+import android.os.Build
+import androidx.profileinstaller.ProfileVerifier
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Every popup the Settings screen can show. */
 private sealed interface SettingsDialog {
@@ -211,6 +216,10 @@ fun SettingsScreen(vm: MainViewModel) {
     LaunchedEffect(Unit) { vm.refreshRoots() }
     // Slow frames per screen since the app started (read afresh each time a page opens).
     var smoothness by remember(moves) { mutableStateOf(com.woodruff.tvexplorer.util.FrameStats.summary()) }
+    // Whether Android has compiled the app's code yet: asked (off the main thread) only while Advanced is open.
+    val appCode by produceState<String?>(null, here) {
+        if (here == SettingsPage.ADVANCED) value = withContext(Dispatchers.IO) { appCodeStatus() }
+    }
 
     fun rows(page: SettingsPage): List<SettingItem> = when (page) {
         SettingsPage.HOME -> {
@@ -359,6 +368,12 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames on each screen since the app started, and what they were spent on. OK starts counting again.") {
                 com.woodruff.tvexplorer.util.FrameStats.reset(); smoothness = com.woodruff.tvexplorer.util.FrameStats.summary()
             },
+            // The speed profile at work (baseline-prof.txt): right after an update when it installed with
+            // its profile, otherwise once the TV has compiled it while idle. Read only.
+            SettingItem(
+                Sym.Android, "App code", appCode,
+                about = "Whether the TV has compiled Woodruff's code, so it starts and moves faster. Updates are compiled as they install; if not, the TV does it while idle, usually overnight.",
+            ),
             SettingItem(
                 Sym.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (Doorbell.subscription(context) != null) "Watching" else "Off",
                 about = "Doorbell presses pop up on this TV. Set it up in the phone app.",
@@ -673,7 +688,7 @@ private enum class SettingsPage(val title: String, val icon: ImageVector, val ab
     TVS("Other TVs", Sym.Link, "Link TVs to see what each one is playing and watch together."),
     STORAGE("Storage & apps", Sym.Storage, "Drives, files by type, apps, iCloud and video calls."),
     UPDATES("Updates", Sym.SystemUpdate, "New versions of Woodruff Family."),
-    ADVANCED("Advanced", Sym.Tune, "Smoothness, alerts, permissions, pairing and credits."),
+    ADVANCED("Advanced", Sym.Tune, "Smoothness, app code, alerts, permissions, pairing and credits."),
 }
 
 /**
@@ -691,6 +706,22 @@ private fun opener(page: SettingsPage, value: String?, spaced: Boolean = false) 
     SettingItem(page.icon, page.title, value, opens = page, spaced = spaced, about = page.about)
 
 private fun onOff(on: Boolean) = if (on) "On" else "Off"
+
+/**
+ * What Android says about the app's compiled code, from profileinstaller's own check a few seconds
+ * after the app starts (waited for, so off the main thread). Android 9 and up can tell, except 11.
+ */
+private fun appCodeStatus(): String? {
+    if (Build.VERSION.SDK_INT < 28) return "Not supported"
+    val status = runCatching { ProfileVerifier.getCompilationStatusAsync().get(20, TimeUnit.SECONDS) }.getOrNull() ?: return null
+    return when (val code = status.profileInstallResultCode) {
+        ProfileVerifier.CompilationStatus.RESULT_CODE_COMPILED_WITH_PROFILE,
+        ProfileVerifier.CompilationStatus.RESULT_CODE_COMPILED_WITH_PROFILE_NON_MATCHING -> "Compiled for speed"
+        ProfileVerifier.CompilationStatus.RESULT_CODE_PROFILE_ENQUEUED_FOR_COMPILATION -> "Waiting for the TV to compile it"
+        ProfileVerifier.CompilationStatus.RESULT_CODE_ERROR_UNSUPPORTED_API_VERSION -> "Not supported"
+        else -> "Not installed (code $code)"
+    }
+}
 
 private fun count(n: Int, one: String, none: String) = when (n) {
     0 -> none

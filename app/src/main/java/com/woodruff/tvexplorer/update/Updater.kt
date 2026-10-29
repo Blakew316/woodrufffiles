@@ -36,10 +36,18 @@ import java.net.URL
  * (the very first update, after an install from Downloader, shows one "Update" prompt). Silent
  * installs wait until nobody is using Woodruff (nothing playing, no button pressed for 2 minutes),
  * since an update restarts it; if it was on screen, it opens again by itself.
+ *
+ * On Android 9+ the update brings its speed profile (a .dm file published with the release) in the
+ * same install, as Play and adb do: Android compiles the new code while installing, instead of
+ * running it uncompiled until the TV's overnight compile.
  */
 object Updater {
     private const val API = "https://api.github.com/repos/Blakew316/woodrufffiles/releases/latest"
     private const val ASSET = "WoodruffFamily.apk"
+    /** A release's speed profiles, named by the lowest API level each serves ("-api28-30" if it stops early). */
+    private val PROFILE_NAME = Regex("""WoodruffFamily-api(\d+)(?:-(\d+))?\.dm""")
+    /** Which build's speed profile went into an install (0: none), so a refusal can be retried without it. */
+    internal const val EXTRA_PROFILE = "com.woodruff.tvexplorer.update.PROFILE"
     private const val PREFS = "updates"
     /** In the background (the phone-connection service's loop). */
     private const val CHECK_EVERY_MS = 3_600_000L
@@ -178,8 +186,9 @@ object Updater {
                 _state.value = State(Step.UP_TO_DATE, latest, message = "2.0.$latest arrives in about $hours h (after the test TV)")
                 return@withLock
             }
-            val assets = release.optJSONArray("assets")
-            val asset = (0 until (assets?.length() ?: 0)).map { assets!!.getJSONObject(it) }.firstOrNull { it.optString("name") == ASSET }
+            val json = release.optJSONArray("assets")
+            val assets = (0 until (json?.length() ?: 0)).map { json!!.getJSONObject(it) }
+            val asset = assets.firstOrNull { it.optString("name") == ASSET }
                 ?: throw IOException("The release has no $ASSET")
             val file = apkFile(c)
             val size = asset.optLong("size")
@@ -188,8 +197,9 @@ object Updater {
                 _state.value = State(Step.DOWNLOADING, latest)
                 download(asset.getString("browser_download_url"), file, size) { p -> _state.update { it.copy(progress = p) } }
                 val version = verify(c, file)
-                if (version != latest) { file.delete(); throw IOException("The download wasn't a valid Woodruff update") }
+                if (version != latest) { file.delete(); deleteProfiles(c); throw IOException("The download wasn't a valid Woodruff update") }
             }
+            fetchProfile(c, assets, latest)
             // A different build than the one that failed to install: start the install backoff afresh.
             if (before.latest != latest) { failures = 0; retryAt = 0 }
             _state.value = State(Step.READY, latest)
@@ -215,6 +225,23 @@ object Updater {
     /** "v2.0.41" → 41. Visible for tests. */
     fun buildNumber(tag: String): Int? = Regex("^v?\\d+\\.\\d+\\.(\\d+)$").find(tag.trim())?.groupValues?.get(1)?.toIntOrNull()
 
+    /**
+     * Which of a release's files (by [names]) is the speed profile for Android API level [sdk]: the
+     * one for the highest API level at or below it ("WoodruffFamily-api28.dm" on Android 9 to 11 when
+     * there's also an "-api31" one), unless its name says it stops below [sdk]. None below Android 9,
+     * which can't install one, or when the release has none. Visible for tests.
+     */
+    fun profileFor(names: List<String>, sdk: Int): String? {
+        if (sdk < 28) return null
+        val profiles = names.mapNotNull { name ->
+            val m = PROFILE_NAME.matchEntire(name) ?: return@mapNotNull null
+            val min = m.groupValues[1].toIntOrNull()?.takeIf { it in 28..sdk } ?: return@mapNotNull null
+            Triple(name, min, m.groupValues[2].toIntOrNull() ?: Int.MAX_VALUE)
+        }
+        val (name, _, max) = profiles.maxByOrNull { it.second } ?: return null
+        return name.takeIf { sdk <= max }
+    }
+
     /** The APK's version when it is this app and newer than what's installed, else null. */
     private fun verify(c: Context, file: File): Int? {
         if (!file.exists()) return null
@@ -239,8 +266,15 @@ object Updater {
         // once it's back) rather than doing nothing. Not as a manual check when installing on its
         // own: that fetched the newest release at once, skipping the test TV's day.
         if (!file.exists()) { scope.launch { checkAndDownload(app, manual) }; return }
+        // This build's speed profile goes in too (Android 9+), unless this TV already turned it down.
+        val build = _state.value.latest ?: 0
+        val profile = profileFile(app, build).takeIf {
+            Build.VERSION.SDK_INT >= 28 && it.exists() && prefs(app).getInt("profileRefused", 0) != build
+        }
         _state.update { it.copy(step = Step.INSTALLING) }
         scope.launch {
+            var id = -1
+            var addedProfile = false
             try {
                 val installer = app.packageManager.packageInstaller
                 val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
@@ -248,26 +282,44 @@ object Updater {
                     if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
                     setSize(file.length())
                 }
-                val id = installer.createSession(params)
+                id = installer.createSession(params)
                 installer.openSession(id).use { session ->
                     session.openWrite("base.apk", 0, file.length()).use { out ->
                         file.inputStream().use { it.copyTo(out, 256 * 1024) }
                         session.fsync(out)
                     }
+                    // Named after the APK it belongs to, as adb names it: Android compiles with it as it installs.
+                    if (profile != null) {
+                        addedProfile = true
+                        Log.i("Updater", "installing 2.0.$build with its speed profile (${profile.length()} bytes)")
+                        session.openWrite("base.dm", 0, profile.length()).use { out ->
+                            profile.inputStream().use { it.copyTo(out) }
+                            session.fsync(out)
+                        }
+                    }
                     // Mutable: the installer adds the result (and the prompt to show) to this intent.
                     val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-                    val result = PendingIntent.getBroadcast(app, id, Intent(app, InstallResultReceiver::class.java), flags)
+                    val answer = Intent(app, InstallResultReceiver::class.java).putExtra(EXTRA_PROFILE, if (profile != null) build else 0)
+                    val result = PendingIntent.getBroadcast(app, id, answer, flags)
                     session.commit(result.intentSender)
                 }
             } catch (e: Exception) {
                 Log.w("Updater", "install failed", e)
+                if (addedProfile && refuseProfile(app, build, e.message)) {
+                    // Go again at once without the profile, in a new session.
+                    if (id != -1) runCatching { app.packageManager.packageInstaller.abandonSession(id) }
+                    _state.update { it.copy(step = Step.READY) }
+                    install(app, manual)
+                    return@launch
+                }
                 installFailed()
                 _state.update { it.copy(step = Step.READY, message = e.message ?: "Couldn't start the update") }
             }
         }
     }
 
-    internal fun onResult(c: Context, status: Int, message: String?, confirm: Intent?) {
+    /** The installer's answer. [profile]: the build whose speed profile went in with the APK (0: none). */
+    internal fun onResult(c: Context, status: Int, message: String?, confirm: Intent?, profile: Int = 0) {
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 if (confirm != null && AppVisibility.foreground) {
@@ -276,12 +328,62 @@ object Updater {
                 // Not on screen (or the prompt couldn't open): offer it again next time Woodruff opens.
                 _state.update { it.copy(step = Step.READY) }
             }
-            PackageInstaller.STATUS_SUCCESS -> { failures = 0; retryAt = 0; apkFile(c).delete(); _state.value = State(Step.UP_TO_DATE, current) }
-            else -> { installFailed(); _state.update { it.copy(step = Step.READY, message = message ?: "The update didn't install") } }
+            PackageInstaller.STATUS_SUCCESS -> { failures = 0; retryAt = 0; apkFile(c).delete(); deleteProfiles(c); _state.value = State(Step.UP_TO_DATE, current) }
+            else -> {
+                // Turned down with its speed profile, and not by someone saying no to the prompt: maybe
+                // this TV won't take the profile, so once per build the update goes again without it.
+                if (profile > 0 && status != PackageInstaller.STATUS_FAILURE_ABORTED && refuseProfile(c, profile, message)) {
+                    _state.update { it.copy(step = Step.READY) }
+                    install(c, manual = false)
+                } else {
+                    installFailed(); _state.update { it.copy(step = Step.READY, message = message ?: "The update didn't install") }
+                }
+            }
         }
     }
 
     private fun apkFile(c: Context) = File(File(c.applicationContext.cacheDir, "updates").apply { mkdirs() }, "update.apk")
+
+    /** Build [build]'s speed profile, kept next to update.apk. */
+    private fun profileFile(c: Context, build: Int) = File(apkFile(c).parentFile, "update-$build.dm")
+
+    /** Deletes the downloaded speed profiles: all of them, or all but [keep]'s. */
+    private fun deleteProfiles(c: Context, keep: Int = 0) {
+        val kept = profileFile(c, keep).name
+        apkFile(c).parentFile?.listFiles()?.filter { it.name.endsWith(".dm") && it.name != kept }?.forEach { it.delete() }
+    }
+
+    /**
+     * The release's speed profile for this TV's Android version, downloaded next to the APK when it
+     * has one (releases from before them don't). Never in the way: if it can't be had, the update
+     * installs without it, as before.
+     */
+    private fun fetchProfile(c: Context, assets: List<JSONObject>, build: Int) {
+        val file = profileFile(c, build)
+        try {
+            val name = profileFor(assets.map { it.optString("name") }, Build.VERSION.SDK_INT)
+            deleteProfiles(c, keep = if (name != null) build else 0)
+            val asset = assets.firstOrNull { it.optString("name") == name } ?: return
+            val size = asset.optLong("size")
+            if (size > 0 && file.length() == size) return // already here
+            file.delete()
+            if (size <= 0) return
+            download(asset.getString("browser_download_url"), file, size) {}
+            Log.i("Updater", "downloaded $name for 2.0.$build")
+        } catch (e: Exception) {
+            Log.w("Updater", "couldn't download the speed profile", e)
+            file.delete()
+        }
+    }
+
+    /** Remembers that [build] didn't install with its speed profile; false if that already happened once. */
+    private fun refuseProfile(c: Context, build: Int, why: String?): Boolean {
+        val p = prefs(c)
+        if (p.getInt("profileRefused", 0) == build) return false
+        p.edit().putInt("profileRefused", build).apply()
+        Log.w("Updater", "2.0.$build didn't install with its speed profile ($why): trying again without it")
+        return true
+    }
 
     private fun get(url: String): String {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -338,6 +440,7 @@ class InstallResultReceiver : BroadcastReceiver() {
             intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE),
             intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE),
             confirm,
+            intent.getIntExtra(Updater.EXTRA_PROFILE, 0),
         )
     }
 }

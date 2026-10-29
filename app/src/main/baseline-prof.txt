@@ -1,5 +1,11 @@
-# Baseline profile: ahead-of-time compile the app's own code at install time (via profileinstaller),
-# so the first launch, screen switches and scrolling don't run through the interpreter/JIT.
-# Compose, Media3 and other libraries ship their own profiles, which are merged in automatically.
+# Baseline profile: the code Android compiles ahead of time, so the first launch, screen switches,
+# scrolling and starting a film don't run through the interpreter/JIT. A sideloaded APK isn't
+# compiled at install: profileinstaller hands this profile to Android when the app first runs, and
+# the TV compiles it when it's idle (usually overnight). Updates from the app itself bring it along
+# as a .dm file on Android 9+ (update/Updater.kt), and then it's compiled as they install.
+# Compose, Coil and most AndroidX libraries ship their own profiles, which are merged in automatically.
 HSPLcom/woodruff/tvexplorer/**->**(**)**
 Lcom/woodruff/tvexplorer/**;
+# Media3 ships none: compile the player too (setting it up, choosing tracks, reading the MP4), so Play
+# starts faster. Methods only: its classes don't need to be loaded at startup.
+HPLandroidx/media3/**->**(**)**

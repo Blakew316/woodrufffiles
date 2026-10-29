@@ -46,6 +46,72 @@ jobs:
           cp app/build/outputs/apk/release/*.apk WoodruffFamily.apk
           # Older names too, so links (and short links) made for earlier versions keep working.
           for old in WoodruffFilms WoodruffPictures WoodruffShows TVExplorer; do cp WoodruffFamily.apk "$old.apk"; done
+      # The speed profile (.dm) for each Android version, from this same build, named by the lowest API
+      # level it serves: the TVs' updater installs the right one together with the update, so Android
+      # compiles the new code as it installs instead of overnight. Never holds up a release: without
+      # them, updates install as before.
+      - name: Prepare speed profiles
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        run: |
+          set +e
+          rm -f WoodruffFamily-api*.dm
+          out=app/build/outputs/apk/release
+          ls -lR "$out"
+          # AGP writes them next to the APK and lists the API levels each one serves in output-metadata.json.
+          python3 - "$out" <<'EOF'
+          import json, os, shutil, sys, zipfile
+          out = sys.argv[1]
+          try:
+              with open(os.path.join(out, "output-metadata.json")) as f:
+                  meta = json.load(f)
+          except Exception as e:
+              sys.exit(f"Couldn't read output-metadata.json: {e}")
+          apks = {os.path.splitext(e.get("outputFile", ""))[0] for e in meta.get("elements") or []}
+          found = []
+          for e in meta.get("baselineProfiles") or []:
+              dms = e.get("baselineProfiles") or []
+              if not isinstance(e.get("minApi"), int) or not dms:
+                  continue
+              src = next((p for p in dms if os.path.splitext(os.path.basename(p))[0] in apks), dms[0])
+              try:
+                  with zipfile.ZipFile(os.path.join(out, src)) as z:
+                      z.getinfo("primary.prof")
+                  found.append((e["minApi"], e.get("maxApi"), src))
+              except Exception as x:
+                  print(f"Left out {src}: {x}")
+          print(f"output-metadata.json lists {len(found)} usable speed profile(s)")
+          starts = {lo for lo, _, _ in found}
+          for lo, hi, src in found:
+              # Its highest API level goes in the name too, if the next one doesn't start right after it.
+              name = f"WoodruffFamily-api{lo}.dm"
+              if isinstance(hi, int) and hi < 2**31 - 1 and hi + 1 not in starts:
+                  name = f"WoodruffFamily-api{lo}-{hi}.dm"
+              shutil.copyfile(os.path.join(out, src), name)
+              print(f"{name}: API {lo} to {hi}, from {src}")
+          EOF
+          # None from AGP: make them from the APK's own profile with the SDK's profgen.
+          if ! ls WoodruffFamily-api*.dm > /dev/null 2>&1; then
+            profgen=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/profgen 2> /dev/null | head -n 1)
+            echo "Trying profgen: ${profgen:-not found}"
+            if [ -n "$profgen" ]; then
+              "$profgen" extractProfile --apk WoodruffFamily.apk --output-dex-metadata WoodruffFamily-api28-30.dm --profile-format V0_1_0_P
+              "$profgen" extractProfile --apk WoodruffFamily.apk --output-dex-metadata WoodruffFamily-api31.dm --profile-format V0_1_5_S
+            fi
+          fi
+          # Only well-formed ones (a zip holding primary.prof) go out with the release.
+          for f in WoodruffFamily-api*.dm; do
+            [ -f "$f" ] || continue
+            if ! python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).getinfo("primary.prof")' "$f" 2> /dev/null; then
+              echo "Left out $f: not a speed profile"; rm -f "$f"
+            fi
+          done
+          if ls WoodruffFamily-api*.dm > /dev/null 2>&1; then
+            echo "Speed profiles for this release:"; ls -l WoodruffFamily-api*.dm
+          else
+            echo "No speed profiles for this release: updates install without one, as before."
+          fi
+          exit 0
       # Builds can finish out of order; only the build of the branch's newest commit becomes
       # "latest", so the stable link never goes back to an older APK. The gallery job's own
       # "Update UI gallery" commits land on top of this one and don't count.
@@ -74,6 +140,7 @@ jobs:
             WoodruffPictures.apk
             WoodruffShows.apk
             TVExplorer.apk
+            WoodruffFamily-api*.dm
           body: |
             Install on Android TV: download WoodruffFamily.apk, or type this into the Downloader app on the TV:
             https://github.com/${{ github.repository }}/releases/latest/download/WoodruffFamily.apk
