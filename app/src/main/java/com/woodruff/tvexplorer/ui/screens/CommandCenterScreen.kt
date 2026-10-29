@@ -79,6 +79,7 @@ import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.Qr
@@ -238,9 +239,11 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, foc
                         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
                         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
                     ) {
-                        // Inset so the focus border isn't hidden under the video surface.
-                        Box(Modifier.fillMaxSize().padding(4.dp).clip(RoundedCornerShape(18.dp))) {
-                            if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false)
+                        // Edge to edge, in the tile's own rounded shape, as on Home: the picture fills the
+                        // whole tile and grows with it when focused (a TextureView, drawn under the focus
+                        // border; a SurfaceView sat letterboxed in an inset and didn't follow the focus scale).
+                        Box(Modifier.fillMaxSize().clip(Shapes.card)) {
+                            if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false, fill = true)
                             else Placeholder(if (cam.webRtc) "Select to watch" else "This camera model doesn't support live view here")
                             CameraLabel(cam, Modifier.align(Alignment.BottomStart))
                         }
