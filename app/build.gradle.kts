@@ -1,12 +1,11 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
 android {
     namespace = "com.woodruff.tvexplorer"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.woodruff.shows"
@@ -49,9 +48,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -76,7 +72,6 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.foundation)
-    implementation(libs.androidx.compose.icons)
     implementation(libs.androidx.tv.material)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
