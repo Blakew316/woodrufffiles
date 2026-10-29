@@ -2,12 +2,14 @@ package com.woodruff.tvexplorer.nowplaying
 
 import android.content.ComponentName
 import android.content.Context
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.service.notification.NotificationListenerService
 import android.os.SystemClock
+import android.view.KeyEvent
 import org.json.JSONObject
 
 /** What a TV is playing right now. */
@@ -53,9 +55,33 @@ object NowPlaying {
         return msm.getActiveSessions(ComponentName(c, MediaWatcher::class.java))
     }
 
+    /** The app that's playing, else the one that played last (Android lists the most recent first). */
+    private fun pick(all: List<MediaController>): MediaController? =
+        all.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: all.firstOrNull()
+
+    /**
+     * The phone's Play/Pause while another app is in front (Netflix, YouTube…). With Notification
+     * access it tells that app's media session directly; without, it sends the remote's Play/Pause
+     * key, which Android hands to whichever app is playing.
+     */
+    fun playPause(c: Context) {
+        val app = c.applicationContext
+        val told = runCatching {
+            val ctl = pick(sessions(app)) ?: return@runCatching false
+            val state = ctl.playbackState?.state
+            if (state == PlaybackState.STATE_PLAYING || state == PlaybackState.STATE_BUFFERING) ctl.transportControls.pause()
+            else ctl.transportControls.play()
+            true
+        }.getOrDefault(false) // no Notification access (SecurityException), or the app went away
+        if (told) return
+        val audio = app.getSystemService(AudioManager::class.java) ?: return
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
+    }
+
     private fun fromSessions(c: Context): Playing? = try {
         val all = sessions(c)
-        val ctl = all.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: all.firstOrNull()
+        val ctl = pick(all)
         ctl?.let { m ->
             val meta = m.metadata
             val title = meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)

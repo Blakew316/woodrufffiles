@@ -7,14 +7,17 @@ import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.mail.MailAccounts
 import com.woodruff.tvexplorer.mail.MailClient
 import com.woodruff.tvexplorer.mail.MailProvider
+import com.woodruff.tvexplorer.notify.Chime
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.notes.Notes
+import com.woodruff.tvexplorer.nowplaying.NowPlaying
 import com.woodruff.tvexplorer.phones.Phones
 import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.remote.TvScreen
 import com.woodruff.tvexplorer.tvs.TvLinks
+import com.woodruff.tvexplorer.tvs.TvTargets
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.util.Handoff
@@ -85,7 +88,23 @@ class CompanionRoutes(private val ctx: Context) {
             val b = body(s)
             val title = b.optString("title").ifBlank { b.optString("message") }.ifBlank { "Message from your phone" }
             val text = b.optString("body").ifBlank { if (b.has("title")) b.optString("message") else "" }
-            Notices.post(ctx, NoticeSource.PHONE, title, text, b.optString("link").ifBlank { null })
+            // Shortcut links copied from Settings now end in &tvs=all (every TV); older ones reach this TV only.
+            val to = targets(b, TvTargets.HERE)
+            if (to.here) Notices.post(ctx, NoticeSource.PHONE, title, text, b.optString("link").ifBlank { null }, chime = Chime.Sound.ANNOUNCE)
+            val others = TvLinks.announce(ctx, to.others, title, text, null)
+            json(JSONObject().put("ok", true).put("tvs", others + (if (to.here) 1 else 0)))
+        }
+        // A message relayed by the hub TV (the one holding the links), with the announcement chime.
+        // Shown once per id: the same message relayed twice, or by two TVs, appears once.
+        s.uri == "/api/notice" && s.method == Method.POST -> {
+            val b = body(s)
+            val title = b.optString("title").trim()
+            require(title.isNotEmpty()) { "Empty message" }
+            val from = b.optString("from").ifBlank { null }
+            val text = b.optString("body").trim().ifEmpty { from?.let { "From $it" }.orEmpty() }
+            // Labelled as on the TV that sent it: from a phone, or from Woodruff (a TV's own announcement).
+            val source = if (b.optString("source") == NoticeSource.SYSTEM.name) NoticeSource.SYSTEM else NoticeSource.PHONE
+            if (Notices.firstTime(b.optString("id"))) Notices.post(ctx, source, title, text, chime = Chime.Sound.ANNOUNCE)
             ok()
         }
         // iPhone share sheet (a Shortcut posts whatever was shared): links open on the TV (YouTube and
@@ -196,6 +215,9 @@ class CompanionRoutes(private val ctx: Context) {
                 launch(Intent(ctx, com.woodruff.tvexplorer.MainActivity::class.java)
                     .putExtra(com.woodruff.tvexplorer.MainActivity.EXTRA_OPEN, "home")
                     .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            } else if (key == "playpause" && !TvScreen.onScreen) {
+                // Another app is in front (Netflix, YouTube…): play or pause what it's playing.
+                NowPlaying.playPause(ctx)
             } else {
                 require(TvScreen.press(key)) { "Woodruff Family isn't on the TV screen. Press Home first." }
             }
@@ -242,7 +264,12 @@ class CompanionRoutes(private val ctx: Context) {
             require(title.isNotEmpty()) { "Write a title first" }
             val text = b.optString("body").trim()
             val from = b.optString("from").ifBlank { null }
-            if (b.optBoolean("tv", true)) Notices.post(ctx, NoticeSource.PHONE, title, if (from != null && text.isEmpty()) "From $from" else text)
+            // The phone's "TV screen" switch means every TV (this one and each linked TV); "tvs"
+            // can name fewer.
+            val to = targets(b, if (b.optBoolean("tv", true)) TvTargets.ALL else TvTargets.NONE)
+            if (to.here) Notices.post(ctx, NoticeSource.PHONE, title, if (from != null && text.isEmpty()) "From $from" else text, chime = Chime.Sound.ANNOUNCE)
+            // Sent in the background: the phone never waits on a TV that's off.
+            val tvs = TvLinks.announce(ctx, to.others, title, text, from) + (if (to.here) 1 else 0)
             // Pinned: stays on Home on this TV and every linked TV until dismissed there.
             if (b.optBoolean("pin")) com.woodruff.tvexplorer.notify.Board.pin(ctx, title, text, from, relay = true)
             val phones = b.optJSONArray("phones")
@@ -251,7 +278,7 @@ class CompanionRoutes(private val ctx: Context) {
                 phones != null && phones.length() > 0 -> Phones.announce(ctx, (0 until phones.length()).map { phones.getString(it) }, title, text, from)
                 else -> 0
             }
-            json(JSONObject().put("ok", true).put("phones", sent))
+            json(JSONObject().put("ok", true).put("phones", sent).put("tvs", tvs))
         }
 
         // ---- Background & slideshow --------------------------------------------------------
@@ -323,8 +350,9 @@ class CompanionRoutes(private val ctx: Context) {
         val clientId = GoogleAuth.clientId(ctx)
         val host = s.headers["host"] ?: "this-tv:8080"
         return JSONObject()
-            // For iPhone Shortcuts / automations: the pairing key travels in the URL.
-            .put("notifyUrl", "http://$host/api/notify?k=${PairingKey.get(ctx)}")
+            // For iPhone Shortcuts / automations: the pairing key travels in the URL. tvs=all: the
+            // message shows on every linked TV too (links copied before reach only this TV).
+            .put("notifyUrl", "http://$host/api/notify?k=${PairingKey.get(ctx)}&tvs=all")
             .put("shareUrl", "http://$host/api/share?k=${PairingKey.get(ctx)}")
             .put("google", JSONObject()
                 .put("clientId", clientId ?: "")
@@ -403,6 +431,19 @@ class CompanionRoutes(private val ctx: Context) {
     }
 
     private fun phonesJson() = JSONArray().apply { Phones.load(ctx); Phones.items.value.forEach { put(Phones.toJson(it, withTopic = false)) } }
+
+    /**
+     * The TVs a message is for, from its optional "tvs": "all", "this", or TVs by id or name (a list,
+     * or comma-separated, e.g. ?tvs=this,Kids Room). Without it, [default].
+     */
+    private fun targets(b: JSONObject, default: TvTargets): TvTargets {
+        val asked = when (val v = b.opt("tvs")) {
+            is JSONArray -> (0 until v.length()).map { v.optString(it) }
+            is String -> v.split(',')
+            else -> null
+        }
+        return TvLinks.targets(ctx, asked, default) ?: throw IllegalArgumentException("No TV by that name")
+    }
 
     /** Only files on shared storage, never app-private data. */
     private fun sharedPath(path: String): String {

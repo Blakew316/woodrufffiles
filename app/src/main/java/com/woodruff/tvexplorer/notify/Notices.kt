@@ -10,6 +10,7 @@ import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.woodruff.tvexplorer.MainActivity
 import com.woodruff.tvexplorer.R
+import com.woodruff.tvexplorer.nowplaying.NowPlaying
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,7 +29,12 @@ data class Notice(
     /** Optional link (e.g. a video URL sent from the phone) the notice can open. */
     val link: String? = null,
     val read: Boolean = false,
-)
+    /** The sound it came with (not kept across restarts: only its pop-up needs it). */
+    val chime: Chime.Sound? = null,
+) {
+    /** How long its pop-up stays: a doorbell long enough to get up and look. */
+    val showMs: Long get() = if (chime == Chime.Sound.DOORBELL) 25_000 else 7_000
+}
 
 /**
  * The app's notification center. Anything that wants the viewer's attention (a message from the
@@ -69,14 +75,27 @@ object Notices {
     /** [chime]: also play that sound (announcements and the doorbell; never mail). */
     fun post(context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null) {
         load(context)
-        val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link)
+        val sound = chime.takeIf { source != NoticeSource.MAIL }
+        val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link, chime = sound)
         _items.update { (listOf(n) + it).take(MAX) }
         _latest.value = n
         save(context)
-        if (!AppVisibility.foreground) {
+        // Wherever the viewer is: in Woodruff, in its player or in another app.
+        if (sound != null) Chime.play(context, sound)
+        // Woodruff's own player shows the doorbell in its own card (with OK to look): not twice.
+        val playerCard = sound == Chime.Sound.DOORBELL && NowPlaying.ownPlayer != null
+        if (!AppVisibility.foreground && !playerCard) {
             if (Settings.canDrawOverlays(context)) NoticeOverlay.show(context, n) else systemNotification(context, n)
         }
     }
+
+    private val shown = RecentIds(200)
+
+    /**
+     * False when the message with this [id] was already shown here (relayed twice, or by two TVs),
+     * so it isn't shown again. A blank id is always new.
+     */
+    fun firstTime(id: String?): Boolean = shown.add(id)
 
     fun markAllRead(context: Context) {
         // Nothing unread (the usual case): don't rewrite every notice and the file for nothing.
@@ -87,7 +106,8 @@ object Notices {
     fun dismissLatest() { _latest.value = null }
     val unread: Int get() = _items.value.count { !it.read }
 
-    private fun systemNotification(context: Context, n: Notice) {
+    /** Also [NoticeOverlay]'s fallback when the TV refuses its pop-up. */
+    internal fun systemNotification(context: Context, n: Notice) {
         val nm = context.getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "Messages and mail", NotificationManager.IMPORTANCE_HIGH))
@@ -117,6 +137,20 @@ object Notices {
                 .put("at", it.at).put("link", it.link ?: "").put("read", it.read))
         }
         prefs(context).edit().putString("items", arr.toString()).apply()
+    }
+}
+
+/** The last [max] ids seen, oldest forgotten first. */
+internal class RecentIds(private val max: Int) {
+    private val ids = LinkedHashSet<String>()
+
+    /** True when [id] is new (now remembered); always true for a blank id. */
+    @Synchronized
+    fun add(id: String?): Boolean {
+        if (id.isNullOrBlank()) return true
+        if (!ids.add(id)) return false
+        if (ids.size > max) ids.remove(ids.first())
+        return true
     }
 }
 

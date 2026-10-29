@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -55,7 +56,7 @@ object NoticeOverlay {
         }
         val params = WindowManager.LayoutParams(
             dp(380), WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(32); y = dp(32) }
@@ -69,9 +70,21 @@ object NoticeOverlay {
                     runCatching { wm.removeView(card) }
                     if (current === card) current = null
                 }.start()
-            }, 7000)
+            }, n.showMs)
         } catch (e: Exception) {
-            // Permission revoked between the check and now; the history list still has it.
+            // Permission revoked between the check and now, or a TV that refuses pop-ups: a regular
+            // notification instead (the history list has it either way).
+            Notices.systemNotification(app, n)
         }
     }
+
+    /**
+     * The window type for drawing over other apps. TYPE_APPLICATION_OVERLAY only exists from
+     * Android 8; Android 7 TVs (some older Fire TV sticks) need the older TYPE_PHONE, or the card
+     * never shows.
+     */
+    @Suppress("DEPRECATION")
+    private fun overlayType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else WindowManager.LayoutParams.TYPE_PHONE
 }
