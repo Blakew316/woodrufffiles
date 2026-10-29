@@ -17,6 +17,21 @@ object Handoff {
     /** AirScreen: receives iPhone Screen Mirroring (AirPlay), e.g. a Meet call using the phone's camera. */
     const val AIRSCREEN = "com.ionitech.airscreen"
 
+    /** An app the phone remote has a button for, with its package on each kind of TV, most likely first. */
+    class RemoteApp(val label: String, val packages: List<String>)
+
+    /** The phone remote's app buttons, by the key the phone sends: Google TV, then Fire TV, then phone-style builds. */
+    val REMOTE_APPS = mapOf(
+        "netflix" to RemoteApp("Netflix", listOf("com.netflix.ninja", "com.netflix.mediaclient")),
+        "youtube" to RemoteApp("YouTube", listOf(YOUTUBE, "com.amazon.firetv.youtube", "com.google.android.youtube")),
+    )
+
+    /** How to open [app] on this TV: the first of its packages that's installed, or null when none is. */
+    fun launchIntent(c: Context, app: RemoteApp): Intent? {
+        val pm = c.packageManager
+        return app.packages.firstNotNullOfOrNull { pm.getLeanbackLaunchIntentForPackage(it) ?: pm.getLaunchIntentForPackage(it) }
+    }
+
     fun packageFor(uri: Uri): String? {
         val host = uri.host.orEmpty().lowercase().removePrefix("www.").removePrefix("m.")
         return when (host) {

@@ -184,7 +184,13 @@ class CompanionRoutes(private val ctx: Context) {
         s.uri == "/api/tvs/key" && s.method == Method.POST -> {
             val b = body(s)
             val tv = TvLinks.find(b.optString("id")) ?: throw IllegalArgumentException("Unknown TV")
-            try { TvLinks.press(tv, b.optString("key")) } catch (e: java.io.IOException) { throw IllegalArgumentException("${tv.name} didn't respond") }
+            try {
+                TvLinks.press(tv, b.optString("key"))
+            } catch (e: TvLinks.Refused) {
+                throw IllegalArgumentException("${tv.name}: ${e.message}")
+            } catch (e: java.io.IOException) {
+                throw IllegalArgumentException("${tv.name} didn't respond")
+            }
             ok()
         }
 
@@ -215,6 +221,9 @@ class CompanionRoutes(private val ctx: Context) {
                 launch(Intent(ctx, com.woodruff.tvexplorer.MainActivity::class.java)
                     .putExtra(com.woodruff.tvexplorer.MainActivity.EXTRA_OPEN, "home")
                     .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            } else if (key in Handoff.REMOTE_APPS) {
+                // The phone remote's Netflix and YouTube buttons.
+                openApp(Handoff.REMOTE_APPS.getValue(key))
             } else if (key == "playpause" && !TvScreen.onScreen) {
                 // Another app is in front (Netflix, YouTube…): play or pause what it's playing.
                 NowPlaying.playPause(ctx)
@@ -401,6 +410,15 @@ class CompanionRoutes(private val ctx: Context) {
      * Starting a screen from the background needs "Display over other apps" on Android 10+.
      * Without it, the request becomes a notification the viewer can open.
      */
+    /** Opens [app] on this TV, or says why it can't (not installed, or not allowed over another app). */
+    private fun openApp(app: Handoff.RemoteApp) {
+        val intent = Handoff.launchIntent(ctx, app) ?: throw IllegalArgumentException("${app.label} isn't installed on this TV")
+        require(com.woodruff.tvexplorer.notify.AppVisibility.foreground || android.provider.Settings.canDrawOverlays(ctx)) {
+            "To open ${app.label} from the phone, turn on Pop-ups over other apps in Woodruff's Settings on the TV, or open Woodruff first."
+        }
+        launch(intent)
+    }
+
     private fun launch(intent: Intent) {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (com.woodruff.tvexplorer.notify.AppVisibility.foreground || android.provider.Settings.canDrawOverlays(ctx)) {

@@ -318,7 +318,7 @@ object TvLinks {
                 conn.outputStream.use { it.write(body.toByteArray()) }
             }
             val code = conn.responseCode
-            if (code !in 200..299) throw IOException("HTTP $code")
+            if (code !in 200..299) throw failure(code, runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull())
             return conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()
@@ -326,6 +326,9 @@ object TvLinks {
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
+
+    /** The other TV answered but couldn't do it, and said why ("Netflix isn't installed on this TV"). */
+    class Refused(message: String) : IOException(message)
 
     // ---- Finding a linked TV again after its address changed -----------------------------------
 
@@ -343,7 +346,8 @@ object TvLinks {
         try {
             send(tv)
         } catch (e: IOException) {
-            lost(tv, if (again) send else null)
+            // A TV that said no (with its reason) is where it should be: nothing to look for.
+            if (e !is Refused) lost(tv, if (again) send else null)
             throw e
         }
     }
@@ -591,6 +595,15 @@ internal fun candidatesFor(found: TvLinks.Found, lost: List<LinkedTv>): List<Lin
 }
 
 /** Whether a TV last looked for at [last] (null: never) may be looked for again at [now]. */
+/**
+ * What a failed request to another TV means. A 400 with a message is that TV saying why it can't
+ * (Woodruff answers that way); anything else may not be that TV at all, so it counts as unreachable.
+ */
+internal fun failure(code: Int, body: String?): IOException {
+    val message = body?.trim()?.take(200)
+    return if (code == 400 && !message.isNullOrEmpty()) TvLinks.Refused(message) else IOException("HTTP $code")
+}
+
 internal fun refindDue(last: Long?, now: Long, everyMs: Long): Boolean =
     last == null || now < last || now - last >= everyMs
 
