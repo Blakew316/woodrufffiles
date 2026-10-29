@@ -90,6 +90,22 @@ class FocusMotionState {
     val fraction: Float get() = progress.value
     /** OK held on it, 0 to 1: it sinks back from its focused size (a [TvCard] off a platter). */
     internal val press = Animatable(0f, visibilityThreshold = 0.01f)
+    /** Its size as laid out, before its growth: what the lists it's in scroll to show ([LaidOutBounds]). */
+    internal var laidOut = Size.Zero
+    internal val showsAsLaidOut = LaidOutBounds(this)
+}
+
+/**
+ * Asked to show the item (its focus brings it into view), the lists it's in scroll to where it's laid out, not
+ * to where its growth shows it. Seen through its growing layer, the item was a little bigger, higher and
+ * moving each time it took the focus, and the lists chased that as it grew: every step along a row of
+ * posters also nudged the page up or down. Scrolls nothing itself.
+ */
+@Suppress("DEPRECATION")
+@OptIn(ExperimentalFoundationApi::class)
+internal class LaidOutBounds(private val state: FocusMotionState) : BringIntoViewResponder {
+    override fun calculateRectForParent(localRect: Rect): Rect = Rect(Offset.Zero, state.laidOut)
+    override suspend fun bringChildIntoView(localRect: () -> Rect?) {}
 }
 
 @Composable
@@ -130,7 +146,12 @@ fun Modifier.tvFocusMotion(
     shadow: Boolean = false,
     focusIn: AnimationSpec<Float> = TvMotion.FocusIn,
     focusOut: AnimationSpec<Float> = TvMotion.FocusOut,
-): Modifier = this then FocusMotionElement(state, focusedScale, lift, shadow, focusIn, focusOut)
+): Modifier = this.showsAsLaidOut(state) then FocusMotionElement(state, focusedScale, lift, shadow, focusIn, focusOut)
+
+/** Outside the growing layer: what scrolls to the item goes by its laid-out bounds ([LaidOutBounds]). */
+@Suppress("DEPRECATION")
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.showsAsLaidOut(state: FocusMotionState): Modifier = bringIntoViewResponder(state.showsAsLaidOut)
 
 private data class FocusMotionElement(
     val state: FocusMotionState,
@@ -207,6 +228,7 @@ private class FocusMotionNode(
 
     override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
         val placeable = measurable.measure(constraints)
+        state.laidOut = Size(placeable.width.toFloat(), placeable.height.toFloat())
         return layout(placeable.width, placeable.height) {
             placeable.placeWithLayer(0, 0, zIndex = if (raised) 1f else 0f, layerBlock = layerBlock)
         }
