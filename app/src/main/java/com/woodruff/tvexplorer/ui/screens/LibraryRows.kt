@@ -1,5 +1,8 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.motion.TintIcon
+import com.woodruff.tvexplorer.ui.components.RowText
+import com.woodruff.tvexplorer.ui.components.FocusButton
 import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Context
 import androidx.compose.animation.core.AnimationSpec
@@ -54,9 +57,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -68,14 +69,11 @@ import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
-import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.motion.Pivot
 import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.motion.bringWholeIntoView
 import com.woodruff.tvexplorer.ui.motion.posterRowState
-import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
-import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -437,20 +435,17 @@ private fun HeroCarousel(
 
 @Composable
 private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
+    FocusButton(
         onClick = onClick,
-        // Grows on focus as a layer (tv-material's own growth recomposed it every frame).
-        modifier = modifier.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.06f),
-        shape = ClickableSurfaceDefaults.shape(Shapes.pill),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.22f), contentColor = Color.White,
-            focusedContainerColor = Color.White, focusedContentColor = Color(0xFF0B1220),
-        ),
-        scale = surfacePressScale(1.06f),
-    ) {
+        shape = Shapes.pill,
+        color = Color.White.copy(alpha = 0.22f), focusedColor = Color.White,
+        content = Color.White, focusedContent = Color(0xFF0B1220),
+        modifier = modifier,
+        focusedScale = 1.06f,
+    ) { tint ->
         Row(Modifier.padding(horizontal = 22.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvIcon(icon, size = 22.dp)
-            Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp))
+            TintIcon(icon, tint.color, size = 22.dp)
+            RowText(label, tint.color, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         }
     }
 }

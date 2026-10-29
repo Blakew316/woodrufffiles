@@ -1,5 +1,8 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import androidx.compose.foundation.border
+import com.woodruff.tvexplorer.ui.theme.Shapes
+import com.woodruff.tvexplorer.ui.motion.TvCard
 import com.woodruff.tvexplorer.ui.icons.Sym
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -33,7 +36,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.notes.Note
 import com.woodruff.tvexplorer.notes.Notes
@@ -46,11 +48,8 @@ import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.TvOutlinedButton
-import com.woodruff.tvexplorer.ui.components.growOnFocus
-import com.woodruff.tvexplorer.ui.components.pressScale
 import com.woodruff.tvexplorer.ui.motion.Pivot
 import com.woodruff.tvexplorer.ui.motion.PivotScroll
-import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 
@@ -108,13 +107,16 @@ fun NotesScreen(vm: MainViewModel) {
 
 @Composable
 private fun NoteCard(n: Note, onClick: () -> Unit) {
-    Surface(
+    // CardStyle's glass and lit rim, the focus ring the card's own (as Drive's tiles).
+    TvCard(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(170.dp).growOnFocus(1.04f),
-        shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-        scale = pressScale(1.04f),
+        shape = Shapes.card,
+        modifier = Modifier.fillMaxWidth().height(170.dp),
+        focusedScale = 1.04f,
+        color = Palette.surface, focusedColor = Palette.surfaceHigh,
+        borderWidth = 2.dp, focusedBorderColor = Palette.focusRim,
     ) {
-        Column(Modifier.padding(18.dp).fillMaxSize()) {
+        Column(Modifier.fillMaxSize().border(1.dp, Palette.rim, Shapes.card).padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     n.title.ifBlank { n.body.lineSequence().firstOrNull().orEmpty() },

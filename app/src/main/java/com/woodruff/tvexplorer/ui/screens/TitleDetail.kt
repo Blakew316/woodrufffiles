@@ -1,5 +1,8 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.motion.TintIcon
+import com.woodruff.tvexplorer.ui.components.RowText
+import com.woodruff.tvexplorer.ui.components.FocusButton
 import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Context
 import androidx.compose.foundation.background
@@ -50,9 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -80,8 +81,6 @@ import com.woodruff.tvexplorer.ui.motion.DialogWindowMotion
 import com.woodruff.tvexplorer.ui.motion.WindowMotion
 import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.motion.posterRowState
-import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
-import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.util.Format
 import kotlinx.coroutines.CancellationException
@@ -766,21 +765,19 @@ internal fun folderFilm(files: List<DriveFile>): DriveFile? {
 /** A season's tab: OK shows its episodes; a long press (or Menu) offers marking it all watched. */
 @Composable
 private fun SeasonTab(label: String, selected: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
-    Surface(
+    // Menu, like holding OK, is the long click.
+    FocusButton(
         onClick = onClick,
         onLongClick = onLongClick,
-        // Grows on focus as a layer (tv-material's own growth recomposed it every frame).
-        modifier = Modifier.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.06f).onMenuKey(onLongClick),
-        shape = ClickableSurfaceDefaults.shape(Shapes.pill),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) Color.White.copy(alpha = 0.22f) else Color.Transparent,
-            contentColor = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color(0xFF0B1220),
-        ),
-        scale = surfacePressScale(1.06f),
-    ) {
-        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        shape = Shapes.pill,
+        color = if (selected) Color.White.copy(alpha = 0.22f) else Color.Transparent, focusedColor = Color.White,
+        content = if (selected) Color.White else Color.White.copy(alpha = 0.7f), focusedContent = Color(0xFF0B1220),
+        focusedScale = 1.06f,
+    ) { tint ->
+        RowText(
+            label, tint.color, Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.titleMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
     }
 }
 
@@ -856,22 +853,17 @@ private fun DetailButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Surface(
+    FocusButton(
         onClick = onClick,
-        // Grows on focus as a layer (tv-material's own growth recomposed it every frame).
-        modifier = modifier.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.06f),
-        shape = ClickableSurfaceDefaults.shape(Shapes.pill),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (primary) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.16f),
-            contentColor = Color.White,
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color(0xFF0B1220),
-        ),
-        scale = surfacePressScale(1.06f),
-    ) {
+        shape = Shapes.pill,
+        color = if (primary) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.16f), focusedColor = Color.White,
+        content = Color.White, focusedContent = Color(0xFF0B1220),
+        modifier = modifier,
+        focusedScale = 1.06f,
+    ) { tint ->
         Row(Modifier.padding(horizontal = 28.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvIcon(icon, size = 24.dp)
-            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 10.dp))
+            TintIcon(icon, tint.color, size = 24.dp)
+            RowText(label, tint.color, Modifier.padding(start = 10.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
     }
 }

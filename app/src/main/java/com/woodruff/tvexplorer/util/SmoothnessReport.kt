@@ -3,6 +3,7 @@ package com.woodruff.tvexplorer.util
 import android.app.ActivityManager
 import android.content.Context
 import android.hardware.display.DisplayManager
+import android.opengl.EGL14
 import android.os.Build
 import android.os.Process
 import android.os.SystemClock
@@ -228,6 +229,7 @@ object SmoothnessReport {
         add(safe { heap() })
         addAll(runCatching { display(c) }.getOrElse { listOf("Display: unknown") })
         add("Animation scales: " + safe { scales(c) })
+        add("Graphics: " + safe { graphics() })
         add("App code: " + safe { appCode() })
     }
 
@@ -293,6 +295,22 @@ object SmoothnessReport {
         }
         return "window ${scale(Settings.Global.WINDOW_ANIMATION_SCALE)}, transition ${scale(Settings.Global.TRANSITION_ANIMATION_SCALE)}, " +
             "animator ${scale(Settings.Global.ANIMATOR_DURATION_SCALE)}"
+    }
+
+    /**
+     * "ARM · repaints only what changed": who made the graphics driver, and whether it lets Android repaint
+     * just the part of the screen that changed (EGL_EXT_buffer_age or EGL_KHR_partial_update). Without that,
+     * every frame repaints the whole screen however little moved, and a glide costs as much as a new page.
+     * The display is the one Android already draws with: it's only asked, never let go of.
+     */
+    private fun graphics(): String {
+        val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        val version = IntArray(2)
+        if (display == EGL14.EGL_NO_DISPLAY || !EGL14.eglInitialize(display, version, 0, version, 1)) return "unknown"
+        val vendor = EGL14.eglQueryString(display, EGL14.EGL_VENDOR)?.trim().orEmpty().ifEmpty { "unknown driver" }
+        val extensions = EGL14.eglQueryString(display, EGL14.EGL_EXTENSIONS).orEmpty().split(' ').toSet()
+        val partial = "EGL_EXT_buffer_age" in extensions || "EGL_KHR_partial_update" in extensions
+        return "$vendor · " + if (partial) "repaints only what changed" else "repaints the whole screen every frame"
     }
 
     /** 60, 59.94, 0.5: no more decimals than it has (two at most). */

@@ -16,6 +16,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,7 +51,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -73,10 +73,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.nest.Camera
 import com.woodruff.tvexplorer.nest.CameraStream
@@ -92,10 +90,11 @@ import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
-import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
 import com.woodruff.tvexplorer.ui.motion.TvMotion
-import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
-import com.woodruff.tvexplorer.ui.theme.CardStyle
+import com.woodruff.tvexplorer.ui.components.FocusButton
+import com.woodruff.tvexplorer.ui.components.RowText
+import com.woodruff.tvexplorer.ui.motion.TintIcon
+import com.woodruff.tvexplorer.ui.motion.TvCard
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.ui.theme.glassPanel
@@ -269,20 +268,19 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, foc
                     // Whether this tile has the focus, read only by its video (the focused one plays
                     // smoothest), so moving across the grid recomposes nothing.
                     val focused = remember { mutableStateOf(false) }
-                    Surface(
+                    TvCard(
                         onClick = { onOpen(i) },
+                        shape = Shapes.card,
                         modifier = Modifier.weight(1f).aspectRatio(16f / 9f).then(if (i == focusAt) Modifier.focusRequester(focus) else Modifier)
-                            .onFocusChanged { focused.value = it.isFocused }
-                            // Grows as a layer, ahead of the Surface's own focus: tv-material's scale
-                            // recomposed the tile on every frame of it. Held OK still shrinks it back.
-                            .tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.03f),
-                        shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.03f),
+                            .onFocusChanged { focused.value = it.isFocused },
+                        focusedScale = 1.03f,
+                        borderWidth = 2.dp, focusedBorderColor = Palette.focusRim,
                     ) {
-                        // Edge to edge, in the tile's own rounded shape, as on Home: the picture fills the
-                        // whole tile and grows with it when focused (a TextureView, drawn under the focus
-                        // border; a SurfaceView sat letterboxed in an inset and didn't follow the focus scale).
-                        Box(Modifier.fillMaxSize().clip(Shapes.card)) {
+                        // Edge to edge, in the tile's own rounded shape (the card's), as on Home: the picture
+                        // fills the whole tile and grows with it when focused (a TextureView, drawn under the
+                        // focus ring; a SurfaceView sat letterboxed in an inset and didn't follow the focus
+                        // scale). CardStyle's lit rim over it.
+                        Box(Modifier.fillMaxSize().border(1.dp, Palette.rim, Shapes.card)) {
                             if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
                             else Placeholder(if (cam.webRtc) "Select to watch" else "This camera model doesn't support live view here")
                             CameraLabel(cam, Modifier.align(Alignment.BottomStart))
@@ -347,9 +345,14 @@ private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, o
                     val s = TvMotion.PageScale + (1f - TvMotion.PageScale) * p
                     scaleX = s; scaleY = s
                     compositingStrategy = CompositingStrategy.ModulateAlpha
-                }
-                .drawBehind { drawRect(Color.Black, alpha = glide.cover.value.coerceIn(0f, 1f)) },
+                },
         ) {
+            // The black, a layer of its own fading as the picture clears (and back): nothing is drawn again for it.
+            Box(
+                Modifier.fillMaxSize()
+                    .graphicsLayer { alpha = glide.cover.value.coerceIn(0f, 1f); compositingStrategy = CompositingStrategy.ModulateAlpha }
+                    .background(Color.Black),
+            )
             Column(Modifier.align(Alignment.TopStart).padding(28.dp)) {
                 Text(cam.label, style = MaterialTheme.typography.headlineSmall, color = Color.White)
                 Text(
@@ -621,23 +624,19 @@ private fun SidePanel(modifier: Modifier) {
 /** A Command Center control: a symbol over a short label in a glass tile, white when focused. */
 @Composable
 private fun HubTile(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
+    FocusButton(
         onClick = onClick,
-        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed it on
-        // every frame of it. Held OK still shrinks it back.
-        modifier = modifier.height(64.dp).tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.05f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Palette.surfaceHigh, contentColor = Palette.text,
-            focusedContainerColor = Palette.text, focusedContentColor = Palette.background,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.05f),
-    ) {
+        shape = RoundedCornerShape(16.dp),
+        color = Palette.surfaceHigh, focusedColor = Palette.text,
+        content = Palette.text, focusedContent = Palette.background,
+        modifier = modifier.height(64.dp),
+        focusedScale = 1.05f,
+    ) { tint ->
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            TvIcon(icon, size = 22.dp)
-            Text(
-                label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp, start = 6.dp, end = 6.dp),
+            TintIcon(icon, tint.color, size = 22.dp)
+            RowText(
+                label, tint.color, Modifier.padding(top = 4.dp, start = 6.dp, end = 6.dp),
+                style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
     }

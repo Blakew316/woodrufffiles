@@ -1,7 +1,7 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import com.woodruff.tvexplorer.ui.components.FocusButton
 import com.woodruff.tvexplorer.ui.icons.Sym
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -47,7 +47,6 @@ import com.woodruff.tvexplorer.ui.components.ConfirmDialog
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.SearchBar
-import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.rememberRowTint
 import com.woodruff.tvexplorer.ui.motion.DialogWindowMotion
 import com.woodruff.tvexplorer.ui.motion.FocusPlatter
@@ -113,27 +112,23 @@ internal fun surfacePressScale(focused: Float) = ClickableSurfaceDefaults.scale(
 /** A round glass icon button (a pill with its label when it has one); white with dark content when focused. */
 @Composable
 internal fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String?, onClick: () -> Unit, active: Boolean = false) {
-    Surface(
+    FocusButton(
         onClick = onClick,
-        // Grows on focus as a layer (tv-material's own growth recomposed it every frame).
-        modifier = Modifier.padding(start = 12.dp).tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.08f),
-        shape = ClickableSurfaceDefaults.shape(Shapes.pill),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (active) Palette.text.copy(alpha = 0.22f) else Palette.surfaceHigh,
-            contentColor = Palette.text,
-            focusedContainerColor = Palette.text,
-            focusedContentColor = Palette.background,
-        ),
-        border = ClickableSurfaceDefaults.border(border = androidx.tv.material3.Border(BorderStroke(1.dp, Palette.rim), shape = Shapes.pill)),
-        scale = surfacePressScale(1.08f),
-    ) {
+        shape = Shapes.pill,
+        color = if (active) Palette.text.copy(alpha = 0.22f) else Palette.surfaceHigh, focusedColor = Palette.text,
+        content = Palette.text, focusedContent = Palette.background,
+        modifier = Modifier.padding(start = 12.dp),
+        focusedScale = 1.08f,
+    ) { tint ->
         Row(Modifier.padding(horizontal = if (label != null) 20.dp else 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvIcon(icon, size = 22.dp)
-            if (label != null) Text(
-                label, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 8.dp).widthIn(max = 260.dp),
+            TintIcon(icon, tint.color, size = 22.dp)
+            if (label != null) RowText(
+                label, tint.color, Modifier.padding(start = 8.dp).widthIn(max = 260.dp),
+                style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
+        // The lit rim, focused or not.
+        Spacer(Modifier.matchParentSize().border(1.dp, Palette.rim, Shapes.pill))
     }
 }
 

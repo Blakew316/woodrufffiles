@@ -210,8 +210,10 @@ tells a newer release apart.
 
 ## How it moves
 
-Everything moves the way tvOS does, and only in the drawing layer (nothing is re-composed or laid out again on
-each frame of an animation), so a busy moment doesn't stall a motion that's under way:
+Everything moves the way tvOS does, and only by moving, sizing and fading layers: nothing is re-composed, laid out
+or even drawn again on each frame of an animation, so the TV repaints just what moved (on Android, drawing anything
+again repaints the whole screen, 20 to 40 ms on a TV's graphics chip), and a busy moment doesn't stall a motion that's
+under way. What changes colour with the focus (a row's words, a button's fill) is drawn in both colours, cross-fading:
 
 - **Lists** (Settings, the side menu, menus, Mail, Notifications, Apps, the filter panels) share one highlight that
   glides from the row you leave to the row you land on, following the list as it scrolls; holding an arrow keeps
@@ -250,9 +252,9 @@ To find out why moving around isn't smooth on a particular TV:
   a remote key being handled) runs over 12 ms, its stack is sampled every 5 ms; long work is added up by kind, and
   garbage collection is counted. Nothing of this runs outside a recording.
 - The phone page shows the whole report as text, with **Copy Report**: this TV (model, Android version, CPU,
-  memory, display modes, animation scales, whether the app's code is compiled), each screen's navigating and
-  idle frames (late, slow, stutters, p50/p90/p99, and where late frames spent their time), how long remote keys
-  take, and the recording's hot spots. Release builds keep class and method names and line numbers
+  memory, display modes, animation scales, its graphics driver and whether it can repaint just what changed,
+  whether the app's code is compiled), each screen's navigating and idle frames (late, slow, stutters,
+  p50/p90/p99, and where late frames spent their time), how long remote keys take, and the recording's hot spots. Release builds keep class and method names and line numbers
   (`-dontobfuscate`), so the stack frames are readable. Also at `GET /api/diagnostics` (plain text) and
   `POST /api/diagnostics/record`, with the pairing key like the other `/api` routes.
 

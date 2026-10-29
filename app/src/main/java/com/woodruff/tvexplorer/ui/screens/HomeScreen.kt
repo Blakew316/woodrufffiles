@@ -1,9 +1,9 @@
 package com.woodruff.tvexplorer.ui.screens
 
-import com.woodruff.tvexplorer.ui.icons.Sym
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,15 +30,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -56,75 +59,72 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.woodruff.tvexplorer.calendar.TodayCalendar
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveViewModel
+import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.cloud.matchKeyOf
+import com.woodruff.tvexplorer.nest.CameraStills
+import com.woodruff.tvexplorer.nest.CameraStreams
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.notes.Notes
 import com.woodruff.tvexplorer.notify.AppVisibility
+import com.woodruff.tvexplorer.notify.Board
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
+import com.woodruff.tvexplorer.photos.Memories
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
+import com.woodruff.tvexplorer.player.Watched
+import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.tvs.TvStatus
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ActionMenu
 import com.woodruff.tvexplorer.ui.components.FilterPill
+import com.woodruff.tvexplorer.ui.components.FocusButton
 import com.woodruff.tvexplorer.ui.components.MenuAction
+import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.icon
+import com.woodruff.tvexplorer.ui.icons.Sym
 import com.woodruff.tvexplorer.ui.motion.FocusPlatter
 import com.woodruff.tvexplorer.ui.motion.Pivot
 import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TintIcon
 import com.woodruff.tvexplorer.ui.motion.TvCard
 import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
-import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.motion.posterRowState
-import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
-import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
-import com.woodruff.tvexplorer.ui.theme.CardStyle
-import com.woodruff.tvexplorer.screensaver.Appearance
+import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.theme.Palette
+import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import com.woodruff.tvexplorer.weather.Weather
-import com.woodruff.tvexplorer.notify.Board
-import com.woodruff.tvexplorer.photos.Memories
-import androidx.compose.runtime.produceState
-import com.woodruff.tvexplorer.nest.CameraStills
-import com.woodruff.tvexplorer.nest.CameraStreams
-import com.woodruff.tvexplorer.cloud.FamilySync
-import com.woodruff.tvexplorer.player.Watched
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.TimeZone
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Sample TVs and cameras for the UI gallery, which has no network or cameras. Never set in the app. */
 internal object DashboardSamples {
@@ -390,24 +390,19 @@ private fun Panel(title: String, modifier: Modifier, note: String? = null, conte
     }
 }
 
-/** A small text button inside a panel. */
+/** A small text button inside a panel: white with dark words when focused. */
 @Composable
 private fun PanelButton(label: String, icon: ImageVector, onClick: () -> Unit) {
-    Surface(
+    FocusButton(
         onClick = onClick,
-        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed it on
-        // every frame of it. Held OK still shrinks it back.
-        modifier = Modifier.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.06f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Palette.surfaceHigh, contentColor = Palette.text,
-            focusedContainerColor = Palette.text, focusedContentColor = Palette.background,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.06f),
-    ) {
+        shape = RoundedCornerShape(50),
+        color = Palette.surfaceHigh, focusedColor = Palette.text,
+        content = Palette.text, focusedContent = Palette.background,
+        focusedScale = 1.06f,
+    ) { tint ->
         Row(Modifier.padding(horizontal = 14.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvIcon(icon, size = 18.dp)
-            Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 6.dp))
+            TintIcon(icon, tint.color, size = 18.dp)
+            RowText(label, tint.color, Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -481,15 +476,16 @@ private fun ResumeTile(
     r: RecentItem, art: com.woodruff.tvexplorer.cloud.DriveFile?, token: String?,
     play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit, modifier: Modifier,
 ) {
-    Surface(
+    // The card's glass and lit rim are CardStyle's, the focus ring the card's own; its art covers it all, so
+    // there's no fill under it. Menu, like holding OK, is the long click.
+    TvCard(
         onClick = { play(r) }, onLongClick = { onMenu(r) },
-        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed the tile
-        // on every frame of it. Held OK still shrinks it back.
-        modifier = modifier.onMenuKey { onMenu(r) }.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.05f),
-        shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.05f),
+        shape = Shapes.card,
+        modifier = modifier,
+        focusedScale = 1.05f,
+        borderWidth = 2.dp, focusedBorderColor = Palette.focusRim,
     ) {
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().border(1.dp, Palette.rim, Shapes.card)) {
             val poster = art?.posterUrl?.takeIf { token != null || !isGoogle(it) }
             ResumeArt(r, poster, token)
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp)) {
@@ -735,17 +731,16 @@ private fun <T> CameraGrid4(items: List<T>, tile: @Composable (Int, T) -> Unit) 
 private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, onFocus: (Boolean) -> Unit = {}, onClick: () -> Unit) {
     // Whether this tile has the focus, read only by its video (the focused tile plays smoothest).
     val focused = remember { mutableStateOf(false) }
-    Surface(
+    TvCard(
         onClick = onClick,
-        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed the tile
-        // on every frame of it. Held OK still shrinks it back.
-        modifier = Modifier.fillMaxWidth().height(80.dp).onFocusChanged { focused.value = it.isFocused; onFocus(it.isFocused) }
-            .tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.06f),
-        shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.06f),
+        shape = Shapes.card,
+        modifier = Modifier.fillMaxWidth().height(80.dp).onFocusChanged { focused.value = it.isFocused; onFocus(it.isFocused) },
+        focusedScale = 1.06f,
+        borderWidth = 2.dp, focusedBorderColor = Palette.focusRim,
     ) {
-        // Edge to edge, in the tile's own rounded shape: the picture fills the whole tile.
-        Box(Modifier.fillMaxSize().clip(com.woodruff.tvexplorer.ui.theme.Shapes.card).background(Color(0xFF0B0E13))) {
+        // Edge to edge, in the tile's own rounded shape (the card's): the picture fills the whole tile, under
+        // CardStyle's lit rim.
+        Box(Modifier.fillMaxSize().background(Color(0xFF0B0E13)).border(1.dp, Palette.rim, Shapes.card)) {
             val stills by CameraStills.stills.collectAsStateWithLifecycle()
             val still = cam?.let { stills[it.name] }
             val stillImage = remember(still) { still?.bitmap?.asImageBitmap() }

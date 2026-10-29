@@ -1,8 +1,11 @@
 package com.woodruff.tvexplorer.ui.motion
 
+import android.os.Build
+import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusEventModifierNode
@@ -11,33 +14,42 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.LayoutAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.currentValueOf
 import androidx.compose.ui.node.invalidateDraw
+import androidx.compose.ui.node.requireDensity
+import androidx.compose.ui.node.requireGraphicsContext
+import androidx.compose.ui.node.requireLayoutDirection
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.math.sqrt
+import androidx.compose.ui.graphics.layer.CompositingStrategy as LayerCompositing
 
 /**
  * The focused row's highlight, shared by a list's rows so it glides from the row the focus leaves to
  * the row it lands on, as tvOS's does, instead of one row's fill fading out while another's fades in.
- * The list draws it ([focusPlatterHost]) behind its rows as it draws, following them exactly as the
- * list scrolls: moving it recomposes and lays out nothing. The rows report their focus and where they
- * are ([focusPlatterItem], or TvCard's `platter`), and draw their words and symbols over it, changing
- * colour with their own focus.
+ * It's a layer of the list's ([focusPlatterHost]), behind its rows, following them exactly as the list
+ * scrolls: each frame of its glide moves, sizes and fades that layer, and recomposes, lays out and
+ * redraws nothing else (drawing the list again for it repainted the whole screen on every frame). The
+ * rows report their focus and where they are ([focusPlatterItem], or TvCard's `platter`), and draw their
+ * words and symbols over it, changing colour with their own focus.
  *
  * Focus coming into the list from outside: the platter shows up on that row, a quick fade as it grows
  * into place (it never slides in from wherever it was last). Focus leaving the list: it fades out
@@ -121,9 +133,9 @@ class FocusPlatter internal constructor() {
         }
     }
 
-    /** [r] was placed again (the list scrolled, or its rows moved): redrawn where it now is. */
+    /** [r] was placed again (the list scrolled, or its rows moved): moved to where it now is. */
     internal fun rowMoved(r: PlatterRowNode) {
-        if (r === row || r === fromRow || r === ghostRow) host?.let { if (it.isAttached) it.invalidateDraw() }
+        if (r === row || r === fromRow || r === ghostRow) host?.let { if (it.isAttached) it.refresh() }
     }
 
     /** [r] left the list (or is being reused for another row): the platter keeps the place it last had. */
@@ -213,25 +225,29 @@ class FocusPlatter internal constructor() {
         return glidingRect(if (glide.atRest) null else fromNow(hc), to, glide.value)
     }
 
-    /** Draws the platter (and one still fading out) in [host]'s space; called as the list draws. */
-    internal fun draw(scope: DrawScope, list: PlatterHostNode, hc: LayoutCoordinates) {
+    /**
+     * Puts the platter (and one still fading out) where it is now, in [list]'s space: its layers' place, size
+     * and alpha. Called on every frame of its motion and whenever its rows move.
+     */
+    internal fun place(list: PlatterHostNode, hc: LayoutCoordinates) {
+        var g: Rect? = null
         if (ghost.value > MinAlpha) {
-            val g = ghostRow?.grownIn(hc) ?: ghostRect
-            if (g != null) {
-                ghostRect = g
-                list.drawPlatter(scope, g, ghost.value)
-            }
+            g = ghostRow?.grownIn(hc) ?: ghostRect
+            if (g != null) ghostRect = g
         }
-        val alpha = shown.value
-        if (alpha <= MinAlpha) return
-        val to = row?.grownIn(hc) ?: stillRect ?: lastRaw ?: return
+        list.showGhost(g, ghost.value)
+        list.showPlatter(mainRect(hc), shown.value)
+    }
+
+    /** Where it shows now (null: nowhere); keeps where it was for when its rows go away. */
+    private fun mainRect(hc: LayoutCoordinates): Rect? {
+        if (shown.value <= MinAlpha) return null
+        val to = row?.grownIn(hc) ?: stillRect ?: lastRaw ?: return null
         val from = if (glide.atRest) null else fromNow(hc)
         if (from != null) fromRect = from
         val raw = glidingRect(from, to, glide.value)
         lastRaw = raw
-        val shownRect = raw.grownBy(grow.value)
-        lastRect = shownRect
-        list.drawPlatter(scope, shownRect, alpha)
+        return raw.grownBy(grow.value).also { lastRect = it }
     }
 
     private fun moving(): Boolean = !glide.atRest || !shown.atRest || !grow.atRest || !ghost.atRest
@@ -248,11 +264,11 @@ class FocusPlatter internal constructor() {
         step(0f)
     }
 
-    /** Redraws the list now, and every frame while the platter moves (on the frame clock, while the list is attached). */
+    /** Moves it now, and on every frame while it moves (on the frame clock, while the list is attached). */
     private fun animate() {
         val h = host
         if (h == null || !h.isAttached) { settle(); return }
-        h.invalidateDraw()
+        h.refresh()
         if (!moving() || frames?.isActive == true) return
         frames = h.coroutineScope.launch {
             var last = -1L
@@ -260,7 +276,7 @@ class FocusPlatter internal constructor() {
                 withFrameNanos { now ->
                     if (last >= 0) step((now - last) / 1_000_000_000f)
                     last = now
-                    host?.let { if (it.isAttached) it.invalidateDraw() }
+                    host?.let { if (it.isAttached) it.refresh() }
                 }
             }
         }
@@ -299,26 +315,52 @@ private data class PlatterHostElement(val platter: FocusPlatter, val shape: Shap
     ModifierNodeElement<PlatterHostNode>() {
     override fun create() = PlatterHostNode(platter, shape, color, clip)
     override fun update(node: PlatterHostNode) {
+        var looks = false
         if (node.platter !== platter) {
             node.platter.detach(node)
             node.platter = platter
             if (node.isAttached) platter.attach(node)
+            looks = true   // the new one's platter where it is (nowhere, until a row takes the focus)
         }
-        if (node.shape != shape) node.forgetOutline()
+        looks = looks || node.shape != shape || node.color != color
         node.shape = shape
         node.color = color
-        node.clip = clip
+        if (node.clip != clip) { node.clip = clip; if (node.isAttached) node.invalidateDraw() }
+        // A new colour (light or dark) or shape: the platter's picture is drawn again where it is.
+        if (looks && node.isAttached) node.refresh()
     }
 }
 
+/**
+ * The list's side of its [FocusPlatter]: two layers behind its content (the platter, and one still fading
+ * out elsewhere), drawn into the list once. Each holds the platter's picture, its shape filled, drawn again
+ * only when its size changes; the platter moves them about and fades them as layers.
+ */
 internal class PlatterHostNode(var platter: FocusPlatter, var shape: Shape, var color: Color, var clip: Boolean) :
-    Modifier.Node(), DrawModifierNode, LayoutAwareModifierNode {
+    Modifier.Node(), DrawModifierNode, LayoutAwareModifierNode, CompositionLocalConsumerModifierNode {
     private var placed: LayoutCoordinates? = null
-    private var outline: Outline? = null
-    private var outlineSize = Size.Unspecified
+    private var main: PlatterPicture? = null
+    private var ghost: PlatterPicture? = null
+    private var view: View? = null
 
-    override fun onAttach() = platter.attach(this)
-    override fun onDetach() = platter.detach(this)
+    override fun onAttach() {
+        view = currentValueOf(LocalView)
+        val graphics = requireGraphicsContext()
+        main = PlatterPicture(graphics.createGraphicsLayer())
+        ghost = PlatterPicture(graphics.createGraphicsLayer())
+        platter.attach(this)
+    }
+
+    override fun onDetach() {
+        platter.detach(this)
+        val graphics = requireGraphicsContext()
+        main?.let { graphics.releaseGraphicsLayer(it.layer) }
+        ghost?.let { graphics.releaseGraphicsLayer(it.layer) }
+        main = null
+        ghost = null
+        view = null
+        placed = null
+    }
 
     override fun onPlaced(coordinates: LayoutCoordinates) {
         placed = coordinates
@@ -326,37 +368,86 @@ internal class PlatterHostNode(var platter: FocusPlatter, var shape: Shape, var 
 
     fun coordinates(): LayoutCoordinates? = placed?.takeIf { isAttached && it.isAttached }
 
-    fun forgetOutline() {
-        outline = null
-        outlineSize = Size.Unspecified
+    /**
+     * The platter's layers to where it is now, and a frame drawn for them. The rows' focus is read here
+     * unobserved: it's asked again on the platter's own frames, and it mustn't lay out or draw anything again.
+     */
+    fun refresh() {
+        val hc = coordinates() ?: return
+        Snapshot.withoutReadObservation { platter.place(this, hc) }
+        repaint()
     }
 
+    fun showPlatter(rect: Rect?, alpha: Float) = main?.let { show(it, rect, alpha) }
+
+    fun showGhost(rect: Rect?, alpha: Float) = ghost?.let { show(it, rect, alpha) }
+
+    private fun show(p: PlatterPicture, rect: Rect?, alpha: Float) {
+        val layer = p.layer
+        if (rect == null || rect.width <= 0f || rect.height <= 0f || alpha <= FocusPlatter.MinAlpha) {
+            layer.alpha = 0f
+            return
+        }
+        // Drawn again only when its size (or look) changes: a glide between rows of one size moves it.
+        if (p.size != rect.size || p.color != color || p.shape != shape) {
+            p.size = rect.size
+            p.color = color
+            p.shape = shape
+            val density = requireDensity()
+            val direction = requireLayoutDirection()
+            val outline = shape.createOutline(rect.size, direction, density)
+            val c = color
+            layer.record(density, direction, IntSize(ceil(rect.width).toInt(), ceil(rect.height).toInt())) { drawOutline(outline, c) }
+        }
+        layer.translationX = rect.left
+        layer.translationY = rect.top
+        layer.alpha = alpha.coerceAtMost(1f)
+    }
+
+    /**
+     * A frame for the layers' new place, without drawing the window again: the change to them is all the
+     * screen repaints (as Compose does for its own layers). Android 7 can only draw it all again.
+     */
+    private fun repaint() {
+        val v = view ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) v.parent?.onDescendantInvalidated(v, v) else v.invalidate()
+    }
+
+    // Reads nothing that moves: the platter's motion never draws the list again.
     override fun ContentDrawScope.draw() {
-        val hc = coordinates()
-        if (hc != null) {
+        val g = ghost
+        val m = main
+        if (g != null && m != null) {
             // Clipped top and bottom only, as a list clips its rows: a grown row's platter may reach
             // past the list's sides.
             if (clip) {
                 clipRect(left = -ClipSlack, top = 0f, right = size.width + ClipSlack, bottom = size.height) {
-                    platter.draw(this, this@PlatterHostNode, hc)
+                    drawLayer(g.layer)
+                    drawLayer(m.layer)
                 }
             } else {
-                platter.draw(this, this@PlatterHostNode, hc)
+                drawLayer(g.layer)
+                drawLayer(m.layer)
             }
         }
         drawContent()
     }
 
-    fun drawPlatter(scope: DrawScope, rect: Rect, alpha: Float) {
-        if (rect.width <= 0f || rect.height <= 0f) return
-        // Made again only when its size changes (a glide between rows of one height keeps it).
-        val o = outline?.takeIf { outlineSize == rect.size }
-            ?: shape.createOutline(rect.size, scope.layoutDirection, scope).also { outline = it; outlineSize = rect.size }
-        scope.translate(rect.left, rect.top) { drawOutline(o, color, alpha = alpha.coerceAtMost(1f)) }
-    }
-
     private companion object {
         const val ClipSlack = 100_000f
+    }
+}
+
+/** A platter's layer and what its picture was drawn for. */
+private class PlatterPicture(val layer: GraphicsLayer) {
+    var size = Size.Unspecified
+    var color = Color.Unspecified
+    var shape: Shape? = null
+
+    init {
+        // Faded as it draws (one shape: nothing overlaps), with no offscreen buffer; unseen until placed.
+        layer.compositingStrategy = LayerCompositing.ModulateAlpha
+        layer.alpha = 0f
     }
 }
 

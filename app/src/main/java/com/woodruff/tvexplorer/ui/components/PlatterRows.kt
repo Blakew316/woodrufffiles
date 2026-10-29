@@ -12,13 +12,17 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -26,26 +30,27 @@ import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.ProvideTextStyle
+import com.woodruff.tvexplorer.ui.motion.FocusColor
 import com.woodruff.tvexplorer.ui.motion.FocusMotionState
 import com.woodruff.tvexplorer.ui.motion.FocusPlatter
 import com.woodruff.tvexplorer.ui.motion.TvCard
+import com.woodruff.tvexplorer.ui.motion.focusFade
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
 
 /** tv-material ListItem's corners, kept by the rows that took its place (and their platters). */
 val ListRowShape = RoundedCornerShape(8.dp)
 
 /**
- * A row's words and symbols coloured as they draw: [rest] off the focus, [focused] on the platter,
- * cross-fading with the row's own focus ([motion]). Asked while drawing, so the focus recomposes nothing.
+ * A row's words and symbols: [rest] off the focus, [focused] on the platter, cross-fading with the row's own
+ * focus ([motion]). [RowText] and TintIcon draw each in both colours, fading as layers, so the focus
+ * recomposes and redraws nothing.
  */
 @Stable
-class RowTint(private val motion: FocusMotionState, val rest: Color, val focused: Color) {
-    /** The row's colour now. */
-    val color: ColorProducer = ColorProducer { now() }
+class RowTint(val motion: FocusMotionState, val rest: Color, val focused: Color) {
+    /** The row's colour. */
+    val color: ColorProducer = FocusColor(motion, rest, focused)
     /** At 80 %, as tv-material's ListItem drew its leading symbol and supporting lines. */
-    val soft: ColorProducer = ColorProducer { now().let { it.copy(alpha = it.alpha * 0.8f) } }
-
-    private fun now(): Color = lerp(rest, focused, motion.fraction.coerceIn(0f, 1f))
+    val soft: ColorProducer = FocusColor(motion, rest.copy(alpha = rest.alpha * 0.8f), focused.copy(alpha = focused.alpha * 0.8f))
 }
 
 @Composable
@@ -54,8 +59,7 @@ fun rememberRowTint(motion: FocusMotionState, rest: Color, focused: Color): RowT
 
 /**
  * Text in a row on a platter: the surrounding text style with [style] over it, as tv-material's Text
- * has, but coloured by [color] while it draws, so a row taking the focus redraws its words instead of
- * composing them again.
+ * has, coloured by [color] (see [FadingText]).
  */
 @Composable
 fun RowText(
@@ -69,15 +73,48 @@ fun RowText(
     softWrap: Boolean = true,
 ) {
     val merged = LocalTextStyle.current.merge(style)
-    BasicText(
-        text,
-        modifier,
-        style = if (fontWeight != null) merged.copy(fontWeight = fontWeight) else merged,
-        overflow = overflow,
-        softWrap = softWrap,
-        maxLines = maxLines,
-        color = color,
-    )
+    FadingText(text, color, modifier, if (fontWeight != null) merged.copy(fontWeight = fontWeight) else merged, maxLines, overflow, softWrap)
+}
+
+/**
+ * Text in [style] coloured by [color]. A [FocusColor] (words following a row's focus) is drawn twice, in its
+ * rest and focused colours, one fading out as the other fades in as layers: a frame of the focus animation
+ * redraws nothing (a colour worked out as it drew redrew the whole screen on every frame). Laid out once, as
+ * one text with exactly its constraints; the focused copy draws that same layout.
+ */
+@Composable
+fun FadingText(
+    text: String,
+    color: ColorProducer,
+    modifier: Modifier,
+    style: TextStyle,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+    softWrap: Boolean = true,
+) {
+    if (color is FocusColor) {
+        // Read only by the focused copy's drawing: a new layout redraws it, and nothing recomposes.
+        val laidOut = remember { mutableStateOf<TextLayoutResult?>(null) }
+        Box(modifier, propagateMinConstraints = true) {
+            BasicText(
+                text, Modifier.focusFade(color.motion, out = true), style = style, onTextLayout = { laidOut.value = it },
+                overflow = overflow, softWrap = softWrap, maxLines = maxLines, color = { color.rest },
+            )
+            Spacer(
+                Modifier.matchParentSize().focusFade(color.motion).drawBehind {
+                    val layout = laidOut.value ?: return@drawBehind
+                    // Cut off where the text is, as it cuts off what overflows it.
+                    if (layout.hasVisualOverflow && overflow != TextOverflow.Visible) {
+                        clipRect(right = size.width, bottom = size.height) { drawText(layout, color = color.focused) }
+                    } else {
+                        drawText(layout, color = color.focused)
+                    }
+                },
+            )
+        }
+    } else {
+        BasicText(text, modifier, style = style, overflow = overflow, softWrap = softWrap, maxLines = maxLines, color = color)
+    }
 }
 
 /**

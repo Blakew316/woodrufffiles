@@ -35,6 +35,9 @@ object TvMotion {
     val FocusIn: AnimationSpec<Float> = spring(dampingRatio = 0.9f, stiffness = 900f)
     /** Focus leaving: no bounce. */
     val FocusOut: AnimationSpec<Float> = spring(dampingRatio = 1f, stiffness = 1000f)
+    /** OK held on a card or button: it sinks back to its resting size, quickly, and springs back up when let go. */
+    val PressIn: AnimationSpec<Float> = spring(dampingRatio = 1f, stiffness = 1500f)
+    val PressOut: AnimationSpec<Float> = spring(dampingRatio = 0.7f, stiffness = 900f)
     const val PosterScale = 1.10f
     const val CardScale = 1.06f
     const val RailScale = 1.04f

@@ -23,10 +23,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -91,10 +92,6 @@ class DoorbellActivity : ComponentActivity() {
                     Modifier
                         .fillMaxSize()
                         .background(Color.Black)
-                        .drawWithContent {
-                            drawContent()
-                            if (cover != null) drawRect(Color.Black, alpha = cover.value.coerceIn(0f, 1f))
-                        }
                         .focusRequester(focus)
                         .onKeyEvent { e ->
                             if (e.type != KeyEventType.KeyDown || cams.size < 2 || index < 0) return@onKeyEvent false
@@ -124,6 +121,12 @@ class DoorbellActivity : ComponentActivity() {
                             style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f),
                         )
                     }
+                    // Over everything, a layer of its own that fades: nothing is drawn again for it.
+                    if (cover != null) Box(
+                        Modifier.matchParentSize()
+                            .graphicsLayer { alpha = cover.value.coerceIn(0f, 1f); compositingStrategy = CompositingStrategy.ModulateAlpha }
+                            .background(Color.Black),
+                    )
                 }
                 LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
             }

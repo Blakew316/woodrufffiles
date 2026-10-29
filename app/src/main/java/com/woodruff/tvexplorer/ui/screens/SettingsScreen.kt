@@ -6,20 +6,18 @@ import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.tv.material3.LocalTextStyle
+import com.woodruff.tvexplorer.ui.motion.FocusColor
 import com.woodruff.tvexplorer.ui.motion.FocusPlatter
 import com.woodruff.tvexplorer.ui.motion.FocusTintIcon
 import com.woodruff.tvexplorer.ui.motion.GlideBetween
@@ -90,6 +88,7 @@ import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.Location
 import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.components.ButtonRow
+import com.woodruff.tvexplorer.ui.components.FadingText
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Button
 import com.woodruff.tvexplorer.BuildConfig
@@ -932,8 +931,8 @@ private val SettingRowShape = RoundedCornerShape(14.dp)
 /**
  * A row like the Apple TV's: plain until focused, then white with dark text. Sized as tv-material's
  * ListItem laid it out. The white is the list's [platter], gliding over from the row the focus left;
- * the row's text and symbols turn dark as it arrives, as they draw, so taking or losing the focus
- * recomposes nothing.
+ * the row's text and symbols turn dark as it arrives, their dark copies fading in over the light ones
+ * as layers, so taking or losing the focus recomposes and redraws nothing.
  */
 @Composable
 private fun SettingRow(item: SettingItem, platter: FocusPlatter, modifier: Modifier, onClick: () -> Unit) {
@@ -942,6 +941,8 @@ private fun SettingRow(item: SettingItem, platter: FocusPlatter, modifier: Modif
     val onWhite = Palette.background
     // Red only off the focus: on the white platter it washes out, so it takes the row's dark text.
     val titleColor = if (item.danger) Palette.danger else text
+    val titleTint = remember(motion, titleColor, onWhite) { FocusColor(motion, titleColor, onWhite) }
+    val valueTint = remember(motion, text, onWhite) { FocusColor(motion, text.copy(alpha = 0.62f), onWhite.copy(alpha = 0.62f)) }
     TvCard(
         onClick = onClick,
         shape = SettingRowShape,
@@ -956,18 +957,16 @@ private fun SettingRow(item: SettingItem, platter: FocusPlatter, modifier: Modif
             Box(Modifier.padding(end = 8.dp).size(32.dp), contentAlignment = Alignment.Center) {
                 FocusTintIcon(item.icon, motion, text.copy(alpha = 0.8f), onWhite.copy(alpha = 0.8f), size = 26.dp)
             }
-            BasicText(
-                item.title, Modifier.weight(1f), style = LocalTextStyle.current.merge(MaterialTheme.typography.titleMedium),
+            FadingText(
+                item.title, titleTint, Modifier.weight(1f), style = LocalTextStyle.current.merge(MaterialTheme.typography.titleMedium),
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = ColorProducer { lerp(titleColor, onWhite, motion.fraction.coerceIn(0f, 1f)) },
             )
             if (item.value != null || item.opens != null) {
                 Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (item.value != null) {
-                        BasicText(
-                            item.value, Modifier.widthIn(max = 200.dp), style = MaterialTheme.typography.bodyMedium,
+                        FadingText(
+                            item.value, valueTint, Modifier.widthIn(max = 200.dp), style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            color = ColorProducer { lerp(text, onWhite, motion.fraction.coerceIn(0f, 1f)).copy(alpha = 0.62f) },
                         )
                     }
                     if (item.opens != null) {

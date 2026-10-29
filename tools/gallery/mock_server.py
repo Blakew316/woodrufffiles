@@ -102,6 +102,7 @@ Display: 3840×2160 @ 60 Hz (app draws 1920×1080)
  also: 3840×2160 @ 59.94, 50, 30, 25, 24, 23.98 Hz
        1920×1080 @ 60, 50 Hz
 Animation scales: window 1×, transition 1×, animator 1×
+Graphics: ARM · repaints only what changed
 App code: compiled for speed
 
 {recording}
