@@ -1,7 +1,7 @@
 {
- "build": "152",
- "commit": "11fa91f",
- "updated": "2026-10-29 16:29 UTC",
+ "build": "153",
+ "commit": "39c36e4",
+ "updated": "2026-10-29 17:32 UTC",
  "tv": [
   {
    "name": "home",
@@ -114,16 +114,16 @@
    "light": "img/phone-files-actions-light.webp"
   },
   {
-   "name": "notes",
-   "title": "Notes",
-   "dark": "img/phone-notes-dark.webp",
-   "light": "img/phone-notes-light.webp"
+   "name": "memories",
+   "title": "Family Memories",
+   "dark": "img/phone-memories-dark.webp",
+   "light": "img/phone-memories-light.webp"
   },
   {
-   "name": "note",
-   "title": "Note editor",
-   "dark": "img/phone-note-dark.webp",
-   "light": "img/phone-note-light.webp"
+   "name": "memories-photo",
+   "title": "Family Memories \u203a a photo",
+   "dark": "img/phone-memories-photo-dark.webp",
+   "light": "img/phone-memories-photo-light.webp"
   },
   {
    "name": "settings",
