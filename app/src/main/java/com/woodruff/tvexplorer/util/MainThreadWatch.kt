@@ -51,22 +51,37 @@ object MainThreadWatch {
      * line (no allocation); a message that ran long is added up by kind when it finishes.
      */
     private val printer = Printer { line ->
-        if (line.isEmpty()) return@Printer
-        when (line[0]) {
-            '>' -> {
-                message = line
-                messageSince = System.nanoTime()
-            }
-            '<' -> {
-                val since = messageSince
-                messageSince = 0
-                val started = message
-                if (since != 0L && started != null) {
-                    val ns = System.nanoTime() - since
-                    if (ns > LONG_NS) longWork.add(messageKind(started), ns)
+        // Called from inside Android's message loop: anything thrown here would crash the app, so a
+        // failure ends the recording instead.
+        try {
+            if (line.isEmpty()) return@Printer
+            when (line[0]) {
+                '>' -> {
+                    message = line
+                    messageSince = System.nanoTime()
+                }
+                '<' -> {
+                    val since = messageSince
+                    messageSince = 0
+                    val started = message
+                    if (since != 0L && started != null) {
+                        val ns = System.nanoTime() - since
+                        if (ns > LONG_NS) longWork.add(messageKind(started), ns)
+                    }
                 }
             }
+        } catch (t: Throwable) {
+            stopAfterError(t)
         }
+    }
+
+    /** Something in the recording failed: it stops (the app must never go down for a measurement). */
+    private fun stopAfterError(t: Throwable) {
+        android.util.Log.w("MainThreadWatch", "recording stopped", t)
+        runCatching { Looper.getMainLooper().setMessageLogging(null) }
+        messageSince = 0
+        message = null
+        runCatching { finish(generation) }
     }
 
     /** Starts a recording; one already running starts over. Any thread. */
@@ -110,11 +125,17 @@ object MainThreadWatch {
             } catch (e: InterruptedException) {
                 return
             }
-            val since = busySince()
-            if (since == 0L || System.nanoTime() - since < LONG_NS) continue
-            val stack = thread.stackTrace
-            // Only if that same work is still going: the stack may already be the next message's.
-            if (busySince() == since && generation == gen) hotSpots.add(stack)
+            try {
+                val since = busySince()
+                if (since == 0L || System.nanoTime() - since < LONG_NS) continue
+                val stack = thread.stackTrace
+                // Only if that same work is still going: the stack may already be the next message's.
+                if (busySince() == since && generation == gen) hotSpots.add(stack)
+            } catch (t: Throwable) {
+                // An uncaught failure on this thread would crash the app: the recording stops instead.
+                stopAfterError(t)
+                return
+            }
         }
     }
 

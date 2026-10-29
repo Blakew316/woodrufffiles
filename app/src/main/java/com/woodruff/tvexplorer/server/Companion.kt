@@ -310,7 +310,10 @@ class CompanionRoutes(private val ctx: Context) {
         // detailed recording still runs, 0 when none is running.
         s.uri == "/api/diagnostics" && s.method == Method.GET -> {
             val left = (com.woodruff.tvexplorer.util.MainThreadWatch.state().leftMs + 999) / 1000
-            NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", com.woodruff.tvexplorer.util.FrameStats.report(ctx))
+            // A report that fails to build says so, rather than taking the app down with it.
+            val text = runCatching { com.woodruff.tvexplorer.util.FrameStats.report(ctx) }
+                .getOrElse { "Couldn't make the smoothness report: $it" }
+            NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", text)
                 .apply { addHeader("Cache-Control", "no-store"); addHeader("X-Recording-Left", left.toString()) }
         }
         // Record on the phone: like OK on the TV's Smoothness row, counts afresh and records 3 minutes in detail.

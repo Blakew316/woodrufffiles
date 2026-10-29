@@ -77,7 +77,9 @@ class LongWork(private val maxKinds: Int = 500) {
 }
 
 // Object ids ("@1a2b3c", " {1a2b3c}") and package names, which differ between runs or just add length.
-private val OBJECT_ID = Regex("""@[0-9a-f]+|\s*\{[0-9a-f]+}""")
+// Both braces escaped: Android's regex engine (ICU) rejects a lone "}" that desktop Java accepts, and this
+// pattern is first built inside the main thread's message loop during a recording.
+private val OBJECT_ID = Regex("""@[0-9a-f]+|\s*\{[0-9a-f]+\}""")
 private val PACKAGE = Regex("""\b(?:[a-z][a-z0-9_]*\.)+(?=[A-Z])""")
 
 /**

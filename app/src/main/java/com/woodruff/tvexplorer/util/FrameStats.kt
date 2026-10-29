@@ -52,7 +52,8 @@ object FrameStats {
     /** The frame's phases, refilled for each frame on the frame-stats thread (so no allocation). */
     private val phases = LongArray(Phase.COUNT)
 
-    private val listener = Window.OnFrameMetricsAvailableListener { _, metrics, _ -> onFrame(metrics) }
+    // On its own thread: anything thrown there would crash the app, so a frame that can't be counted is skipped.
+    private val listener = Window.OnFrameMetricsAvailableListener { _, metrics, _ -> runCatching { onFrame(metrics) } }
 
     private fun onFrame(m: FrameMetrics) {
         // The first frame after a window appears includes inflating it: not a navigation hitch.
