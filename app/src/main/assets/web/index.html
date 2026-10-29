@@ -81,35 +81,42 @@
   [hidden] { display:none !important; }
 
   /* ---- App shell: one stack of pages per tab, under a floating glass tab bar ---------------------- */
-  #app { position:fixed; inset:0; overflow:hidden; background:var(--bg); transform-origin:50% 0; transition:transform .5s var(--ease), border-radius .5s var(--ease); }
-  #app.recede { transform:translateY(var(--safe-t)) scale(.92); border-radius:22px; }   /* behind a card sheet */
-  #appdim { position:absolute; inset:0; z-index:400; background:var(--recede-dim); opacity:0; pointer-events:none; transition:opacity .5s var(--ease); }
+  /* Motion is compositor-only: transforms and opacity, moved by springs (the script); nothing animates layout or paint. */
+  #app { position:fixed; inset:0; overflow:hidden; background:var(--bg); transform-origin:50% 0; }
+  #app.recede { transform:translateY(var(--safe-t)) scale(.92); }   /* behind a card sheet; a spring takes it there */
+  #app.round { border-radius:22px; }   /* set at once: corner rounding isn't something the compositor animates */
+  #appdim { position:absolute; inset:0; z-index:400; background:var(--recede-dim); opacity:0; pointer-events:none; transition:opacity .45s var(--ease); }
   #app.recede #appdim { opacity:1; pointer-events:auto; }
-  .tab { position:absolute; inset:0; display:none; }
-  .tab.on { display:block; }
-  .page { position:absolute; inset:0; display:none; overflow:hidden; background:var(--bg); }
+  /* Hidden tabs and pages keep their layout and scroll position (content-visibility skips them; visibility keeps
+     them from being seen or tapped), so showing one again is cheap: no relayout, no scroll to restore. */
+  .tab { position:absolute; inset:0; visibility:hidden; content-visibility:hidden; }
+  .tab.on { visibility:visible; content-visibility:visible; }
+  .page { position:absolute; inset:0; visibility:hidden; content-visibility:hidden; background:var(--bg); }
   .page.plain { background:var(--bg2); }
-  .page.vis { display:block; }
-  .page.moving { box-shadow:0 0 30px rgba(0,0,0,.14); will-change:transform; }
+  .page.vis { visibility:inherit; content-visibility:visible; will-change:transform; }   /* a layer of its own before any transition starts */
+  /* The shadow a page casts while it slides over another: a gradient strip along its left edge. */
+  .page::before { content:''; position:absolute; top:0; bottom:0; right:100%; width:16px; pointer-events:none; background:linear-gradient(to left, rgba(0,0,0,.09), rgba(0,0,0,0)); }
   .shade { position:absolute; inset:0; z-index:50; background:var(--shade); opacity:0; pointer-events:none; }
-  /* The bottom scroll edge: content dissolves softly under the floating tab bar (iOS 26). */
+  /* The bottom scroll edge: content fades under the floating tab bar (a gradient: nothing to redo while scrolling). */
   .page::after { content:''; position:absolute; left:0; right:0; bottom:0; z-index:40; height:calc(var(--tab-b) + var(--tab-h) + 28px); pointer-events:none;
-    background:linear-gradient(to top, var(--edge) 40%, transparent); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
-    -webkit-mask-image:linear-gradient(to top, #000 45%, transparent); mask-image:linear-gradient(to top, #000 45%, transparent); }
+    background:linear-gradient(to top, var(--edge) 40%, transparent); }
   .page.plain::after { background:linear-gradient(to top, var(--edge-plain) 40%, transparent); }
-  .scroller { position:absolute; inset:0; overflow-x:hidden; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior-y:contain; padding-top:calc(var(--safe-t) + var(--nav-h)); }
+  /* Pages scroll up and down natively; a sideways drag never scrolls (it's the swipe back), so no touch handler
+     ever has to hold up a scroll. */
+  .scroller { position:absolute; inset:0; overflow-x:hidden; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior-y:contain; padding-top:calc(var(--safe-t) + var(--nav-h)); touch-action:pan-y; }
+  .mark { position:absolute; left:0; width:1px; height:1px; visibility:hidden; pointer-events:none; }   /* scroll-state markers (watched, not listened to) */
   .scroller::after { content:''; display:block; height:calc(var(--tab-b) + var(--tab-h) + 24px); }
 
   /* Navigation bar: glass buttons over a soft scroll-edge blur; the inline title fades in as the large title scrolls under. */
-  .navbar { position:absolute; left:0; right:0; top:0; z-index:100; display:none; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; column-gap:8px;
+  /* The title is centred on the screen when it fits between the bar buttons, otherwise it takes the room between
+     them (like UINavigationBar), all by the grid: nothing is measured. */
+  .navbar { position:absolute; left:0; right:0; top:0; z-index:100; display:none; grid-template-columns:minmax(max-content,1fr) minmax(0,auto) minmax(max-content,1fr); align-items:center; column-gap:8px;
     height:calc(var(--safe-t) + var(--nav-h)); padding:var(--safe-t) var(--mr) 0 var(--ml); }
   .navbar.vis { display:grid; }
-  .nb-bgw { position:absolute; left:0; right:0; top:0; height:calc(100% + 22px); pointer-events:none; }
-  .nb-bg { position:absolute; inset:0; opacity:0; transition:opacity .25s;
-    background:linear-gradient(var(--edge), var(--edge) calc(100% - 36px), transparent);
-    -webkit-backdrop-filter:blur(10px) saturate(1.5); backdrop-filter:blur(10px) saturate(1.5);
-    -webkit-mask-image:linear-gradient(#000 calc(100% - 36px), transparent); mask-image:linear-gradient(#000 calc(100% - 36px), transparent); }
-  .navbar.plain .nb-bg { background:linear-gradient(var(--edge-plain), var(--edge-plain) calc(100% - 36px), transparent); }
+  .nb-bgw { position:absolute; left:0; right:0; top:0; height:100%; pointer-events:none; }
+  .nb-bg { position:absolute; inset:0; opacity:0; transition:opacity .25s; background:var(--edge);
+    -webkit-backdrop-filter:blur(10px) saturate(1.5); backdrop-filter:blur(10px) saturate(1.5); }
+  .navbar.plain .nb-bg { background:var(--edge-plain); }
   .navbar.edge .nb-bg { opacity:1; }
   .nb-lead { grid-column:1; justify-self:start; display:flex; min-width:0; max-width:100%; position:relative; }
   .nb-title { grid-column:2; display:flex; justify-content:center; min-width:0; position:relative; }
@@ -120,10 +127,10 @@
 
   .glass { background-color:var(--glass); -webkit-backdrop-filter:blur(12px) saturate(1.8); backdrop-filter:blur(12px) saturate(1.8); box-shadow:var(--glass-shadow); }
   .gb { position:relative; height:44px; min-width:44px; border-radius:22px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 16px;
-    color:var(--tint); white-space:nowrap; transition:transform .4s var(--spring), background-color .2s, color .2s, opacity .2s; }
+    color:var(--tint); white-space:nowrap; transition:transform var(--press-ms, .45s) var(--press, var(--spring)), opacity .2s; }
   .gb.ic { width:44px; padding:0; }
   .gb svg { width:22px; height:22px; }
-  .gb:active { transform:scale(1.1); }
+  .gb:active { transform:scale(1.1); transition:transform 80ms ease-out; }   /* presses go in at once and spring back out */
   .glass.gb:active { background-color:var(--glass-hi); }
   .gb.prom, .gb.ready { background-color:var(--tint-fill); color:var(--on-tint); font-weight:600; box-shadow:inset 0 1px 1px rgba(255,255,255,.3), 0 0 0 .5px rgba(0,0,0,.08), 0 6px 16px rgba(0,0,0,.14); }
   .gb.prom:active { background-color:var(--tint-fill); }
@@ -131,9 +138,9 @@
   .gb.prom:disabled { opacity:1; background-color:var(--fill); color:var(--label3); box-shadow:none; }   /* like a disabled prominent bar button */
   .gb.back { padding:0 16px 0 12px; gap:6px; min-width:0; max-width:100%; }
   .gb.back svg { width:12px; height:21px; }
-  .gb.back span { overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .gb.back span { overflow:hidden; text-overflow:ellipsis; min-width:0; max-width:140px; }
   .ggroup { display:inline-flex; height:44px; border-radius:22px; }
-  .titlebtn { display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 12px; border-radius:20px; font-weight:600; min-width:0; max-width:calc(100vw - 176px); transition:background-color .2s; }
+  .titlebtn { display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 12px; border-radius:20px; font-weight:600; min-width:0; max-width:calc(100vw - 176px); }
   .titlebtn:active { background-color:var(--fill3); }
   .titlebtn > span:not(.live) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .titlebtn svg { width:12px; height:8px; color:var(--label2); }
@@ -161,13 +168,14 @@
   .large + .group, .searchbar + .group, .subtitle + .group, .large + [hidden] + .group, .searchbar + [hidden] + .group { margin-top:12px; }
   .scroller > .group:first-child { margin-top:20px; }
   .group.is-empty { background:transparent; }
-  .row { position:relative; display:flex; align-items:center; gap:12px; width:100%; min-height:44px; padding:11px 16px; text-align:left; color:var(--label); transition:background-color .45s; }
+  .row { position:relative; isolation:isolate; display:flex; align-items:center; gap:12px; width:100%; min-height:44px; padding:11px 16px; text-align:left; color:var(--label); }
+  .row::after { content:''; position:absolute; inset:0; z-index:-1; background:var(--cell-hi); opacity:0; transition:opacity .45s; pointer-events:none; }   /* the highlight fades on the compositor */
   .row:has(.s) { padding-top:9px; padding-bottom:9px; }
   .group > .row + .row::before { content:''; position:absolute; top:0; right:0; left:var(--sep-l, 16px); border-top:.5px solid var(--sep); }
   .row.i { --sep-l:60px; } .row.fi { --sep-l:62px; } .row.me { --sep-l:88px; }
-  .tap.hl, .tap.sel { background-color:var(--cell-hi); transition:none; }
-  @media (hover:hover) and (pointer:fine) { .tap:active { background-color:var(--cell-hi); transition:none; } }
-  .row.pressing { transform:scale(.975); transition:transform .45s var(--ease), background-color .45s; }
+  .row.tap.hl::after, .row.tap.sel::after { opacity:1; transition:none; }
+  @media (hover:hover) and (pointer:fine) { .row.tap:active::after { opacity:1; transition:none; } }
+  .row.pressing { transform:scale(.975); transition:transform .45s var(--ease); }
   .ico { width:29px; height:29px; margin-right:3px; border-radius:7px; display:flex; align-items:center; justify-content:center; color:#fff; background:var(--c, var(--gray)); flex:none; }
   .ico svg { width:19px; height:19px; }
   .fic { width:34px; height:34px; flex:none; }
@@ -176,7 +184,7 @@
   .s { font-size:15px; line-height:20px; letter-spacing:-.23px; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .s.ok { color:var(--green); } .s.err { color:var(--red); }
   .prog { height:4px; margin-top:6px; border-radius:2px; background:var(--fill2); overflow:hidden; }   /* upload progress, like UIProgressView */
-  .prog i { display:block; width:0; height:100%; border-radius:2px; background:var(--tint); transition:width .2s; }
+  .prog i { display:block; width:100%; height:100%; border-radius:2px; background:var(--tint); transform:translateX(-100%); transition:transform .2s; }
   .detail { flex:none; max-width:55%; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .chev { width:9px; height:15px; color:var(--label3); }
   .row.act, .link { color:var(--tint); } .row.danger { color:var(--red); }
@@ -205,17 +213,19 @@
   /* iOS switch (the iOS 26 pill knob); Safari 17.4+ draws its own native switch, with haptics */
   .switch { flex:none; margin:0; cursor:pointer; }
   html.nsw .switch { accent-color:var(--green); }
-  html:not(.nsw) .switch { -webkit-appearance:none; appearance:none; position:relative; width:63px; height:28px; border-radius:14px; background:var(--fill); transition:background-color .25s; }
-  html:not(.nsw) .switch::after { content:''; position:absolute; top:2px; left:2px; width:37px; height:24px; border-radius:12px; background:#fff;
-    box-shadow:0 1px 1px rgba(0,0,0,.06), 0 2px 6px rgba(0,0,0,.16); transition:transform .32s var(--spring), width .2s var(--ease); }
-  html:not(.nsw) .switch:checked { background:var(--green); }
+  /* (Elsewhere a drawn switch; its track colour fades and its knob stretches as transforms, off the main thread.) */
+  html:not(.nsw) .switch { -webkit-appearance:none; appearance:none; position:relative; width:63px; height:28px; border-radius:14px; background:var(--fill); }
+  html:not(.nsw) .switch::before { content:''; position:absolute; inset:0; border-radius:14px; background:var(--green); opacity:0; transition:opacity .25s; }
+  html:not(.nsw) .switch::after { content:''; position:absolute; top:2px; left:2px; width:37px; height:24px; border-radius:12px; background:#fff; transform-origin:0 50%;
+    box-shadow:0 1px 1px rgba(0,0,0,.06), 0 2px 6px rgba(0,0,0,.16); transition:transform .32s var(--spring); }
+  html:not(.nsw) .switch:checked::before { opacity:1; }
   html:not(.nsw) .switch:checked::after { transform:translateX(22px); }
-  html:not(.nsw) .switch:active::after { width:43px; }
-  html:not(.nsw) .switch:checked:active::after { transform:translateX(16px); }
+  html:not(.nsw) .switch:active::after { transform:scaleX(1.16); }
+  html:not(.nsw) .switch:checked:active::after { transform:translateX(16px) scaleX(1.16); }
 
   /* Buttons: filled and tinted capsules */
-  .btn { display:flex; align-items:center; justify-content:center; gap:8px; width:calc(100% - 32px - var(--safe-l) - var(--safe-r)); height:50px; margin:20px var(--mr) 0 var(--ml); border-radius:25px; background:var(--tint-fill); color:var(--on-tint); font-weight:600; transition:transform .3s var(--spring), opacity .2s; }
-  .btn:active { transform:scale(.97); opacity:.8; }
+  .btn { display:flex; align-items:center; justify-content:center; gap:8px; width:calc(100% - 32px - var(--safe-l) - var(--safe-r)); height:50px; margin:20px var(--mr) 0 var(--ml); border-radius:25px; background:var(--tint-fill); color:var(--on-tint); font-weight:600; transition:transform var(--press-ms, .45s) var(--press, var(--spring)), opacity .2s; }
+  .btn:active { transform:scale(.97); opacity:.8; transition:transform 80ms ease-out, opacity 80ms; }
   .btn:disabled { opacity:.4; }
   .btn.tinted { background:var(--tint-soft); color:var(--tint); }
   .btn + .head { margin-top:30px; }
@@ -234,7 +244,7 @@
   #crash-text { display:block; white-space:pre-wrap; word-break:break-word; color:var(--label2); }
   /* Settings › TVs: what each TV is playing, with a hairline of progress under it */
   .tvbar { display:block; height:3px; margin:7px 0 2px; border-radius:1.5px; background:var(--fill2); overflow:hidden; }
-  .tvbar i { display:block; height:100%; width:0; border-radius:1.5px; background:var(--label3); transition:width .9s linear; }
+  .tvbar i { display:block; height:100%; width:100%; border-radius:1.5px; background:var(--label3); transform:translateX(-100%); transition:transform .9s linear; }
   .tvbar.on i { background:var(--tint); }
   /* Send: one message box; the To row under it says who gets it. */
   #n-text { min-height:118px; }
@@ -262,39 +272,39 @@
   .hint span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .padbox { flex:1 1 0; min-height:170px; align-self:stretch; display:flex; align-items:center; justify-content:center; }
   .pad { --pad:clamp(150px, calc(100vh - var(--safe-t) - var(--safe-b) - 460px), 320px); position:relative; flex:none; width:var(--pad); height:var(--pad); border-radius:50%; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); touch-action:none;
-    transition:width .3s var(--ease), height .3s var(--ease); }
+  }
   @supports (container-type:size) {
     .remote { --k:clamp(46px, 9.5cqh, 62px); container-type:size; }
     .padbox { container-type:size; min-height:0; }
     .pad { --pad:min(324px, 100cqh - 24px, 100cqw - 40px); }
   }
   .pad::after { content:''; position:absolute; inset:7%; border-radius:50%; border:1px solid var(--fill4); pointer-events:none; }
-  .pad button { position:absolute; display:flex; align-items:center; justify-content:center; color:var(--label3); transition:color .15s; }
+  .pad button { position:absolute; display:flex; align-items:center; justify-content:center; color:var(--label3); }
   .pad .dir { width:33%; height:33%; }
   .pad .dir svg { width:15px; height:15px; }
   .pad [data-key=up] { top:0; left:33.5%; } .pad [data-key=down] { bottom:0; left:33.5%; }
   .pad [data-key=left] { left:0; top:33.5%; } .pad [data-key=right] { right:0; top:33.5%; }
   .pad .okb { top:32%; left:32%; width:36%; height:36%; border-radius:50%; background:var(--fill4); box-shadow:inset 0 0 0 .5px var(--sep); color:var(--label2); font-size:15px; letter-spacing:-.23px; font-weight:600;
-    transition:background-color .15s, color .15s, transform .3s var(--spring); }
+    transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
   .pad .dir:active, .pad .dir.hit { color:var(--tint); }
-  .pad .okb:active, .pad .okb.hit { background:var(--tint-soft); color:var(--tint); transform:scale(.96); }
+  .pad .okb:active, .pad .okb.hit { background:var(--tint-soft); color:var(--tint); transform:scale(.96); transition:transform 80ms ease-out; }
   .keys { display:grid; grid-template-columns:var(--k) var(--k); grid-template-rows:var(--k) var(--k) var(--k); grid-template-areas:"back home" "play vol" "mute vol"; column-gap:min(96px, 24vw); row-gap:calc(var(--k) / 4); }
   .rk { width:var(--k); height:var(--k); border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); color:var(--label);
-    transition:transform .3s var(--spring), background-color .15s; }
+    transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
   .rk svg { width:24px; height:24px; }
-  .rk:active, .rk.hit { transform:scale(.93); background-color:var(--cell-hi); }
+  .rk:active, .rk.hit { transform:scale(.93); background-color:var(--cell-hi); transition:transform 80ms ease-out; }
   .vol { grid-area:vol; display:flex; flex-direction:column; width:var(--k); border-radius:calc(var(--k) / 2); overflow:hidden; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); }
-  .vol button { flex:1; display:flex; align-items:center; justify-content:center; color:var(--label); transition:background-color .15s; }
+  .vol button { flex:1; display:flex; align-items:center; justify-content:center; color:var(--label); }
   .vol button svg { width:22px; height:22px; }
   .vol button:active, .vol button.hit { background-color:var(--cell-hi); }
   /* Netflix and YouTube: two capsules under the buttons, made like the other keys, each with its mark. */
   .apps { flex:none; display:flex; gap:12px; width:min(100%, 320px); margin-top:calc(var(--k) / 4 + 6px); }
   .app { flex:1 1 0; min-width:0; height:50px; border-radius:25px; display:flex; align-items:center; justify-content:center; gap:9px; padding:0 14px;
     background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); color:var(--label); font-size:16px; line-height:21px; font-weight:600; letter-spacing:-.31px;
-    transition:transform .3s var(--spring), background-color .15s; }
+    transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
   .app svg { width:22px; height:22px; flex:none; }
   .app span { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .app:active, .app.hit { transform:scale(.95); background-color:var(--cell-hi); }
+  .app:active, .app.hit { transform:scale(.95); background-color:var(--cell-hi); transition:transform 80ms ease-out; }
 
   /* ---- Notes ---------------------------------------------------------------------------------- */
   .note .t { font-weight:600; }
@@ -308,12 +318,11 @@
   /* ---- Tab bar: a floating glass capsule; the selection lens follows a finger dragged along it ---- */
   /* Four tabs, so each one is a wide target. */
   .tabbar { position:absolute; z-index:300; left:calc(16px + var(--safe-l)); right:calc(16px + var(--safe-r)); bottom:var(--tab-b); height:var(--tab-h); max-width:560px; margin:0 auto;
-    display:flex; padding:0 4px; border-radius:32px; }
-  .tb-lens { position:absolute; z-index:0; top:4px; left:0; width:0; height:calc(100% - 8px); border-radius:28px; background:var(--lens); transition:transform .5s var(--spring), width .3s var(--ease), background-color .2s; }
+    display:flex; padding:0 4px; border-radius:32px; touch-action:none; }
+  .tb-lens { position:absolute; z-index:0; top:4px; left:0; width:0; height:calc(100% - 8px); border-radius:28px; background:var(--lens); }
   .tabbar.press .tb-lens { background:var(--fill2); }
-  .tabbar.drag .tb-lens { transition:transform .1s linear, width .3s var(--ease); }
   .tabbar button { position:relative; z-index:1; flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; padding-top:2px;
-    color:var(--label); font-size:11px; line-height:13px; font-weight:600; letter-spacing:.06px; transition:color .2s; }
+    color:var(--label); font-size:11px; line-height:13px; font-weight:600; letter-spacing:.06px; }
   .tabbar button svg { width:30px; height:28px; }
   .tabbar button.on { color:var(--tint); }
   .tabbar button span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -325,8 +334,9 @@
   .veil.blur { background:var(--cm-dim); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); }
   /* Action sheet (UIAlertController .actionSheet) */
   .asheet { position:fixed; z-index:1001; left:calc(8px + var(--safe-l)); right:calc(8px + var(--safe-r)); bottom:max(8px, var(--safe-b)); max-width:480px; margin:0 auto;
-    transform:translateY(calc(100% + 60px)); visibility:hidden; transition:transform .45s var(--ease), visibility 0s .45s; }
-  .asheet.show { transform:none; visibility:visible; transition:transform .45s var(--ease), visibility 0s; }
+    transform:translateY(calc(100% + 60px)); visibility:hidden; }
+  .asheet.show { transform:none; visibility:visible; }
+  .asheet.going, .menu.going, .msheet.going { visibility:visible; }   /* on its way out */
   .as-g { background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8); border-radius:20px; overflow:hidden; box-shadow:0 0 0 .5px rgba(0,0,0,.04); }
   .as-h { padding:14px 20px; text-align:center; font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); }
   .as-h b { display:block; font-weight:600; overflow-wrap:anywhere; }
@@ -340,7 +350,7 @@
   /* Alert (UIAlertController .alert) */
   .alertbox { position:fixed; z-index:1002; left:50%; top:46%; width:min(300px, calc(100vw - 48px)); padding:22px 18px 16px; border-radius:30px; text-align:center;
     background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8); box-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 24px 70px rgba(0,0,0,.28);
-    transform:translate(-50%,-50%) scale(1.12); opacity:0; pointer-events:none; transition:transform .38s var(--spring), opacity .2s, top .3s var(--ease); }
+    transform:translate(-50%,-50%) scale(1.12); opacity:0; pointer-events:none; }
   .alertbox.show { transform:translate(-50%,-50%); opacity:1; pointer-events:auto; }
   .alertbox h3 { margin:0 0 4px; font-size:17px; line-height:22px; font-weight:600; overflow-wrap:anywhere; }
   .alertbox p { margin:0; font-size:15px; line-height:20px; letter-spacing:-.23px; overflow-wrap:anywhere; }
@@ -354,8 +364,8 @@
   /* Menus: pull-down menus from bar buttons, and context menus from a long press */
   .menu { position:fixed; z-index:1003; left:0; top:0; width:250px; max-height:calc(100% - 24px); overflow-y:auto; overscroll-behavior:contain; padding:6px 0; border-radius:22px;
     background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8); box-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 16px 48px rgba(0,0,0,.2);
-    opacity:0; transform:scale(.3); visibility:hidden; pointer-events:none; transition:transform .42s var(--spring), opacity .2s, visibility 0s .42s; }
-  .menu.show { opacity:1; transform:none; visibility:visible; pointer-events:auto; transition:transform .42s var(--spring), opacity .2s, visibility 0s; }
+    opacity:0; transform:scale(.3); visibility:hidden; pointer-events:none; touch-action:pan-y; }
+  .menu.show { opacity:1; transform:none; visibility:visible; pointer-events:auto; }
   .mi { display:flex; align-items:center; gap:10px; width:100%; min-height:44px; padding:10px 16px 10px 12px; text-align:left; color:var(--label); }
   .mi.tap.hl, .mi.tap.sel { background-color:var(--fill3); }
   .mic { width:24px; height:24px; flex:none; display:flex; align-items:center; justify-content:center; }
@@ -365,20 +375,18 @@
   .ms { font-size:13px; line-height:17px; letter-spacing:-.08px; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .mi.danger { color:var(--red); }
   .msep { height:.5px; margin:6px 0; background:var(--sep); }
-  .cm-pv { position:fixed; z-index:1002; margin:0 !important; border-radius:14px; background:var(--cell); box-shadow:0 12px 40px rgba(0,0,0,.2); pointer-events:none; transition:transform .45s var(--spring), opacity .25s; }
-  .cm-pv.lift { transform:scale(1.03); }
-  .cm-pv.drop { opacity:0; }
+  .cm-pv { position:fixed; z-index:1002; margin:0 !important; border-radius:14px; background:var(--cell); box-shadow:0 12px 40px rgba(0,0,0,.2); pointer-events:none; content-visibility:visible; }
   .cm-pv::before { display:none !important; }
   /* Card sheet with a grabber; the app recedes behind it */
   .msheet { position:fixed; z-index:900; left:0; right:0; bottom:0; top:calc(var(--safe-t) + 10px); display:flex; flex-direction:column; background:var(--bg); border-radius:24px 24px 0 0;
-    box-shadow:0 -1px 18px rgba(0,0,0,.12); transform:translateY(calc(100% + 20px)); visibility:hidden; transition:transform .5s var(--ease), visibility 0s .5s; }
-  .msheet.show { transform:none; visibility:visible; transition:transform .5s var(--ease), visibility 0s; }
+    box-shadow:0 -1px 18px rgba(0,0,0,.12); transform:translateY(calc(100% + 20px)); visibility:hidden; }
+  .msheet.show { transform:none; visibility:visible; }
   @media (prefers-color-scheme: dark) { .msheet { --cell:#2c2c2e; --cell-hi:#3a3a3c; background:#1c1c1e; } }   /* elevated, like a sheet in dark mode */
-  .grab { flex:none; width:36px; height:5px; margin:6px auto 0; border-radius:3px; background:var(--fill); }
-  .sbar { flex:none; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; padding:4px var(--mr) 8px var(--ml); }
+  .grab { flex:none; width:36px; height:5px; margin:6px auto 0; border-radius:3px; background:var(--fill); touch-action:none; }
+  .sbar { flex:none; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; padding:4px var(--mr) 8px var(--ml); touch-action:none; }   /* the sheet's handle: drags here never scroll */
   .sbar b { font-weight:600; }
   .sbar > :first-child { justify-self:start; } .sbar > :last-child { justify-self:end; }
-  .sbody { flex:1; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; padding-bottom:calc(var(--safe-b) + 20px); }
+  .sbody { flex:1; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; padding-bottom:calc(var(--safe-b) + 20px); touch-action:pan-y; }
   .sbody > .group:first-child { margin-top:8px; }
   .dot { width:9px; height:9px; border-radius:50%; background:var(--label3); flex:none; }
   .dot.live { background:var(--green); }
@@ -405,20 +413,20 @@
   .np-s { font-size:15px; line-height:20px; letter-spacing:-.23px; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .np-bar { margin-top:10px; }
   .np-track { height:6px; border-radius:3px; background:var(--fill2); overflow:hidden; }
-  .np-track i { display:block; height:100%; width:0; border-radius:3px; background:var(--label2); transition:width .9s linear; }
+  .np-track i { display:block; height:100%; width:100%; border-radius:3px; background:var(--label2); transform:translateX(-100%); transition:transform .9s linear; }
   .np-bar.on .np-track i { background:var(--label); }
   .np-times { display:flex; justify-content:space-between; margin-top:5px; font-size:12px; line-height:16px; letter-spacing:0; font-weight:500; color:var(--label2); font-variant-numeric:tabular-nums; }
   /* HUD: a capsule that drops in from the top */
   .hud { position:fixed; z-index:1100; left:50%; top:calc(var(--safe-t) + 8px); display:flex; align-items:center; gap:8px; max-width:calc(100% - 32px); padding:11px 18px 11px 13px; border-radius:24px;
     background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8); box-shadow:var(--glass-shadow), 0 10px 30px rgba(0,0,0,.14);
-    font-size:15px; line-height:20px; letter-spacing:-.23px; font-weight:600; transform:translate(-50%, calc(-100% - 24px)) scale(.9); opacity:0; pointer-events:none; transition:transform .55s var(--spring), opacity .25s; }
+    font-size:15px; line-height:20px; letter-spacing:-.23px; font-weight:600; transform:translate(-50%, calc(-100% - 24px)) scale(.9); opacity:0; pointer-events:none; }
   .hud.show { transform:translate(-50%, 0); opacity:1; pointer-events:auto; }
   .hud svg { width:22px; height:22px; color:var(--green); }
   .hud.bad svg { color:var(--red); }
   /* Banner: announcements, like a notification */
   .banner { position:fixed; z-index:1101; left:calc(8px + var(--safe-l)); right:calc(8px + var(--safe-r)); top:calc(var(--safe-t) + 8px); max-width:500px; margin:0 auto; display:flex; gap:12px; align-items:center;
     padding:12px 16px 12px 12px; border-radius:24px; background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8);
-    box-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 10px 34px rgba(0,0,0,.2); transform:translateY(calc(-100% - 30px)); opacity:0; pointer-events:none; transition:transform .5s var(--spring), opacity .3s; }
+    box-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 10px 34px rgba(0,0,0,.2); transform:translateY(calc(-100% - 30px)); opacity:0; pointer-events:none; }
   .banner.show { transform:none; opacity:1; pointer-events:auto; }
   .banner img { width:38px; height:38px; border-radius:9px; flex:none; }
   .banner small { display:block; font-size:13px; line-height:16px; letter-spacing:-.08px; color:var(--label2); }
@@ -427,12 +435,11 @@
 
   /* Reduce Motion: fades instead of slides and springs (page transitions are handled in the script). */
   @media (prefers-reduced-motion: reduce) {
-    #app, #appdim, .asheet, .msheet, .menu, .alertbox, .hud, .banner { transition-duration:.2s !important; transition-timing-function:ease !important; }
-    .menu, .menu.show, .alertbox, .alertbox.show { transform:translate(0,0); }
+    #appdim { transition-duration:.2s !important; }
+    .menu, .menu.show { transform:none; }
     .alertbox, .alertbox.show { transform:translate(-50%,-50%); }
     .hud, .hud.show { transform:translate(-50%, 0); }
-    .banner { transform:none; }
-    .tb-lens, .gb, .rk, .app, .btn, .switch::after { transition-timing-function:ease !important; }
+    .gb, .rk, .app, .btn, .pad .okb, .switch::after { transition-timing-function:ease !important; }   /* the springs become plain fades (script) */
     .spin { animation-duration:1.6s; }
   }
 </style>
@@ -828,7 +835,7 @@
   };
   doc.querySelectorAll('i[data-ic]').forEach(function (n) { n.outerHTML = I[n.dataset.ic]; });
 
-  // ---- Feedback: row highlight on touch, haptic taps, HUD -----------------------------------------
+  // ---- Feedback: row highlight on touch, haptic taps -----------------------------------------------
   // Rows highlight a moment after the finger lands (not while scrolling) and fade out after, like UITableView.
   var hl = null, hlTimer = null, hlX = 0, hlY = 0;
   function unhl() { clearTimeout(hlTimer); if (hl) { var r = hl; hl = null; r.classList.remove('hl'); } }
@@ -846,7 +853,6 @@
     r.classList.add('hl'); setTimeout(function () { r.classList.remove('hl'); }, 150);
   }, { passive: true });
   doc.addEventListener('touchcancel', unhl, { passive: true });
-  doc.addEventListener('scroll', unhl, { passive: true, capture: true });
 
   // A light haptic tap. Safari 18 gives one when a switch toggles, so a hidden switch is toggled.
   var hapticBox = null;
@@ -863,29 +869,115 @@
     } catch (e) {}
   }
 
+  // ---- Motion: springs, run by the compositor -----------------------------------------------------
+  // Every animation is a Web Animation of transform and opacity only, so it runs off the main thread (on an
+  // iPhone at the display's own rate, 120 Hz with ProMotion). Its easing is a damped spring sampled into CSS
+  // linear(); a gesture's release speed is the spring's starting speed, so the motion carries on from the
+  // finger. An animation that's interrupted is picked up from where it is (its spring is known), never jumps.
+  var LINEAR = !!(window.CSS && CSS.supports && CSS.supports('animation-timing-function', 'linear(0, 1)'));
+  var springs = {};
+  // response: seconds for one swing, like SwiftUI; damping: 1 = no overshoot; v0: starting speed in travels a second.
+  function spring(response, damping, v0, noOvershoot) {
+    v0 = clamp(Math.round((v0 || 0) * 4) / 4, -40, 40);   // rounded, so curves are shared
+    var key = response + ',' + damping + ',' + v0 + ',' + !!noOvershoot;
+    if (springs[key]) return springs[key];
+    var w = 2 * Math.PI / response, z = damping, x;
+    if (z < 1) { var wd = w * Math.sqrt(1 - z * z); x = function (t) { return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w - v0) / wd * Math.sin(wd * t)); }; }
+    else if (z === 1) x = function (t) { return 1 - Math.exp(-w * t) * (1 + (w - v0) * t); };
+    else { var q = Math.sqrt(z * z - 1), r1 = -w * (z - q), r2 = -w * (z + q), c1 = (v0 + r2) / (r1 - r2); x = function (t) { return 1 + c1 * Math.exp(r1 * t) - (1 + c1) * Math.exp(r2 * t); }; }
+    var T = 1 / 120;   // settled: within 0.1% of the end and barely moving
+    while (T < 2.5 && (Math.abs(1 - x(T)) > 0.001 || Math.abs(x(T) - x(T - 1 / 240)) > 0.0002)) T += 1 / 120;
+    var n = Math.max(8, Math.ceil(T * 90)), pts = [];
+    for (var i = 0; i <= n; i++) { var y = i === n ? 1 : x(T * i / n); if (noOvershoot) y = Math.min(y, 1); pts.push(+y.toFixed(4)); }
+    var s = { ms: Math.round(T * 1000), top: noOvershoot };
+    if (LINEAR) { s.easing = 'linear(' + pts.join(',') + ')'; s.x = x; }
+    else {   // older Safari: a cubic Bézier that starts at the same speed
+      var y1 = clamp(v0 * T * 0.3, 0, 1);
+      s.easing = 'cubic-bezier(.3,' + (v0 > 0 ? y1.toFixed(3) : '.75') + ',.2,1)'; s.x = bezier(0.3, v0 > 0 ? y1 : 0.75, 0.2, 1, T);
+    }
+    return (springs[key] = s);
+  }
+  function bezier(x1, y1, x2, y2, T) {   // progress at t seconds of a cubic-bezier lasting T
+    function b(a, c, u) { return 3 * a * u * (1 - u) * (1 - u) + 3 * c * u * u * (1 - u) + u * u * u; }
+    return function (t) {
+      var X = clamp(t / T, 0, 1), u = X;
+      for (var i = 0; i < 8; i++) { var d = b(x1, x2, u) - X, h = 3 * (1 - u) * (1 - u) * x1 + 6 * (1 - u) * u * (x2 - x1) + 3 * u * u * (1 - x2); if (Math.abs(d) < 1e-4 || !h) break; u = clamp(u - d / h, 0, 1); }
+      return b(y1, y2, u);
+    };
+  }
+  // Reduce Motion: short crossfades and slides, no springs.
+  var FADE = { ms: 250, easing: 'ease', x: bezier(0.25, 0.1, 0.25, 1, 0.25) };
+  function calmly(s) { return reduceMotion.matches ? FADE : s; }
+  // Buttons spring back out after a press with this curve (CSS reads it from two custom properties).
+  (function () { var r = doc.documentElement.style, s = spring(0.38, 0.62); r.setProperty('--press', s.easing); r.setProperty('--press-ms', s.ms + 'ms'); })();
+  // Animations and gestures under way; work from polls waits until they've settled (keyed, latest wins).
+  var anims = 0, gesture = 0, waiting = {};
+  function tracked(a) {
+    var done = false; anims++;
+    function end() { if (done) return; done = true; anims--; flush(); }
+    a.addEventListener('finish', end); a.addEventListener('cancel', end);
+    return a;
+  }
+  function flush() { if (anims || gesture) return; var w = waiting; waiting = {}; Object.keys(w).forEach(function (k) { w[k](); }); }
+  function calm(key, fn) { if (anims || gesture) waiting[key] = fn; else fn(); }
+  function settled() { return !anims && !gesture; }
+  // Writes only what changed (no needless style or layout work).
+  function setText(e, t) { if (e.textContent !== t) e.textContent = t; }
+  function setHidden(e, h) { h = !!h; if (e.hidden !== h) e.hidden = h; }
+  function setClass(e, c) { if (e.className !== c) e.className = c; }
+  function setTf(e, t) { if (e.style.transform !== t) e.style.transform = t; }
+  function barTf(f) { return 'translateX(' + (clamp(f, 0, 1) * 100 - 100).toFixed(2) + '%)'; }   // progress bars move, never resize
+
+  // An overlay between its two looks (the resting ones are set by a class): a spring from wherever it is now.
+  // look: { hid, on, out } keyframes; out (to animate away to) defaults to hid.
+  function overlay(e, on, look, s, from, cls, lead) {
+    cls = cls || 'show'; s = calmly(s);
+    var a = e._ov, to = on ? look.on : (look.out || look.hid);
+    if (!from) {
+      if (a && a.playState === 'running') { var cs = getComputedStyle(e); from = {}; Object.keys(to).forEach(function (k) { from[k] = cs[k]; }); }
+      else from = on ? look.hid : look.on;
+    }
+    if (a) a.cancel();
+    if (reduceMotion.matches) { from = strip(from); to = strip(to); }
+    e.classList.toggle(cls, on); e.classList.toggle('going', !on);
+    a = e._ov = tracked(e.animate([from, to], { duration: s.ms, easing: s.easing }));
+    if (lead) a.currentTime = Math.min(lead, s.ms);
+    a.onfinish = function () { if (e._ov === a) { e._ov = null; e.classList.remove('going'); if (look.after) look.after(on); } };
+    return a;
+  }
+  function strip(k) { var o = {}; Object.keys(k).forEach(function (p) { if (p !== 'transform' || !/scale/.test(k[p])) o[p] = k[p]; }); return o; }   // no zooming with Reduce Motion
+  var safeTop = 0, probe = el('div');
+  probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:var(--safe-t);visibility:hidden;pointer-events:none';
+  doc.body.appendChild(probe);
+  function measure() { safeTop = probe.offsetHeight; pageW = window.innerWidth; lensGeometry(); }
+
   function toast(text, bad) {
     var t = $('toast');
     $('toast-ic').innerHTML = bad ? I.warnFill : I.okFill;
-    $('toast-t').textContent = text;
+    setText($('toast-t'), text);
     t.classList.toggle('bad', !!bad);
-    t.classList.add('show');
-    clearTimeout(toast.h); toast.h = setTimeout(function () { t.classList.remove('show'); }, 2400);
+    if (!t.classList.contains('show')) overlay(t, true, LOOK.hud, spring(0.42, 0.72));
+    clearTimeout(toast.h); toast.h = setTimeout(hideToast, 2400);
   }
-  $('toast').onclick = function () { $('toast').classList.remove('show'); };
+  function hideToast() { if ($('toast').classList.contains('show')) overlay($('toast'), false, LOOK.hud, spring(0.32, 1)); }
+  $('toast').onclick = hideToast;
 
   // ---- Navigation: a stack of pages per tab -------------------------------------------------------
-  // Each page has its own scroll view and nav bar. A push slides the new page in from the right over
-  // the old one (which moves a third of the way left, dimmed); Back, an edge swipe that follows the
-  // finger, browser Back and a tap on the current tab all pop.
+  // Each page has its own scroll view and nav bar. A push slides the new page in from the right over the old
+  // one (which moves a third of the way left, dimmed); Back, an edge swipe that follows the finger, browser
+  // Back and a tap on the current tab all pop. The stack changes at once; pages leave on screen afterwards.
+  // A transition can be turned around or followed by another one mid-way (tap Back twice, or a row while the
+  // last page is still leaving): everything moves on from where it is.
   var stacks = { remote: [], send: [], notes: [], settings: [] };
   var tabEl = {}; Object.keys(TABS).forEach(function (t) { tabEl[t] = $('tab-' + t); });
-  var current = null, busy = 0;
-  var DUR = 500, EASE = 'cubic-bezier(.32,.72,0,1)';
+  var current = null, run = {}, pageW = window.innerWidth;
+  var LARGE = 52;   // a large title's height (one line)
 
   function topOf(tab) { var s = stacks[tab || current]; return s[s.length - 1]; }
-  function pageWidth() { return (current && tabEl[current].clientWidth) || window.innerWidth; }
+  function pageWidth() { return pageW; }
+  function pushing(tab) { var r = run[tab || current]; return !!(r && r.kind === 'push'); }
   function page(tab, o) {
-    var p = { tab: tab, o: o, title: o.title || '', large: !!o.large };
+    var p = { tab: tab, o: o, title: o.title || '', large: !!o.large, e: false, i: false };
     var pe = o.el;
     if (!pe) { pe = el('div', 'page'); pe.appendChild(el('div', 'scroller')); tabEl[tab].appendChild(pe); }
     if (o.plain) pe.classList.add('plain');
@@ -905,14 +997,32 @@
     p.parts = [bgw, p.lead, p.titleEl, p.trail];
     if (o.actions) setActions(p, o.actions);
     tabEl[tab].appendChild(nav);
-    p.scroller.addEventListener('scroll', function () { scrolled(p); }, { passive: true });
     return p;
+  }
+  // The bar's background and inline title follow the scroll position without a scroll handler: two markers in
+  // the page are watched by an IntersectionObserver. The background shows once the content has moved under
+  // the bar, the inline title once the large title has. (Called once the page's content is in place.)
+  function watch(p) {
+    function mark(top) { var m = el('i', 'mark'); m.style.top = top + 'px'; return p.scroller.appendChild(m); }
+    p.m1 = mark(1); if (p.large) p.m2 = mark(LARGE - 15);
+    if (!window.IntersectionObserver) { p.scroller.addEventListener('scroll', function () { var y = p.scroller.scrollTop; edge(p, y > 2, y > LARGE - 14); }, { passive: true }); return; }
+    p.io = new IntersectionObserver(function (es) {
+      if (!p.el.classList.contains('vis')) return;
+      var e = p.e, i = p.i;
+      es.forEach(function (x) { if (x.target === p.m1) e = !x.isIntersecting; else i = !x.isIntersecting; });
+      edge(p, e, i);
+    }, { root: p.scroller });
+    p.io.observe(p.m1); if (p.m2) p.io.observe(p.m2);
+  }
+  function edge(p, e, i) {
+    if (e !== p.e) { p.e = e; p.nav.classList.toggle('edge', e); }
+    if (p.large && i !== p.i) { p.i = i; p.nav.classList.toggle('inline', i); }
   }
   // Bar buttons: icon buttons side by side share one glass capsule; text buttons are capsules of their own.
   function setActions(p, actions) {
     p.trail.textContent = '';
     var run = [];
-    function flush() {
+    function flushRun() {
       if (!run.length) return;
       if (run.length === 1) { run[0].classList.add('glass'); p.trail.appendChild(run[0]); }
       else { var g = el('div', 'ggroup glass'); run.forEach(function (b) { g.appendChild(b); }); p.trail.appendChild(g); }
@@ -924,37 +1034,15 @@
       if (a.text) b.textContent = a.text; else b.innerHTML = I[a.icon];
       b.setAttribute('aria-label', a.label || a.text);
       if (a.fn) b.onclick = function () { a.fn(b); };
-      if (a.text || a.prom) { flush(); if (!a.prom) b.classList.add('glass'); p.trail.appendChild(b); }
+      if (a.text || a.prom) { flushRun(); if (!a.prom) b.classList.add('glass'); p.trail.appendChild(b); }
       else run.push(b);
     });
-    flush();
+    flushRun();
   }
-  // Large title: the inline title fades in once it has scrolled under the bar; pulling down grows it a little.
-  function scrolled(p) {
-    var y = p.scroller.scrollTop;
-    p.nav.classList.toggle('edge', y > 2);
-    if (p.large) {
-      p.nav.classList.toggle('inline', y > p.h1.offsetHeight - 14);
-      var s = y < 0 ? Math.min(1.12, 1 - y / 700) : 1;
-      if (s !== p.s) { p.s = s; p.h1.style.transform = s === 1 ? '' : 'scale(' + s.toFixed(3) + ')'; }
-    }
-  }
+  // Hidden pages keep their layout and scroll position (content-visibility), so showing one again is cheap.
   function vis(p, on) {
-    if (!p) return;
-    if (!on && p.el.classList.contains('vis')) p.y = p.scroller.scrollTop;
+    if (!p || p.el.classList.contains('vis') === on) return;
     p.el.classList.toggle('vis', on); p.nav.classList.toggle('vis', on);
-    if (on) { if (p.y) p.scroller.scrollTop = p.y; scrolled(p); layoutNav(p); }
-  }
-  // The inline title is centred on the screen when it fits between the bar buttons; otherwise it takes
-  // the room between them, like UINavigationBar.
-  function layoutNav(p) {
-    var n = p.nav;
-    if (!n.classList.contains('vis') || !tabEl[p.tab].classList.contains('on')) return;
-    n.style.gridTemplateColumns = 'max-content max-content max-content';
-    var w = function (e) { return Math.ceil(e.getBoundingClientRect().width) + 1; };   // whole pixels up, or a label can ellipsize
-    var L = w(p.lead), T = w(p.trail), M = w(p.tt), cs = getComputedStyle(n);
-    var W = n.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 16, side = Math.max(L, T);
-    n.style.gridTemplateColumns = M <= W - 2 * side ? side + 'px minmax(0,1fr) ' + side + 'px' : 'minmax(0,' + L + 'px) minmax(0,1fr) minmax(0,' + T + 'px)';
   }
   function backButton(prev) {
     var label = prev.title || 'Back', b = el('button', 'gb glass back');
@@ -964,141 +1052,172 @@
     b.onclick = goBack;
     return b;
   }
-  function tr(x) { return 'translate3d(' + Math.round(x * 10) / 10 + 'px,0,0)'; }
-  // Positions the top page and the one under it for a push or pop: f = 0 shows the top page, f = 1 has it
-  // off to the right. ms = 0 follows a finger; otherwise it animates there. fade: Reduce Motion crossfade.
-  function place(top, under, f, ms, fade, settle) {
-    var w = pageWidth(), leaving = f > 0.5;   // f = 1: the top page is on its way out
-    // Bar items: the leaving ones fade out quickly, the arriving ones fade in late, so the two back
-    // labels never sit on top of each other half-faded; the bar backgrounds simply cross-fade.
-    function set(n, kind, opacity, transform) {
-      if (settle) kind = '';   // finishing a swipe: everything just carries on from where the finger left it
-      n.style.transition = !ms ? 'none'
-        : kind === 'out' ? 'transform ' + ms + 'ms ' + EASE + ', opacity ' + Math.round(ms * 0.4) + 'ms ease-out'
-        : kind === 'in' ? 'transform ' + ms + 'ms ' + EASE + ', opacity ' + Math.round(ms * 0.55) + 'ms ease-in ' + Math.round(ms * 0.3) + 'ms'
-        : 'transform ' + ms + 'ms ' + EASE + ', opacity ' + ms + 'ms ' + EASE;
-      if (opacity != null) n.style.opacity = opacity;
-      if (transform != null) n.style.transform = transform;
-    }
-    if (fade) {   // Reduce Motion: a crossfade, nothing slides
-      set(top.el, '', 1 - f);
-      top.parts.forEach(function (n) { set(n, '', 1 - f); });
-      if (under) under.parts.forEach(function (n) { set(n, '', f); });
-      return;
-    }
+  function tx(x) { return 'translate3d(' + Math.round(x * 10) / 10 + 'px,0,0)'; }
+  // How a page looks in a transition at f (0: the top page in place; 1: the top page gone to the right).
+  // Bar items: the leaving ones fade quickly, the arriving ones late, so two back labels never overlap.
+  function look(p, role, f, w, fade) {
     var out = clamp(1 - f * 1.8, 0, 1), inn = clamp((f - 0.35) / 0.65, 0, 1);
-    set(top.el, '', null, tr(f * w));
-    top.parts.forEach(function (n, i) { set(n, i ? (leaving ? 'out' : 'in') : '', i ? out : 1 - f, n === top.titleEl ? tr(f * w * 0.42) : null); });
-    if (under) {
-      set(under.el, '', null, tr(-(1 - f) * w * 0.3));
-      set(under.shade, '', 1 - f);
-      under.parts.forEach(function (n, i) { set(n, i ? (leaving ? 'in' : 'out') : '', i ? inn : f, n === under.titleEl ? tr(-(1 - f) * w * 0.3) : null); });
-    }
+    if (fade) return role === 'top'
+      ? [[p.el, { op: 1 - f }], [p.shade, { op: 0 }], [p.parts[0], { op: 1 - f }], [p.lead, { op: 1 - f }], [p.titleEl, { op: 1 - f }], [p.trail, { op: 1 - f }]]
+      : [[p.el, { op: 1 }], [p.shade, { op: 0 }], [p.parts[0], { op: f }], [p.lead, { op: f }], [p.titleEl, { op: f }], [p.trail, { op: f }]];
+    return role === 'top'
+      ? [[p.el, { tx: f * w }], [p.shade, { op: 0 }], [p.parts[0], { op: 1 - f }], [p.lead, { op: out }], [p.titleEl, { op: out, tx: f * w * 0.42 }], [p.trail, { op: out }]]
+      : [[p.el, { tx: -(1 - f) * w * 0.3 }], [p.shade, { op: 1 - f }], [p.parts[0], { op: f }], [p.lead, { op: inn }], [p.titleEl, { op: inn, tx: -(1 - f) * w * 0.3 }], [p.trail, { op: inn }]];
   }
-  function clearPlace(p) {
-    if (!p) return;
-    [p.el, p.shade].concat(p.parts).forEach(function (n) { n.style.transition = n.style.transform = n.style.opacity = ''; });
-    p.el.classList.remove('moving');
+  function put(e, v) { if (v.tx != null) e.style.transform = tx(v.tx); if (v.op != null) e.style.opacity = v.op; }
+  function keyframe(k) { var f = { offset: k.o }; if (k.tx != null) f.transform = tx(k.tx); if (k.op != null) f.opacity = k.op; return f; }
+  // A finger moving the pages: direct styles, nothing animating.
+  function place(top, under, f) {
+    var w = pageWidth(), fade = reduceMotion.matches;
+    look(top, 'top', f, w, fade).forEach(function (it) { stop(it[0]); put(it[0], it[1]); });
+    if (under) look(under, 'under', f, w, fade).forEach(function (it) { stop(it[0]); put(it[0], it[1]); });
   }
+  // Where an animating element is now (dt: ms from now), from its animation's clock and its spring.
+  function now(e, dt) {
+    var m = e._mv, k = m.keys, T = m.s.ms;
+    var t = clamp((m.a.currentTime || 0) + (dt || 0), 0, T), x = t >= T ? 1 : m.s.x(t / 1000);
+    if (m.s.top) x = Math.min(x, 1);
+    var i = 1; while (i < k.length - 1 && k[i].o < x) i++;
+    var A = k[i - 1], B = k[i], f = B.o === A.o ? 1 : (x - A.o) / (B.o - A.o), r = {};
+    if (A.tx != null) r.tx = A.tx + (B.tx - A.tx) * f;
+    if (A.op != null) r.op = A.op + (B.op - A.op) * f;
+    return r;
+  }
+  function stop(e) { if (e._mv) { var a = e._mv.a; e._mv = null; a.onfinish = null; a.cancel(); } }
+  function moving(p) { return !!(p.el._mv && p.el._mv.a.playState !== 'finished'); }
+  function clearPlace(p) { [p.el, p.shade].concat(p.parts).forEach(function (n) { stop(n); n.style.transform = n.style.opacity = ''; }); }
+  // Animates top over under from f0 to f1 (spring speed v); each element starts from where it is now.
+  // lead: ms the motion is already under way (a finger let go a moment ago), so the first frame doesn't stand still.
+  function animatePages(top, under, f0, f1, v, done, lead) {
+    var w = pageWidth(), fade = reduceMotion.matches, s = fade ? FADE : spring(0.42, 1, v, true), offs = [0, 1], main = null;
+    if (!fade && f1 !== f0) [1 / 1.8, 0.35].forEach(function (b) { var o = (b - f0) / (f1 - f0); if (o > 0.02 && o < 0.98) offs.push(o); });
+    offs.sort(function (a, b) { return a - b; });
+    [[top, 'top'], [under, 'under']].forEach(function (pr) {
+      var p = pr[0]; if (!p) return;
+      var looks = offs.map(function (o) { return look(p, pr[1], f0 + (f1 - f0) * o, w, fade); });
+      looks[0].forEach(function (it, n) {
+        var e = it[0], cur = e._mv ? now(e) : null;
+        var keys = offs.map(function (o, j) { var v = looks[j][n][1]; return { o: o, tx: v.tx, op: v.op }; });
+        if (cur) { if (cur.tx != null && keys[0].tx != null) keys[0].tx = cur.tx; if (cur.op != null && keys[0].op != null) keys[0].op = cur.op; }
+        stop(e);
+        put(e, keys[keys.length - 1]);   // the end state underneath, so finishing needs no clean-up
+        if (keys.every(function (k) { return k.tx === keys[0].tx && k.op === keys[0].op; }) || (e !== p.el && e !== p.shade && !e.firstChild)) return;   // nothing to move, or an empty bar area
+        var a = tracked(e.animate(keys.map(keyframe), { duration: s.ms, easing: s.easing }));
+        if (lead) a.currentTime = Math.min(lead, s.ms);
+        e._mv = { a: a, keys: keys, s: s };
+        a.onfinish = function () { if (e._mv && e._mv.a === a) e._mv = null; if (a === main && done) done(); };
+        if (!main) main = a;
+      });
+    });
+    if (!main && done) done();   // already there: settle now
+    return main;
+  }
+  // Where a moving page's transition is (0..1) and how fast it's going (per second).
+  function progress(p) {
+    if (!p.el._mv || p.el._mv.keys[0].tx == null) return { f: 0, v: 0 };
+    var w = pageWidth(), a = now(p.el).tx, b = now(p.el, 8).tx;
+    return { f: clamp(a / w, 0, 1), v: (b - a) / w * 125 };
+  }
+  function transition(kind, top, under, f0, f1, v, lead) {
+    var tab = top.tab, r = { kind: kind, top: top, under: under };
+    run[tab] = r;
+    animatePages(top, under, f0, f1, v, function () { if (run[tab] === r) run[tab] = null; settle(top); settle(under); }, lead);
+  }
+  // A page whose transitions are over: in place if it's on top, hidden if under it, gone if popped.
+  function settle(p) {
+    if (!p || moving(p)) return;   // it's in a newer transition; that one settles it
+    var s = stacks[p.tab], i = s.indexOf(p);
+    clearPlace(p);
+    if (i >= 0 && i === s.length - 1) return;
+    vis(p, false);
+    if (i < 0) dispose(p); else zIndex(p, i);
+  }
+  function zIndex(p, d) { p.el.style.zIndex = d; p.nav.style.zIndex = 100 + d; }
   function push(p, o) {
     o = o || {};
-    var s = stacks[p.tab], prev = s[s.length - 1];
-    if (s.indexOf(p) >= 0 || (busy && p.tab === current && prev)) return false;
+    var s = stacks[p.tab], prev = s[s.length - 1], animate = o.animate !== false && !!prev && p.tab === current;
+    if (s.indexOf(p) >= 0 || (animate && pushing(p.tab))) return false;   // one push at a time, like iOS
     s.push(p); p.depth = s.length - 1;
-    p.el.style.zIndex = p.depth; p.nav.style.zIndex = 100 + p.depth;
+    zIndex(p, 2 * p.depth);
     p.lead.textContent = '';
     if (prev) p.lead.appendChild(backButton(prev));
-    p.y = 0; p.scroller.scrollTop = 0;
+    var back = moving(p);   // still leaving: it turns around from where it is
     vis(p, true);
-    if (prev && o.animate !== false && p.tab === current) {
-      var fade = reduceMotion.matches, ms = fade ? 250 : DUR;
-      busy++;
-      if (!fade) p.el.classList.add('moving');
-      place(p, prev, 1, 0, fade);
-      void p.el.offsetWidth;      // start from the right edge
-      place(p, prev, 0, ms, fade);
-      setTimeout(function () { busy--; clearPlace(p); clearPlace(prev); vis(prev, false); }, ms + 30);
-    } else vis(prev, false);
+    if (!back && p.e) { p.scroller.scrollTop = 0; edge(p, false, false); }   // a page opens at its top
+    if (animate) transition('push', p, prev, back ? progress(p).f || 1 : 1, 0, 0);
+    else { if (prev) { vis(prev, false); clearPlace(prev); } clearPlace(p); }
     if (p.tab === current) syncHistory();
     return true;
   }
   function goBack() { popTo(stacks[current].length - 2); }
+  // o.f, o.v: a swipe let go at f, moving at v (page widths a second).
   function popTo(depth, o) {
     o = o || {};
     var s = stacks[current];
-    if (depth < 0 || s.length - 1 <= depth || busy) return false;
-    var top = s[s.length - 1], under = s[depth];
+    if (depth < 0 || s.length - 1 <= depth) return false;
+    var top = s[s.length - 1], under = s[depth], mid = s.slice(depth + 1, s.length - 1), r = run[current];
+    s.length = depth + 1;   // popped now; they leave on screen
     // Pages in between go without being seen, like iOS popping to the root.
-    s.splice(depth + 1, s.length - depth - 2).forEach(function (m) { vis(m, false); clearPlace(m); if (m.o.onPop) m.o.onPop(m); dispose(m); });
+    mid.forEach(function (m) { vis(m, false); clearPlace(m); if (m.o.onPop) m.o.onPop(m); dispose(m); });
+    zIndex(top, 2 * depth + 1);   // under anything pushed while it leaves
+    if (under.selRow) { var row = under.selRow; under.selRow = null; row.classList.remove('sel'); }   // fades back as the page goes
+    if (top.o.onPop) top.o.onPop(top);
     vis(under, true);
-    if (o.animate === false) { finishPop(top, under); return true; }
-    var fade = reduceMotion.matches, ms = fade ? 250 : DUR;
-    busy++;
-    if (!fade) top.el.classList.add('moving');
-    place(top, under, 0, 0, fade);
-    void top.el.offsetWidth;
-    place(top, under, 1, ms, fade);
-    setTimeout(function () { busy--; finishPop(top, under); }, ms + 30);
+    if (o.animate === false) { vis(top, false); clearPlace(top); clearPlace(under); dispose(top); }
+    else {
+      var f0 = o.f || 0, v = o.v || 0;
+      if (o.f == null && r && r.top === top && r.under === under) { var c = progress(top); f0 = c.f; v = c.v / Math.max(0.05, 1 - c.f); }   // a push turned around: it keeps its speed
+      transition('pop', top, under, f0, 1, v, o.lead);
+    }
+    syncHistory();
     return true;
   }
-  function finishPop(top, under) {
-    var s = stacks[top.tab], i = s.indexOf(top);
-    if (i >= 0) s.splice(i, 1);
-    clearPlace(top); clearPlace(under);
-    vis(top, false); dispose(top);
-    if (under.selRow) { var r = under.selRow; under.selRow = null; r.classList.remove('sel'); }   // the row fades back, like iOS
-    if (top.o.onPop) top.o.onPop(top);
-    if (top.tab === current) syncHistory();
-  }
-  function dispose(p) { if (p.o.keep) return; p.el.remove(); p.nav.remove(); }
+  function dispose(p) { if (p.o.keep) return; if (p.io) p.io.disconnect(); p.el.remove(); p.nav.remove(); }
   function select(p, row) { if (row) { row.classList.add('sel'); p.selRow = row; } }
 
-  // Interactive pop: from the left edge (or a sideways swipe on the page, as on iOS 26), the page follows the finger.
+  // Interactive pop: from the left edge (or a sideways swipe on the page, as on iOS 26), the page follows the
+  // finger. Passive listeners only: pages scroll vertically on their own (touch-action: pan-y), a sideways
+  // drag never scrolls, so nothing here ever holds up scrolling.
   var sw = null;
   function overlayOpen() { return sheetOpen || dialogOpen || menuOpen || kbOpen || screenOpen; }
   $('app').addEventListener('touchstart', function (e) {
     sw = null;
-    if (!swipeBack || busy || e.touches.length !== 1 || overlayOpen()) return;
+    if (!swipeBack || e.touches.length !== 1 || overlayOpen() || run[current]) return;
     var s = stacks[current]; if (!s || s.length < 2) return;
-    var t = e.touches[0], edge = t.clientX < 30;
+    var t = e.touches[0], edgeTouch = t.clientX < 30;
     if (e.target.closest('.tabbar, .navbar')) return;
-    if (!edge && e.target.closest('input, textarea, select, .noswipe')) return;
-    sw = { x: t.clientX, y: t.clientY, edge: edge, on: false, top: s[s.length - 1], under: s[s.length - 2], pts: [], f: 0 };
-    sw.st = sw.top.scroller.scrollTop;
+    if (!edgeTouch && e.target.closest('input, textarea, select, .noswipe')) return;
+    sw = { x: t.clientX, y: t.clientY, edge: edgeTouch, on: false, top: s[s.length - 1], under: s[s.length - 2], pts: [], f: 0 };
   }, { passive: true });
   $('app').addEventListener('touchmove', function (e) {
     if (!sw) return;
     var t = e.touches[0], dx = t.clientX - sw.x, dy = t.clientY - sw.y;
     if (!sw.on) {
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-      if (dx > 0 && Math.abs(dx) > Math.abs(dy) * (sw.edge ? 1 : 1.7) && Math.abs(sw.top.scroller.scrollTop - sw.st) < 2) {
-        sw.on = true; busy++;
-        if (doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
-        unhl();
-        vis(sw.under, true); sw.top.el.classList.add('moving');
-      } else { sw = null; return; }
+      if (!(dx > 0 && Math.abs(dx) > Math.abs(dy) * (sw.edge ? 1 : 1.7))) { sw = null; return; }
+      sw.on = true; gesture++;
+      if (doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
+      unhl(); vis(sw.under, true);
     }
-    if (e.cancelable) e.preventDefault();
     sw.f = clamp(dx / pageWidth(), 0, 1);
-    sw.pts.push([Date.now(), t.clientX]); if (sw.pts.length > 6) sw.pts.shift();
-    place(sw.top, sw.under, sw.f, 0);
-  }, { passive: false });
-  function swipeEnd(cancelled) {
+    sw.pts.push([e.timeStamp, t.clientX]); if (sw.pts.length > 6) sw.pts.shift();
+    place(sw.top, sw.under, sw.f);
+  }, { passive: true });
+  function swipeEnd(cancelled, t) {
     var g = sw; sw = null;
     if (!g || !g.on) return;
-    var v = 0, p = g.pts;
-    if (p.length > 1) { var a = p[0], b = p[p.length - 1]; v = (b[1] - a[1]) / Math.max(1, b[0] - a[0]); }   // px per ms
-    var w = pageWidth(), done = !cancelled && (v > 0.35 || (g.f > 0.5 && v > -0.2));
-    var left = (done ? 1 - g.f : g.f) * w, ms = Math.round(clamp(left / Math.max(Math.abs(v), 0.9), 140, 380));
-    place(g.top, g.under, done ? 1 : 0, ms, false, true);
-    setTimeout(function () {
-      busy--;
-      if (done) finishPop(g.top, g.under);
-      else { clearPlace(g.top); clearPlace(g.under); vis(g.under, false); }
-    }, ms + 20);
+    var v = 0, p = g.pts;   // px per ms
+    if (p.length > 1) { var a = p[0], b = p[p.length - 1]; v = (b[1] - a[1]) / Math.max(1, b[0] - a[0]); }
+    var vw = v * 1000 / pageWidth(), done = !cancelled && (v > 0.35 || (g.f > 0.5 && v > -0.2)), lead = since(p, t);
+    gesture--;
+    if (done) popTo(stacks[current].indexOf(g.under), { f: g.f, v: vw / Math.max(0.05, 1 - g.f), lead: lead });   // carries on from the finger
+    else transition('stay', g.top, g.under, g.f, 0, -vw / Math.max(0.05, g.f), lead);
+    flush();
   }
-  $('app').addEventListener('touchend', function () { swipeEnd(false); });
-  $('app').addEventListener('touchcancel', function () { swipeEnd(true); });
+  // How long ago the finger last moved, plus half a frame: where a released motion should already be.
+  function since(pts, t) { var last = pts.length ? pts[pts.length - 1][0] : t; return clamp((t || last) - last, 0, 40) + 8; }
+  $('app').addEventListener('touchend', function (e) { swipeEnd(false, e.timeStamp); }, { passive: true });
+  $('app').addEventListener('touchcancel', function (e) { swipeEnd(true, e.timeStamp); }, { passive: true });
 
   // Browser history mirrors the current tab's stack (base entry = its first page), so Back pops a page.
   var hist = { depth: 0, tab: null, waiting: false, timer: 0 };
@@ -1127,7 +1246,7 @@
     if (!s) { hist.depth = 0; hist.tab = null; route(location.hash.length > 1 ? location.hash : '#' + current); return; }
     hist.depth = s.depth; hist.tab = s.tab;
     if (s.tab !== current) { selectTab(s.tab); return; }
-    if (s.depth < stacks[current].length - 1 && !busy) {
+    if (s.depth < stacks[current].length - 1) {
       // Safari's own back swipe has already animated; a Home Screen app has no such gesture.
       if (sheetOpen) closeSheet(); if (menuOpen) closeMenu(); if (kbOpen) closeKb(); if (screenOpen) closeScreen();
       popTo(s.depth, { animate: standalone });
@@ -1139,10 +1258,7 @@
     if (tab === 'keyboard') { selectTab('remote'); openKb(false); return; }
     if (!TABS[tab]) tab = 'remote';
     if (tab !== current) {
-      if (current) {
-        stacks[current].forEach(function (p) { if (p.el.classList.contains('vis')) p.y = p.scroller.scrollTop; });
-        tabEl[current].classList.remove('on');
-      }
+      if (current) tabEl[current].classList.remove('on');
       tabEl[tab].classList.add('on');
       current = tab;
       var top = topOf(tab); if (top) vis(top, true);   // back where it was, scroll position and all
@@ -1172,48 +1288,76 @@
   // Tapping the current tab again goes back to its first page, or scrolls it to the top, like iOS.
   function tapTab(tab) {
     if (tab !== current) return selectTab(tab);
-    if (busy) return;
     if (stacks[current].length > 1) popTo(0);
     else topOf().scroller.scrollTo({ top: 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
   }
-  function tabAt(x) {
-    var bs = doc.querySelectorAll('#tabbar button'), best = null;
-    bs.forEach(function (b) { var r = b.getBoundingClientRect(); if (x >= r.left && x <= r.right) best = b; });
-    return best;
+  // The selection lens: tab buttons are equal, so its size is set once and only its position moves.
+  var lens = { x: 0, w: 0, xs: [], m: null };
+  function lensGeometry() {
+    var bar = $('tabbar'), bs = bar.querySelectorAll('button'), bw = (bar.clientWidth - 8) / bs.length;
+    lens.w = bw; lens.xs = []; for (var i = 0; i < bs.length; i++) lens.xs.push(4 + i * bw);
+    $('tb-lens').style.width = bw + 'px';
   }
-  function moveLens(x) {
-    var bar = $('tabbar'), lens = $('tb-lens'), b = bar.querySelector('button.on');
-    if (!b) return;
-    var left = b.offsetLeft;
-    if (x != null) left = clamp(x - bar.getBoundingClientRect().left - b.offsetWidth / 2, 4, bar.clientWidth - b.offsetWidth - 4);
-    if (!moveLens.done) lens.style.transition = 'none';   // in place at launch, sliding after that
-    lens.style.width = b.offsetWidth + 'px';
-    lens.style.transform = 'translateX(' + left + 'px)';
-    if (!moveLens.done) { moveLens.done = true; void lens.offsetWidth; lens.style.transition = ''; }
+  function lensNow() {
+    var m = lens.m; if (!m || m.a.playState === 'finished' || m.a.playState === 'idle') return lens.x;
+    var t = clamp(m.a.currentTime || 0, 0, m.s.ms); return m.from + (lens.x - m.from) * (t >= m.s.ms ? 1 : m.s.x(t / 1000));
   }
-  window.addEventListener('resize', function () { moveLens(); if (current) stacks[current].forEach(layoutNav); });
-  doc.querySelectorAll('#tabbar button').forEach(function (b) { b.onclick = function () { tapTab(b.dataset.tab); }; });
-  // Press and slide along the tab bar: the selection lens follows the finger and lands where it's let go.
-  var tb = null;
-  $('tabbar').addEventListener('touchstart', function (e) { tb = { x: e.touches[0].clientX, lx: e.touches[0].clientX, moved: false }; $('tabbar').classList.add('press'); }, { passive: true });
+  function lensTo(x, v, lead) {   // v: px a second from a drag
+    var from = lensNow(), L = $('tb-lens');
+    if (lens.m) { lens.m.a.cancel(); lens.m = null; }
+    lens.x = x; L.style.transform = 'translateX(' + x + 'px)';
+    if (!moveLens.done || Math.abs(from - x) < 0.5) return;
+    var s = calmly(spring(0.45, 0.78, v && from !== x ? v / (x - from) : 0));
+    lens.m = { from: from, s: s, a: tracked(L.animate([{ transform: 'translateX(' + from + 'px)' }, { transform: 'translateX(' + x + 'px)' }], { duration: s.ms, easing: s.easing })) };
+    if (lead) lens.m.a.currentTime = Math.min(lead, s.ms);
+  }
+  function moveLens(fingerX, v, lead) {
+    var i = Object.keys(TABS).indexOf(current);
+    if (fingerX != null) {   // following a finger: no animation
+      if (lens.m) { lens.m.a.cancel(); lens.m = null; }
+      lens.x = clamp(fingerX - $('tabbar').getBoundingClientRect().left - lens.w / 2, 4, lens.xs[lens.xs.length - 1]);
+      $('tb-lens').style.transform = 'translateX(' + lens.x + 'px)';
+      return;
+    }
+    lensTo(lens.xs[i] || 4, v, lead);
+    moveLens.done = true;   // in place at launch, sliding after that
+  }
+  window.addEventListener('resize', function () { measure(); moveLens(); });
+  doc.querySelectorAll('#tabbar button').forEach(function (b) { b.onclick = function () { if (Date.now() - tbDragged > 400) tapTab(b.dataset.tab); }; });
+  // Press and slide along the tab bar: the lens follows the finger and lands where it's let go. The bar takes no
+  // pan or zoom (touch-action: none), so these listeners can stay passive.
+  var tb = null, tbDragged = 0;
+  $('tabbar').addEventListener('touchstart', function (e) { tb = { x: e.touches[0].clientX, lx: e.touches[0].clientX, moved: false, pts: [] }; $('tabbar').classList.add('press'); }, { passive: true });
   $('tabbar').addEventListener('touchmove', function (e) {
     if (!tb) return;
-    var x = e.touches[0].clientX; tb.lx = x;
-    if (!tb.moved && Math.abs(x - tb.x) > 10) { tb.moved = true; $('tabbar').classList.add('drag'); }
-    if (tb.moved) { if (e.cancelable) e.preventDefault(); moveLens(x); }
-  }, { passive: false });
-  $('tabbar').addEventListener('touchend', function (e) {
+    var x = e.touches[0].clientX; tb.lx = x; tb.pts.push([e.timeStamp, x]); if (tb.pts.length > 5) tb.pts.shift();
+    if (!tb.moved && Math.abs(x - tb.x) > 10) { tb.moved = true; gesture++; $('tabbar').classList.add('drag'); }
+    if (tb.moved) moveLens(x);
+  }, { passive: true });
+  function tbEnd(cancel, ts) {
     var t = tb; tb = null; $('tabbar').classList.remove('press', 'drag');
     if (!t || !t.moved) return;
-    if (e.cancelable) e.preventDefault();
-    var b = tabAt(t.lx);
-    if (b && b.dataset.tab !== current) selectTab(b.dataset.tab); else moveLens();
-  }, { passive: false });
-  $('tabbar').addEventListener('touchcancel', function () { tb = null; $('tabbar').classList.remove('press', 'drag'); moveLens(); });
+    gesture--; tbDragged = Date.now();
+    var v = 0; if (t.pts.length > 1) { var a = t.pts[0], b = t.pts[t.pts.length - 1]; v = (b[1] - a[1]) / Math.max(1, b[0] - a[0]) * 1000; }
+    var bar = $('tabbar').getBoundingClientRect(), i = clamp(Math.floor((t.lx - bar.left - 4) / lens.w), 0, lens.xs.length - 1), tab = Object.keys(TABS)[i], lead = since(t.pts, ts);
+    if (!cancel && tab !== current) { lensTo(lens.xs[i], v, lead); selectTab(tab); } else moveLens(null, v, lead);
+    flush();
+  }
+  $('tabbar').addEventListener('touchend', function (e) { tbEnd(false, e.timeStamp); }, { passive: true });
+  $('tabbar').addEventListener('touchcancel', function (e) { tbEnd(true, e.timeStamp); }, { passive: true });
 
-  // ---- Overlays: action sheets, alerts, menus, the card sheet, banners -----------------------------
+  // ---- Overlays: action sheets, alerts, menus, the card sheets, banners ----------------------------
+  var LOOK = {
+    sheet: { hid: { transform: 'translateY(calc(100% + 60px))' }, on: { transform: 'translateY(0)' } },
+    alert: { hid: { transform: 'translate(-50%,-50%) scale(1.12)', opacity: 0 }, on: { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }, out: { transform: 'translate(-50%,-50%) scale(1)', opacity: 0 } },
+    menu: { hid: { transform: 'scale(.3)', opacity: 0 }, on: { transform: 'scale(1)', opacity: 1 }, out: { transform: 'scale(.7)', opacity: 0 } },
+    card: { hid: { transform: 'translateY(calc(100% + 20px))' }, on: { transform: 'translateY(0)' } },
+    half: { hid: { transform: 'translateY(calc(100% + 40px))' }, on: { transform: 'translateY(0)' } },
+    hud: { hid: { transform: 'translate(-50%, calc(-100% - 24px)) scale(.9)', opacity: 0 }, on: { transform: 'translate(-50%, 0) scale(1)', opacity: 1 } },
+    banner: { hid: { transform: 'translateY(calc(-100% - 30px))', opacity: 0 }, on: { transform: 'translateY(0)', opacity: 1 } }
+  };
   var veilTap = null, sheetOpen = false, sheetGone = 0, dialogOpen = false, menuOpen = false;
-  function veil(on, onTap, kind) { $('veil').className = 'veil' + (kind ? ' ' + kind : '') + (on ? ' show' : ''); veilTap = on ? onTap : null; }
+  function veil(on, onTap, kind) { setClass($('veil'), 'veil' + (kind ? ' ' + kind : '') + (on ? ' show' : '')); veilTap = on ? onTap : null; }
   $('veil').addEventListener('click', function () { if (veilTap) veilTap(); });
   // Action sheet: [{label, danger, fn}], plus Cancel. fn runs inside the tap (file pickers, clipboard and downloads need that).
   function sheet(title, message, actions) {
@@ -1226,9 +1370,13 @@
     s.appendChild(g);
     var c = el('button', 'as-g as-b as-cancel', 'Cancel'); c.onclick = closeSheet; s.appendChild(c);
     sheetOpen = true; veil(true, closeSheet);
-    requestAnimationFrame(function () { if (sheetOpen) s.classList.add('show'); });
+    overlay(s, true, LOOK.sheet, spring(0.4, 0.92));
   }
-  function closeSheet() { if (!sheetOpen) return; sheetOpen = false; $('sheet').classList.remove('show'); veil(false); sheetGone = Date.now() + 330; }
+  function closeSheet() {
+    if (!sheetOpen) return;
+    sheetOpen = false; veil(false);
+    var a = overlay($('sheet'), false, LOOK.sheet, spring(0.3, 1)); sheetGone = Date.now() + a.effect.getTiming().duration * 0.7;
+  }
   function confirmSheet(title, message, label, fn) { sheet(title, message, [{ label: label, danger: true, fn: fn }]); }
   // Alert: {title, message, input: {placeholder}, actions: [{label, pref, danger, fn(value)}]}.
   function alertBox(o) {
@@ -1245,10 +1393,14 @@
     });
     i.onkeydown = function (e) { if (e.key === 'Enter' && pref) { e.preventDefault(); pref.onclick(); } };
     dialogOpen = true; veil(true, null); placeDialog();
-    $('dialog').classList.add('show');
+    overlay($('dialog'), true, LOOK.alert, spring(0.36, 0.8));
     if (o.input) i.focus();   // within the tap, so iOS shows the keyboard
   }
-  function closeDialog() { dialogOpen = false; $('dialog').classList.remove('show'); veil(false); if (doc.activeElement === $('d-input')) $('d-input').blur(); }
+  function closeDialog() {
+    dialogOpen = false; veil(false);
+    if ($('dialog').classList.contains('show')) overlay($('dialog'), false, LOOK.alert, spring(0.25, 1));
+    if (doc.activeElement === $('d-input')) $('d-input').blur();
+  }
   // Keeps an alert in the middle of what's visible above the keyboard.
   function placeDialog() { var v = window.visualViewport; $('dialog').style.top = v ? (v.offsetTop + v.height * 0.46) + 'px' : ''; }
   if (window.visualViewport) window.visualViewport.addEventListener('resize', function () { if (dialogOpen) placeDialog(); });
@@ -1278,11 +1430,12 @@
     m.style.left = x + 'px'; m.style.top = y + 'px';
     m.style.transformOrigin = clamp(r.left + r.width / 2 - x, 0, w) + 'px ' + (below ? 0 : h) + 'px';
     menuOpen = true; veil(true, closeMenu, o.blur ? 'blur' : 'clear');
-    requestAnimationFrame(function () { if (menuOpen) m.classList.add('show'); });
+    overlay(m, true, LOOK.menu, spring(0.38, 0.76));
   }
   function closeMenu() {
     if (!menuOpen) return;
-    menuOpen = false; $('menu').classList.remove('show'); veil(false);
+    menuOpen = false; veil(false);
+    overlay($('menu'), false, LOOK.menu, spring(0.26, 1));
     if (closeMenu.after) { var f = closeMenu.after; closeMenu.after = null; f(); }
   }
   // Context menu: the row lifts over a blurred background with its menu beside it.
@@ -1292,8 +1445,12 @@
     pv.removeAttribute('id'); pv.querySelectorAll('[id]').forEach(function (n) { n.removeAttribute('id'); });
     pv.style.left = r.left + 'px'; pv.style.top = r.top + 'px'; pv.style.width = r.width + 'px'; pv.style.height = r.height + 'px';
     doc.body.appendChild(pv);
-    requestAnimationFrame(function () { pv.classList.add('lift'); });
-    closeMenu.after = function () { pv.classList.remove('lift'); pv.classList.add('drop'); setTimeout(function () { pv.remove(); }, 300); };
+    var s = calmly(spring(0.4, 0.7));
+    tracked(pv.animate([{ transform: 'scale(.975)' }, { transform: 'scale(1.03)' }], { duration: s.ms, easing: s.easing, fill: 'forwards' }));
+    closeMenu.after = function () {
+      var d = calmly(spring(0.3, 1)), a = tracked(pv.animate([{ transform: 'scale(1.03)', opacity: 1 }, { transform: 'scale(1)', opacity: 0 }], { duration: d.ms, easing: d.easing, fill: 'forwards' }));
+      a.onfinish = function () { pv.remove(); };
+    };
     haptic();
     menu(pv, items, { blur: true });
   }
@@ -1310,40 +1467,56 @@
       lp = me;
     }, { passive: true });
     box.addEventListener('touchmove', function (e) { if (lp && !lp.fired && Math.abs(e.touches[0].clientX - lp.x) + Math.abs(e.touches[0].clientY - lp.y) > 10) cancel(); }, { passive: true });
+    // touchend can't hold up scrolling; it stops the tap that would follow a long press
     box.addEventListener('touchend', function (e) { if (lp && lp.fired && e.cancelable) e.preventDefault(); cancel(); }, { passive: false });
-    box.addEventListener('touchcancel', cancel);
+    box.addEventListener('touchcancel', cancel, { passive: true });
     box.addEventListener('contextmenu', function (e) { var r = e.target.closest(sel); if (!r) return; e.preventDefault(); if (!menuOpen) fn(r); });
   }
-  // Card sheet: slides up over the app, which recedes; drag the grabber or bar down to dismiss.
-  var safeTop = 0;
-  // A medium-height sheet (.half) floats over a dimmed app instead; the app doesn't recede behind it.
-  function presentSheet(s) { s.classList.add('show'); if (!s.classList.contains('half')) $('app').classList.add('recede'); }
-  function dismissSheet(s) {
-    s.classList.remove('show'); s.style.transform = s.style.transition = '';
-    if (!s.classList.contains('half')) { $('app').classList.remove('recede'); $('app').style.transform = $('app').style.transition = ''; }
+  // Card sheet: slides up over the app, which recedes; drag the grabber or bar down to dismiss. A medium-height
+  // sheet (.half) floats over a dimmed app instead. v: a drag's speed (travels a second); from: where it was let go.
+  function appLook() { return { hid: { transform: 'translateY(0px) scale(1)' }, on: { transform: 'translateY(' + safeTop + 'px) scale(.92)' }, after: function (on) { if (!on) $('app').classList.remove('round'); } }; }
+  function presentSheet(s, v, from, appFrom, lead) {
+    var half = s.classList.contains('half'), sp = spring(0.45, 0.9, v);
+    s._h = 0; overlay(s, true, half ? LOOK.half : LOOK.card, sp, from, null, lead);
+    if (!half) { $('app').classList.add('round'); overlay($('app'), true, appLook(), sp, appFrom, 'recede', lead); }
   }
+  function dismissSheet(s, v, from, appFrom, lead) {
+    var half = s.classList.contains('half'), sp = spring(0.42, 1, v);
+    overlay(s, false, half ? LOOK.half : LOOK.card, sp, from, null, lead);
+    if (!half) overlay($('app'), false, appLook(), sp, appFrom, 'recede', lead);
+  }
+  // Only the grabber and the bar take the drag (touch-action: none there), so the listeners stay passive and the
+  // sheet's content scrolls freely.
   function sheetDrag(s, onDismiss) {
     var d = null, half = s.classList.contains('half');
-    s.addEventListener('touchstart', function (e) {
-      if (e.target.closest('button, input, textarea, select') || !e.target.closest('.grab, .sbar')) return;
-      d = { y: e.touches[0].clientY, dy: 0, pts: [] };
-      safeTop = parseFloat(getComputedStyle(s).top) - 10 || 0;
-    }, { passive: true });
-    s.addEventListener('touchmove', function (e) {
-      if (!d) return;
-      d.dy = e.touches[0].clientY - d.y; d.pts.push([Date.now(), d.dy]); if (d.pts.length > 6) d.pts.shift();
-      if (e.cancelable) e.preventDefault();
-      var y = d.dy > 0 ? d.dy : -Math.sqrt(-d.dy) * 2, k = clamp(d.dy / s.offsetHeight, 0, 1);
-      s.style.transition = 'none'; s.style.transform = 'translate3d(0,' + y + 'px,0)';
-      if (half) return;
-      $('app').style.transition = 'none'; $('app').style.transform = 'translateY(' + safeTop * (1 - k) + 'px) scale(' + (0.92 + 0.08 * k) + ')';
-    }, { passive: false });
-    s.addEventListener('touchend', function () {
-      if (!d) return; var g = d; d = null;
-      var v = 0; if (g.pts.length > 1) { var a = g.pts[0], b = g.pts[g.pts.length - 1]; v = (b[1] - a[1]) / Math.max(1, b[0] - a[0]); }
-      s.style.transition = ''; if (!half) $('app').style.transition = '';
-      if (g.dy > s.offsetHeight * 0.3 || (v > 0.5 && g.dy > 20)) onDismiss();
-      else { s.style.transform = ''; if (!half) $('app').style.transform = ''; }
+    function at(dy, h) { var y = dy > 0 ? dy : -Math.sqrt(-dy) * 2, k = clamp(dy / h, 0, 1); return { s: 'translate3d(0,' + y.toFixed(1) + 'px,0)', a: 'translateY(' + (safeTop * (1 - k)).toFixed(1) + 'px) scale(' + (0.92 + 0.08 * k).toFixed(4) + ')', y: y }; }
+    s.querySelectorAll('.grab, .sbar').forEach(function (h) {
+      h.addEventListener('touchstart', function (e) {
+        if (e.target.closest('button, input, textarea, select')) return;
+        var y0 = 0;
+        if (s._ov) {   // caught mid-way: held right where it is
+          y0 = new DOMMatrix(getComputedStyle(s).transform).m42; s._ov.cancel(); s.style.transform = 'translate3d(0,' + y0 + 'px,0)';
+          var ap = $('app'); if (!half && ap._ov) { var at0 = getComputedStyle(ap).transform; ap._ov.cancel(); ap.style.transform = at0; }
+        }
+        d = { y: e.touches[0].clientY - y0, dy: y0, pts: [], h: s._h || (s._h = s.offsetHeight) };
+        gesture++;
+      }, { passive: true });
+      h.addEventListener('touchmove', function (e) {
+        if (!d) return;
+        d.dy = e.touches[0].clientY - d.y; d.pts.push([e.timeStamp, d.dy]); if (d.pts.length > 6) d.pts.shift();
+        var p = at(d.dy, d.h);
+        s.style.transform = p.s; if (!half) $('app').style.transform = p.a;
+      }, { passive: true });
+      function end(e) {
+        if (!d) return; var g = d; d = null; gesture--;
+        var v = 0; if (g.pts.length > 1) { var a = g.pts[0], b = g.pts[g.pts.length - 1]; v = (b[1] - a[1]) / Math.max(1, b[0] - a[0]); }   // px per ms, down
+        var p = at(g.dy, g.h), from = { transform: p.s }, appFrom = { transform: p.a }, lead = since(g.pts, e.timeStamp);
+        s.style.transform = ''; if (!half) $('app').style.transform = '';
+        if (g.dy > g.h * 0.3 || (v > 0.5 && g.dy > 20)) onDismiss(v * 1000 / Math.max(40, g.h - p.y), from, appFrom, lead);
+        else presentSheet(s, -v * 1000 / Math.max(40, Math.abs(p.y)), from, appFrom, lead);
+        flush();
+      }
+      h.addEventListener('touchend', end, { passive: true }); h.addEventListener('touchcancel', end, { passive: true });
     });
   }
   doc.addEventListener('keydown', function (e) {
@@ -1405,23 +1578,22 @@
     [/\.(zip|rar|7z|tar|gz|bz2|xz)$/i, 'zip', '#8e8e93', 'Archive'],
     [/\.(apk|xapk|apks)$/i, 'app', '#34c759', 'App']
   ];
-  var iconSeq = 0;
   function typeOf(name) { return TYPES.filter(function (x) { return x[0].test(name); })[0] || [null, 'file', '#8e8e93', 'File']; }
+  // Icons share two gradients (defined once) and each kind is parsed once, then cloned per row.
+  var iconMade = {};
+  (function () { var d = el('div'); d.innerHTML = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="wf-folder" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fcbf9"/><stop offset="1" stop-color="#5aa9e6"/></linearGradient><linearGradient id="wf-sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs></svg>'; doc.body.appendChild(d.firstChild); })();
   function icon(f) {
-    var span = document.createElement('span'), g, id = 'g' + (++iconSeq);
-    if (f.dir) {
-      g = FOLDER_GLYPH[f.name.toLowerCase()];
-      span.innerHTML = '<svg class="fic" viewBox="0 0 34 34" aria-hidden="true"><defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fcbf9"/><stop offset="1" stop-color="#5aa9e6"/></linearGradient></defs>' +
-        '<path d="M3 9.5V8a2.5 2.5 0 0 1 2.5-2.5h8l2.5 2.5h12.5A2.5 2.5 0 0 1 31 10.5v1H3z" fill="#4a9be0"/>' +
-        '<rect x="3" y="9.5" width="28" height="19" rx="3" fill="url(#' + id + ')"/>' +
-        (g ? '<g transform="translate(8 10) scale(.75)" opacity=".92">' + GLYPH[g] + '</g>' : '') + '</svg>';
-    } else {
-      var t = typeOf(f.name);
-      span.innerHTML = '<svg class="fic" viewBox="0 0 34 34" aria-hidden="true"><defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>' +
-        '<rect x="2" y="2" width="30" height="30" rx="7.5" fill="' + t[2] + '"/><rect x="2" y="2" width="30" height="30" rx="7.5" fill="url(#' + id + ')"/>' +
-        '<g transform="translate(3 3) scale(1.17)">' + GLYPH[t[1]] + '</g></svg>';
+    var g = f.dir ? FOLDER_GLYPH[f.name.toLowerCase()] || '' : null, t = f.dir ? null : typeOf(f.name), key = f.dir ? 'd' + g : 'f' + t[1] + t[2];
+    if (!iconMade[key]) {
+      var span = document.createElement('span');
+      span.innerHTML = f.dir
+        ? '<svg class="fic" viewBox="0 0 34 34" aria-hidden="true"><path d="M3 9.5V8a2.5 2.5 0 0 1 2.5-2.5h8l2.5 2.5h12.5A2.5 2.5 0 0 1 31 10.5v1H3z" fill="#4a9be0"/>' +
+          '<rect x="3" y="9.5" width="28" height="19" rx="3" fill="url(#wf-folder)"/>' + (g ? '<g transform="translate(8 10) scale(.75)" opacity=".92">' + GLYPH[g] + '</g>' : '') + '</svg>'
+        : '<svg class="fic" viewBox="0 0 34 34" aria-hidden="true"><rect x="2" y="2" width="30" height="30" rx="7.5" fill="' + t[2] + '"/><rect x="2" y="2" width="30" height="30" rx="7.5" fill="url(#wf-sheen)"/>' +
+          '<g transform="translate(3 3) scale(1.17)">' + GLYPH[t[1]] + '</g></svg>';
+      iconMade[key] = span.firstChild;
     }
-    return span.firstChild;
+    return iconMade[key].cloneNode(true);
   }
   var IMG = /\.(jpe?g|png|webp|gif|heic|bmp)$/i, MEDIA = /\.(mp4|mkv|webm|avi|mov|m4v|ts|mp3|flac|m4a|aac|ogg|wav)$/i;
   function rootOf(path) { return roots.filter(function (r) { return path && (path === r.path || path.indexOf(r.path + '/') === 0); })[0] || roots[0] || { name: 'Files', path: path }; }
@@ -1448,10 +1620,11 @@
     });
     // Press and hold a file or folder for its menu (a folder's has "Use for Slideshow").
     longPress(p.list, '[data-act=tap]', function (row) { var f = p.view[+row.dataset.i]; if (f) contextMenu(row, fileActions(f)); });
+    watch(p);
     return p;
   }
   function openFolder(from, f, row) {
-    if (busy) return;
+    if (pushing()) return;
     var p = filesPage(f.name);
     p.path = f.path;
     select(from, row);
@@ -1475,15 +1648,20 @@
   function render(p) {
     var f = p.filter.trim().toLowerCase();
     p.view = f ? p.files.filter(function (x) { return x.name.toLowerCase().indexOf(f) >= 0; }) : p.files;
-    p.shown = 0; p.list.textContent = '';
+    p.shown = 0; p.list.textContent = ''; cancelAnimationFrame(p.chunk);
     p.list.classList.toggle('is-empty', !p.view.length);
     if (!p.view.length) p.list.appendChild(el('div', 'empty', f ? 'No Results' : 'This folder is empty'));
     renderMore(p);
   }
   function renderMore(p) {
-    var list = p.list, frag = document.createDocumentFragment(), end = Math.min(p.view.length, p.shown + BATCH);
-    var more = list.querySelector('[data-act=more]'); if (more) more.remove();
-    for (var i = p.shown; i < end; i++) {
+    var more = p.list.querySelector('[data-act=more]'); if (more) more.remove();
+    rows(p, Math.min(p.view.length, p.shown + BATCH));
+  }
+  // Rows go in a screenful at a time, the rest over the next frames, so a big folder never holds up a frame
+  // (or the start of the page sliding in).
+  function rows(p, end) {
+    var frag = document.createDocumentFragment(), stop = Math.min(end, p.shown + (p.shown ? 50 : 24));
+    for (var i = p.shown; i < stop; i++) {
       var f = p.view[i], row = el('div', 'row fi tap');
       row.dataset.act = 'tap'; row.dataset.i = i;
       row.appendChild(icon(f));
@@ -1493,12 +1671,13 @@
       if (f.dir) row.insertAdjacentHTML('beforeend', I.chev);
       frag.appendChild(row);
     }
-    p.shown = end;
-    if (p.shown < p.view.length) {
+    p.shown = stop;
+    if (p.shown < end) p.chunk = requestAnimationFrame(function () { rows(p, end); });
+    else if (p.shown < p.view.length) {
       var b = el('button', 'row act tap', 'Show ' + Math.min(BATCH, p.view.length - p.shown) + ' More');
       b.style.justifyContent = 'center'; b.dataset.act = 'more'; frag.appendChild(b);
     }
-    list.appendChild(frag);
+    p.list.appendChild(frag);
   }
   function download(f) { var a = el('a'); a.href = '/api/download?path=' + q(f.path); a.setAttribute('download', f.name); document.body.appendChild(a); a.click(); a.remove(); }
   function remove(f) {
@@ -1541,8 +1720,8 @@
       var bar = el('div', 'prog'); var fill = el('i'); bar.appendChild(fill); text.appendChild(bar); row.appendChild(text); box.appendChild(row);
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload?path=' + q(target) + '&name=' + q(f.name));
-      xhr.upload.onprogress = function (e) { if (e.lengthComputable) { var pc = Math.round(e.loaded * 100 / e.total); fill.style.width = pc + '%'; pct.textContent = fmt(e.loaded) + ' of ' + fmt(e.total); } };
-      xhr.onload = function () { row.classList.remove('busy'); if (xhr.status === 200) { pct.textContent = 'Uploaded'; pct.className = 's ok'; fill.style.width = '100%'; } else { pct.textContent = 'Failed'; pct.className = 's err'; } next(); };
+      xhr.upload.onprogress = function (e) { if (e.lengthComputable) { fill.style.transform = barTf(e.loaded / e.total); pct.textContent = fmt(e.loaded) + ' of ' + fmt(e.total); } };
+      xhr.onload = function () { row.classList.remove('busy'); if (xhr.status === 200) { pct.textContent = 'Uploaded'; pct.className = 's ok'; fill.style.transform = barTf(1); } else { pct.textContent = 'Failed'; pct.className = 's err'; } next(); };
       xhr.onerror = function () { row.classList.remove('busy'); pct.textContent = 'Connection lost'; pct.className = 's err'; next(); };
       xhr.send(f);
     })();
@@ -1559,7 +1738,7 @@
   // One message box. Its first line is the title (a TV shows two lines of title and three of the rest); a
   // first line too long for that makes the whole text the message, titled "From <this phone>".
   var chosen = { tv: true }, phones = [];
-  function loadPhones() { api('/api/phones').then(function (d) { phones = d.phones; renderTargets(); }, err); }
+  function loadPhones() { api('/api/phones').then(function (d) { var k = JSON.stringify(d.phones); if (k === loadPhones.k) return; loadPhones.k = k; phones = d.phones; renderTargets(); }, err); }   // rebuilt only when they change
   function tvLabel() { return tvs.length > 1 ? 'All TVs' : tvs.length ? tvs[0].name : 'TV Screen'; }
   function target(key, label, meta, glyph, color) {
     var row = el('div', 'row i'), ic = row.appendChild(el('span', 'ico'));
@@ -1668,15 +1847,14 @@
   function loadTvs(once) {
     var seq = once ? 0 : ++tvSeq;
     if (!once) { clearTimeout(tvTimer); if ((current !== 'remote' && !tvsShowing()) || document.hidden) return; }
-    api('/api/tvs').then(function (d) { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }, function () {})
+    api('/api/tvs').then(function (d) { calm('tvs', function () { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }); }, function () {})
       .then(function () { if (seq && seq === tvSeq) tvTimer = setTimeout(loadTvs, 5000); });
   }
   function renderTvs() {
     var many = tvs.length > 1, t = chosenTv();
     if (!t && tvs.length) { tvId = tvs[0].id; t = tvs[0]; }   // that TV was unlinked
-    $('rm-tv').hidden = !many; $('rm-title').hidden = many;
-    if (t) { $('rm-tv-name').textContent = t.name; $('rm-tv-dot').hidden = !playing(t); }
-    layoutNav(roots0.remote);
+    setHidden($('rm-tv'), !many); setHidden($('rm-title'), many);
+    if (t) { setText($('rm-tv-name'), t.name); setHidden($('rm-tv-dot'), !playing(t)); }
     renderTo();
     renderTvList();
   }
@@ -1690,7 +1868,7 @@
   function renderTvList() {
     var box = $('tv-list'), on = tvs.filter(playing), seen = {};
     // The TVs row in Settings: "Living Room · Playing", "2 Playing", or the TV (or how many there are)
-    $('tvs-status').textContent = on.length === 1 ? on[0].name + ' · Playing' : on.length ? on.length + ' Playing' : tvs.length === 1 ? tvs[0].name : tvs.length ? tvs.length + ' TVs' : '';
+    setText($('tvs-status'), on.length === 1 ? on[0].name + ' · Playing' : on.length ? on.length + ' Playing' : tvs.length === 1 ? tvs[0].name : tvs.length ? tvs.length + ' TVs' : '');
     tvs.forEach(function (t, i) {
       var r = tvRows[t.id], id = t.id;
       if (!r) {   // rows are kept and updated, so a tap or the bar's movement isn't interrupted every second
@@ -1704,16 +1882,16 @@
       }
       seen[id] = true;
       var p = t.playing, bar = !!(t.online && p && p.duration > 0);
-      r.ico.style.setProperty('--c', t.online ? 'var(--tint-fill)' : 'var(--gray)');
-      r.name.textContent = t.name; r.st.textContent = statusLine(t);
-      r.bar.hidden = !bar; r.bar.classList.toggle('on', bar && !!p.playing);
-      if (bar) r.fill.style.width = (position(p) * 100 / p.duration) + '%';
+      var c = t.online ? 'var(--tint-fill)' : 'var(--gray)'; if (r.c !== c) { r.c = c; r.ico.style.setProperty('--c', c); }
+      setText(r.name, t.name); setText(r.st, statusLine(t));
+      setHidden(r.bar, !bar); r.bar.classList.toggle('on', bar && !!p.playing);
+      if (bar) setTf(r.fill, barTf(position(p) / p.duration));
       if (box.children[i] !== r.row) box.insertBefore(r.row, box.children[i] || null);
     });
     Object.keys(tvRows).forEach(function (id) { if (!seen[id]) { tvRows[id].row.remove(); delete tvRows[id]; } });
     if (screenOpen) renderScreenNow();
   }
-  setInterval(function () { if (!document.hidden && tvs.length && (tvsShowing() || screenOpen)) renderTvList(); }, 1000);
+  setInterval(function () { if (!document.hidden && tvs.length && (tvsShowing() || screenOpen) && settled()) renderTvList(); }, 1000);
 
   // ---- TV Screen ----------------------------------------------------------------------------------
   // A TV's live picture, in a sheet from Settings › TVs: one frame at a time, about once a second, and only
@@ -1744,29 +1922,29 @@
   // Under the picture: what that TV is playing.
   function renderScreenNow() {
     var t = tvs.filter(function (x) { return x.id === screenTv; })[0], p = t && t.playing, on = !!(t && t.online), bar = !!(on && p && p.duration > 0);
-    $('scr-tv').textContent = t ? t.name : '';
-    $('scr-title').textContent = !t ? '' : !on ? t.name + ' is off' : p ? p.title : 'Nothing Playing';
-    $('scr-sub').textContent = !t || (on && !p) ? '' : !on ? 'Or not reachable' : (p.playing ? '' : 'Paused · ') + (p.app || '');
-    $('scr-bar').hidden = !bar;
+    setText($('scr-tv'), t ? t.name : '');
+    setText($('scr-title'), !t ? '' : !on ? t.name + ' is off' : p ? p.title : 'Nothing Playing');
+    setText($('scr-sub'), !t || (on && !p) ? '' : !on ? 'Or not reachable' : (p.playing ? '' : 'Paused · ') + (p.app || ''));
+    setHidden($('scr-bar'), !bar);
     if (!bar) return;
     var pos = position(p);
-    $('scr-fill').style.width = (pos * 100 / p.duration) + '%'; $('scr-bar').classList.toggle('on', !!p.playing);
-    $('scr-pos').textContent = fmtTime(pos); $('scr-left').textContent = '-' + fmtTime(p.duration - pos);
+    setTf($('scr-fill'), barTf(pos / p.duration)); $('scr-bar').classList.toggle('on', !!p.playing);
+    setText($('scr-pos'), fmtTime(pos)); setText($('scr-left'), '-' + fmtTime(p.duration - pos));
   }
   // Another TV's last picture isn't shown while this one's loads.
   function resetScreen() { if (shownTv !== screenTv) { $('tv-img').style.opacity = 0; $('tv-msg').textContent = 'Connecting…'; } }
   function openScreen(id) {
-    if (screenOpen || busy) return;
+    if (screenOpen) return;
     screenOpen = true; screenTv = id; sizeScreen(); resetScreen(); renderScreenNow();
     veil(true, closeScreen); presentSheet($('scr'));
     frame();
   }
-  function closeScreen() {
+  function closeScreen(v, from, appFrom, lead) {
     if (!screenOpen) return;
     screenOpen = false; frameSeq++; clearTimeout(frameTimer);
-    dismissSheet($('scr')); veil(false);
+    dismissSheet($('scr'), typeof v === 'number' ? v : 0, from, null, lead); veil(false);
   }
-  $('scr-close').onclick = closeScreen;
+  $('scr-close').onclick = function () { closeScreen(); };
   sheetDrag($('scr'), closeScreen);
   // Tap the picture for a smaller one beside what's playing, or a big one again; this phone remembers.
   function sizeScreen() { $('live').className = 'nowcard' + (stored('woodruff.smallScreen') ? '' : ' big'); }
@@ -1780,25 +1958,38 @@
     if (focus) $('kb-text').focus({ preventScroll: true }); // within the tap, so iOS shows the keyboard
     pollField();
   }
-  function closeKb() { kbOpen = false; dismissSheet($('kb')); $('kb-text').blur(); frame(); pollField(); }
+  function closeKb(v, from, appFrom, lead) { kbOpen = false; dismissSheet($('kb'), typeof v === 'number' ? v : 0, from, appFrom, lead); $('kb-text').blur(); pollField(); }
   sheetDrag($('kb'), closeKb);
   function pollField() {
     clearTimeout(pollTimer);
     if (document.hidden || (current !== 'remote' && !kbOpen)) return;
-    api('/api/type').then(function (d) {
-      var f = d.field;
-      $('rm-kb-hint').hidden = !f || kbOpen;
-      if ($('kb-open2')) $('kb-open2').classList.toggle('ready', !!f && !kbOpen);
-      if (!f) { field = null; $('kb-dot').className = 'dot'; $('kb-status').textContent = 'No text box selected on the TV'; }
-      else {
-        if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
-        field = f;
-        $('rm-kb-hint-t').textContent = 'Type into ' + f.label;
-        $('kb-dot').className = 'dot live';
-        $('kb-status').textContent = f.label + (f.secret ? ' (hidden)' : '');
-        $('kb-text').style.webkitTextSecurity = f.secret ? 'disc' : 'none';
-      }
-    }, function () {}).then(function () { pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
+    api('/api/type').then(function (d) { calm('field', function () { showField(d.field); }); }, function () {})
+      .then(function () { pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
+  }
+  function showField(f) {
+    var pill = !f || kbOpen;
+    if ($('rm-kb-hint').hidden !== pill) {
+      if (current === 'remote' && !kbOpen) flipPad(function () { $('rm-kb-hint').hidden = pill; }); else $('rm-kb-hint').hidden = pill;
+    }
+    if ($('kb-open2')) $('kb-open2').classList.toggle('ready', !!f && !kbOpen);
+    if (!f) { field = null; setClass($('kb-dot'), 'dot'); setText($('kb-status'), 'No text box selected on the TV'); return; }
+    if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
+    field = f;
+    setText($('rm-kb-hint-t'), 'Type into ' + f.label);
+    setClass($('kb-dot'), 'dot live');
+    setText($('kb-status'), f.label + (f.secret ? ' (hidden)' : ''));
+    var sec = f.secret ? 'disc' : 'none'; if ($('kb-text').style.webkitTextSecurity !== sec) $('kb-text').style.webkitTextSecurity = sec;
+  }
+  // The "Type into …" pill coming or going resizes the clickpad: it springs to its new size (transform only).
+  function flipPad(change) {
+    var pad = $('pad'), a = pad.getBoundingClientRect();
+    change();
+    var b = pad.getBoundingClientRect();
+    if (!b.width || reduceMotion.matches) return;
+    var sc = a.width / b.width, dy = (a.top + a.height / 2) - (b.top + b.height / 2);
+    if (Math.abs(sc - 1) < 0.01 && Math.abs(dy) < 1) return;
+    var s = spring(0.45, 0.85);
+    tracked(pad.animate([{ transform: 'translateY(' + dy.toFixed(1) + 'px) scale(' + sc.toFixed(4) + ')' }, { transform: 'translateY(0) scale(1)' }], { duration: s.ms, easing: s.easing }));
   }
   function sendText(submit) {
     if (!field) return toast('Select a text box on the TV first', true);
@@ -1814,7 +2005,7 @@
   });
   $('kb-enter').onclick = function () { clearTimeout(typeTimer); if (field) sendText(true); else closeKb(); };
   $('kb-clear').onclick = function () { $('kb-text').value = ''; if (field) sendText(false); $('kb-text').focus(); };
-  $('kb-close').onclick = closeKb;
+  $('kb-close').onclick = function () { closeKb(); };
 
   // ---- Notes --------------------------------------------------------------------------------------
   var notesData = [], noteFilter = '', draft = null, notesRoot = null, notePage = null;
@@ -1827,6 +2018,7 @@
   }
   function noteById(id) { return notesData.filter(function (n) { return n.id === id; })[0]; }
   function renderNotes() {
+    var k = noteFilter + '\u0001' + JSON.stringify(notesData); if (k === renderNotes.k) return; renderNotes.k = k;   // rebuilt only when something changed
     var box = $('note-list'), f = noteFilter.trim().toLowerCase(); box.textContent = '';
     var notes = f ? notesData.filter(function (n) { return (n.title + '\n' + n.body).toLowerCase().indexOf(f) >= 0; }) : notesData;
     if (!notes.length) {
@@ -1875,7 +2067,7 @@
   $('note-body').addEventListener('input', grow);
   // A note opens as a page of its own (pushed, like Notes). Done saves; going back keeps what was written.
   function openNote(n, row) {
-    if (busy) return;
+    if (pushing('notes')) return;
     draft = { n: n, title: n ? n.title : '', body: n ? n.body : '', pinned: !!(n && n.pinned), done: false };
     showDraft(draft);
     select(notesRoot, row);
@@ -1921,7 +2113,7 @@
     if (!changed || (!t.trim() && !b.trim())) return;
     saveDraft(d, t, b).then(function () { toast('Saved on the TV'); loadNotes(); }, function (e) {
       alertBox({ title: "Couldn't Save the Note", message: e.message || String(e), actions: [{ label: 'Discard' }, { label: 'Edit', pref: true, fn: function () {
-        if (busy || topOf('notes') === notePage) return;
+        if (pushing('notes') || topOf('notes') === notePage) return;
         if (current !== 'notes') selectTab('notes');
         d.done = false; draft = d; d.title = t; d.body = b; showDraft(d); push(notePage);
       } }] });
@@ -1961,16 +2153,17 @@
   };
   $('p-copy').onclick = function () { if (device.topic) copy(device.topic, 'Topic copied'); };
   function showAlert(m) {
-    $('alert-from').textContent = 'From ' + (m.from || 'the TV');
-    $('alert-title').textContent = m.title; $('alert-body').textContent = m.body || '';
-    $('alert').classList.add('show');
-    clearTimeout(showAlert.h); showAlert.h = setTimeout(function () { $('alert').classList.remove('show'); }, 8000);
+    setText($('alert-from'), 'From ' + (m.from || 'the TV'));
+    setText($('alert-title'), m.title); setText($('alert-body'), m.body || '');
+    if (!$('alert').classList.contains('show')) overlay($('alert'), true, LOOK.banner, spring(0.5, 0.8));
+    clearTimeout(showAlert.h); showAlert.h = setTimeout(hideAlert, 8000);
   }
-  $('alert').onclick = function () { $('alert').classList.remove('show'); };
+  function hideAlert() { if ($('alert').classList.contains('show')) overlay($('alert'), false, LOOK.banner, spring(0.35, 1)); }
+  $('alert').onclick = hideAlert;
   (function () {   // swipe a banner up to put it away
     var y0 = null;
     $('alert').addEventListener('touchstart', function (e) { y0 = e.touches[0].clientY; }, { passive: true });
-    $('alert').addEventListener('touchmove', function (e) { if (y0 != null && e.touches[0].clientY - y0 < -12) { y0 = null; $('alert').classList.remove('show'); } }, { passive: true });
+    $('alert').addEventListener('touchmove', function (e) { if (y0 != null && e.touches[0].clientY - y0 < -12) { y0 = null; hideAlert(); } }, { passive: true });
   })();
   function checkInbox() {
     if (!device.name || document.hidden) return;
@@ -1984,7 +2177,7 @@
   // Opens a page by its id: pushed over this tab's page, or from another tab, that tab with the page (and the
   // pages above it, so Back goes to them). A page already open in another tab is brought back.
   function openPage(id, row) {
-    var p = PG[id]; if (!p || busy) return;
+    var p = PG[id]; if (!p || pushing(p.tab)) return;
     var i = stacks[p.tab].indexOf(p);
     if (i >= 0) { if (current !== p.tab) { selectTab(p.tab); popTo(i, { animate: false }); } return; }
     if (p.o.onOpen) p.o.onOpen(p);
@@ -1995,7 +2188,7 @@
   }
   function chain(p) { var c = [p]; while (p.o.parent && PG[p.o.parent]) { p = PG[p.o.parent]; c.unshift(p); } return c; }
   function loadSettings() { api('/api/settings').then(renderSettings, err); }
-  function status(ids, text, ok) { ids.forEach(function (id) { $(id).textContent = text; $(id).className = 'detail' + (ok ? ' on' : ''); }); }
+  function status(ids, text, ok) { ids.forEach(function (id) { setText($(id), text); setClass($(id), 'detail' + (ok ? ' on' : '')); }); }
   function renderSettings(s) {
     settings = s;
     var g = s.google, on = [];
@@ -2007,30 +2200,34 @@
       status(['c-status', 'c-status2'], s.nest.connected ? 'Connected' : s.nest.project ? 'Sign in on TV' : 'Not set up', s.nest.connected);
       if (!$('c-project').value) $('c-project').value = s.nest.project || '';
       if (!$('c-doorbell').value) $('c-doorbell').value = s.nest.doorbell || '';
-      $('c-person').checked = !!s.nest.person; $('c-motion').checked = !!s.nest.motion;
-      if (s.nest.doorbellStatus) $('c-doorbell-foot').textContent = s.nest.doorbellStatus;
+      if ($('c-person').checked !== !!s.nest.person) $('c-person').checked = !!s.nest.person;
+      if ($('c-motion').checked !== !!s.nest.motion) $('c-motion').checked = !!s.nest.motion;
+      if (s.nest.doorbellStatus) setText($('c-doorbell-foot'), s.nest.doorbellStatus);
     }
     status(['m-status'], s.mail.length ? String(s.mail.length) : 'None', false);
     // Connections in a word or two: "Drive, Mail" or "4 On"
     if (g.connected) on.push('Drive'); if (s.tmdb) on.push('Posters'); if (s.nest && s.nest.connected) on.push('Cameras'); if (s.mail.length) on.push('Mail');
     status(['conn-status'], on.length > 2 ? on.length + ' On' : on.length ? on.join(', ') : 'None', false);
     // Away from home: the Tailscale link, once Tailscale runs on the TV
-    $('away').hidden = $('away-foot').hidden = !s.awayUrl; $('away-off').hidden = $('away-off-foot').hidden = !!s.awayUrl;
-    $('away-url').textContent = s.awayUrl || '';
+    ['away', 'away-foot'].forEach(function (id) { setHidden($(id), !s.awayUrl); }); ['away-off', 'away-off-foot'].forEach(function (id) { setHidden($(id), !!s.awayUrl); });
+    setText($('away-url'), s.awayUrl || '');
     status(['away-status'], s.awayUrl ? 'On' : 'Off', false);
     if (!$('w-place').value) $('w-place').value = s.weather || '';
     status(['w-status'], s.weather || 'Off', false);
-    $('version').textContent = s.version ? 'Woodruff Family ' + s.version : '';
-    $('crash-group').hidden = !s.crash;
-    $('crash-text').textContent = (s.crash || '').split('\n').slice(0, 14).join('\n');
+    setText($('version'), s.version ? 'Woodruff Family ' + s.version : '');
+    setHidden($('crash-group'), !s.crash);
+    setText($('crash-text'), (s.crash || '').split('\n').slice(0, 14).join('\n'));
     if (!s.crash && current === 'settings' && topOf('settings') === PG['set-crash']) goBack();
-    var ml = $('m-list'); ml.textContent = '';
+    var ml = $('m-list'), mk = JSON.stringify(s.mail); if (mk === ml.k) return finishSettings(s); ml.k = mk; ml.textContent = '';   // the list is rebuilt only when it changes
     if (!s.mail.length) ml.appendChild(el('div', 'row', 'No accounts yet')).style.color = 'var(--label2)';
     s.mail.forEach(function (m) {
       var row = el('button', 'row tap'), t = el('span', 'txt'); t.appendChild(el('span', 't', m.email)); t.appendChild(el('span', 's', m.provider)); row.appendChild(t);
       row.onclick = function () { confirmSheet(m.email, 'Remove this account and its password from the TV?', 'Remove Account', function () { post('/api/mail/delete', { id: m.id }).then(renderSettings, err); }); };
       ml.appendChild(row);
     });
+    finishSettings(s);
+  }
+  function finishSettings(s) {
     var sel = $('m-provider');
     if (!sel.options.length) {
       s.providers.forEach(function (p) { var o = el('option', null, p.label); o.value = p.id; sel.appendChild(o); });
@@ -2054,7 +2251,8 @@
   function adopt(tab, id, o) {
     var pe = $(id);
     o.el = pe; o.title = o.title != null ? o.title : pe.dataset.title; o.hash = pe.dataset.hash; o.keep = true;
-    return (PG[id] = page(tab, o));
+    var p = PG[id] = page(tab, o); watch(p);
+    return p;
   }
   var rmTitle = el('span');
   rmTitle.innerHTML = '<span id="rm-title">Remote</span><button class="titlebtn" id="rm-tv" hidden aria-label="Choose a TV"><span class="live" id="rm-tv-dot" hidden></span><span id="rm-tv-name"></span>' + I.down + '</button>';
@@ -2073,7 +2271,7 @@
   adopt('send', 'send-to', {});
   adopt('send', 'send-link', { focus: 'o-url' });
   filesRoot = PG['files-root'] = filesPage($('files-root').dataset.title, $('files-root'));
-  filesRoot.o.onOpen = function () { if (filesRoot.path) loadInto(filesRoot, filesRoot.path); };
+  filesRoot.o.onOpen = function () { var at = filesRoot.path || (roots[0] && roots[0].path); if (at) loadInto(filesRoot, at); };
   notePage = adopt('notes', 'note-page', { plain: true, onPop: notePopped,
     actions: [{ icon: 'more', label: 'More', id: 'note-more', fn: noteMore }, { text: 'Done', prom: true, id: 'note-save', fn: noteSave }] });
   // Settings pages: [page, bar buttons, the page it opens from when that isn't Settings itself]
@@ -2117,16 +2315,17 @@
   };
 
   // ---- Start --------------------------------------------------------------------------------------
+  // The first tab is drawn first; this phone's check-in and the storages are fetched after that first paint.
+  measure();
   var install = iOS && !standalone && !stored('woodruff.installHint');
   if (install) $('install').hidden = false;
   $('install-x').onclick = function () { $('install').hidden = true; store('woodruff.installHint', '1'); };
   renderDevice();
-  hello(null).catch(function () {});
-  api('/api/roots').then(function (r) {
-    roots = r;
-    if (roots.length) loadInto(filesRoot, roots[0].path);
-  }, err);
   route(location.hash || '#remote');
+  requestAnimationFrame(function () { setTimeout(function () {
+    hello(null).catch(function () {});
+    api('/api/roots').then(function (r) { roots = r; if (roots.length && !filesRoot.path) loadInto(filesRoot, roots[0].path); }, err);
+  }, 0); });
 })();
 </script>
 </body>
