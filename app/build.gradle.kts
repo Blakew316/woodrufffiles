@@ -87,6 +87,8 @@ dependencies {
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
     implementation(libs.media3.datasource)
+    // Drive streams over OkHttp: one kept-open connection instead of a new one per request.
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.android.mail)
     implementation(libs.android.activation)
     implementation(libs.webrtc)
