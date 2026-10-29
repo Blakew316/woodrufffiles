@@ -24,15 +24,16 @@ object ShowPrefs {
     fun namesShow(title: String): Boolean =
         title.replace(EXTENSION, "").replace(SEPARATORS, " ").replace(EPISODE_PART, "").isNotBlank()
 
-    // Compiled once: the library matches every show against what's been watched with these.
+    // Compiled once: the library matches every show against what's been watched with these, and
+    // Continue watching tells every title it lists apart with them.
     private val EXTENSION = Regex("""\.[A-Za-z0-9]{2,4}$""")
     private val SEPARATORS = Regex("""[._]+""")
     private val EPISODE_PART = Regex("""(?i)[\s\-]*(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2}|season\s*\d+|episode\s*\d+).*$""")
     private val SPACES = Regex("""\s+""")
+    private val EPISODE = Regex("""(?i)(^|[^a-z0-9])(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2}|episode\s*\d+|ep\s*\d+)""")
 
     /** "Show S01E02", "Show 1x02", "Episode 4": a TV episode rather than a movie. */
-    fun isEpisode(title: String): Boolean =
-        Regex("""(?i)(^|[^a-z0-9])(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2}|episode\s*\d+|ep\s*\d+)""").containsMatchIn(title)
+    fun isEpisode(title: String): Boolean = EPISODE.containsMatchIn(title)
 
     /** A language tag ("en", "eng", "en-US") that is English. */
     fun isEnglish(lang: String?): Boolean = lang?.lowercase()?.let { it == "en" || it == "eng" || it.startsWith("en-") || it.startsWith("en_") } == true

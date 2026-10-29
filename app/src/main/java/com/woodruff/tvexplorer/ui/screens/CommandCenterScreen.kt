@@ -1,7 +1,9 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import com.woodruff.tvexplorer.ui.icons.Sym
+import android.content.Context
 import android.util.Log
+import com.woodruff.tvexplorer.nest.CameraGl
 import com.woodruff.tvexplorer.nest.CameraStills
 import com.woodruff.tvexplorer.nest.CameraStreams
 import androidx.lifecycle.Lifecycle
@@ -41,13 +43,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -70,6 +75,7 @@ import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestState
 import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.nest.Rtc
+import com.woodruff.tvexplorer.nest.TextureRenderer
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.ui.MainViewModel
@@ -77,6 +83,8 @@ import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
@@ -84,8 +92,11 @@ import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.Qr
 import kotlinx.coroutines.delay
+import org.webrtc.EglRenderer
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSink
 
 /**
  * TVs decode only a few live videos at once, and each live view counts against Google's limits,
@@ -233,17 +244,24 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, foc
         cams.withIndex().chunked(columns).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 for ((i, cam) in row) key(cam.name) {
+                    // Whether this tile has the focus, read only by its video (the focused one plays
+                    // smoothest), so moving across the grid recomposes nothing.
+                    val focused = remember { mutableStateOf(false) }
                     Surface(
                         onClick = { onOpen(i) },
-                        modifier = Modifier.weight(1f).aspectRatio(16f / 9f).then(if (i == focusAt) Modifier.focusRequester(focus) else Modifier),
+                        modifier = Modifier.weight(1f).aspectRatio(16f / 9f).then(if (i == focusAt) Modifier.focusRequester(focus) else Modifier)
+                            .onFocusChanged { focused.value = it.isFocused }
+                            // Grows as a layer, ahead of the Surface's own focus: tv-material's scale
+                            // recomposed the tile on every frame of it. Held OK still shrinks it back.
+                            .tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.03f),
                         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.03f),
                     ) {
                         // Edge to edge, in the tile's own rounded shape, as on Home: the picture fills the
                         // whole tile and grows with it when focused (a TextureView, drawn under the focus
                         // border; a SurfaceView sat letterboxed in an inset and didn't follow the focus scale).
                         Box(Modifier.fillMaxSize().clip(Shapes.card)) {
-                            if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false, fill = true)
+                            if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
                             else Placeholder(if (cam.webRtc) "Select to watch" else "This camera model doesn't support live view here")
                             CameraLabel(cam, Modifier.align(Alignment.BottomStart))
                         }
@@ -276,7 +294,9 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
             }
             .focusable(),
     ) {
-        key(cam.name) { LiveVideo(cam, audio = true) }
+        // One video view for the whole visit: Left/Right moves it to the next camera's stream and
+        // clears the last picture (a view per camera set GL up and tore it down on the main thread).
+        LiveVideo(cam, audio = true)
         Column(Modifier.align(Alignment.TopStart).padding(28.dp)) {
             Text(cam.label, style = MaterialTheme.typography.headlineSmall, color = Color.White)
             Text(
@@ -292,21 +312,62 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
  * One live camera view, streaming only while Woodruff is on screen: with the slideshow, a video
  * or another app on top, the stream stops (it was decoding underneath) and resumes on return.
  * Views of the same camera share one stream, in this activity or another (the doorbell over a film).
+ * [focused]: a tile has the focus, read only by its video (the focused tile plays smoothest).
  */
 @Composable
-internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false) {
+internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false, focused: () -> Boolean = { true }) {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio, fill)
+    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio, fill, focused)
     else Placeholder("Paused")
 }
 
-/** A video view, what it renders into, and how to take a frame from it and let it go. */
+/** A video view, what it renders into, and how to take a frame from it, clear it and let it go. */
 private class Renderer(
     val view: View,
-    val sink: org.webrtc.VideoSink,
-    val grab: (org.webrtc.EglRenderer.FrameListener) -> Unit,
+    val sink: VideoSink,
+    val grab: (EglRenderer.FrameListener) -> Unit,
+    /** Another camera is coming into the view: the last one's picture goes. */
+    val clear: () -> Unit,
+    /** A tile's frame rate follows its focus. */
+    val focus: (Boolean) -> Unit,
     val release: () -> Unit,
-)
+) {
+    /** The camera it shows (read on the GL thread too, by a frame grab). */
+    @Volatile var camera: String? = null
+}
+
+/** A tile: the picture fills it and takes its rounded corners (a TextureView, on the tiles' shared GL thread). */
+private fun tileRenderer(context: Context): Renderer {
+    val t = TextureRenderer(context)
+    return Renderer(t, t, { l -> t.addFrameListener(l, 0.3f) }, t::clearImage, t::setFocused, t::release)
+}
+
+/** Full screen: the whole frame, letterboxed if need be (a SurfaceView, the cheapest to draw). */
+private fun fullRenderer(context: Context): Renderer {
+    val s = SurfaceViewRenderer(context).apply {
+        init(Rtc.egl.eglBaseContext, null)
+        setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+        setEnableHardwareScaler(true)
+        isFocusable = false
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+    // After a switch nothing is drawn until the new camera's first frame: a frame of the last camera
+    // still on its way to the GL thread would otherwise bring its picture back after the clear.
+    val sink = object : VideoSink {
+        @Volatile var waiting = false
+        override fun onFrame(frame: VideoFrame) {
+            if (waiting) { waiting = false; s.disableFpsReduction() }
+            s.onFrame(frame)
+        }
+    }
+    return Renderer(
+        s, sink, { l -> s.addFrameListener(l, 0.3f) },
+        clear = { sink.waiting = true; s.pauseVideo(); s.clearImage() },
+        focus = {},
+        // Letting go waits for its GL thread to clean up: done in the background.
+        release = { CameraGl.later { s.release() } },
+    )
+}
 
 /**
  * One WebRTC live view. The renderer lives exactly as long as this composable; the stream is shared
@@ -314,31 +375,28 @@ private class Renderer(
  * leaves. Off to another screen, the stream stays up a moment for it, so Home or the grid to full
  * screen (and back) and a doorbell ring show the picture at once; Woodruff leaving the screen closes it.
  * [fill]: a tile — the picture fills it and takes its rounded corners (a TextureView); otherwise
- * the whole frame is shown, letterboxed if need be (a SurfaceView, the cheapest to draw).
+ * the whole frame is shown, letterboxed if need be (a SurfaceView, the cheapest to draw). The view
+ * stays when [cam] changes (full screen's Left/Right): only the stream it shows is swapped.
  */
 @Composable
-private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean) {
+private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -> Boolean) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val renderer = remember {
-        if (fill) com.woodruff.tvexplorer.nest.TextureRenderer(context, Rtc.egl.eglBaseContext).let { t ->
-            Renderer(t, t, { l -> t.addFrameListener(l, 0.3f) }, { t.release() })
-        } else SurfaceViewRenderer(context).apply {
-            init(Rtc.egl.eglBaseContext, null)
-            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
-            setEnableHardwareScaler(true)
-            isFocusable = false
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }.let { s -> Renderer(s, s, { l -> s.addFrameListener(l, 0.3f) }, { s.release() }) }
-    }
+    val renderer = remember { if (fill) tileRenderer(context) else fullRenderer(context) }
     // Declared first so it's undone last (effects end in reverse order): the renderer is released
     // only after its picture has been detached from the stream below.
     DisposableEffect(Unit) {
         onDispose { runCatching { renderer.release() }.onFailure { Log.w("LiveVideo", "release", it) } }
     }
+    // A tile's frame rate follows its focus, set on the view straight from the state: no recomposition.
+    val isFocused by rememberUpdatedState(focused)
+    LaunchedEffect(renderer) { snapshotFlow { isFocused() }.collect { renderer.focus(it) } }
     val wantsAudio by rememberUpdatedState(audio)
     var hold by remember { mutableStateOf<CameraStreams.Hold?>(null) }
     DisposableEffect(cam.name, lifecycle) {
+        // Another camera in the same view (full screen's Left/Right): the last one's picture goes now.
+        if (renderer.camera.let { it != null && it != cam.name }) renderer.clear()
+        renderer.camera = cam.name
         // Attached while this screen is started. Stopping (a film, another app) lets go at once,
         // straight from the lifecycle rather than the next recomposition.
         var mine: CameraStreams.Hold? = null
@@ -363,17 +421,22 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean) {
     }
     LaunchedEffect(audio) { hold?.let { CameraStreams.setAudio(it, audio) } }
     val stream = hold?.stream
-    val status = if (stream == null) CameraStream.Status.Connecting else stream.status.collectAsState().value
+    // Keyed by the stream: after a switch it's the new camera's state at once, not the last one's for a frame.
+    val status = if (stream == null) CameraStream.Status.Connecting else key(stream) { stream.status.collectAsState().value }
     // Keep a small recent frame of this camera for tiles that aren't streaming.
-    LaunchedEffect(status) {
+    LaunchedEffect(status, cam.name) {
+        val name = cam.name
         while (status == CameraStream.Status.Live) {
             delay(1_500)
-            runCatching { renderer.grab(org.webrtc.EglRenderer.FrameListener { bmp -> CameraStills.put(cam.name, bmp) }) }
+            // Kept only while the view still shows this camera (full screen may have moved on).
+            runCatching { renderer.grab(EglRenderer.FrameListener { bmp -> if (bmp != null && renderer.camera == name) CameraStills.put(name, bmp) }) }
             delay(20_000)
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(factory = { renderer.view }, modifier = Modifier.fillMaxSize())
+        // A tile's video in a layer of its own: each frame redraws just the video, not the tile's
+        // label and frame around it.
+        AndroidView(factory = { renderer.view }, modifier = if (fill) Modifier.fillMaxSize().graphicsLayer() else Modifier.fillMaxSize())
         when (status) {
             CameraStream.Status.Live -> Unit
             CameraStream.Status.Connecting -> Placeholder("Connecting…")
@@ -428,13 +491,15 @@ private fun SidePanel(modifier: Modifier) {
 private fun HubTile(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = modifier.height(64.dp),
+        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed it on
+        // every frame of it. Held OK still shrinks it back.
+        modifier = modifier.height(64.dp).tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.05f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Palette.surfaceHigh, contentColor = Palette.text,
             focusedContainerColor = Palette.text, focusedContentColor = Palette.background,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.05f),
     ) {
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             TvIcon(icon, size = 22.dp)

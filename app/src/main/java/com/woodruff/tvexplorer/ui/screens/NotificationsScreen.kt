@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,8 +22,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.tv.material3.Button
-import androidx.tv.material3.OutlinedButton
 import com.woodruff.tvexplorer.phones.Phones
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.DialogFrame
@@ -44,8 +43,16 @@ import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
+import com.woodruff.tvexplorer.ui.components.ListItemFocusScale
 import com.woodruff.tvexplorer.ui.components.ToolButton
+import com.woodruff.tvexplorer.ui.components.TvButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.TvOutlinedButton
+import com.woodruff.tvexplorer.ui.components.growOnFocus
+import com.woodruff.tvexplorer.ui.components.listItemPressScale
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 
@@ -74,34 +81,40 @@ fun NotificationsScreen(vm: MainViewModel) {
             EmptyState("No notifications")
             return@Column
         }
-        LazyColumn(contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(items, key = { it.id }) { n ->
-                ListItem(
-                    selected = false,
-                    onClick = {
-                        val link = n.link ?: return@ListItem
-                        val media = Regex("\\.(mp4|mkv|webm|m3u8|mov|mp3|m4a)(\\?|$)", RegexOption.IGNORE_CASE).containsMatchIn(link)
-                        runCatching {
-                            context.startActivity(
-                                if (media) PlayerActivity.intent(context, listOf(link), listOf(n.title), link)
-                                else Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        // The focused notification comes to rest a third of the way down, as on Apple TV.
+        val list = rememberLazyListState()
+        PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.ColumnScroll) {
+            LazyColumn(state = list, contentPadding = PaddingValues(top = 16.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(items, key = { it.id }) { n ->
+                    ListItem(
+                        selected = false,
+                        onClick = {
+                            val link = n.link ?: return@ListItem
+                            val media = Regex("\\.(mp4|mkv|webm|m3u8|mov|mp3|m4a)(\\?|$)", RegexOption.IGNORE_CASE).containsMatchIn(link)
+                            runCatching {
+                                context.startActivity(
+                                    if (media) PlayerActivity.intent(context, listOf(link), listOf(n.title), link)
+                                    else Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }.onFailure { vm.say("No app on this TV can open that link") }
+                        },
+                        modifier = Modifier.growOnFocus(ListItemFocusScale),
+                        colors = ListItemDefaults.colors(focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text),
+                        scale = listItemPressScale(ListItemFocusScale),
+                        leadingContent = {
+                            TvIcon(
+                                when (n.source) { NoticeSource.PHONE -> Sym.PhoneIphone; NoticeSource.MAIL -> Sym.Email; NoticeSource.SYSTEM -> Sym.Info },
                             )
-                        }.onFailure { vm.say("No app on this TV can open that link") }
-                    },
-                    colors = ListItemDefaults.colors(focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text),
-                    leadingContent = {
-                        TvIcon(
-                            when (n.source) { NoticeSource.PHONE -> Sym.PhoneIphone; NoticeSource.MAIL -> Sym.Email; NoticeSource.SYSTEM -> Sym.Info },
-                        )
-                    },
-                    headlineContent = { Text(n.title, maxLines = 2) },
-                    supportingContent = {
-                        Column {
-                            if (n.body.isNotBlank()) Text(n.body, maxLines = 3, style = MaterialTheme.typography.bodyMedium)
-                            Text(Format.date(n.at), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-                        }
-                    },
-                )
+                        },
+                        headlineContent = { Text(n.title, maxLines = 2) },
+                        supportingContent = {
+                            Column {
+                                if (n.body.isNotBlank()) Text(n.body, maxLines = 3, style = MaterialTheme.typography.bodyMedium)
+                                Text(Format.date(n.at), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -157,8 +170,8 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
             }
         }
         ButtonRow {
-            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
-            Button(onClick = send) { Text("Send") }
+            TvOutlinedButton(onClick = onDismiss) { Text("Cancel") }
+            TvButton(onClick = send) { Text("Send") }
         }
     }
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
@@ -170,6 +183,8 @@ private fun CheckRow(name: String, on: Boolean, onClick: () -> Unit) {
     ListItem(
         selected = on,
         onClick = onClick,
+        modifier = Modifier.growOnFocus(ListItemFocusScale),
+        scale = listItemPressScale(ListItemFocusScale),
         leadingContent = { TvIcon(if (on) Sym.CheckBox else Sym.CheckBoxOutlineBlank) },
         headlineContent = { Text(name) },
     )

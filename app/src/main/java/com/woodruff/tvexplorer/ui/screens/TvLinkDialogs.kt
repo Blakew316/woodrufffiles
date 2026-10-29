@@ -24,13 +24,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.DialogFrame
+import com.woodruff.tvexplorer.ui.components.ListItemFocusScale
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.TvOutlinedButton
+import com.woodruff.tvexplorer.ui.components.growOnFocus
+import com.woodruff.tvexplorer.ui.components.listItemPressScale
 import com.woodruff.tvexplorer.ui.theme.Palette
 import kotlinx.coroutines.launch
 
@@ -45,7 +48,7 @@ fun LinkCodeDialog(onDismiss: () -> Unit) {
         Text("On the other TV: Settings → TVs → Add another TV, choose \"${TvLinks.name(context)}\" and enter:", color = Palette.muted)
         Text(code.chunked(3).joinToString(" "), fontSize = 64.sp, fontWeight = FontWeight.Bold, color = Palette.accent, letterSpacing = 6.sp)
         Text("Works once, for 10 minutes.", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-        ButtonRow { OutlinedButton(onClick = close, modifier = Modifier.focusRequester(focus)) { Text("Done") } }
+        ButtonRow { TvOutlinedButton(onClick = close, modifier = Modifier.focusRequester(focus)) { Text("Done") } }
     }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
@@ -91,12 +94,14 @@ fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
             items(found, key = { it.base }) { f ->
                 ListItem(
                     selected = false, onClick = { chosen = f },
+                    modifier = Modifier.growOnFocus(ListItemFocusScale),
+                    scale = listItemPressScale(ListItemFocusScale),
                     leadingContent = { TvIcon(Sym.Tv) },
                     headlineContent = { Text(f.name) },
                     supportingContent = { Text(f.base.removePrefix("http://"), color = Palette.muted) },
                 )
             }
         }
-        ButtonRow { OutlinedButton(onClick = onDismiss) { Text("Close") } }
+        ButtonRow { TvOutlinedButton(onClick = onDismiss) { Text("Close") } }
     }
 }

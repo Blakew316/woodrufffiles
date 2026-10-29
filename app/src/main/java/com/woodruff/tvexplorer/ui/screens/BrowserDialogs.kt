@@ -12,8 +12,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
-import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.FileItem
 import com.woodruff.tvexplorer.data.FileKind
@@ -27,6 +25,8 @@ import com.woodruff.tvexplorer.ui.components.ConfirmDialog
 import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
+import com.woodruff.tvexplorer.ui.components.TvButton
+import com.woodruff.tvexplorer.ui.components.TvOutlinedButton
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.OpenResult
@@ -144,8 +144,8 @@ fun BrowserDialogs(dialog: BrowserDialog, vm: MainViewModel, onDismiss: () -> Un
                 color = Palette.muted,
             )
             ButtonRow {
-                OutlinedButton(onClick = onDismiss) { Text("Not now") }
-                Button(onClick = { onDismiss(); report(Opener.openInstallPermissionSettings(context)) }) { Text("Open settings") }
+                TvOutlinedButton(onClick = onDismiss) { Text("Not now") }
+                TvButton(onClick = { onDismiss(); report(Opener.openInstallPermissionSettings(context)) }) { Text("Open settings") }
             }
         }
     }
@@ -174,7 +174,7 @@ private fun DetailsDialog(item: FileItem, onDismiss: () -> Unit) {
                 append(if (item.file.canWrite()) " · Write" else " · Read-only")
             })
         }
-        Button(onClick = onDismiss) { Text("Close") }
+        TvButton(onClick = onDismiss) { Text("Close") }
     }
 }
 

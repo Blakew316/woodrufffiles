@@ -51,6 +51,8 @@ object Nest {
         scope.launch {
             val s = withContext(Dispatchers.IO) { step() }
             _state.update { if (it.step == NestStep.NEED_GOOGLE) it.copy(step = s) else it }
+            // Cameras connected: the tiles' GL thread is made now, in the background, before Home shows them.
+            if (s == NestStep.CONNECTED) CameraGl.warm()
         }
         scope.launch {
             CompanionHub.googleCodes.collect { (code, attempt) ->
@@ -79,6 +81,7 @@ object Nest {
     fun open() {
         val s = step()
         _state.update { it.copy(step = s, error = null) }
+        if (s == NestStep.CONNECTED) CameraGl.warm()
         when (s) {
             NestStep.CONNECTED -> if (_state.value.cameras.isEmpty()) refresh()
             NestStep.SIGN_IN -> startSignIn()
@@ -90,6 +93,7 @@ object Nest {
     fun warm() {
         val s = step()
         _state.update { it.copy(step = s) }
+        if (s == NestStep.CONNECTED) CameraGl.warm()
         if (s == NestStep.CONNECTED && _state.value.cameras.isEmpty() && !_state.value.loading) refresh()
     }
 

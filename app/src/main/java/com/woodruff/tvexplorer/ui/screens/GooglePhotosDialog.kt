@@ -21,7 +21,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import androidx.compose.ui.unit.dp
@@ -38,7 +37,7 @@ import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
-import com.woodruff.tvexplorer.util.Qr
+import com.woodruff.tvexplorer.util.rememberQrBitmap
 
 /**
  * Pick photos from Google Photos for the slideshow. QR first at a fixed size (TVs are only
@@ -65,8 +64,7 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
             val qr = state.qrUrl
             if (qr != null && (state.step == GooglePhotos.Step.SIGN_IN || state.step == GooglePhotos.Step.PICKING)) {
                 Box(Modifier.size(230.dp).clip(RoundedCornerShape(16.dp)).background(Color.White), contentAlignment = Alignment.Center) {
-                    val bitmap = remember(qr) { Qr.bitmap(qr, 600).asImageBitmap() }
-                    Image(bitmap, contentDescription = "QR code", modifier = Modifier.size(230.dp))
+                    rememberQrBitmap(qr, 600)?.let { Image(it, contentDescription = "QR code", modifier = Modifier.size(230.dp)) }
                 }
             } else {
                 TvIcon(Sym.PhotoLibrary, size = 96.dp)

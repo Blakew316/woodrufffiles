@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -53,6 +54,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,6 +66,7 @@ import coil.compose.AsyncImage
 import com.woodruff.tvexplorer.calendar.TodayCalendar
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveViewModel
+import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.notes.Notes
@@ -84,6 +87,9 @@ import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.icon
+import com.woodruff.tvexplorer.ui.motion.posterRowState
+import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.ui.theme.Palette
@@ -101,6 +107,8 @@ import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.player.Watched
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -109,6 +117,7 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
+import java.util.TimeZone
 
 /** Sample TVs and cameras for the UI gallery, which has no network or cameras. Never set in the app. */
 internal object DashboardSamples {
@@ -125,20 +134,31 @@ internal object DashboardSamples {
 fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     val context = LocalContext.current
     val store = remember { RecentStore(context) }
-    var recent by remember { mutableStateOf(store.continueWatching()) }
+    // The list as last read, at once (read here only the first time in a run of the app), then read
+    // again in the background: the saved list is JSON, and telling episodes apart runs regexes.
+    var recent by remember { mutableStateOf(RecentCache.last ?: readRecent(store)) }
+    // Each ask reads it again off the main thread; asks that come during a read make one more after it.
+    val reloads = remember { Channel<Unit>(Channel.CONFLATED) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            reloads.receive()
+            recent = withContext(Dispatchers.Default) { readRecent(store) }
+        }
+    }
     var removeFor by remember { mutableStateOf<RecentItem?>(null) }
     // Coming back from the player: pick up the position it just saved (and a fresh token for the
     // Google-hosted posters: the one from start-up lasts an hour), and what the other TVs watched.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { recent = store.continueWatching(); drive.refreshToken(); FamilySync.pullSoon(context) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context) }
     // Another TV's progress merged in while Home is up: show it.
     val syncSeen = remember { FamilySync.updates.value }
-    LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) recent = store.continueWatching() } }
+    LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) reloads.trySend(Unit) } }
     val play = { r: RecentItem -> context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key)) }
     // Recently added movies and shows, after what's in progress.
     val added by drive.recentlyAdded.collectAsStateWithLifecycle()
     // Posters for what's in progress, from the Movies / TV Shows entries they belong to.
     val artwork by drive.artwork.collectAsStateWithLifecycle()
-    remember { com.woodruff.tvexplorer.cloud.EpisodeShows.load(context) }
+    // Read from disk once per run of the app, off the main thread (the posters follow when it's in).
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { com.woodruff.tvexplorer.cloud.EpisodeShows.load(context) } }
     val shows by com.woodruff.tvexplorer.cloud.EpisodeShows.map.collectAsStateWithLifecycle()
     val arts = remember(recent, artwork, shows) { recent.associate { it.key to com.woodruff.tvexplorer.cloud.artworkFor(artwork, it.key, it.title, shows) } }
     // Which show (or film folder) each one sits under, looked up once on Drive.
@@ -191,10 +211,10 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
                 // As finishing it in the player does: off Continue watching, with a ✓ on its poster
                 // (both reach the other TVs too).
                 MenuAction("Mark as watched", Sym.CheckCircle) {
-                    store.remove(r.key); Watched.mark(context, r.key); recent = store.continueWatching()
+                    store.remove(r.key); Watched.mark(context, r.key); reloads.trySend(Unit)
                 },
                 MenuAction("Remove from Continue watching", Sym.Delete, destructive = true) {
-                    store.removeShow(r); recent = store.continueWatching()
+                    store.removeShow(r); reloads.trySend(Unit)
                 },
             ),
         )
@@ -203,6 +223,24 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
 
 /** An up-next tile's caption, in place of the progress bar: "Next · S2 E5" ("Up next" without an episode number). */
 internal fun upNextCaption(title: String): String = episodeCode(title)?.let { "Next · $it" } ?: "Up next"
+
+/**
+ * Home's Continue watching as last read, kept while the app runs: coming back to Home shows it at
+ * once while it's read again in the background.
+ */
+internal object RecentCache {
+    @Volatile var last: List<RecentItem>? = null
+}
+
+/**
+ * Continue watching as saved now, kept for the next visit ([RecentCache]). The titles' show names
+ * are worked out here too, so matching them to posters on screen is only a lookup.
+ */
+private fun readRecent(store: RecentStore): List<RecentItem> =
+    store.continueWatching().also { list ->
+        list.forEach { matchKeyOf(it.title) }
+        RecentCache.last = list
+    }
 
 // ---- Family message board ------------------------------------------------------------------
 
@@ -236,8 +274,25 @@ private fun Header() {
     val weather by Weather.now.collectAsStateWithLifecycle()
     val cal by TodayCalendar.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { while (true) { Weather.refresh(context); delay(10 * 60_000L) } }
-    LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
-    val hour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
+    // The clock moves as the minute turns, and only while Home is on screen: back from a film or the
+    // screensaver it's right at once.
+    val scope = rememberCoroutineScope()
+    LifecycleStartEffect(Unit) {
+        val ticking = scope.launch {
+            while (true) {
+                now = System.currentTimeMillis()
+                delay(untilMinuteTurns(now))
+            }
+        }
+        onStopOrDispose { ticking.cancel() }
+    }
+    // Made once (again if the time zone changes), not on every tick.
+    val zone = TimeZone.getDefault().id
+    val timeFormat = remember(zone) { DateFormat.getTimeInstance(DateFormat.SHORT) }
+    val dateFormat = remember(zone) { DateFormat.getDateInstance(DateFormat.MEDIUM) }
+    val (hour, day) = remember(now, zone) {
+        Calendar.getInstance().apply { timeInMillis = now }.let { it.get(Calendar.HOUR_OF_DAY) to it.get(Calendar.DAY_OF_YEAR) }
+    }
     val greeting = when (hour) { in 5..11 -> "Good morning"; in 12..16 -> "Good afternoon"; else -> "Good evening" }
     val accent = Palette.accent
     val title = remember(greeting, accent) {
@@ -248,7 +303,6 @@ private fun Header() {
     }
     // A new line each hour, the same one all hour (no flicker when the clock ticks).
     val lines = when (hour) { in 5..11 -> MORNING; in 12..16 -> AFTERNOON; in 17..23 -> EVENING; else -> LATE }
-    val day = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.DAY_OF_YEAR)
     // Mornings: a briefing (weather and today's calendar) instead of the playful line.
     val line = if (hour in 4..9 && (weather != null || cal.connected)) briefing(weather, cal) else lines[(day * 24 + hour) % lines.size]
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -257,14 +311,17 @@ private fun Header() {
             Text(line, style = MaterialTheme.typography.bodyMedium, color = Palette.muted, maxLines = 1)
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(now)), style = MaterialTheme.typography.headlineSmall)
+            Text(timeFormat.format(Date(now)), style = MaterialTheme.typography.headlineSmall)
             Text(
-                DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(now)) + (weather?.let { "  ·  ${it.tempF}° ${it.summary}" } ?: ""),
+                dateFormat.format(Date(now)) + (weather?.let { "  ·  ${it.tempF}° ${it.summary}" } ?: ""),
                 style = MaterialTheme.typography.bodySmall, color = Palette.muted,
             )
         }
     }
 }
+
+/** How long until the clock next turns a minute (just after, so the new minute shows). */
+internal fun untilMinuteTurns(now: Long): Long = 60_000L - now.mod(60_000L) + 20L
 
 /** "Partly cloudy, 64° · high 72°, low 55° · 20% rain · 2 events today, first Dentist 9:30 AM". */
 private fun briefing(w: Weather.Now?, cal: com.woodruff.tvexplorer.calendar.CalendarState): String {
@@ -331,12 +388,15 @@ private fun Panel(title: String, modifier: Modifier, note: String? = null, conte
 private fun PanelButton(label: String, icon: ImageVector, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
+        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed it on
+        // every frame of it. Held OK still shrinks it back.
+        modifier = Modifier.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.06f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Palette.surfaceHigh, contentColor = Palette.text,
             focusedContainerColor = Palette.text, focusedContentColor = Palette.background,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.06f),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             TvIcon(icon, size = 18.dp)
@@ -358,7 +418,11 @@ private fun ContinuePanel(
     Panel(title, modifier) {
         val r = recent.firstOrNull()
         if (r == null && added.isNotEmpty()) {
-            LazyRow(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)) {
+            // The whole row is composed ahead while the TV is idle, not each poster as it slides in.
+            LazyRow(
+                Modifier.fillMaxWidth().weight(1f), state = remember { posterRowState() },
+                horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+            ) {
                 items(added, key = { "new-" + it.second.id }) { a ->
                     PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
                 }
@@ -376,9 +440,10 @@ private fun ContinuePanel(
             return@Panel
         }
         // Posters, like the libraries, newest first; a bar shows how far through. A row clips at its
-        // ends, so it leaves room there for a focused tile's grown edge and outline.
+        // ends, so it leaves room there for a focused tile's grown edge and outline. The whole row is
+        // composed ahead while the TV is idle, not each poster as it slides in.
         LazyRow(
-            Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxWidth().weight(1f), state = remember { posterRowState() }, horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
         ) {
             item(key = r.key) {
@@ -402,24 +467,29 @@ private fun ResumeTile(
 ) {
     Surface(
         onClick = { play(r) }, onLongClick = { onMenu(r) },
-        modifier = modifier.onMenuKey { onMenu(r) },
+        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed the tile
+        // on every frame of it. Held OK still shrinks it back.
+        modifier = modifier.onMenuKey { onMenu(r) }.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.05f),
         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.05f),
     ) {
         Box(Modifier.fillMaxSize()) {
             val poster = art?.posterUrl?.takeIf { token != null || !isGoogle(it) }
             ResumeArt(r, poster, token)
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp)) {
                 // A poster carries its own title; an episode still says which one it is (up next, the caption does).
-                val label = when {
-                    poster == null -> Format.title(r.title)
-                    r.upNext -> null
-                    else -> episodeCode(r.title)
+                // Worked out once, not on every redraw of the tile (finding the episode runs regexes).
+                val label = remember(r.title, poster == null, r.upNext) {
+                    when {
+                        poster == null -> Format.title(r.title)
+                        r.upNext -> null
+                        else -> episodeCode(r.title)
+                    }
                 }
                 if (label != null) Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 // The next episode hasn't started: which one it is, instead of an empty bar.
                 if (r.upNext) Text(
-                    upNextCaption(r.title), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f),
+                    remember(r.title) { upNextCaption(r.title) }, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
                 )
                 else UsageBar(r.progress, Modifier.padding(top = 4.dp))
@@ -568,14 +638,16 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     val lowRam = remember { context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true }
     var focusedCam by remember { mutableStateOf<String?>(null) }
     // Where the focus is right now; it only becomes the live tile once it rests there, so passing
-    // across the tiles doesn't tear down and start a camera stream on every press.
-    var focusRaw by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(focusRaw) {
-        val r = focusRaw
-        // Focus left the tiles: back to rotating (in "one at a time" mode) instead of keeping the last one live.
-        if (r == null) { focusedCam = null; return@LaunchedEffect }
-        delay(600)
-        focusedCam = r
+    // across the tiles doesn't tear down and start a camera stream on every press. Read only here,
+    // not while composing, so moving across the tiles recomposes nothing.
+    val focusRaw = remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { focusRaw.value }.collectLatest { r ->
+            // Focus left the tiles: back to rotating (in "one at a time" mode) instead of keeping the last one live.
+            if (r == null) { focusedCam = null; return@collectLatest }
+            delay(600)
+            focusedCam = r
+        }
     }
     // "One at a time" (and low-memory TVs): one tile streams, moving on every minute; the others
     // show their last frame. The tile you're on always plays. (Each move stops one stream and
@@ -601,7 +673,7 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
                     CameraTile(
                         cam.label, cam,
                         live = liveTiles && cam.webRtc && (!rotate || rotating == cam.name),
-                        onFocus = { f -> if (f) focusRaw = cam.name else if (focusRaw == cam.name) focusRaw = null },
+                        onFocus = { f -> if (f) focusRaw.value = cam.name else if (focusRaw.value == cam.name) focusRaw.value = null },
                         onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) },
                     )
                 }
@@ -645,18 +717,23 @@ private fun <T> CameraGrid4(items: List<T>, tile: @Composable (Int, T) -> Unit) 
 
 @Composable
 private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, onFocus: (Boolean) -> Unit = {}, onClick: () -> Unit) {
+    // Whether this tile has the focus, read only by its video (the focused tile plays smoothest).
+    val focused = remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(80.dp).onFocusChanged { onFocus(it.isFocused) },
+        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed the tile
+        // on every frame of it. Held OK still shrinks it back.
+        modifier = Modifier.fillMaxWidth().height(80.dp).onFocusChanged { focused.value = it.isFocused; onFocus(it.isFocused) }
+            .tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.06f),
         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.06f),
     ) {
         // Edge to edge, in the tile's own rounded shape: the picture fills the whole tile.
         Box(Modifier.fillMaxSize().clip(com.woodruff.tvexplorer.ui.theme.Shapes.card).background(Color(0xFF0B0E13))) {
             val stills by CameraStills.stills.collectAsStateWithLifecycle()
             val still = cam?.let { stills[it.name] }
             val stillImage = remember(still) { still?.bitmap?.asImageBitmap() }
-            if (live && cam != null) LiveVideo(cam, audio = false, fill = true)
+            if (live && cam != null) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
             else if (stillImage != null) Image(stillImage, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 TvIcon(Sym.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))
@@ -730,12 +807,14 @@ private fun GlanceRow(g: GlanceItem) {
     if (click == null) Box(Modifier.padding(bottom = 2.dp)) { content() }
     else Surface(
         onClick = click,
-        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+        // Grows as a layer, ahead of the Surface's own focus: tv-material's scale recomposed it on
+        // every frame of it. Held OK still shrinks it back.
+        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp).tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.03f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent, contentColor = Palette.text,
             focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.03f),
     ) { content() }
 }

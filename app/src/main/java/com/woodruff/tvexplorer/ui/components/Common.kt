@@ -31,9 +31,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.ListItemDefaults
 import androidx.tv.material3.LocalContentColor
+import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.FileKind
+import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 
 /**
@@ -93,15 +98,48 @@ fun FileKind.icon(): ImageVector = when (this) {
 }
 
 
+/** tv-material's own focus growth for buttons and for list rows, which ours keep. */
+const val ButtonFocusScale = 1.1f
+const val ListItemFocusScale = 1.05f
+
+/**
+ * Grows a tv-material Surface, Button or ListItem by [scale] when it takes the focus, in its
+ * drawing layer ([tvFocusMotion]). tv-material's own growth is read while composing, so a growing
+ * item re-ran its composition on every frame of the animation. Goes last in the item's modifier:
+ * tv-material puts its focus target after it. Give tv-material [pressScale], [buttonPressScale] or
+ * [listItemPressScale] for the same [scale], so it doesn't grow the item a second time.
+ */
+@Composable
+fun Modifier.growOnFocus(scale: Float): Modifier = tvFocusMotion(rememberFocusMotionState(), scale)
+
+/**
+ * tv-material's scale for an item that [growOnFocus] grows: none on focus, and, while OK is held,
+ * back to normal size, as tv-material did before.
+ */
+fun pressScale(scale: Float) = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 1f / scale)
+fun buttonPressScale(scale: Float) = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f / scale)
+fun listItemPressScale(scale: Float) = ListItemDefaults.scale(focusedScale = 1f, pressedScale = 1f / scale, pressedSelectedScale = 1f / scale)
+
+/** tv-material's filled button, growing on focus in its layer ([growOnFocus]). Same look and press. */
+@Composable
+fun TvButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) =
+    Button(onClick = onClick, modifier = modifier.growOnFocus(ButtonFocusScale), scale = buttonPressScale(ButtonFocusScale), content = content)
+
+/** tv-material's outlined button, growing on focus in its layer ([growOnFocus]). Same look and press. */
+@Composable
+fun TvOutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) =
+    OutlinedButton(onClick = onClick, modifier = modifier.growOnFocus(ButtonFocusScale), scale = buttonPressScale(ButtonFocusScale), content = content)
+
 /** Compact toolbar button: icon plus optional label. */
 @Composable
 fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Button(
         onClick = onClick,
-        modifier = modifier,
+        // A disabled button didn't grow when focused, and still doesn't.
+        modifier = modifier.growOnFocus(if (enabled) 1.06f else 1f),
         enabled = enabled,
         contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-        scale = ButtonDefaults.scale(focusedScale = 1.06f),
+        scale = buttonPressScale(1.06f),
         // Glass pill with the lit rim; white with dark content when focused, as on Apple TV.
         border = ButtonDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = com.woodruff.tvexplorer.ui.theme.Shapes.pill)),
         colors = ButtonDefaults.colors(

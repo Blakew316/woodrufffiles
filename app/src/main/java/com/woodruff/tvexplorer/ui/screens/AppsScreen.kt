@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,6 +41,11 @@ import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ActionMenu
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.ToolButton
+import com.woodruff.tvexplorer.ui.components.growOnFocus
+import com.woodruff.tvexplorer.ui.components.listItemPressScale
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.OpenResult
@@ -79,23 +85,28 @@ fun AppsScreen(vm: MainViewModel) {
             )
             ToolButton(Sym.Refresh, null, { generation++ })
         }
-        LazyColumn(contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(apps.orEmpty(), key = { it.packageName }) { app ->
-                ListItem(
-                    selected = false,
-                    onClick = { menuFor = app },
-                    onLongClick = { menuFor = app },
-                    colors = ListItemDefaults.colors(focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text),
-                    scale = ListItemDefaults.scale(focusedScale = 1.01f),
-                    leadingContent = { AppIcon(repo, app.packageName) },
-                    headlineContent = { Text(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    supportingContent = {
-                        Text(
-                            "${app.packageName} · v${app.versionName} · ${Format.bytes(app.apkSize)}" + if (app.isSystem) " · System" else "",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, color = Palette.muted,
-                        )
-                    },
-                )
+        // The focused app comes to rest a third of the way down, as on Apple TV.
+        val list = rememberLazyListState()
+        PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.ColumnScroll) {
+            LazyColumn(state = list, contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(apps.orEmpty(), key = { it.packageName }) { app ->
+                    ListItem(
+                        selected = false,
+                        onClick = { menuFor = app },
+                        onLongClick = { menuFor = app },
+                        modifier = Modifier.growOnFocus(1.01f),
+                        colors = ListItemDefaults.colors(focusedContainerColor = Palette.surfaceHigh, focusedContentColor = Palette.text),
+                        scale = listItemPressScale(1.01f),
+                        leadingContent = { AppIcon(repo, app.packageName) },
+                        headlineContent = { Text(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = {
+                            Text(
+                                "${app.packageName} · v${app.versionName} · ${Format.bytes(app.apkSize)}" + if (app.isSystem) " · System" else "",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, color = Palette.muted,
+                            )
+                        },
+                    )
+                }
             }
         }
     }

@@ -39,16 +39,15 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.tv.material3.Button
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.OpProgress
 import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.server.TransferService
+import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
 
@@ -57,7 +56,8 @@ import com.woodruff.tvexplorer.util.Format
 fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            modifier = Modifier.width(width.dp),
+            // A dialog's keys never pass MainActivity's gate for held arrows: this is the same gate.
+            modifier = Modifier.dpadGate().width(width.dp),
             shape = RoundedCornerShape(28.dp),
             colors = SurfaceDefaults.colors(containerColor = Palette.glass),
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(28.dp)),
@@ -85,7 +85,8 @@ fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDi
                 ListItem(
                     selected = false,
                     onClick = { onDismiss(); a.run() },
-                    modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
+                    modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier).growOnFocus(ListItemFocusScale),
+                    scale = listItemPressScale(ListItemFocusScale),
                     leadingContent = { TvIcon(a.icon) },
                     headlineContent = { Text(a.label, color = if (a.destructive) Palette.danger else androidx.compose.ui.graphics.Color.Unspecified) },
                 )
@@ -102,8 +103,8 @@ fun ConfirmDialog(title: String, body: String, confirmLabel: String, onConfirm: 
         Text(body, color = Palette.muted)
         ButtonRow {
             // Focus starts on Cancel so an accidental double-press of OK can't delete anything.
-            OutlinedButton(onClick = onDismiss, modifier = Modifier.focusRequester(cancel)) { Text("Cancel") }
-            Button(onClick = { onDismiss(); onConfirm() }) { Text(confirmLabel) }
+            TvOutlinedButton(onClick = onDismiss, modifier = Modifier.focusRequester(cancel)) { Text("Cancel") }
+            TvButton(onClick = { onDismiss(); onConfirm() }) { Text(confirmLabel) }
         }
     }
     LaunchedEffect(Unit) { runCatching { cancel.requestFocus() } }
@@ -137,8 +138,8 @@ fun TextInputDialog(
             textModifier = Modifier.focusRequester(field),
         )
         ButtonRow {
-            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
-            Button(onClick = submit) { Text(confirmLabel) }
+            TvOutlinedButton(onClick = onDismiss) { Text("Cancel") }
+            TvButton(onClick = submit) { Text(confirmLabel) }
         }
     }
     LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
@@ -217,7 +218,7 @@ fun ProgressDialog(title: String, progress: OpProgress?, onCancel: () -> Unit) {
             else "${Format.bytes(progress.doneBytes)} of ${Format.bytes(progress.totalBytes)}"
             Text(text, style = MaterialTheme.typography.bodySmall)
         }
-        OutlinedButton(onClick = onCancel, modifier = Modifier.focusRequester(cancel)) { Text("Cancel") }
+        TvOutlinedButton(onClick = onCancel, modifier = Modifier.focusRequester(cancel)) { Text("Cancel") }
     }
     LaunchedEffect(Unit) { runCatching { cancel.requestFocus() } }
 }

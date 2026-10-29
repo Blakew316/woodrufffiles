@@ -64,8 +64,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
 import com.woodruff.tvexplorer.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,7 +82,6 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.cloud.DriveViewModel
-import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.ui.components.ProgressDialog
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.screens.AppsScreen
@@ -92,7 +94,6 @@ import com.woodruff.tvexplorer.ui.screens.SettingsScreen
 import com.woodruff.tvexplorer.ui.screens.TransferScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.ambientBackdrop
-import com.woodruff.tvexplorer.notify.Notice
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import kotlinx.coroutines.delay
@@ -105,6 +106,13 @@ import com.woodruff.tvexplorer.ui.components.ActionMenu
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.produceState
+import android.graphics.BitmapFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.woodruff.tvexplorer.ui.components.growOnFocus
+import com.woodruff.tvexplorer.ui.components.pressScale
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import androidx.compose.ui.layout.layout
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -115,10 +123,10 @@ import kotlinx.coroutines.flow.map
 fun AppRoot(vm: MainViewModel) {
     val drive: DriveViewModel = viewModel()
     val screen by vm.screen.collectAsStateWithLifecycle()
-    val roots by vm.roots.collectAsStateWithLifecycle()
-    val browser by vm.browser.collectAsStateWithLifecycle()
-    val operation by vm.operation.collectAsStateWithLifecycle()
-    val message by vm.message.collectAsStateWithLifecycle()
+    // Only the folder the browser is in (for the Family Memories item): the full browser state
+    // changes with every listing, selection and sort, and would redraw the menu with it.
+    val browserPath by remember(vm) { vm.browser.map { it.folder?.path }.distinctUntilChanged() }
+        .collectAsStateWithLifecycle(vm.browser.value.folder?.path)
     // Only the library the Drive screen is in: the full Drive state changes on every download
     // progress tick and would redraw the whole window with it.
     val driveTop by remember(drive) { drive.state.map { it.stack.firstOrNull() }.distinctUntilChanged() }
@@ -126,11 +134,6 @@ fun AppRoot(vm: MainViewModel) {
     // The library Streaming last showed (Movies or TV Shows), to open it again.
     var lastLibrary by remember { mutableStateOf<DrivePlace>(DrivePlace.Movies) }
     LaunchedEffect(driveTop) { driveTop?.takeIf { it == DrivePlace.Movies || it == DrivePlace.TvShows }?.let { lastLibrary = it } }
-    // Only whether the phone connection is up: its state also carries a request log that changes
-    // with every phone request, which would redraw the whole window while the phone app is open.
-    val phoneConnected by remember { TransferService.state.map { it.running }.distinctUntilChanged() }
-        .collectAsStateWithLifecycle(TransferService.state.value.running)
-    val latestNotice by Notices.latest.collectAsStateWithLifecycle()
     val homeFocus = remember { FocusRequester() }
     val contentFocus = remember { FocusRequester() }
     var railFocused by remember { mutableStateOf(false) }
@@ -166,10 +169,13 @@ fun AppRoot(vm: MainViewModel) {
     LaunchedEffect(Unit) { VoiceSearch.requests.collect { startSearch() } }
 
     Box(Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background))) {
-        // Optional background photo (Settings → Screensaver & background), dimmed so text stays readable.
+        // Optional background photo (Settings → Screensaver & background), dimmed so text stays
+        // readable. Dimmed as it's drawn (a colour filter), not by a see-through layer over the
+        // whole screen: the same picture, one full-screen fill fewer on every frame.
         Appearance.background?.let { path ->
-            AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().background(Palette.background.copy(alpha = 0.78f)))
+            val scrim = Palette.background
+            val dimmed = remember(scrim) { ColorFilter.colorMatrix(ColorMatrix(scrimMatrix(scrim, 0.78f))) }
+            AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, colorFilter = dimmed, modifier = Modifier.fillMaxSize())
         }
         // No focusRestorer here or on the menu: it pins the last focused item of a lazy list, and when
         // that list went away with the old screen, un-pinning it crashed the app ("Release should only
@@ -212,9 +218,9 @@ fun AppRoot(vm: MainViewModel) {
                   }
                 }
                 }
-                MessageBanner(message, vm::dismissMessage, Modifier.align(Alignment.BottomCenter))
+                MainMessage(vm, Modifier.align(Alignment.BottomCenter))
                 DriveMessage(drive, Modifier.align(Alignment.BottomCenter))
-                NoticeBanner(latestNotice, Modifier.align(Alignment.TopEnd)) { vm.show(Screen.NOTIFICATIONS) }
+                NoticeBanner(Modifier.align(Alignment.TopEnd)) { vm.show(Screen.NOTIFICATIONS) }
         }
         // Dim the dashboard while the menu is open over it.
         // Animated values are read only while drawing / laying out, so the 220 ms open and close
@@ -278,7 +284,7 @@ fun AppRoot(vm: MainViewModel) {
                     go { drive.openRoot(lastLibrary); vm.show(Screen.DRIVE) }
                 }
                 // Family Memories: the photos and videos picked from Google Photos, saved on the TV.
-                val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browser.folder?.path?.startsWith(dir.path) == true }
+                val inFolder = { dir: java.io.File -> screen == Screen.BROWSER && browserPath?.startsWith(dir.path) == true }
                 RailItem("Family Memories", Sym.PhotoLibrary, inFolder(GooglePhotos.folder) || inFolder(GooglePhotos.videoFolder), open) {
                     go { vm.openRoot(GooglePhotos.folder.apply { mkdirs() }) }
                 }
@@ -291,7 +297,7 @@ fun AppRoot(vm: MainViewModel) {
         }
     }
 
-    operation?.let { ProgressDialog(it.title, it.progress, vm::cancelOperation) }
+    OperationProgress(vm)
     DriveProgress(drive)
     if (typingSearch) {
         TextInputDialog("Search movies and shows", "", "Search", onConfirm = { q -> typingSearch = false; if (q.isNotBlank()) showResults(q.trim()) }, onDismiss = { typingSearch = false })
@@ -391,14 +397,14 @@ internal fun ScreenEnter(content: @Composable () -> Unit) {
  * How lists and grids scroll to follow the focus. Compose's TV default keeps the focused item
  * pinned a third of the way in, so every press slides the whole page. This only scrolls when the
  * focus gets near an edge, keeping a margin so the next row or column is already in view, on a
- * quick, fully damped spring: moves feel immediate and settle without bounce.
+ * quick, fully damped spring: moves feel immediate and settle without bounce. Lists that set their
+ * own (PivotScroll) don't use this.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 internal val SmoothBringIntoView = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
-    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
-        // Fully damped: glides to a stop without bounce; soft enough to feel smooth, quick enough
-        // that holding a direction never leaves the focus behind.
-        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 700f)
+    // The app's one scrolling spring (fully damped: glides to a stop without bounce, and a held
+    // direction never leaves the focus behind), so every list scrolls alike.
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> = TvMotion.ColumnScroll
 
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         val margin = containerSize * 0.16f
@@ -412,6 +418,22 @@ internal val SmoothBringIntoView = object : androidx.compose.foundation.gestures
             else -> 0f
         }
     }
+}
+
+/**
+ * A colour matrix that draws a picture as if [scrim] lay over it at [alpha]: each colour keeps
+ * (1 - alpha) of its own value and takes alpha of the scrim's (out of 255); its transparency is
+ * left as it is. In one pass, the same pixels as the picture with the scrim drawn over it (exactly,
+ * for an opaque picture or one over the scrim's own colour, as the background photo is).
+ */
+internal fun scrimMatrix(scrim: Color, alpha: Float): FloatArray {
+    val keep = 1f - alpha
+    return floatArrayOf(
+        keep, 0f, 0f, 0f, scrim.red * alpha * 255f,
+        0f, keep, 0f, 0f, scrim.green * alpha * 255f,
+        0f, 0f, keep, 0f, scrim.blue * alpha * 255f,
+        0f, 0f, 0f, 1f, 0f,
+    )
 }
 
 private val RAIL_CLOSED = 0.dp
@@ -472,13 +494,23 @@ private fun CommandHub(screen: Screen, vm: MainViewModel) {
 @Composable
 private fun HubClock() {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    // Ticks on each new minute.
-    LaunchedEffect(Unit) { while (true) { delay(60_000 - System.currentTimeMillis() % 60_000); now = System.currentTimeMillis() } }
+    // Ticks on each new minute (and only then).
+    LaunchedEffect(Unit) { while (true) { delay(untilNextMinute(System.currentTimeMillis())); now = System.currentTimeMillis() } }
+    // Made once, not on every tick: building a date format loads the language's month and day names.
+    val time = remember { java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault()) }
+    val day = remember { java.text.SimpleDateFormat("EEEE, MMMM d", java.util.Locale.getDefault()) }
     Column(horizontalAlignment = Alignment.End) {
-        Text(java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault()).format(java.util.Date(now)), style = MaterialTheme.typography.headlineMedium)
-        Text(java.text.SimpleDateFormat("EEEE, MMMM d", java.util.Locale.getDefault()).format(java.util.Date(now)), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+        Text(time.format(java.util.Date(now)), style = MaterialTheme.typography.headlineMedium)
+        Text(day.format(java.util.Date(now)), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
     }
 }
+
+/**
+ * How long from [now] until just after the next minute begins. The small margin keeps a wake-up a
+ * few milliseconds early (timers and the wall clock drift apart) from reading the old minute, which
+ * would then stay on screen for another whole minute.
+ */
+internal fun untilNextMinute(now: Long): Long = 60_000 - now.mod(60_000L) + 50
 
 /**
  * Brings up the sidebar. A screen's Back at its top calls it (as on Apple TV) rather than going
@@ -501,17 +533,39 @@ private fun DriveProgress(drive: DriveViewModel) {
     s.operation?.let { ProgressDialog(it.title, it.progress, drive::cancelOperation) }
 }
 
+/** A copy, move, delete or zip's progress dialog, collected here so its ticks (every 120 ms) redraw only the dialog. */
+@Composable
+private fun OperationProgress(vm: MainViewModel) {
+    val operation by vm.operation.collectAsStateWithLifecycle()
+    operation?.let { ProgressDialog(it.title, it.progress, vm::cancelOperation) }
+}
+
 @Composable
 private fun DriveMessage(drive: DriveViewModel, modifier: Modifier) {
     val message by remember(drive) { drive.state.map { it.message }.distinctUntilChanged() }.collectAsStateWithLifecycle(null)
     MessageBanner(message, drive::dismissMessage, modifier)
 }
 
+/** The window's own messages ("Pasted 3 items"), collected here so one coming or going redraws only the banner. */
+@Composable
+private fun MainMessage(vm: MainViewModel, modifier: Modifier) {
+    val message by vm.message.collectAsStateWithLifecycle()
+    MessageBanner(message, vm::dismissMessage, modifier)
+}
+
 /** Top-left brand: the Woodruff Family app-icon tile (the triangle emblem) and the wordmark. */
 @Composable
 private fun Brand(open: Boolean, modifier: Modifier = Modifier) {
+    val resources = LocalContext.current.resources
+    // Decoded once, off the main thread: read while composing, the PNG held up the first frame
+    // (the menu starts hidden, so it's ready long before it shows).
+    val logo by produceState<ImageBitmap?>(null) {
+        value = withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeResource(resources, R.drawable.brand_logo)?.asImageBitmap() }.getOrNull() }
+    }
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(R.drawable.brand_logo), contentDescription = "Woodruff Family logo", modifier = Modifier.size(44.dp))
+        Box(Modifier.size(44.dp)) {
+            logo?.let { Image(it, contentDescription = "Woodruff Family logo", modifier = Modifier.fillMaxSize()) }
+        }
         if (open) Column(Modifier.padding(start = 12.dp)) {
             Text("WOODRUFF", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Palette.text, letterSpacing = 1.sp)
             Text("FAMILY", style = MaterialTheme.typography.labelMedium, color = Palette.accent, letterSpacing = 6.sp)
@@ -538,7 +592,8 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Bo
         modifier = modifier
             .then(if (active && activeFocus != null) Modifier.focusRequester(activeFocus) else Modifier)
             .focusProperties { canFocus = focusable }
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .growOnFocus(1.04f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
         colors = ClickableSurfaceDefaults.colors(
             // Monochrome, as on Apple TV: the current screen sits in soft glass, the focused item turns white.
@@ -547,7 +602,7 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Bo
             focusedContainerColor = Palette.text,
             focusedContentColor = Palette.background,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        scale = pressScale(1.04f),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             TvIcon(icon)
@@ -564,7 +619,9 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, open: Bo
  * is open. Outside the app the same notice appears as an overlay or system notification.
  */
 @Composable
-private fun NoticeBanner(notice: Notice?, modifier: Modifier, onOpen: () -> Unit) {
+private fun NoticeBanner(modifier: Modifier, onOpen: () -> Unit) {
+    // Collected here, so a notice coming or going redraws only this card.
+    val notice by Notices.latest.collectAsStateWithLifecycle()
     LaunchedEffect(notice) { if (notice != null) { delay(7000); Notices.dismissLatest() } }
     AnimatedVisibility(
         visible = notice != null,

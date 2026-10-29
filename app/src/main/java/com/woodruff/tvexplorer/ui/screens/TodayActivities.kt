@@ -18,26 +18,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.calendar.DayEvent
 import com.woodruff.tvexplorer.calendar.TodayCalendar
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.DialogFrame
+import com.woodruff.tvexplorer.ui.components.TvOutlinedButton
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.glassPanel
-import com.woodruff.tvexplorer.util.Qr
+import com.woodruff.tvexplorer.util.rememberQrBitmap
 import java.text.DateFormat
 import java.util.Date
 
@@ -109,8 +107,8 @@ fun CalendarConnectDialog(onDismiss: () -> Unit) {
             Box(Modifier.size(220.dp).clip(RoundedCornerShape(16.dp)).background(Color.White), contentAlignment = Alignment.Center) {
                 val url = cal.qrUrl
                 if (url != null) {
-                    val bitmap = remember(url) { Qr.bitmap(url, 600).asImageBitmap() }
-                    Image(bitmap, contentDescription = "QR code", modifier = Modifier.size(220.dp))
+                    // Made off the main thread; the white card shows for the moment it takes.
+                    rememberQrBitmap(url, 600)?.let { Image(it, contentDescription = "QR code", modifier = Modifier.size(220.dp)) }
                 } else Text("Preparing…", color = Color.Black)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -118,6 +116,6 @@ fun CalendarConnectDialog(onDismiss: () -> Unit) {
                 cal.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium) }
             }
         }
-        ButtonRow { OutlinedButton(onClick = close) { Text("Close") } }
+        ButtonRow { TvOutlinedButton(onClick = close) { Text("Close") } }
     }
 }

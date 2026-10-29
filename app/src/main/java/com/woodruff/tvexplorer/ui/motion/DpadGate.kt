@@ -18,6 +18,13 @@ object DpadGate {
     private const val MIN_UPDOWN_MS = 130L    // Up/Down moves a whole row or shelf
     private var lastMoveAt = 0L
     private var framesSinceMove = 2
+    // The press last answered. The same press can reach a second gate (a dialog's own, and one put
+    // inside it): it gets the same answer there, instead of looking like a repeat that came too soon.
+    private var seenTime = -1L
+    private var seenDown = -1L
+    private var seenCode = -1
+    private var seenRepeat = -1
+    private var seenDrop = false
     private val counter = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (++framesSinceMove < 2) Choreographer.getInstance().postFrameCallback(this)
@@ -32,10 +39,14 @@ object DpadGate {
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> MIN_UPDOWN_MS
             else -> return false
         }
+        if (event.eventTime == seenTime && event.downTime == seenDown && event.keyCode == seenCode && event.repeatCount == seenRepeat) {
+            return seenDrop
+        }
+        seenTime = event.eventTime; seenDown = event.downTime; seenCode = event.keyCode; seenRepeat = event.repeatCount
         val now = SystemClock.uptimeMillis()
-        if (event.repeatCount > 0 &&
+        seenDrop = event.repeatCount > 0 &&
             (now - event.eventTime > STALE_MS || framesSinceMove < 2 || now - lastMoveAt < minGap)
-        ) return true
+        if (seenDrop) return true
         lastMoveAt = now
         framesSinceMove = 0
         Choreographer.getInstance().run { removeFrameCallback(counter); postFrameCallback(counter) }

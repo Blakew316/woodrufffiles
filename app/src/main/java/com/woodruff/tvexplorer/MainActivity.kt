@@ -24,6 +24,7 @@ import androidx.core.content.ContextCompat
 import com.woodruff.tvexplorer.ui.AppRoot
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
+import com.woodruff.tvexplorer.ui.motion.DpadGate
 import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.server.TransferService
@@ -53,7 +54,7 @@ class MainActivity : ComponentActivity() {
         handleOpen(intent)
         setContent {
             TvExplorerTheme {
-                // No background here: the window and AppRoot's backdrop already paint the whole screen.
+                // No background here: AppRoot's backdrop and the permission screen paint the whole screen.
                 // Lists and grids follow the focus with a quick, bounce-free scroll (see SmoothBringIntoView).
                 androidx.compose.runtime.CompositionLocalProvider(
                     androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.woodruff.tvexplorer.ui.SmoothBringIntoView,
@@ -64,6 +65,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Both of those paint the whole window, opaquely, on every screen, so the window's own
+        // background colour under them was a full-screen fill drawn for nothing on every frame.
+        window.setBackgroundDrawable(null)
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_MEDIA_MOUNTED)
             addAction(Intent.ACTION_MEDIA_UNMOUNTED)
@@ -102,25 +106,15 @@ class MainActivity : ComponentActivity() {
         if (minutes > 0) idle.postDelayed(startSlideshow, minutes * 60_000L)
     }
 
-    private var lastRepeatAt = 0L
-
     /**
-     * Holding an arrow: Android repeats it every ~50 ms. When a frame takes longer than that, the
+     * Holding an arrow: Android repeats it about 20 times a second. When drawing falls behind, the
      * repeats queue up and the focus keeps sliding after the button is let go, which is what makes
-     * scrolling feel laggy. Repeats that are already stale, or arrive faster than the screen can
-     * follow (one per 70 ms), are dropped; single presses always go through.
+     * scrolling feel laggy. [DpadGate] lets a repeat through only once the previous move has been
+     * drawn, and drops stale ones; single presses always go through. (Dialog windows, whose keys
+     * never come through here, have the same gate: Modifier.dpadGate().)
      */
-    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount > 0 && isArrow(event.keyCode)) {
-            val now = android.os.SystemClock.uptimeMillis()
-            if (now - event.eventTime > 120 || now - lastRepeatAt < 70) return true
-            lastRepeatAt = now
-        }
-        return super.dispatchKeyEvent(event)
-    }
-
-    private fun isArrow(code: Int) = code == android.view.KeyEvent.KEYCODE_DPAD_UP || code == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
-        code == android.view.KeyEvent.KEYCODE_DPAD_LEFT || code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        DpadGate.shouldDrop(event) || super.dispatchKeyEvent(event)
 
     /** The remote's search button (if the TV hands it to apps): voice search. */
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {

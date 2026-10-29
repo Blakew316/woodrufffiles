@@ -79,7 +79,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
 
     // The views' pictures (each with whether it wants sound) and the current connection's tracks,
     // guarded by [tracks] alone, never this object's monitor: onTrack runs on WebRTC's signaling
-    // thread and takes this lock, while teardown() and setAudio() hold the monitor and wait on that
+    // thread and takes this lock, while teardown() and syncAudio() hold the monitor and wait on that
     // same thread (closing the connection, switching the sound), so one lock for both would deadlock.
     private val tracks = Any()
     private val sinks = LinkedHashMap<VideoSink, Boolean>()
@@ -160,19 +160,26 @@ class CameraStream(private val context: Context, private val camera: Camera) {
         updateAudio()
     }
 
-    /** Sound plays while any attached view wants it. */
+    /**
+     * Sound plays while any attached view wants it. Switched on the stream's own background thread,
+     * not the caller's (the main thread, moving between cameras): switching waits on WebRTC.
+     */
     private fun updateAudio() {
-        val want = synchronized(tracks) { sinks.containsValue(true) }
-        if (want != audioOn) setAudio(want)
+        scope.launch { syncAudio() }
     }
 
-    /** Synchronized with [teardown], so it never touches a track that's being disposed. */
+    /**
+     * Synchronized with [teardown], so it never touches a track that's being disposed. Reads what's
+     * wanted now, so switches that run out of order still end as the views want.
+     */
     @Synchronized
-    private fun setAudio(on: Boolean) {
-        audioOn = on
+    private fun syncAudio() {
+        val want = synchronized(tracks) { sinks.containsValue(true) }
+        if (want == audioOn) return
+        audioOn = want
         // Called outside [tracks]: switching the sound waits on the signaling thread, where onTrack takes that lock.
         val track = synchronized(tracks) { audio }
-        runCatching { track?.setEnabled(on) }
+        runCatching { track?.setEnabled(want) }
     }
 
     /**
@@ -253,7 +260,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
     }
 
     /**
-     * Synchronized: a double dispose crashes natively, and [setAudio] mustn't touch a track while
+     * Synchronized: a double dispose crashes natively, and [syncAudio] mustn't touch a track while
      * it's disposed. Only the stream's own coroutine calls this.
      */
     @Synchronized

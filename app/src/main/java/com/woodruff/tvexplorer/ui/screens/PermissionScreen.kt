@@ -4,6 +4,7 @@ import com.woodruff.tvexplorer.ui.icons.Sym
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,9 +22,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.woodruff.tvexplorer.ui.components.TvButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.OpenResult
@@ -41,7 +42,8 @@ fun PermissionScreen(onRecheck: () -> Unit) {
     val legacy = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { onRecheck() }
     val button = remember { FocusRequester() }
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    // Paints its own background, as AppRoot does: the window has none (MainActivity removes it).
+    Box(Modifier.fillMaxSize().background(Palette.background), contentAlignment = Alignment.Center) {
         Column(Modifier.width(640.dp), verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             TvIcon(Sym.FolderOpen, size = 72.dp, tint = Palette.text)
             Text("Allow access to your files", style = MaterialTheme.typography.headlineMedium)
@@ -52,7 +54,7 @@ fun PermissionScreen(onRecheck: () -> Unit) {
                 else "Woodruff Family needs storage permission to browse and manage your files.",
                 color = Palette.muted,
             )
-            Button(
+            TvButton(
                 modifier = Modifier.focusRequester(button),
                 onClick = {
                     if (Build.VERSION.SDK_INT >= 30) {

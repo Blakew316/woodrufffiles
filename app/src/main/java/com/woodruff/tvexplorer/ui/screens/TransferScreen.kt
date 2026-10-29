@@ -31,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,7 +41,7 @@ import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.theme.Palette
-import com.woodruff.tvexplorer.util.Qr
+import com.woodruff.tvexplorer.util.rememberQrBitmap
 
 /**
  * Pair a phone: the QR code opens the companion web app (files, send-to-TV, settings). The
@@ -73,8 +72,8 @@ fun TransferScreen(vm: MainViewModel) {
         Box(Modifier.size(250.dp).clip(RoundedCornerShape(20.dp)).background(Color.White), contentAlignment = Alignment.Center) {
             val url = state.url
             if (state.running && url != null) {
-                val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
-                Image(qr, contentDescription = "QR code to connect your phone", modifier = Modifier.fillMaxSize())
+                // Made off the main thread; the white card shows for the moment it takes.
+                rememberQrBitmap(url, 640)?.let { Image(it, contentDescription = "QR code to connect your phone", modifier = Modifier.fillMaxSize()) }
             } else {
                 Text(if (state.error != null) "Not connected" else "Starting…", color = Color.Black)
             }
@@ -94,8 +93,7 @@ fun TransferScreen(vm: MainViewModel) {
                 away?.let { url ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 8.dp)) {
                         Box(Modifier.size(110.dp).clip(RoundedCornerShape(12.dp)).background(Color.White), contentAlignment = Alignment.Center) {
-                            val qr = remember(url) { Qr.bitmap(url, 330).asImageBitmap() }
-                            Image(qr, contentDescription = "QR code for away from home", modifier = Modifier.fillMaxSize())
+                            rememberQrBitmap(url, 330)?.let { Image(it, contentDescription = "QR code for away from home", modifier = Modifier.fillMaxSize()) }
                         }
                         Column {
                             Text("Away from home (Tailscale)", style = MaterialTheme.typography.titleSmall)

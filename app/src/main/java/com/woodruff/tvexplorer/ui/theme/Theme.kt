@@ -16,8 +16,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageBitmapConfig
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toSize
+import kotlin.math.ceil
+import kotlin.math.roundToInt
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.LocalContentColor
@@ -74,21 +84,33 @@ object Palette {
 
 /**
  * The app's backdrop: the base gradient plus two large, soft pools of colored light, so the
- * glass panels above have something to tint and the screen never reads as a flat slab. Brushes
- * are built once per size and theme.
+ * glass panels above have something to tint and the screen never reads as a flat slab.
+ *
+ * Painted once per size and theme into a small opaque picture, a quarter of the screen's width
+ * and height, which every frame stretches (smoothed) over the screen: one opaque copy, where the
+ * TV's graphics chip used to blend three full-screen gradients over each other on every frame.
+ * The glows are so soft that the smaller picture looks the same.
  */
 fun Modifier.ambientBackdrop(): Modifier = drawWithCache {
-    val base = Palette.backdrop
+    val small = backdropPictureSize(size.width, size.height)
+    val picture = ImageBitmap(small.width, small.height, ImageBitmapConfig.Argb8888, hasAlpha = false)
+    CanvasDrawScope().draw(this, layoutDirection, Canvas(picture), small.toSize()) { drawAmbient() }
+    val screen = IntSize(size.width.roundToInt(), size.height.roundToInt())
+    onDrawBehind { drawImage(picture, dstSize = screen, filterQuality = FilterQuality.Low) }
+}
+
+/** The base gradient and the two glows, laid out on whatever size this draws into. */
+private fun DrawScope.drawAmbient() {
     val a = if (Palette.light) Color(0x553A7AB0) else Color(0x663A7AB0)
     val b = if (Palette.light) Color(0x3352B6A8) else Color(0x4D5B4BB5)
-    val glowA = Brush.radialGradient(listOf(a, Color.Transparent), center = Offset(size.width * 0.12f, size.height * 0.05f), radius = size.maxDimension * 0.55f)
-    val glowB = Brush.radialGradient(listOf(b, Color.Transparent), center = Offset(size.width * 0.92f, size.height * 0.95f), radius = size.maxDimension * 0.6f)
-    onDrawBehind {
-        drawRect(base)
-        drawRect(glowA)
-        drawRect(glowB)
-    }
+    drawRect(Palette.backdrop)
+    drawRect(Brush.radialGradient(listOf(a, Color.Transparent), center = Offset(size.width * 0.12f, size.height * 0.05f), radius = size.maxDimension * 0.55f))
+    drawRect(Brush.radialGradient(listOf(b, Color.Transparent), center = Offset(size.width * 0.92f, size.height * 0.95f), radius = size.maxDimension * 0.6f))
 }
+
+/** The backdrop picture's size for a [width] x [height] px screen: a quarter each way, at least 1 px. */
+internal fun backdropPictureSize(width: Float, height: Float): IntSize =
+    IntSize(ceil(width / 4f).toInt().coerceAtLeast(1), ceil(height / 4f).toInt().coerceAtLeast(1))
 
 /** A glass panel: tinted glass fill, clipped to [shape], with the lit rim. */
 fun Modifier.glassPanel(shape: Shape, fill: Color? = null): Modifier =

@@ -24,9 +24,9 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit, icon: ImageVector? = null, modifier: Modifier = Modifier) {
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.growOnFocus(1.06f),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-        scale = ButtonDefaults.scale(focusedScale = 1.06f),
+        scale = buttonPressScale(1.06f),
         border = ButtonDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = com.woodruff.tvexplorer.ui.theme.Shapes.pill)),
         colors = ButtonDefaults.colors(
             containerColor = if (selected) Palette.text.copy(alpha = 0.18f) else Palette.surfaceHigh,
@@ -65,6 +65,7 @@ fun TopTabs(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modif
             val pill = com.woodruff.tvexplorer.ui.theme.Shapes.pill
             androidx.tv.material3.Surface(
                 onClick = { onSelect(i) },
+                modifier = Modifier.growOnFocus(1.06f),
                 shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(pill),
                 colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
                     containerColor = if (chosen) Palette.text.copy(alpha = 0.16f) else androidx.compose.ui.graphics.Color.Transparent,
@@ -76,7 +77,7 @@ fun TopTabs(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modif
                     border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.5.dp, Palette.text.copy(alpha = if (chosen) 0.85f else 0.4f)), shape = pill),
                     focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.5.dp, Palette.text), shape = pill),
                 ),
-                scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+                scale = pressScale(1.06f),
             ) {
                 Text(
                     label, style = MaterialTheme.typography.titleMedium,
@@ -98,7 +99,7 @@ fun SearchBar(query: String, hint: String, onClick: () -> Unit, modifier: Modifi
     val pill = com.woodruff.tvexplorer.ui.theme.Shapes.pill
     androidx.tv.material3.Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.growOnFocus(1.03f),
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(pill),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
             containerColor = Palette.surface, contentColor = Palette.text,
@@ -107,7 +108,7 @@ fun SearchBar(query: String, hint: String, onClick: () -> Unit, modifier: Modifi
         border = androidx.tv.material3.ClickableSurfaceDefaults.border(
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.5.dp, Palette.rim), shape = pill),
         ),
-        scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        scale = pressScale(1.03f),
     ) {
         Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             TvIcon(Sym.Search, size = 22.dp)

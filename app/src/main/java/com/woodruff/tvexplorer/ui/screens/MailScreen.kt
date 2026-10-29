@@ -61,6 +61,11 @@ import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.growOnFocus
+import com.woodruff.tvexplorer.ui.components.listItemPressScale
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
@@ -103,36 +108,39 @@ fun MailScreen(vm: MainViewModel) {
             else -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 val list = rememberLazyListState()
                 val openRow = remember { FocusRequester() }
-                LazyColumn(
-                    Modifier.width(300.dp).fillMaxHeight(),
-                    state = list,
-                    contentPadding = PaddingValues(bottom = 40.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    items(state.messages, key = { it.uid }) { m ->
-                        ListItem(
-                            selected = m.uid == state.openUid,
-                            onClick = { mail.open(m) },
-                            modifier = if (m.uid == state.openUid) Modifier.focusRequester(openRow) else Modifier,
-                            colors = ListItemDefaults.colors(
-                                selectedContainerColor = Palette.accentSoft,
-                                focusedContainerColor = Palette.surfaceHigh,
-                                focusedContentColor = Palette.text,
-                            ),
-                            scale = ListItemDefaults.scale(focusedScale = 1.01f),
-                            leadingContent = {
-                                Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (m.seen) androidx.compose.ui.graphics.Color.Transparent else Palette.accent))
-                            },
-                            headlineContent = {
-                                Text(m.from, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (m.seen) FontWeight.Normal else FontWeight.SemiBold)
-                            },
-                            supportingContent = {
-                                Column {
-                                    Text(m.subject, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                                    Text(Format.date(m.date), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
-                                }
-                            },
-                        )
+                // The focused message comes to rest a third of the way down, as on Apple TV.
+                PivotScroll(list, Pivot(fraction = 0.35f), TvMotion.ColumnScroll) {
+                    LazyColumn(
+                        Modifier.width(300.dp).fillMaxHeight(),
+                        state = list,
+                        contentPadding = PaddingValues(bottom = 40.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(state.messages, key = { it.uid }) { m ->
+                            ListItem(
+                                selected = m.uid == state.openUid,
+                                onClick = { mail.open(m) },
+                                modifier = (if (m.uid == state.openUid) Modifier.focusRequester(openRow) else Modifier).growOnFocus(1.01f),
+                                colors = ListItemDefaults.colors(
+                                    selectedContainerColor = Palette.accentSoft,
+                                    focusedContainerColor = Palette.surfaceHigh,
+                                    focusedContentColor = Palette.text,
+                                ),
+                                scale = listItemPressScale(1.01f),
+                                leadingContent = {
+                                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (m.seen) androidx.compose.ui.graphics.Color.Transparent else Palette.accent))
+                                },
+                                headlineContent = {
+                                    Text(m.from, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (m.seen) FontWeight.Normal else FontWeight.SemiBold)
+                                },
+                                supportingContent = {
+                                    Column {
+                                        Text(m.subject, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                                        Text(Format.date(m.date), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
                 // Left from the message goes back to its row while that's on screen. (Plain focus movement

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,10 +32,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.notes.Note
@@ -45,7 +43,13 @@ import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.components.RemoteTextField
 import com.woodruff.tvexplorer.ui.components.ToolButton
+import com.woodruff.tvexplorer.ui.components.TvButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.TvOutlinedButton
+import com.woodruff.tvexplorer.ui.components.growOnFocus
+import com.woodruff.tvexplorer.ui.components.pressScale
+import com.woodruff.tvexplorer.ui.motion.Pivot
+import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
@@ -74,13 +78,18 @@ fun NotesScreen(vm: MainViewModel) {
             EmptyState("No notes")
             return@Column
         }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(250.dp),
-            contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            items(notes, key = { it.id }) { n -> NoteCard(n) { editing = n } }
+        // The focused row of notes comes to rest a third of the way down, as on Apple TV.
+        val grid = rememberLazyGridState()
+        PivotScroll(grid, Pivot(fraction = 0.35f)) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(250.dp),
+                state = grid,
+                contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                items(notes, key = { it.id }) { n -> NoteCard(n) { editing = n } }
+            }
         }
     }
 
@@ -101,9 +110,9 @@ fun NotesScreen(vm: MainViewModel) {
 private fun NoteCard(n: Note, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().height(170.dp),
+        modifier = Modifier.fillMaxWidth().height(170.dp).growOnFocus(1.04f),
         shape = CardStyle.shape(), colors = CardStyle.colors(), border = CardStyle.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        scale = pressScale(1.04f),
     ) {
         Column(Modifier.padding(18.dp).fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -141,10 +150,10 @@ private fun NoteEditor(note: Note?, onDismiss: () -> Unit, onSave: (String, Stri
             textModifier = Modifier.heightIn(min = 140.dp, max = 240.dp),
         )
         ButtonRow {
-            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
-            OutlinedButton(onClick = { pinned = !pinned }) { Text(if (pinned) "Unpin" else "Pin") }
-            if (note != null) OutlinedButton(onClick = onDelete) { Text("Delete", color = Palette.danger) }
-            Button(onClick = { onSave(title.text, body.text, pinned) }) { Text("Save") }
+            TvOutlinedButton(onClick = onDismiss) { Text("Cancel") }
+            TvOutlinedButton(onClick = { pinned = !pinned }) { Text(if (pinned) "Unpin" else "Pin") }
+            if (note != null) TvOutlinedButton(onClick = onDelete) { Text("Delete", color = Palette.danger) }
+            TvButton(onClick = { onSave(title.text, body.text, pinned) }) { Text("Save") }
         }
     }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
