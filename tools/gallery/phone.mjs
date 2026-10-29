@@ -1,6 +1,6 @@
 // Screenshots the phone app on an iPhone-sized screen, light and dark, for the UI gallery:
-// each tab, plus the keyboard sheet, Send's To page, Photos & Files and a file's action sheet, a note,
-// Settings › TVs with a TV's screen, and a Settings page.
+// each tab, plus the keyboard sheet, Send's To page, Photos & Files (also scrolled, its large title collapsed into
+// the bar) and a file's action sheet, a note, Settings › TVs with a TV's screen, and a Settings page.
 // It runs like the Home Screen app: the web view under a "default" status bar (so no top safe area),
 // the home indicator's 34pt at the bottom, and navigator.standalone set.
 // Usage: node phone.mjs <output dir>   (with mock_server.py running on :8765)
@@ -11,11 +11,13 @@ const out = process.argv[2] || 'gallery';
 mkdirSync(out, { recursive: true });
 const base = 'http://127.0.0.1:8765/';
 const tabs = ['remote', 'send', 'notes', 'settings'];
-// Extra states: [name, tab, elements to tap in turn]. Each tap opens a push, sheet or action sheet.
+// Extra states: [name, tab, steps in turn]. A step is an element to tap (each tap opens a push, sheet or action
+// sheet) or { scroll: scroller, y } to scroll a page to y.
 const extras = [
   ['keyboard', 'remote', ['#kb-open2']],                                               // the keyboard sheet
   ['send-to', 'send', ['#n-to']],                                                      // who gets a message
   ['files', 'send', ['#send-root [data-page=files-root]']],                            // Photos & Files
+  ['files-scrolled', 'send', ['#send-root [data-page=files-root]', { scroll: '#files-root .scroller', y: 90 }]],   // its large title collapsed into the bar
   ['files-actions', 'send', ['#send-root [data-page=files-root]', '#list [data-i="7"]']], // a video's action sheet
   ['note', 'notes', ['#note-list .row']],                                              // a note, pushed
   ['settings-tvs', 'settings', ['#set-main [data-page=set-tvs]']],                     // every TV and what it plays
@@ -57,7 +59,8 @@ for (const scheme of ['dark', 'light']) {
     await page.goto(base + '#' + tab);
     await page.waitForTimeout(settle);
     for (const target of targets) {
-      await page.tap(target);
+      if (typeof target === 'string') await page.tap(target);
+      else await page.evaluate(([sel, y]) => { document.querySelector(sel).scrollTop = y; }, [target.scroll, target.y]);
       await page.waitForTimeout(settle);
     }
     await page.screenshot({ path: `${out}/phone-${name}-${scheme}.png` });

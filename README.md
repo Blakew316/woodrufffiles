@@ -18,7 +18,9 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   messages open at once.
 - **Phone connection**: scan the QR code once (the pairing key persists). On iPhone, tap **Share → Add to Home Screen**
   and it opens like an app that stays paired. It looks and moves like an iPhone app (pages slide in; **‹** or a swipe
-  from the left goes back), in light and dark, with four tabs:
+  from the left goes back; buttons and rows answer the moment a finger lands; the tab bar's lens glides, and follows
+  a finger dragged along the bar; lists glide when they change; it follows the iPhone's Reduce Motion), in light and
+  dark, with four tabs:
   - **Remote**: laid out like the Siri Remote: a round clickpad (tap or swipe), Back, Home, Play/Pause, Mute and
     volume, plus **Netflix** and **YouTube** buttons that open those apps on the TV (over another app only with
     *Pop-ups over other apps* on). The TV's name at the top picks a TV when several are linked. When a text box is

@@ -32,6 +32,9 @@
     --glass:rgba(255,255,255,.6); --glass-hi:rgba(255,255,255,.92); --glass-thick:rgba(249,249,251,.93);
     --glass-shadow:inset 0 0 0 .5px rgba(255,255,255,.7), inset 0 1px 1.5px rgba(255,255,255,.9), 0 0 0 .5px rgba(0,0,0,.06), 0 6px 22px rgba(0,0,0,.1);
     --lens:rgba(0,0,0,.07);
+    /* the lens while a finger is on the tab bar: lifted, clearer glass with a bright rim */
+    --lens-hi:rgba(255,255,255,.72); --lens-lift:inset 0 0 0 .5px rgba(255,255,255,.95), inset 0 1px 2px rgba(255,255,255,.9), 0 0 0 .5px rgba(0,0,0,.05), 0 6px 18px rgba(0,0,0,.13);
+    --press-dim:rgba(0,0,0,.1);                     /* laid over a pressed capsule (a soft dim) */
     --edge:rgba(242,242,247,.8); --edge-plain:rgba(255,255,255,.8);       /* the scroll edge effect under bars */
     --dim:rgba(0,0,0,.22); --recede-dim:rgba(0,0,0,.1); --shade:rgba(0,0,0,.08); --cm-dim:rgba(0,0,0,.08);
     --key:#fff; --key-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 2px 10px rgba(0,0,0,.07);
@@ -54,6 +57,8 @@
       --glass:rgba(44,44,48,.58); --glass-hi:rgba(78,78,84,.75); --glass-thick:rgba(36,36,39,.93);
       --glass-shadow:inset 0 0 0 .5px rgba(255,255,255,.13), inset 0 1px 1.5px rgba(255,255,255,.17), 0 0 0 .5px rgba(0,0,0,.6), 0 6px 22px rgba(0,0,0,.5);
       --lens:rgba(255,255,255,.13);
+      --lens-hi:rgba(255,255,255,.2); --lens-lift:inset 0 0 0 .5px rgba(255,255,255,.24), inset 0 1px 2px rgba(255,255,255,.2), 0 0 0 .5px rgba(0,0,0,.5), 0 6px 18px rgba(0,0,0,.45);
+      --press-dim:rgba(255,255,255,.13);
       --edge:rgba(0,0,0,.74); --edge-plain:rgba(0,0,0,.74);
       --dim:rgba(0,0,0,.48); --recede-dim:rgba(0,0,0,.3); --shade:rgba(0,0,0,.35); --cm-dim:rgba(0,0,0,.3);
       --key:#2c2c2e; --key-shadow:none;
@@ -104,7 +109,6 @@
   /* Pages scroll up and down natively; a sideways drag never scrolls (it's the swipe back), so no touch handler
      ever has to hold up a scroll. */
   .scroller { position:absolute; inset:0; overflow-x:hidden; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior-y:contain; padding-top:calc(var(--safe-t) + var(--nav-h)); touch-action:pan-y; }
-  .mark { position:absolute; left:0; width:1px; height:1px; visibility:hidden; pointer-events:none; }   /* scroll-state markers (watched, not listened to) */
   .scroller::after { content:''; display:block; height:calc(var(--tab-b) + var(--tab-h) + 24px); }
 
   /* Navigation bar: glass buttons over a soft scroll-edge blur; the inline title fades in as the large title scrolls under. */
@@ -114,40 +118,58 @@
     height:calc(var(--safe-t) + var(--nav-h)); padding:var(--safe-t) var(--mr) 0 var(--ml); }
   .navbar.vis { display:grid; }
   .nb-bgw { position:absolute; left:0; right:0; top:0; height:100%; pointer-events:none; }
-  .nb-bg { position:absolute; inset:0; opacity:0; transition:opacity .25s; background:var(--edge);
+  /* The edge blur, the inline title and the large title follow the scroll position itself, not a threshold: the
+     edge fades in over the first points of scrolling (on a large-title page, as the large title goes under the
+     bar), the large title fades as it slides under and the inline title fades in after it. A scroll-driven
+     animation does that on the compositor where there is one (Safari 26, Chrome); elsewhere the script sets the
+     same opacities from a passive scroll listener. */
+  .nb-bg { position:absolute; inset:0; opacity:0; background:var(--edge);
     -webkit-backdrop-filter:blur(10px) saturate(1.5); backdrop-filter:blur(10px) saturate(1.5); }
   .navbar.plain .nb-bg { background:var(--edge-plain); }
-  .navbar.edge .nb-bg { opacity:1; }
   .nb-lead { grid-column:1; justify-self:start; display:flex; min-width:0; max-width:100%; position:relative; }
   .nb-title { grid-column:2; display:flex; justify-content:center; min-width:0; position:relative; }
-  .nb-tt { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; text-align:center; transition:opacity .2s; }
+  .nb-tt { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; text-align:center; }
   .navbar.lt .nb-tt { opacity:0; }
-  .navbar.lt.inline .nb-tt { opacity:1; }
   .nb-trail { grid-column:3; justify-self:end; display:flex; align-items:center; gap:8px; position:relative; }
+  @keyframes sl-in { from { opacity:0; } to { opacity:1; } }
+  @keyframes sl-out { from { opacity:1; } to { opacity:0; } }
+  /* (html.sda: scroll-driven animations and timeline-scope both work; each page's scroller names its timeline,
+     its bar reads it through --tl.) */
+  html.sda .nb-bg { animation:sl-in linear both; animation-timeline:var(--tl); animation-range:0px 12px; }
+  html.sda .navbar.lt .nb-bg { animation-range:4px 24px; }
+  html.sda .navbar.lt .nb-tt { animation:sl-in linear both; animation-timeline:var(--tl); animation-range:32px 46px; }
+  html.sda .large { animation:sl-out linear both; animation-timeline:scroll(); animation-range:10px 40px; }
 
   .glass { background-color:var(--glass); -webkit-backdrop-filter:blur(12px) saturate(1.8); backdrop-filter:blur(12px) saturate(1.8); box-shadow:var(--glass-shadow); }
-  .gb { position:relative; height:44px; min-width:44px; border-radius:22px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 16px;
+  .gb { position:relative; isolation:isolate; height:44px; min-width:44px; border-radius:22px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 16px;
     color:var(--tint); white-space:nowrap; transition:transform var(--press-ms, .45s) var(--press, var(--spring)), opacity .2s; }
   .gb.ic { width:44px; padding:0; }
   .gb svg { width:22px; height:22px; }
-  .gb:active { transform:scale(1.1); transition:transform 80ms ease-out; }   /* presses go in at once and spring back out */
-  .glass.gb:active { background-color:var(--glass-hi); }
+  /* Pressed (.pressed is set by the script the moment a finger lands): Liquid Glass swells and brightens, then
+     springs back when the finger lifts. The brightening is a layer that fades (opacity), not a colour change. */
+  .gb::after { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--glass-hi); opacity:0; pointer-events:none; transition:opacity .4s ease-out; }
+  .gb.prom::after, .gb.ready::after { background:rgba(255,255,255,.24); }
+  .gb.pressed { transform:scale(1.1); transition:transform var(--pin-ms, .12s) var(--pin, ease-out), opacity .2s; }
+  .gb.pressed::after { opacity:1; transition:opacity 50ms; }
   .gb.prom, .gb.ready { background-color:var(--tint-fill); color:var(--on-tint); font-weight:600; box-shadow:inset 0 1px 1px rgba(255,255,255,.3), 0 0 0 .5px rgba(0,0,0,.08), 0 6px 16px rgba(0,0,0,.14); }
-  .gb.prom:active { background-color:var(--tint-fill); }
   .gb:disabled { opacity:.45; pointer-events:none; }
   .gb.prom:disabled { opacity:1; background-color:var(--fill); color:var(--label3); box-shadow:none; }   /* like a disabled prominent bar button */
   .gb.back { padding:0 16px 0 12px; gap:6px; min-width:0; max-width:100%; }
   .gb.back svg { width:12px; height:21px; }
   .gb.back span { overflow:hidden; text-overflow:ellipsis; min-width:0; max-width:140px; }
   .ggroup { display:inline-flex; height:44px; border-radius:22px; }
-  .titlebtn { display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 12px; border-radius:20px; font-weight:600; min-width:0; max-width:calc(100vw - 176px); }
-  .titlebtn:active { background-color:var(--fill3); }
+  .titlebtn { position:relative; isolation:isolate; display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 12px; border-radius:20px; font-weight:600; min-width:0; max-width:calc(100vw - 176px); }
+  .titlebtn::after { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--fill3); opacity:0; pointer-events:none; transition:opacity .35s ease-out; }
+  .titlebtn.pressed::after { opacity:1; transition:opacity 50ms; }
   .titlebtn > span:not(.live) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .titlebtn svg { width:12px; height:8px; color:var(--label2); }
 
   /* Large title, its subtitle button, search field */
   .large { margin:0; padding:3px var(--mr) 8px var(--ml); font-size:34px; line-height:41px; font-weight:700; letter-spacing:.37px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transform-origin:0 100%; }
   .subtitle { display:inline-flex; align-items:center; gap:5px; height:28px; margin:-6px var(--mr) 6px var(--ml); color:var(--tint); font-size:15px; letter-spacing:-.23px; font-weight:500; }
+  /* Text and icon buttons dim while pressed, like a UIButton's title, and fade back. */
+  .subtitle, .link, .clr, .tip .x { transition:opacity .3s ease-out; }
+  .subtitle.pressed, .link.pressed, .clr.pressed, .tip .x.pressed { opacity:.3; transition:opacity 40ms; }
   .subtitle svg { width:11px; height:7px; }
   .searchbar { padding:2px var(--mr) 10px var(--ml); }
   .search { display:flex; align-items:center; gap:6px; height:38px; padding:0 9px 0 11px; border-radius:19px; background:var(--fill3); color:var(--label2); cursor:text; }
@@ -173,8 +195,14 @@
   .row:has(.s) { padding-top:9px; padding-bottom:9px; }
   .group > .row + .row::before { content:''; position:absolute; top:0; right:0; left:var(--sep-l, 16px); border-top:.5px solid var(--sep); }
   .row.i { --sep-l:60px; } .row.fi { --sep-l:62px; } .row.me { --sep-l:88px; }
-  .row.tap.hl::after, .row.tap.sel::after { opacity:1; transition:none; }
-  @media (hover:hover) and (pointer:fine) { .row.tap:active::after { opacity:1; transition:none; } }
+  /* Highlighted at once (.hl, set by the script as the finger lands) and faded out after; a press that turns
+     into a scroll goes at once (.nofade). A row that opened a page stays selected (.sel) until that page goes
+     back, fading with the swipe that takes it away (--hl, set by the script). */
+  .row.tap.hl::after { opacity:1; transition:none; }
+  .row.tap.sel::after { opacity:var(--hl, 1); transition:none; }
+  .row.tap.sel.hl-ease::after { transition:opacity .3s; }   /* a swipe back given up: the selection comes back */
+  .row.nofade::after { transition:none; }
+  .row.tap { transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
   .row.pressing { transform:scale(.975); transition:transform .45s var(--ease); }
   .ico { width:29px; height:29px; margin-right:3px; border-radius:7px; display:flex; align-items:center; justify-content:center; color:#fff; background:var(--c, var(--gray)); flex:none; }
   .ico svg { width:19px; height:19px; }
@@ -217,15 +245,16 @@
   html:not(.nsw) .switch { -webkit-appearance:none; appearance:none; position:relative; width:63px; height:28px; border-radius:14px; background:var(--fill); }
   html:not(.nsw) .switch::before { content:''; position:absolute; inset:0; border-radius:14px; background:var(--green); opacity:0; transition:opacity .25s; }
   html:not(.nsw) .switch::after { content:''; position:absolute; top:2px; left:2px; width:37px; height:24px; border-radius:12px; background:#fff; transform-origin:0 50%;
-    box-shadow:0 1px 1px rgba(0,0,0,.06), 0 2px 6px rgba(0,0,0,.16); transition:transform .32s var(--spring); }
+    box-shadow:0 1px 1px rgba(0,0,0,.06), 0 2px 6px rgba(0,0,0,.16); transition:transform var(--sw-ms, .32s) var(--sw, var(--spring)); }
   html:not(.nsw) .switch:checked::before { opacity:1; }
+  /* The thumb travels the whole track (2 pt from either end) and, held, stretches toward the middle. */
   html:not(.nsw) .switch:checked::after { transform:translateX(22px); }
-  html:not(.nsw) .switch:active::after { transform:scaleX(1.16); }
-  html:not(.nsw) .switch:checked:active::after { transform:translateX(16px) scaleX(1.16); }
+  html:not(.nsw) .switch.pressed::after { transform:scaleX(1.16); }
+  html:not(.nsw) .switch:checked.pressed::after { transform:translateX(16px) scaleX(1.16); }
 
   /* Buttons: filled and tinted capsules */
-  .btn { display:flex; align-items:center; justify-content:center; gap:8px; width:calc(100% - 32px - var(--safe-l) - var(--safe-r)); height:50px; margin:20px var(--mr) 0 var(--ml); border-radius:25px; background:var(--tint-fill); color:var(--on-tint); font-weight:600; transition:transform var(--press-ms, .45s) var(--press, var(--spring)), opacity .2s; }
-  .btn:active { transform:scale(.97); opacity:.8; transition:transform 80ms ease-out, opacity 80ms; }
+  .btn { display:flex; align-items:center; justify-content:center; gap:8px; width:calc(100% - 32px - var(--safe-l) - var(--safe-r)); height:50px; margin:20px var(--mr) 0 var(--ml); border-radius:25px; background:var(--tint-fill); color:var(--on-tint); font-weight:600; transition:transform var(--press-ms, .45s) var(--press, var(--spring)), opacity .3s ease-out; }
+  .btn.pressed { transform:scale(.96); opacity:.78; transition:transform var(--pin-ms, .12s) var(--pin, ease-out), opacity 50ms; }
   .btn:disabled { opacity:.4; }
   .btn.tinted { background:var(--tint-soft); color:var(--tint); }
   .btn + .head { margin-top:30px; }
@@ -289,17 +318,13 @@
   .pad [data-key=left] { left:0; top:33.5%; } .pad [data-key=right] { right:0; top:33.5%; }
   .pad .okb { top:32%; left:32%; width:36%; height:36%; border-radius:50%; background:var(--fill4); box-shadow:inset 0 0 0 .5px var(--sep); color:var(--label2); font-size:15px; letter-spacing:-.23px; font-weight:600;
     transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
-  .pad .dir:active, .pad .dir.hit { color:var(--tint); }
-  .pad .okb:active, .pad .okb.hit { background:var(--tint-soft); color:var(--tint); transform:scale(.96); transition:transform 80ms ease-out; }
   .keys { display:grid; grid-template-columns:var(--k) var(--k); grid-template-rows:var(--k) var(--k) var(--k); grid-template-areas:"back home" "play vol" "mute vol"; column-gap:min(96px, 24vw); row-gap:calc(var(--k) / 4); }
   .rk { width:var(--k); height:var(--k); border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); color:var(--label);
     transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
   .rk svg { width:24px; height:24px; }
-  .rk:active, .rk.hit { transform:scale(.93); background-color:var(--cell-hi); transition:transform 80ms ease-out; }
   .vol { grid-area:vol; display:flex; flex-direction:column; width:var(--k); border-radius:calc(var(--k) / 2); overflow:hidden; background:var(--key); box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); }
   .vol button { flex:1; display:flex; align-items:center; justify-content:center; color:var(--label); }
   .vol button svg { width:22px; height:22px; }
-  .vol button:active, .vol button.hit { background-color:var(--cell-hi); }
   /* Netflix and YouTube: two capsules under the buttons, made like the other keys, each with its mark. */
   .apps { flex:none; display:flex; gap:12px; width:min(100%, 320px); margin-top:calc(var(--k) / 4 + 6px); }
   .app { flex:1 1 0; min-width:0; height:50px; border-radius:25px; display:flex; align-items:center; justify-content:center; gap:9px; padding:0 14px;
@@ -307,7 +332,25 @@
     transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
   .app svg { width:22px; height:22px; flex:none; }
   .app span { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .app:active, .app.hit { transform:scale(.95); background-color:var(--cell-hi); transition:transform 80ms ease-out; }
+  /* Pressed (.pressed, set by the script as the finger lands; .hit for a swipe on the clickpad or a held key's
+     repeats): keys dip and darken at once and spring back when let go. The darkening is a layer that fades out
+     (opacity), so nothing but transforms and opacity changes over time. */
+  .rk, .app, .vol button, .hint { position:relative; }
+  .rk, .app, .vol button, .hint, .pad .okb { isolation:isolate; }
+  .rk::after, .app::after, .vol button::after, .hint::after, .pad .okb::after { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit;
+    background:var(--cell-hi); opacity:0; pointer-events:none; transition:opacity .4s ease-out; }
+  .hint::after, .pad .okb::after { background:var(--tint-soft); }
+  .rk.pressed::after, .rk.hit::after, .app.pressed::after, .app.hit::after, .vol button.pressed::after, .vol button.hit::after,
+  .hint.pressed::after, .pad .okb.pressed::after, .pad .okb.hit::after { opacity:1; transition:opacity 40ms; }
+  .hint { transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
+  .rk.pressed, .rk.hit { transform:scale(.94); }
+  .app.pressed, .app.hit, .hint.pressed { transform:scale(.96); }
+  .pad .okb.pressed, .pad .okb.hit { transform:scale(.95); color:var(--tint); }
+  .rk.pressed, .rk.hit, .app.pressed, .app.hit, .hint.pressed, .pad .okb.pressed, .pad .okb.hit { transition:transform var(--pin-ms, .12s) var(--pin, ease-out); }
+  /* The clickpad's arrows light up in the tint and their chevrons dip. */
+  .pad .dir svg { transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
+  .pad .dir.pressed, .pad .dir.hit { color:var(--tint); }
+  .pad .dir.pressed svg, .pad .dir.hit svg { transform:scale(.8); transition:transform var(--pin-ms, .12s) var(--pin, ease-out); }
 
   /* ---- Notes ---------------------------------------------------------------------------------- */
   .note .t { font-weight:600; }
@@ -318,16 +361,29 @@
   #note-title { padding:4px var(--mr) 6px var(--ml); font-size:28px; line-height:34px; font-weight:700; letter-spacing:.36px; }
   #note-body { padding:4px var(--mr) 24px var(--ml); min-height:calc(100dvh - var(--safe-t) - 250px); line-height:24px; }
 
-  /* ---- Tab bar: a floating glass capsule; the selection lens follows a finger dragged along it ---- */
-  /* Four tabs, so each one is a wide target. */
+  /* ---- Tab bar: a floating glass capsule with a Liquid Glass lens on the selected tab ------------------- */
+  /* Four tabs, so each one is a wide target. The lens glides between tabs on a spring, stretching a little on the
+     way like a droplet; under a finger it lifts (swells into clearer glass), follows the finger along the bar and
+     lands on the tab it's let go over. Each tab has its icon and label twice, plain and tinted; the tab the lens is
+     on cross-fades to tinted. Transforms and opacity only. */
   .tabbar { position:absolute; z-index:300; left:calc(16px + var(--safe-l)); right:calc(16px + var(--safe-r)); bottom:var(--tab-b); height:var(--tab-h); max-width:560px; margin:0 auto;
     display:flex; padding:0 4px; border-radius:32px; touch-action:none; }
-  .tb-lens { position:absolute; z-index:0; top:4px; left:0; width:0; height:calc(100% - 8px); border-radius:28px; background:var(--lens); }
-  .tabbar.press .tb-lens { background:var(--fill2); }
-  .tabbar button { position:relative; z-index:1; flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; padding-top:2px;
+  .tb-lens { position:absolute; z-index:0; top:4px; left:0; width:0; height:calc(100% - 8px); pointer-events:none; }   /* moves along the bar */
+  .tb-lz, .tb-ls, .tb-lens i { position:absolute; inset:0; border-radius:28px; }
+  .tb-lz { transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }                                     /* lifts */
+  .tabbar.press .tb-lz { transform:scale(1.12, 1.14); transition:transform var(--lift-ms, .3s) var(--lift, ease-out); }
+  .tb-lens .lb { background:var(--lens); }                                                                            /* (.tb-ls stretches) */
+  .tb-lens .lh { background:var(--lens-hi); box-shadow:var(--lens-lift); opacity:0; transition:opacity .4s ease-out; }
+  .tabbar.press .tb-lens .lh { opacity:1; transition:opacity 90ms; }
+  .tabbar button { position:relative; z-index:1; flex:1 1 0; min-width:0; display:grid; place-items:center; padding-top:2px;
     color:var(--label); font-size:11px; line-height:13px; font-weight:600; letter-spacing:.06px; }
+  .tb-i { grid-area:1/1; display:flex; flex-direction:column; align-items:center; gap:1px; min-width:0; max-width:100%; transition:opacity .2s ease .08s; }
+  .tb-i.t { color:var(--tint); opacity:0; }
+  .tb-i.t::after { content:attr(data-l); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Coming in at once, going a moment later (once the other is in), so a tab never looks faint mid-way. */
+  .tabbar button.lit .tb-i.t, .tabbar button:not(.lit) .tb-i:not(.t) { opacity:1; transition-delay:0s; }
+  .tabbar button.lit .tb-i:not(.t) { opacity:0; }
   .tabbar button svg { width:30px; height:28px; }
-  .tabbar button.on { color:var(--tint); }
   .tabbar button span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   /* ---- Overlays ------------------------------------------------------------------------------- */
@@ -347,7 +403,9 @@
   .as-h b + span { margin-top:2px; }
   .as-b { position:relative; display:block; width:100%; height:57px; padding:0 16px; text-align:center; font-size:20px; letter-spacing:.38px; color:var(--tint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .as-g > * + .as-b::before { content:''; position:absolute; top:0; left:0; right:0; border-top:.5px solid var(--sep); }
-  .as-b:active { background-color:var(--fill4); }
+  .as-b { isolation:isolate; }
+  .as-b::after { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--fill3); opacity:0; pointer-events:none; transition:opacity .35s ease-out; }
+  .as-b.pressed::after { opacity:1; transition:opacity 40ms; }
   .as-b.danger { color:var(--red); }
   .as-cancel { margin-top:8px; font-weight:600; }
   /* Alert (UIAlertController .alert) */
@@ -360,10 +418,11 @@
   .alertbox input { margin-top:16px; height:44px; padding:0 16px; border-radius:22px; background:var(--fill3); text-align:left; }
   .alertbox .btns { display:flex; gap:10px; margin-top:20px; }
   .alertbox .btns.v { flex-direction:column-reverse; }
-  .alertbox .btns button { flex:1; height:48px; border-radius:24px; background:var(--fill2); color:var(--label); font-weight:500; transition:filter .15s; }
+  .alertbox .btns button { position:relative; isolation:isolate; flex:1; height:48px; border-radius:24px; background:var(--fill2); color:var(--label); font-weight:500; }
+  .alertbox .btns button::after { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--press-dim); opacity:0; pointer-events:none; transition:opacity .35s ease-out; }
+  .alertbox .btns button.pressed::after { opacity:1; transition:opacity 40ms; }
   .alertbox .btns button.pref { background:var(--tint-fill); color:var(--on-tint); font-weight:600; }
   .alertbox .btns button.danger { color:var(--red); }
-  .alertbox .btns button:active { filter:brightness(.88); }
   /* Menus: pull-down menus from bar buttons, and context menus from a long press */
   .menu { position:fixed; z-index:1003; left:0; top:0; width:250px; max-height:calc(100% - 24px); overflow-y:auto; overscroll-behavior:contain; padding:6px 0; border-radius:22px;
     background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8); box-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 16px 48px rgba(0,0,0,.2);
@@ -405,7 +464,9 @@
   .stt small { font-size:12px; line-height:15px; letter-spacing:0; color:var(--label2); }
   .nowcard { display:flex; gap:14px; align-items:center; padding:2px var(--mr) 0 var(--ml); }
   .nowcard.big { display:block; }
-  .screen { position:relative; flex:none; width:46%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center; }
+  .screen { position:relative; flex:none; width:46%; aspect-ratio:16/9; border-radius:12px; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center;
+    transition:transform var(--press-ms, .45s) var(--press, var(--spring)), opacity .3s ease-out; }
+  .screen.pressed { transform:scale(.97); opacity:.85; transition:transform var(--pin-ms, .12s) var(--pin, ease-out), opacity 50ms; }
   .nowcard.big .screen { width:100%; border-radius:18px; }
   .screen img { width:100%; height:100%; object-fit:contain; transition:opacity .2s; }
   .screen p { position:absolute; left:0; right:0; margin:0; padding:0 10px; color:#fff; text-align:center; font-size:13px; line-height:18px; letter-spacing:-.08px; text-shadow:0 1px 2px rgba(0,0,0,.8); }
@@ -429,19 +490,32 @@
   /* Banner: announcements, like a notification */
   .banner { position:fixed; z-index:1101; left:calc(8px + var(--safe-l)); right:calc(8px + var(--safe-r)); top:calc(var(--safe-t) + 8px); max-width:500px; margin:0 auto; display:flex; gap:12px; align-items:center;
     padding:12px 16px 12px 12px; border-radius:24px; background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8);
-    box-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 10px 34px rgba(0,0,0,.2); transform:translateY(calc(-100% - 30px)); opacity:0; pointer-events:none; }
+    box-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 10px 34px rgba(0,0,0,.2); transform:translateY(calc(-100% - 30px)); opacity:0; pointer-events:none; touch-action:none; }
   .banner.show { transform:none; opacity:1; pointer-events:auto; }
+  .hud.leaving, .banner.leaving { pointer-events:none; }   /* the one being replaced, on its way out */
   .banner img { width:38px; height:38px; border-radius:9px; flex:none; }
   .banner small { display:block; font-size:13px; line-height:16px; letter-spacing:-.08px; color:var(--label2); }
   .banner b { display:block; font-weight:600; font-size:15px; line-height:20px; letter-spacing:-.23px; }
   .banner .s { white-space:normal; }
 
-  /* Reduce Motion: fades instead of slides and springs (page transitions are handled in the script). */
+  /* ---- Content that changes: nothing pops (the script's morph, dissolve and swap) -------------------- */
+  /* What went away fades out where it was as a copy (.ghost); a group (an inset card) that grows or shrinks lends
+     its background to a stand-in (.mbg) that's stretched from the old shape to the new one by a transform. */
+  .ghost { position:absolute !important; margin:0 !important; pointer-events:none !important; }
+  .mbg { position:absolute; z-index:-1; pointer-events:none; background:var(--cell); border-radius:var(--r); transform-origin:0 0; }
+  .group.morphing { background:transparent; overflow:visible; }
+
+  /* Reduce Motion: cross-fades instead of slides, zooms and springs (the script does the same for what it moves). */
   @media (prefers-reduced-motion: reduce) {
     #appdim { transition-duration:.2s !important; }
+    #app.recede { transform:none; }
     .menu, .menu.show { transform:none; }
     .alertbox, .alertbox.show { transform:translate(-50%,-50%); }
     .hud, .hud.show { transform:translate(-50%, 0); }
+    /* presses dim but don't move */
+    .pressed, .hit, .row.pressing, .pad .dir.pressed svg, .pad .dir.hit svg, .tabbar.press .tb-lz { transform:none !important; }
+    html:not(.nsw) .switch.pressed::after { transform:none; }
+    html:not(.nsw) .switch:checked.pressed::after { transform:translateX(22px); }
     .gb, .rk, .app, .btn, .pad .okb, .switch::after { transition-timing-function:ease !important; }   /* the springs become plain fades (script) */
     .spin { animation-duration:1.6s; }
   }
@@ -692,7 +766,7 @@
 </section>
 
 <nav class="tabbar glass" id="tabbar" role="tablist" aria-label="Tabs">
-  <span class="tb-lens" id="tb-lens"></span>
+  <span class="tb-lens" id="tb-lens"><span class="tb-lz"><span class="tb-ls" id="tb-ls"><i class="lb"></i><i class="lh"></i></span></span></span>
   <button role="tab" data-tab="remote"><i data-ic="tRemote"></i><span>Remote</span></button>
   <button role="tab" data-tab="send"><i data-ic="tSend"></i><span>Send</span></button>
   <button role="tab" data-tab="notes"><i data-ic="tNotes"></i><span>Notes</span></button>
@@ -850,24 +924,53 @@
   };
   doc.querySelectorAll('i[data-ic]').forEach(function (n) { n.outerHTML = I[n.dataset.ic]; });
 
-  // ---- Feedback: row highlight on touch, haptic taps -----------------------------------------------
-  // Rows highlight a moment after the finger lands (not while scrolling) and fade out after, like UITableView.
-  var hl = null, hlTimer = null, hlX = 0, hlY = 0;
-  function unhl() { clearTimeout(hlTimer); if (hl) { var r = hl; hl = null; r.classList.remove('hl'); } }
-  doc.addEventListener('touchstart', function (e) {
-    var r = e.target.closest && e.target.closest('.tap');
-    unhl(); if (!r || r.disabled) return;
-    hl = r; hlX = e.touches[0].clientX; hlY = e.touches[0].clientY;
-    hlTimer = setTimeout(function () { if (hl === r) r.classList.add('hl'); }, 70);
-  }, { passive: true });
-  doc.addEventListener('touchmove', function (e) {
-    if (hl && Math.abs(e.touches[0].clientX - hlX) + Math.abs(e.touches[0].clientY - hlY) > 10) unhl();
-  }, { passive: true });
-  doc.addEventListener('touchend', function () {
-    if (!hl) return; var r = hl; hl = null; clearTimeout(hlTimer);
-    r.classList.add('hl'); setTimeout(function () { r.classList.remove('hl'); }, 150);
-  }, { passive: true });
-  doc.addEventListener('touchcancel', unhl, { passive: true });
+  // ---- Touch response: every control answers the moment a finger lands --------------------------------
+  // Rows highlight and buttons dip (Liquid Glass ones swell) as the finger lands and spring back as it lifts; nothing
+  // waits for the click, and there's no tap delay anywhere (width=device-width, touch-action: manipulation). In a
+  // list that can scroll, a press waits 60 ms first (UIScrollView waits 150), so starting a scroll never flashes the
+  // row or button under the finger; a quicker tap shows it as the finger lifts. A press that turns into a scroll
+  // (pointercancel), slides off, or is taken by a swipe ends at once; a touch that only stops a list that's still
+  // gliding presses nothing (and the browser doesn't click it). All listeners passive.
+  // A list is gliding when it has scrolled every frame lately (a streak of scroll events), not after one jump (a
+  // scroll into view, say).
+  var pr = null, scrollAt = -1e9, scrollEl = null, streak = 0, caught = -1e9;
+  doc.addEventListener('scroll', function (e) {
+    var t = performance.now(); streak = e.target === scrollEl && t - scrollAt < 50 ? streak + 1 : 1; scrollAt = t; scrollEl = e.target;
+  }, { passive: true, capture: true });
+  function pressable(t) {
+    var e = t && t.closest ? t.closest('.tap, button, .switch') : null;
+    return e && !e.disabled && !e.closest('#tabbar, .ghost') ? e : null;
+  }
+  function pressOn(e) { e.classList.add(e.classList.contains('tap') ? 'hl' : 'pressed'); }
+  function pressOff(e, now) {
+    if (!e.classList.contains('tap')) { e.classList.remove('pressed'); return; }
+    if (now && e.classList.contains('hl')) { e.classList.add('nofade'); requestAnimationFrame(function () { requestAnimationFrame(function () { e.classList.remove('nofade'); }); }); }
+    e.classList.remove('hl');
+  }
+  // Ends the press under the finger without its action: a scroll or a swipe took over (a row's highlight goes at once).
+  function unpress() { var p = pr; if (!p) return; pr = null; clearTimeout(p.t); if (p.on) pressOff(p.e, true); }
+  doc.addEventListener('pointerdown', function (ev) {
+    unpress(); caught = -1e9;
+    if (!ev.isPrimary || ev.button > 0) return;
+    var e = pressable(ev.target); if (!e) return;
+    var sc = ev.pointerType !== 'mouse' && e.closest('.scroller, .sbody, .menu');
+    if (sc && streak >= 3 && performance.now() - scrollAt < 100 && (scrollEl === sc || sc.contains(scrollEl))) { caught = performance.now(); return; }   // it stops a glide
+    var p = pr = { e: e, id: ev.pointerId, x: ev.clientX, y: ev.clientY, on: false, t: 0 };
+    if (sc && sc.scrollHeight > sc.clientHeight + 1) p.t = setTimeout(function () { if (pr === p) { p.on = true; pressOn(e); } }, 60);
+    else { p.on = true; pressOn(e); }
+  }, { passive: true, capture: true });
+  doc.addEventListener('pointermove', function (ev) {
+    var p = pr; if (p && ev.pointerId === p.id && Math.abs(ev.clientX - p.x) + Math.abs(ev.clientY - p.y) > 10) unpress();
+  }, { passive: true, capture: true });
+  doc.addEventListener('pointerup', function (ev) {
+    var p = pr; if (!p || ev.pointerId !== p.id) return;
+    pr = null; clearTimeout(p.t);
+    if (p.on) pressOff(p.e);
+    else { pressOn(p.e); setTimeout(function () { pressOff(p.e); }, 90); }   // a quick tap: shown as the finger lifts
+  }, { passive: true, capture: true });
+  doc.addEventListener('pointercancel', function (ev) { if (pr && ev.pointerId === pr.id) unpress(); }, { passive: true, capture: true });
+  // A touch that stopped a gliding list does nothing else, even if a click follows it (WebKit already drops it).
+  doc.addEventListener('click', function (ev) { if (performance.now() - caught < 700) { caught = -1e9; ev.preventDefault(); ev.stopPropagation(); } }, true);
 
   // A light haptic tap. Safari 18 gives one when a switch toggles, so a hidden switch is toggled.
   var hapticBox = null;
@@ -923,8 +1026,12 @@
   // Reduce Motion: short crossfades and slides, no springs.
   var FADE = { ms: 250, easing: 'ease', x: bezier(0.25, 0.1, 0.25, 1, 0.25) };
   function calmly(s) { return reduceMotion.matches ? FADE : s; }
-  // Buttons spring back out after a press with this curve (CSS reads it from two custom properties).
-  (function () { var r = doc.documentElement.style, s = spring(0.38, 0.62); r.setProperty('--press', s.easing); r.setProperty('--press-ms', s.ms + 'ms'); })();
+  // The press curves, for CSS (each a custom property and its length): in, a quick spring that doesn't overshoot;
+  // out, a livelier one (the spring back); the tab bar's lens lifting; a switch's thumb travelling.
+  (function () {
+    var r = doc.documentElement.style;
+    [['--pin', spring(0.2, 1)], ['--press', spring(0.38, 0.62)], ['--lift', spring(0.3, 0.72)], ['--sw', spring(0.34, 0.74)]].forEach(function (x) { r.setProperty(x[0], x[1].easing); r.setProperty(x[0] + '-ms', x[1].ms + 'ms'); });
+  })();
   // Animations and gestures under way; work from polls waits until they've settled (keyed, latest wins).
   var anims = 0, gesture = 0, waiting = {};
   function tracked(a) {
@@ -944,34 +1051,195 @@
   function barTf(f) { return 'translateX(' + (clamp(f, 0, 1) * 100 - 100).toFixed(2) + '%)'; }   // progress bars move, never resize
 
   // An overlay between its two looks (the resting ones are set by a class): a spring from wherever it is now.
-  // look: { hid, on, out } keyframes; out (to animate away to) defaults to hid.
+  // look: { hid, on, out } keyframes; out (to animate away to) defaults to hid. With Reduce Motion it cross-fades
+  // where it rests instead (look.still: it doesn't fade either, its class alone changes it).
   function overlay(e, on, look, s, from, cls, lead) {
     cls = cls || 'show'; s = calmly(s);
-    var a = e._ov, to = on ? look.on : (look.out || look.hid);
-    if (!from) {
-      if (a && a.playState === 'running') { var cs = getComputedStyle(e); from = {}; Object.keys(to).forEach(function (k) { from[k] = cs[k]; }); }
-      else from = on ? look.hid : look.on;
+    var a = e._ov, to = on ? look.on : (look.out || look.hid), running = a && a.playState === 'running';
+    if (reduceMotion.matches) {   // (where a finger left it, if it did: it fades there)
+      var op = running ? +getComputedStyle(e).opacity : on ? 0 : 1, tf = from && from.transform;
+      if (a) a.cancel();
+      e.classList.toggle(cls, on);
+      if (look.still) { e._ov = null; e.classList.remove('going'); if (look.after) look.after(on); return null; }
+      from = rest(look, op, tf); to = rest(look, on ? 1 : 0, tf);
+    } else {
+      if (!from) {
+        if (running) { var cs = getComputedStyle(e); from = {}; Object.keys(to).forEach(function (k) { from[k] = cs[k]; }); }
+        else from = on ? look.hid : look.on;
+      }
+      if (a) a.cancel();
+      e.classList.toggle(cls, on);
     }
-    if (a) a.cancel();
-    if (reduceMotion.matches) { from = strip(from); to = strip(to); }
-    e.classList.toggle(cls, on); e.classList.toggle('going', !on);
+    e.classList.toggle('going', !on);
     a = e._ov = tracked(e.animate([from, to], { duration: s.ms, easing: s.easing }));
     if (lead) a.currentTime = Math.min(lead, s.ms);
     a.onfinish = function () { if (e._ov === a) { e._ov = null; e.classList.remove('going'); if (look.after) look.after(on); } };
     return a;
   }
-  function strip(k) { var o = {}; Object.keys(k).forEach(function (p) { if (p !== 'transform' || !/scale/.test(k[p])) o[p] = k[p]; }); return o; }   // no zooming with Reduce Motion
+  function rest(look, op, tf) { var k = { opacity: op }; if (tf || look.on.transform) k.transform = tf || look.on.transform; return k; }   // where it rests (or tf), at op
   var safeTop = 0, probe = el('div');
   probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:var(--safe-t);visibility:hidden;pointer-events:none';
   doc.body.appendChild(probe);
   function measure() { safeTop = probe.offsetHeight; pageW = window.innerWidth; lensGeometry(); }
 
+  // ---- Content that changes: nothing pops ------------------------------------------------------------
+  // Is it where someone can see it (on the top page of the tab on screen, or in an overlay that's up)? Only then
+  // does a change animate; anywhere else it just happens.
+  function onScreen(e) {
+    if (doc.hidden || !e || !e.isConnected) return false;
+    var c = e.closest('.page, .navbar, .msheet, .hud, .banner, .menu, .asheet, .alertbox');
+    if (!c) return true;
+    var inTab = c.classList.contains('page') || c.classList.contains('navbar');   // a page or its bar: shown, in the tab on screen
+    return inTab ? c.classList.contains('vis') && !!current && tabEl[current].contains(c) : c.classList.contains('show');
+  }
+  // A copy that nothing finds (no ids or data attributes, hidden from accessibility) and no finger can press.
+  function inert(g) {
+    [g].concat([].slice.call(g.querySelectorAll('*'))).forEach(function (n) {
+      [].slice.call(n.attributes).forEach(function (at) { if (at.name === 'id' || at.name === 'role' || at.name.indexOf('data-') === 0 || at.name.indexOf('aria-') === 0) n.removeAttribute(at.name); });
+      if (n.classList) n.classList.remove('hl', 'sel', 'pressed', 'pressing', 'hit');
+    });
+    g.setAttribute('aria-hidden', 'true');
+    return g;
+  }
+  function stopMo(e) { if (e._mo) { var m = e._mo; e._mo = null; m.forEach(function (a) { a.cancel(); }); } }
+  // morph(root, change): change() runs, then everything in root that moved glides from where it was to where it is
+  // (a critically damped spring, like UITableView's row animations), what's new fades in and what went away fades
+  // out where it was (a copy, a "ghost"). A group (inset card) that grows, shrinks or moves lends its background
+  // to a stand-in that's stretched from the old shape to the new one, so rows glide in and out of it and its
+  // corners never jump. What it follows: root's children, theirs, and the rows of groups inside them; an
+  // element's data-k is its key across re-renders. One layout before and one after; then transforms and opacity
+  // only. Reduce Motion: what moved cross-fades from where it was to where it is.
+  var MORPH = ':scope > *, :scope > * > *, :scope > * > .group > *';
+  function morph(root, change, o) {
+    o = o || {};
+    if (!onScreen(root)) { change(); return; }
+    if (getComputedStyle(root).position === 'static') root.style.position = 'relative';   // the copies are placed in it
+    function snap() {
+      var R = root.getBoundingClientRect(), m = new Map(), list = root.querySelectorAll(o.sel || MORPH);
+      if (list.length > 400) return null;   // a very long folder: just change
+      for (var i = 0; i < list.length; i++) {
+        var e = list[i], c = e.classList;
+        if (c.contains('ghost') || c.contains('mbg') || c.contains('mark')) continue;
+        var r = e.getBoundingClientRect(); if (!r.width && !r.height) continue;
+        var k = e.dataset.k || e; if (m.has(k)) continue;
+        m.set(k, { e: e, x: r.left - R.left, y: r.top - R.top, w: r.width, h: r.height, card: c.contains('group') && !c.contains('is-empty') });
+      }
+      return m;
+    }
+    var A = snap(); if (!A) { change(); return; }
+    // Anything still moving from an earlier change was measured where it is now; it carries on from there.
+    A.forEach(function (a) { stopMo(a.e); });
+    [].slice.call(root.children).forEach(function (n) { if (n.classList.contains('mbg')) { n._a.cancel(); } });
+    change();
+    var B = snap(); if (!B) return;
+    var s = spring(0.42, 1), fade = reduceMotion.matches, D = new Map(), cards = new Set();
+    var sx = root.scrollLeft - root.clientLeft, sy = root.scrollTop - root.clientTop;
+    B.forEach(function (b, k) { var a = A.get(k); if (a) D.set(b.e, { dx: a.x - b.x, dy: a.y - b.y }); });
+    function card(e) { var g = e.parentElement && e.parentElement.closest('.group'); return g && root.contains(g) && g !== root ? g : null; }
+    function own(e) {   // its move, less what the nearest moving parent already carries
+      var d = D.get(e), p = e.parentElement, pd;
+      while (p && p !== root) { if ((pd = D.get(p))) return { dx: d.dx - pd.dx, dy: d.dy - pd.dy }; p = p.parentElement; }
+      return d;
+    }
+    function play(e, kf, t, done) {
+      var a = tracked(e.animate(kf, t.ms ? { duration: t.ms, easing: t.easing } : t));
+      (e._mo = e._mo || []).push(a);
+      a.onfinish = function () { if (e._mo) { e._mo.splice(e._mo.indexOf(a), 1); if (!e._mo.length) e._mo = null; } if (done) done(); };
+      return a;
+    }
+    function fadeIn(e) { play(e, [{ opacity: 0 }, { opacity: getComputedStyle(e).opacity }], { duration: 300, easing: 'ease-out' }); }
+    function vanish(a) {
+      var g = a.e.isConnected ? a.e.cloneNode(true) : a.e;
+      if (g === a.e) A.forEach(function (x, k) { if (x.e !== a.e && a.e.contains(x.e) && B.has(k)) x.e.style.visibility = 'hidden'; });   // it glides on its own
+      inert(g); g.hidden = false; g.classList.add('ghost');
+      g.style.cssText += ';left:' + (a.x + sx) + 'px;top:' + (a.y + sy) + 'px;width:' + a.w + 'px;height:' + a.h + 'px;z-index:-1;transform:none';
+      root.appendChild(g);
+      tracked(g.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: 'ease-in', fill: 'forwards' })).onfinish = function () { g.remove(); };
+    }
+    function fresh(e) {   // inside something that fades in as a whole (new, or a card whose background is new)
+      for (var p = e.parentElement; p && p !== root; p = p.parentElement) { var k = p.dataset.k || p, b = B.get(k), a = A.get(k); if (b && (!a || (b.card && !a.card))) return true; }
+      return false;
+    }
+    B.forEach(function (b, k) {
+      var a = A.get(k), c = card(b.e);
+      if (!a) { if (!fresh(b.e)) fadeIn(b.e); if (c) cards.add(c); return; }   // (inside something new: that fades in)
+      var m = own(b.e), moved = Math.abs(m.dx) > 0.5 || Math.abs(m.dy) > 0.5;
+      if (b.card && !a.card) fadeIn(b.e);   // its background is new
+      if (!moved) return;
+      if (c) cards.add(c);
+      if (fade) { vanish(a); fadeIn(b.e); return; }
+      play(b.e, [{ transform: 'translate(' + m.dx.toFixed(1) + 'px,' + m.dy.toFixed(1) + 'px)' }, { transform: 'none' }], s);
+    });
+    A.forEach(function (a, k) {
+      if (B.has(k)) return;
+      vanish(a);
+      var c = card(a.e), ck = c && (c.dataset.k || c); if (ck && B.has(ck)) cards.add(B.get(ck).e);
+    });
+    // Cards whose rows moved, came or went, or that changed shape themselves: a stand-in background, stretched from
+    // the old shape to the new (with Reduce Motion, the old shape fades into the new one).
+    function standIn(b, a, kf, t) {
+      var bg = el('div', 'mbg');
+      bg.style.cssText = 'left:' + (b.x + sx) + 'px;top:' + (b.y + sy) + 'px;width:' + b.w + 'px;height:' + b.h + 'px';
+      root.appendChild(bg); b.e.classList.add('morphing');
+      bg._a = tracked(bg.animate(kf, t));
+      bg._a.onfinish = bg._a.oncancel = function () { bg.remove(); b.e.classList.remove('morphing'); };
+      return bg;
+    }
+    B.forEach(function (b, k) {
+      var a = A.get(k); if (!b.card || !a || !a.card) return;
+      var d = D.get(b.e);
+      if (!cards.has(b.e) && Math.abs(a.h - b.h) < 0.5 && Math.abs(a.w - b.w) < 0.5 && !d.dx && !d.dy) return;
+      var was = 'translate(' + (a.x - b.x).toFixed(1) + 'px,' + (a.y - b.y).toFixed(1) + 'px) scale(' + (a.w / b.w).toFixed(4) + ',' + (a.h / b.h).toFixed(4) + ')';
+      if (!fade) { standIn(b, a, [{ transform: was }, { transform: 'none' }], { duration: s.ms, easing: s.easing }); return; }
+      standIn(b, a, [{ transform: was, opacity: 1 }, { transform: was, opacity: 0 }], { duration: FADE.ms, fill: 'forwards' });
+      standIn(b, a, [{ opacity: 0 }, { opacity: 1 }], { duration: FADE.ms });
+    });
+  }
+  // dissolve(e, change): text that changes in place. The old text stays under the new one while the new one fades in,
+  // then fades away itself, so letters that didn't change never flicker (a cross-dissolve without a dip).
+  function dissolve(e, change) {
+    var w = onScreen(e) && e.offsetParent ? e.offsetWidth : 0;
+    if (!w) { change(); return; }
+    var g = inert(e.cloneNode(true));
+    g.classList.add('ghost');
+    g.style.cssText += ';left:' + e.offsetLeft + 'px;top:' + e.offsetTop + 'px;width:' + w + 'px;height:' + e.offsetHeight + 'px;z-index:0;color:' + getComputedStyle(e).color;
+    change();
+    if (!e._dz) { e._dz = 0; e._dp = [e.style.position, e.style.zIndex]; if (getComputedStyle(e).position === 'static') e.style.position = 'relative'; e.style.zIndex = '1'; }
+    e._dz++;
+    e.parentNode.appendChild(g);
+    tracked(e.animate([{ opacity: 0 }, { opacity: getComputedStyle(e).opacity }], { duration: 200, easing: 'ease-out' }));
+    tracked(g.animate([{ opacity: 1 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 320, fill: 'forwards' })).onfinish = function () {
+      g.remove();
+      if (!--e._dz) { e.style.position = e._dp[0]; e.style.zIndex = e._dp[1]; }
+    };
+  }
+  function swapText(e, t) { if (e.textContent !== t) dissolve(e, function () { e.textContent = t; }); }
+  function appear(e) { if (onScreen(e)) tracked(e.animate([{ opacity: 0 }, { opacity: getComputedStyle(e).opacity }], { duration: 250, easing: 'ease-out' })); }
+  // A change to whatever page is on top of the current tab: it glides (morph); elsewhere it just happens.
+  function glideTop(change) { var t = current && topOf(); if (t) morph(t.scroller, change); else change(); }
+  // swap(e, tf, change): a notice that's up (or still coming in) gets new words. The old one lifts away and fades from
+  // wherever it is as the new one settles in its place (two copies, each its own width, so the capsule never jumps).
+  // tf(y, s): its transform.
+  function swap(e, tf, change) {
+    if (!e.classList.contains('show') || !onScreen(e)) { change(); return; }
+    var cs = e._ov && getComputedStyle(e), at = cs ? { transform: cs.transform, opacity: cs.opacity } : { transform: tf(0, 1), opacity: 1 };
+    if (e._ov) { e._ov.cancel(); e._ov = null; }
+    var g = inert(e.cloneNode(true)); g.classList.add('leaving');
+    e.parentNode.insertBefore(g, e.nextSibling);
+    change();
+    var s = calmly(spring(0.42, 0.8)), still = reduceMotion.matches;
+    tracked(g.animate([at, { transform: still ? at.transform : tf(-10, 0.92), opacity: 0 }], { duration: 220, easing: 'ease-in', fill: 'forwards' })).onfinish = function () { g.remove(); };
+    var a = e._ov = tracked(e.animate([{ transform: still ? tf(0, 1) : tf(10, 0.94), opacity: 0 }, { transform: tf(0, 1), opacity: 1 }], { duration: s.ms, easing: s.easing }));
+    a.onfinish = function () { if (e._ov === a) e._ov = null; };   // (held as its animation, so a dismissal starts from where it is)
+  }
+  function hudTf(y, k) { return 'translate(-50%, ' + y + 'px) scale(' + k + ')'; }
+  function bannerTf(y, k) { return 'translateY(' + y + 'px) scale(' + k + ')'; }
+
   function toast(text, bad) {
     var t = $('toast');
-    $('toast-ic').innerHTML = bad ? I.warnFill : I.okFill;
-    setText($('toast-t'), text);
-    t.classList.toggle('bad', !!bad);
-    if (!t.classList.contains('show')) overlay(t, true, LOOK.hud, spring(0.42, 0.72));
+    function set() { $('toast-ic').innerHTML = bad ? I.warnFill : I.okFill; setText($('toast-t'), text); t.classList.toggle('bad', !!bad); }
+    if (!t.classList.contains('show')) { set(); overlay(t, true, LOOK.hud, spring(0.42, 0.72)); }
+    else if ($('toast-t').textContent !== text || t.classList.contains('bad') !== !!bad) swap(t, hudTf, set);
     clearTimeout(toast.h); toast.h = setTimeout(hideToast, 2400);
   }
   function hideToast() { if ($('toast').classList.contains('show')) overlay($('toast'), false, LOOK.hud, spring(0.32, 1)); }
@@ -986,13 +1254,12 @@
   var stacks = { remote: [], send: [], notes: [], settings: [] };
   var tabEl = {}; Object.keys(TABS).forEach(function (t) { tabEl[t] = $('tab-' + t); });
   var current = null, run = {}, pageW = window.innerWidth;
-  var LARGE = 52;   // a large title's height (one line)
 
   function topOf(tab) { var s = stacks[tab || current]; return s[s.length - 1]; }
   function pageWidth() { return pageW; }
   function pushing(tab) { var r = run[tab || current]; return !!(r && r.kind === 'push'); }
   function page(tab, o) {
-    var p = { tab: tab, o: o, title: o.title || '', large: !!o.large, e: false, i: false };
+    var p = { tab: tab, o: o, title: o.title || '', large: !!o.large, y: 0 };
     var pe = o.el;
     if (!pe) { pe = el('div', 'page'); pe.appendChild(el('div', 'scroller')); tabEl[tab].appendChild(pe); }
     if (o.plain) pe.classList.add('plain');
@@ -1003,7 +1270,7 @@
       if (!p.h1) { p.h1 = el('h1', 'large', p.title); p.scroller.insertBefore(p.h1, p.scroller.firstChild); }
     }
     var nav = p.nav = el('header', 'navbar' + (p.large ? ' lt' : '') + (o.plain ? ' plain' : ''));
-    var bgw = nav.appendChild(el('div', 'nb-bgw')); bgw.appendChild(el('div', 'nb-bg'));
+    var bgw = nav.appendChild(el('div', 'nb-bgw')); p.bg = bgw.appendChild(el('div', 'nb-bg'));
     p.lead = nav.appendChild(el('div', 'nb-lead'));
     p.titleEl = nav.appendChild(el('div', 'nb-title'));
     p.tt = p.titleEl.appendChild(o.titleView || el('span', null, p.title));
@@ -1014,24 +1281,37 @@
     tabEl[tab].appendChild(nav);
     return p;
   }
-  // The bar's background and inline title follow the scroll position without a scroll handler: two markers in
-  // the page are watched by an IntersectionObserver. The background shows once the content has moved under
-  // the bar, the inline title once the large title has. (Called once the page's content is in place.)
+  // The bar's edge, its inline title and the large title follow the scroll position (see .nb-bg). With scroll-driven
+  // animations each page's scroller names a timeline that its bar reads (the tab hoists the names with
+  // timeline-scope, as the bar isn't inside the scroller); elsewhere a passive scroll listener sets the same
+  // opacities: no layout, nothing repainted. Either way the listener keeps p.y and, pulled down past the top (iOS
+  // reports the bounce as a negative scrollTop), grows the large title a little from its leading edge, like UIKit.
+  // (Called once the page's content is in place.)
+  var SDA = !!(window.CSS && CSS.supports && CSS.supports('animation-timeline', 'scroll()') && CSS.supports('timeline-scope', '--a'));
+  if (SDA) doc.documentElement.classList.add('sda');
+  var tlN = 0, tlNames = {};
+  function scopes(tab) { var n = tlNames[tab] || []; tabEl[tab].style.setProperty('timeline-scope', n.length ? n.join(', ') : 'none'); }
   function watch(p) {
-    function mark(top) { var m = el('i', 'mark'); m.style.top = top + 'px'; return p.scroller.appendChild(m); }
-    p.m1 = mark(1); if (p.large) p.m2 = mark(LARGE - 15);
-    if (!window.IntersectionObserver) { p.scroller.addEventListener('scroll', function () { var y = p.scroller.scrollTop; edge(p, y > 2, y > LARGE - 14); }, { passive: true }); return; }
-    p.io = new IntersectionObserver(function (es) {
-      if (!p.el.classList.contains('vis')) return;
-      var e = p.e, i = p.i;
-      es.forEach(function (x) { if (x.target === p.m1) e = !x.isIntersecting; else i = !x.isIntersecting; });
-      edge(p, e, i);
-    }, { root: p.scroller });
-    p.io.observe(p.m1); if (p.m2) p.io.observe(p.m2);
+    if (SDA) {
+      p.tl = '--pg' + (++tlN);
+      p.scroller.style.setProperty('scroll-timeline', p.tl + ' y');
+      p.nav.style.setProperty('--tl', p.tl);
+      (tlNames[p.tab] = tlNames[p.tab] || []).push(p.tl); scopes(p.tab);
+    }
+    p.scroller.addEventListener('scroll', function () { scrolled(p); }, { passive: true });
   }
-  function edge(p, e, i) {
-    if (e !== p.e) { p.e = e; p.nav.classList.toggle('edge', e); }
-    if (p.large && i !== p.i) { p.i = i; p.nav.classList.toggle('inline', i); }
+  function ramp(y, a, b) { return clamp((y - a) / (b - a), 0, 1); }
+  function opac(e, v) { v = Math.round(v * 1000) / 1000; if (e._o !== v) { e._o = v; e.style.opacity = v; } }
+  function scrolled(p) {
+    var y = p.y = p.scroller.scrollTop;
+    if (!SDA) {   // the same ranges as the scroll-driven animations (CSS)
+      opac(p.bg, p.large ? ramp(y, 4, 24) : ramp(y, 0, 12));
+      if (p.large) { opac(p.tt, ramp(y, 32, 46)); opac(p.h1, 1 - ramp(y, 10, 40)); }
+    }
+    if (p.h1) {
+      var k = y < 0 && !reduceMotion.matches ? 1 + 0.12 * (1 - Math.exp(y / 120)) : 1;
+      if (k !== p.k) { p.k = k; p.h1.style.transform = k === 1 ? '' : 'scale(' + k.toFixed(4) + ')'; }
+    }
   }
   // Bar buttons: icon buttons side by side share one glass capsule; text buttons are capsules of their own.
   function setActions(p, actions) {
@@ -1086,6 +1366,8 @@
     var w = pageWidth(), fade = reduceMotion.matches;
     look(top, 'top', f, w, fade).forEach(function (it) { stop(it[0]); put(it[0], it[1]); });
     if (under) look(under, 'under', f, w, fade).forEach(function (it) { stop(it[0]); put(it[0], it[1]); });
+    // the row that opened the top page stays selected under it, fading as the finger takes the page away (UIKit)
+    if (under && under.selRow) under.selRow.style.setProperty('--hl', (1 - f).toFixed(3));
   }
   // Where an animating element is now (dt: ms from now), from its animation's clock and its spring.
   function now(e, dt) {
@@ -1158,7 +1440,7 @@
     if (prev) p.lead.appendChild(backButton(prev));
     var back = moving(p);   // still leaving: it turns around from where it is
     vis(p, true);
-    if (!back && p.e) { p.scroller.scrollTop = 0; edge(p, false, false); }   // a page opens at its top
+    if (!back && p.y) { p.scroller.scrollTop = 0; scrolled(p); }   // a page opens at its top
     if (animate) transition('push', p, prev, back ? progress(p).f || 1 : 1, 0, 0);
     else { if (prev) { vis(prev, false); clearPlace(prev); } clearPlace(p); }
     if (p.tab === current) syncHistory();
@@ -1175,7 +1457,7 @@
     // Pages in between go without being seen, like iOS popping to the root.
     mid.forEach(function (m) { vis(m, false); clearPlace(m); if (m.o.onPop) m.o.onPop(m); dispose(m); });
     zIndex(top, 2 * depth + 1);   // under anything pushed while it leaves
-    if (under.selRow) { var row = under.selRow; under.selRow = null; row.classList.remove('sel'); }   // fades back as the page goes
+    if (under.selRow) { var row = under.selRow; under.selRow = null; row.classList.remove('sel'); row.style.removeProperty('--hl'); }   // fades back as the page goes (from where a swipe left it)
     if (top.o.onPop) top.o.onPop(top);
     vis(under, true);
     if (o.animate === false) { vis(top, false); clearPlace(top); clearPlace(under); dispose(top); }
@@ -1187,7 +1469,11 @@
     syncHistory();
     return true;
   }
-  function dispose(p) { if (p.o.keep) return; if (p.io) p.io.disconnect(); p.el.remove(); p.nav.remove(); }
+  function dispose(p) {
+    if (p.o.keep) return;
+    if (p.tl) { var n = tlNames[p.tab]; n.splice(n.indexOf(p.tl), 1); scopes(p.tab); }
+    p.el.remove(); p.nav.remove();
+  }
   function select(p, row) { if (row) { row.classList.add('sel'); p.selRow = row; } }
 
   // Interactive pop: from the left edge (or a sideways swipe on the page, as on iOS 26), the page follows the
@@ -1212,7 +1498,7 @@
       if (!(dx > 0 && Math.abs(dx) > Math.abs(dy) * (sw.edge ? 1 : 1.7))) { sw = null; return; }
       sw.on = true; gesture++;
       if (doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
-      unhl(); vis(sw.under, true);
+      unpress(); vis(sw.under, true);
     }
     sw.f = clamp(dx / pageWidth(), 0, 1);
     sw.pts.push([e.timeStamp, t.clientX]); if (sw.pts.length > 6) sw.pts.shift();
@@ -1226,7 +1512,11 @@
     var vw = v * 1000 / pageWidth(), done = !cancelled && (v > 0.35 || (g.f > 0.5 && v > -0.2)), lead = since(p, t);
     gesture--;
     if (done) popTo(stacks[current].indexOf(g.under), { f: g.f, v: vw / Math.max(0.05, 1 - g.f), lead: lead });   // carries on from the finger
-    else transition('stay', g.top, g.under, g.f, 0, -vw / Math.max(0.05, g.f), lead);
+    else {
+      transition('stay', g.top, g.under, g.f, 0, -vw / Math.max(0.05, g.f), lead);
+      var row = g.under.selRow;   // given up: the selection comes back
+      if (row) { row.classList.add('hl-ease'); row.style.removeProperty('--hl'); setTimeout(function () { row.classList.remove('hl-ease'); }, 350); }
+    }
     flush();
   }
   // How long ago the finger last moved, plus half a frame: where a released motion should already be.
@@ -1277,7 +1567,8 @@
       tabEl[tab].classList.add('on');
       current = tab;
       var top = topOf(tab); if (top) vis(top, true);   // back where it was, scroll position and all
-      doc.querySelectorAll('#tabbar button').forEach(function (b) { var on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
+      tbBtns.forEach(function (b) { var on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
+      lit(TB.indexOf(tab));
       moveLens();
     }
     syncHistory();
@@ -1306,7 +1597,19 @@
     if (stacks[current].length > 1) popTo(0);
     else topOf().scroller.scrollTo({ top: 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
   }
-  // The selection lens: tab buttons are equal, so its size is set once and only its position moves.
+  // ---- Tab bar ------------------------------------------------------------------------------------
+  // Each tab's icon and label are there twice, plain and tinted, stacked; the tab the lens is on (.lit) cross-fades
+  // to tinted. (The tinted label is drawn by CSS from data-l, so each tab's text is said once.)
+  var TB = Object.keys(TABS), tbBtns = [].slice.call(doc.querySelectorAll('#tabbar button'));
+  tbBtns.forEach(function (b) {
+    var plain = el('span', 'tb-i'), tint = el('span', 'tb-i t');
+    while (b.firstChild) plain.appendChild(b.firstChild);
+    tint.appendChild(plain.querySelector('svg').cloneNode(true)); tint.dataset.l = plain.textContent; tint.setAttribute('aria-hidden', 'true');
+    b.appendChild(plain); b.appendChild(tint);
+  });
+  function lit(i) { tbBtns.forEach(function (b, j) { if (b.classList.contains('lit') !== (j === i)) b.classList.toggle('lit', j === i); }); }
+  // The lens: tab buttons are equal, so its size is set once and only its position moves (its inner layers lift
+  // it under a finger, .tb-lz, and stretch it while it glides, .tb-ls).
   var lens = { x: 0, w: 0, xs: [], m: null };
   function lensGeometry() {
     var bar = $('tabbar'), bs = bar.querySelectorAll('button'), bw = (bar.clientWidth - 8) / bs.length;
@@ -1317,49 +1620,79 @@
     var m = lens.m; if (!m || m.a.playState === 'finished' || m.a.playState === 'idle') return lens.x;
     var t = clamp(m.a.currentTime || 0, 0, m.s.ms); return m.from + (lens.x - m.from) * (t >= m.s.ms ? 1 : m.s.x(t / 1000));
   }
-  function lensTo(x, v, lead) {   // v: px a second from a drag
-    var from = lensNow(), L = $('tb-lens');
+  function lensTf(x) { return 'translateX(' + x.toFixed(1) + 'px)'; }
+  // Glides the lens to x on a spring from wherever it is (v: px a second, from a finger), stretching it like a
+  // droplet on the way: wider and a touch flatter early on, round again as it lands. Reduce Motion: it fades out
+  // where it was and in where it goes.
+  function lensTo(x, v, lead) {
+    var from = lensNow(), L = $('tb-lens'), ls = $('tb-ls');
     if (lens.m) { lens.m.a.cancel(); lens.m = null; }
-    lens.x = x; L.style.transform = 'translateX(' + x + 'px)';
+    lens.x = x; L.style.transform = lensTf(x);
     if (!moveLens.done || Math.abs(from - x) < 0.5) return;
-    var s = calmly(spring(0.45, 0.78, v && from !== x ? v / (x - from) : 0));
-    lens.m = { from: from, s: s, a: tracked(L.animate([{ transform: 'translateX(' + from + 'px)' }, { transform: 'translateX(' + x + 'px)' }], { duration: s.ms, easing: s.easing })) };
+    if (reduceMotion.matches) {
+      lens.m = { from: x, s: FADE, a: tracked(L.animate([{ transform: lensTf(from), opacity: 1 }, { transform: lensTf(from), opacity: 0, offset: 0.45 }, { transform: lensTf(x), opacity: 0, offset: 0.55 }, { transform: lensTf(x), opacity: 1 }], { duration: 300 })) };
+      return;
+    }
+    var s = spring(0.45, 0.78, v && from !== x ? v / (x - from) : 0);
+    lens.m = { from: from, s: s, a: tracked(L.animate([{ transform: lensTf(from) }, { transform: lensTf(x) }], { duration: s.ms, easing: s.easing })) };
     if (lead) lens.m.a.currentTime = Math.min(lead, s.ms);
+    var k = Math.min(0.2, Math.abs(x - from) / lens.w * 0.08);
+    if (ls._a) ls._a.cancel();
+    ls._a = tracked(ls.animate([{ transform: 'none' }, { transform: 'scale(' + (1 + k).toFixed(3) + ',' + (1 - k * 0.35).toFixed(3) + ')', offset: 0.3 }, { transform: 'none' }], { duration: Math.min(s.ms, 520), easing: 'ease-out' }));
   }
   function moveLens(fingerX, v, lead) {
-    var i = Object.keys(TABS).indexOf(current);
+    var i = TB.indexOf(current);
     if (fingerX != null) {   // following a finger: no animation
       if (lens.m) { lens.m.a.cancel(); lens.m = null; }
       lens.x = clamp(fingerX - $('tabbar').getBoundingClientRect().left - lens.w / 2, 4, lens.xs[lens.xs.length - 1]);
-      $('tb-lens').style.transform = 'translateX(' + lens.x + 'px)';
+      $('tb-lens').style.transform = lensTf(lens.x);
       return;
     }
     lensTo(lens.xs[i] || 4, v, lead);
     moveLens.done = true;   // in place at launch, sliding after that
   }
   window.addEventListener('resize', function () { measure(); moveLens(); });
-  doc.querySelectorAll('#tabbar button').forEach(function (b) { b.onclick = function () { if (Date.now() - tbDragged > 400) tapTab(b.dataset.tab); }; });
-  // Press and slide along the tab bar: the lens follows the finger and lands where it's let go. The bar takes no
-  // pan or zoom (touch-action: none), so these listeners can stay passive.
-  var tb = null, tbDragged = 0;
-  $('tabbar').addEventListener('touchstart', function (e) { tb = { x: e.touches[0].clientX, lx: e.touches[0].clientX, moved: false, pts: [] }; $('tabbar').classList.add('press'); }, { passive: true });
-  $('tabbar').addEventListener('touchmove', function (e) {
-    if (!tb) return;
-    var x = e.touches[0].clientX; tb.lx = x; tb.pts.push([e.timeStamp, x]); if (tb.pts.length > 5) tb.pts.shift();
-    if (!tb.moved && Math.abs(x - tb.x) > 10) { tb.moved = true; gesture++; $('tabbar').classList.add('drag'); }
-    if (tb.moved) moveLens(x);
+  tbBtns.forEach(function (b) { b.onclick = function () { if (Date.now() - tbDragged > 400) tapTab(b.dataset.tab); }; });
+  // A finger on the tab bar: the lens lifts at once and goes to meet it; slid along the bar, the lens follows the
+  // finger and the tab under it lights up; let go, it lands on that tab at the finger's speed. A tap is the button's
+  // click (so tapping the current tab still goes back to its first page); a long hold selects like a slide. The bar
+  // takes no pan or zoom (touch-action: none), so these listeners stay passive.
+  var tb = null, tbDragged = 0, tbar = $('tabbar');
+  function tbAt(x) { var r = tbar.getBoundingClientRect(); return clamp(Math.floor((x - r.left - 4) / lens.w), 0, TB.length - 1); }
+  tbar.addEventListener('pointerdown', function (e) {
+    if (!e.isPrimary || e.button > 0) return;
+    var i = tbAt(e.clientX);
+    tb = { id: e.pointerId, x: e.clientX, lx: e.clientX, moved: false, pts: [[e.timeStamp, e.clientX]], t0: e.timeStamp };
+    tbar.classList.add('press'); lit(i);
+    if (TB[i] !== current) lensTo(lens.xs[i]);
   }, { passive: true });
-  function tbEnd(cancel, ts) {
-    var t = tb; tb = null; $('tabbar').classList.remove('press', 'drag');
-    if (!t || !t.moved) return;
-    gesture--; tbDragged = Date.now();
+  // A mouse leaving the bar while pressed: the bar keeps it from there (the lens follows it, and its release lands
+  // here). Not from the start: a captured pointer's click goes to the bar, not the tab under it. (A finger is kept
+  // by the button it lands on anyway.)
+  tbar.addEventListener('pointerleave', function (e) { if (tb && e.pointerId === tb.id) { try { tbar.setPointerCapture(e.pointerId); } catch (err) {} } }, { passive: true });
+  tbar.addEventListener('pointermove', function (e) {
+    if (!tb || e.pointerId !== tb.id) return;
+    var x = e.clientX; tb.lx = x; tb.pts.push([e.timeStamp, x]); if (tb.pts.length > 5) tb.pts.shift();
+    if (!tb.moved && Math.abs(x - tb.x) > 8) { tb.moved = true; gesture++; }
+    if (tb.moved) { moveLens(x); lit(tbAt(x)); }
+  }, { passive: true });
+  function tbEnd(cancel, e) {
+    var t = tb; if (!t || e.pointerId !== t.id) return;
+    tb = null; tbar.classList.remove('press');
+    if (t.moved) gesture--;
+    if (!cancel && !t.moved && e.timeStamp - t.t0 < 450) {   // a tap: its click selects (and if none comes, all goes back)
+      setTimeout(function () { if (!tb) { lit(TB.indexOf(current)); moveLens(); } }, 450);
+      return flush();
+    }
+    tbDragged = Date.now();
     var v = 0; if (t.pts.length > 1) { var a = t.pts[0], b = t.pts[t.pts.length - 1]; v = (b[1] - a[1]) / Math.max(1, b[0] - a[0]) * 1000; }
-    var bar = $('tabbar').getBoundingClientRect(), i = clamp(Math.floor((t.lx - bar.left - 4) / lens.w), 0, lens.xs.length - 1), tab = Object.keys(TABS)[i], lead = since(t.pts, ts);
-    if (!cancel && tab !== current) { lensTo(lens.xs[i], v, lead); selectTab(tab); } else moveLens(null, v, lead);
+    var i = tbAt(t.lx), tab = TB[i], lead = t.moved ? since(t.pts, e.timeStamp) : 0;
+    if (!cancel && tab !== current) { lensTo(lens.xs[i], v, lead); selectTab(tab); }
+    else { lit(TB.indexOf(current)); moveLens(null, v, lead); }
     flush();
   }
-  $('tabbar').addEventListener('touchend', function (e) { tbEnd(false, e.timeStamp); }, { passive: true });
-  $('tabbar').addEventListener('touchcancel', function (e) { tbEnd(true, e.timeStamp); }, { passive: true });
+  tbar.addEventListener('pointerup', function (e) { tbEnd(false, e); }, { passive: true });
+  tbar.addEventListener('pointercancel', function (e) { tbEnd(true, e); }, { passive: true });
 
   // ---- Overlays: action sheets, alerts, menus, the card sheets, banners ----------------------------
   var LOOK = {
@@ -1416,8 +1749,18 @@
     if ($('dialog').classList.contains('show')) overlay($('dialog'), false, LOOK.alert, spring(0.25, 1));
     if (doc.activeElement === $('d-input')) $('d-input').blur();
   }
-  // Keeps an alert in the middle of what's visible above the keyboard.
-  function placeDialog() { var v = window.visualViewport; $('dialog').style.top = v ? (v.offsetTop + v.height * 0.46) + 'px' : ''; }
+  // Keeps an alert in the middle of what's visible above the keyboard; when the keyboard comes or goes while it's
+  // up, it glides there (the translate property, which adds to the transform its own spring is moving).
+  var TRANSLATE = !!(window.CSS && CSS.supports && CSS.supports('translate', '0 1px'));
+  function placeDialog() {
+    var d = $('dialog'), v = window.visualViewport, top = v ? (v.offsetTop + v.height * 0.46) + 'px' : '';
+    if (d.style.top === top) return;
+    var was = dialogOpen && TRANSLATE && !reduceMotion.matches ? d.getBoundingClientRect().top : null;
+    d.style.top = top;
+    if (was == null) return;
+    var dy = was - d.getBoundingClientRect().top, s = spring(0.45, 0.9);
+    if (Math.abs(dy) > 1) tracked(d.animate([{ translate: '0 ' + dy.toFixed(1) + 'px' }, { translate: '0 0' }], { duration: s.ms, easing: s.easing }));
+  }
   if (window.visualViewport) window.visualViewport.addEventListener('resize', function () { if (dialogOpen) placeDialog(); });
   // Alert with a text field (New Folder).
   function ask(title, placeholder, okLabel, fn) {
@@ -1460,10 +1803,10 @@
     pv.removeAttribute('id'); pv.querySelectorAll('[id]').forEach(function (n) { n.removeAttribute('id'); });
     pv.style.left = r.left + 'px'; pv.style.top = r.top + 'px'; pv.style.width = r.width + 'px'; pv.style.height = r.height + 'px';
     doc.body.appendChild(pv);
-    var s = calmly(spring(0.4, 0.7));
-    tracked(pv.animate([{ transform: 'scale(.975)' }, { transform: 'scale(1.03)' }], { duration: s.ms, easing: s.easing, fill: 'forwards' }));
+    var s = spring(0.4, 0.7), still = reduceMotion.matches;
+    if (!still) tracked(pv.animate([{ transform: 'scale(.975)' }, { transform: 'scale(1.03)' }], { duration: s.ms, easing: s.easing, fill: 'forwards' }));
     closeMenu.after = function () {
-      var d = calmly(spring(0.3, 1)), a = tracked(pv.animate([{ transform: 'scale(1.03)', opacity: 1 }, { transform: 'scale(1)', opacity: 0 }], { duration: d.ms, easing: d.easing, fill: 'forwards' }));
+      var d = calmly(spring(0.3, 1)), a = tracked(pv.animate([{ transform: still ? 'none' : 'scale(1.03)', opacity: 1 }, { transform: 'none', opacity: 0 }], { duration: d.ms, easing: d.easing, fill: 'forwards' }));
       a.onfinish = function () { pv.remove(); };
     };
     haptic();
@@ -1478,22 +1821,23 @@
       var r = e.target.closest(sel); if (!r || e.touches.length > 1) return;
       var t = e.touches[0], me = { r: r, x: t.clientX, y: t.clientY, fired: false };
       me.press = setTimeout(function () { r.classList.add('pressing'); }, 160);
-      me.timer = setTimeout(function () { me.fired = true; r.classList.remove('pressing'); unhl(); fn(r); }, 520);
+      me.timer = setTimeout(function () { me.fired = true; r.classList.remove('pressing'); unpress(); fn(r); }, 520);
       lp = me;
     }, { passive: true });
     box.addEventListener('touchmove', function (e) { if (lp && !lp.fired && Math.abs(e.touches[0].clientX - lp.x) + Math.abs(e.touches[0].clientY - lp.y) > 10) cancel(); }, { passive: true });
     // touchend can't hold up scrolling; it stops the tap that would follow a long press
     box.addEventListener('touchend', function (e) { if (lp && lp.fired && e.cancelable) e.preventDefault(); cancel(); }, { passive: false });
     box.addEventListener('touchcancel', cancel, { passive: true });
+    box.addEventListener('pointercancel', cancel, { passive: true });   // the touch became a scroll
     box.addEventListener('contextmenu', function (e) { var r = e.target.closest(sel); if (!r) return; e.preventDefault(); if (!menuOpen) fn(r); });
   }
   // Card sheet: slides up over the app, which recedes; drag the grabber or bar down to dismiss. A medium-height
   // sheet (.half) floats over a dimmed app instead. v: a drag's speed (travels a second); from: where it was let go.
-  function appLook() { return { hid: { transform: 'translateY(0px) scale(1)' }, on: { transform: 'translateY(' + safeTop + 'px) scale(.92)' }, after: function (on) { if (!on) $('app').classList.remove('round'); } }; }
+  function appLook() { return { hid: { transform: 'translateY(0px) scale(1)' }, on: { transform: 'translateY(' + safeTop + 'px) scale(.92)' }, still: true, after: function (on) { if (!on) $('app').classList.remove('round'); } }; }
   function presentSheet(s, v, from, appFrom, lead) {
     var half = s.classList.contains('half'), sp = spring(0.45, 0.9, v);
     s._h = 0; overlay(s, true, half ? LOOK.half : LOOK.card, sp, from, null, lead);
-    if (!half) { $('app').classList.add('round'); overlay($('app'), true, appLook(), sp, appFrom, 'recede', lead); }
+    if (!half) { if (!reduceMotion.matches) $('app').classList.add('round'); overlay($('app'), true, appLook(), sp, appFrom, 'recede', lead); }
   }
   function dismissSheet(s, v, from, appFrom, lead) {
     var half = s.classList.contains('half'), sp = spring(0.42, 1, v);
@@ -1512,6 +1856,10 @@
         if (s._ov) {   // caught mid-way: held right where it is
           y0 = new DOMMatrix(getComputedStyle(s).transform).m42; s._ov.cancel(); s.style.transform = 'translate3d(0,' + y0 + 'px,0)';
           var ap = $('app'); if (!half && ap._ov) { var at0 = getComputedStyle(ap).transform; ap._ov.cancel(); ap.style.transform = at0; }
+        } else if (s._rs) {   // caught while it changes height: it takes its new height, held where it's seen
+          var seen = s.getBoundingClientRect().top;
+          s._rs.forEach(function (a) { if (a.effect.target === s) a.cancel(); }); s.style.minHeight = '';
+          y0 = seen - s.getBoundingClientRect().top; s.style.transform = 'translate3d(0,' + y0 + 'px,0)';
         }
         d = { y: e.touches[0].clientY - y0, dy: y0, pts: [], h: s._h || (s._h = s.offsetHeight) };
         gesture++;
@@ -1519,14 +1867,17 @@
       h.addEventListener('touchmove', function (e) {
         if (!d) return;
         d.dy = e.touches[0].clientY - d.y; d.pts.push([e.timeStamp, d.dy]); if (d.pts.length > 6) d.pts.shift();
-        var p = at(d.dy, d.h);
-        s.style.transform = p.s; if (!half) $('app').style.transform = p.a;
+        var p = at(d.dy, d.h), dim = half ? $('veil') : $('appdim');
+        s.style.transform = p.s; if (!half && !reduceMotion.matches) $('app').style.transform = p.a;
+        // the dimming behind lightens as the sheet goes down, with the finger
+        dim.style.transition = 'none'; dim.style.opacity = (1 - clamp(d.dy / d.h, 0, 1)).toFixed(3);
       }, { passive: true });
       function end(e) {
         if (!d) return; var g = d; d = null; gesture--;
         var v = 0; if (g.pts.length > 1) { var a = g.pts[0], b = g.pts[g.pts.length - 1]; v = (b[1] - a[1]) / Math.max(1, b[0] - a[0]); }   // px per ms, down
         var p = at(g.dy, g.h), from = { transform: p.s }, appFrom = { transform: p.a }, lead = since(g.pts, e.timeStamp);
         s.style.transform = ''; if (!half) $('app').style.transform = '';
+        var dim = half ? $('veil') : $('appdim'); dim.style.transition = dim.style.opacity = '';   // its fade carries on from there
         if (g.dy > g.h * 0.3 || (v > 0.5 && g.dy > 20)) onDismiss(v * 1000 / Math.max(40, g.h - p.y), from, appFrom, lead);
         else presentSheet(s, -v * 1000 / Math.max(40, Math.abs(p.y)), from, appFrom, lead);
         flush();
@@ -1651,22 +2002,29 @@
     var seq = ++p.seq;
     return api('/api/list?path=' + q(path)).then(function (d) {
       if (seq !== p.seq) return; // a newer listing was asked for meanwhile
-      p.path = d.path; p.parent = d.parent; p.files = d.files;
-      if (p === filesRoot) { $('storage').hidden = roots.length < 2; $('storage-name').textContent = rootOf(p.path).name; }
-      render(p);
+      // The listing comes in without a jump: the first one fades in, a fresh one of the same folder glides (a deleted
+      // file fades out and the rows below move up; a new folder fades in where it goes), another storage cross-fades.
+      morph(p.scroller, function () {
+        var same = p.path === d.path;
+        p.path = d.path; p.parent = d.parent; p.files = d.files;
+        if (p === filesRoot) { setHidden($('storage'), roots.length < 2); setText($('storage-name'), rootOf(p.path).name); }
+        render(p, same);
+      });
     }, function (e) {
       if (seq === p.seq && !p.files.length) { p.list.textContent = ''; p.list.classList.add('is-empty'); p.list.appendChild(el('div', 'empty', "Couldn't open this folder")); }
       err(e);
     });
   }
   function load(path) { var p = topFiles(); if (p) loadInto(p, path); }
-  function render(p) {
-    var f = p.filter.trim().toLowerCase();
+  // keep: the same folder listed again; as many rows go in at once as were there, so the page keeps its length and
+  // the scroll position stays where it was. (Typing a search filters at once, like iOS.)
+  function render(p, keep) {
+    var f = p.filter.trim().toLowerCase(), had = keep ? p.shown : 0;
     p.view = f ? p.files.filter(function (x) { return x.name.toLowerCase().indexOf(f) >= 0; }) : p.files;
     p.shown = 0; p.list.textContent = ''; cancelAnimationFrame(p.chunk);
     p.list.classList.toggle('is-empty', !p.view.length);
-    if (!p.view.length) p.list.appendChild(el('div', 'empty', f ? 'No Results' : 'This folder is empty'));
-    renderMore(p);
+    if (!p.view.length) p.list.appendChild(el('div', 'empty', f ? 'No Results' : 'This folder is empty')).dataset.k = 'empty';
+    rows(p, Math.min(p.view.length, Math.max(BATCH, had)), had);
   }
   function renderMore(p) {
     var more = p.list.querySelector('[data-act=more]'); if (more) more.remove();
@@ -1674,11 +2032,11 @@
   }
   // Rows go in a screenful at a time, the rest over the next frames, so a big folder never holds up a frame
   // (or the start of the page sliding in).
-  function rows(p, end) {
-    var frag = document.createDocumentFragment(), stop = Math.min(end, p.shown + (p.shown ? 50 : 24));
+  function rows(p, end, first) {
+    var frag = document.createDocumentFragment(), stop = Math.min(end, p.shown + (p.shown ? 50 : Math.max(24, first || 0)));
     for (var i = p.shown; i < stop; i++) {
       var f = p.view[i], row = el('div', 'row fi tap');
-      row.dataset.act = 'tap'; row.dataset.i = i;
+      row.dataset.act = 'tap'; row.dataset.i = i; row.dataset.k = 'f' + f.path;
       row.appendChild(icon(f));
       var text = el('span', 'txt'); text.appendChild(el('span', 't', f.name));
       text.appendChild(el('span', 's', f.dir ? 'Folder' : typeOf(f.name)[3] + ' · ' + fmt(f.size)));
@@ -1690,7 +2048,7 @@
     if (p.shown < end) p.chunk = requestAnimationFrame(function () { rows(p, end); });
     else if (p.shown < p.view.length) {
       var b = el('button', 'row act tap', 'Show ' + Math.min(BATCH, p.view.length - p.shown) + ' More');
-      b.style.justifyContent = 'center'; b.dataset.act = 'more'; frag.appendChild(b);
+      b.style.justifyContent = 'center'; b.dataset.act = 'more'; b.dataset.k = 'more'; frag.appendChild(b);
     }
     p.list.appendChild(frag);
   }
@@ -1722,17 +2080,17 @@
   }
   function upload(list) {
     var queue = Array.prototype.slice.call(list), p = topFiles(), target = p.path, box = p.uploads;
-    box.hidden = false;
     (function next() {
       var f = queue.shift();
       if (!f) {
         stacks.send.forEach(function (x) { if (x.isFiles && x.path === target) loadInto(x, target); });
-        setTimeout(function () { if (!box.querySelector('.busy')) { box.hidden = true; box.textContent = ''; } }, 2500);
+        setTimeout(function () { if (!box.querySelector('.busy')) morph(p.scroller, function () { box.hidden = true; box.textContent = ''; }); }, 2500);
         return;
       }
       var row = el('div', 'row fi busy'); row.appendChild(icon({ name: f.name, dir: false }));
       var text = el('span', 'txt'); text.appendChild(el('span', 't', f.name)); var pct = el('span', 's', 'Waiting…'); text.appendChild(pct);
-      var bar = el('div', 'prog'); var fill = el('i'); bar.appendChild(fill); text.appendChild(bar); row.appendChild(text); box.appendChild(row);
+      var bar = el('div', 'prog'); var fill = el('i'); bar.appendChild(fill); text.appendChild(bar); row.appendChild(text);
+      morph(p.scroller, function () { box.hidden = false; box.appendChild(row); });   // it fades in; the list below makes room
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload?path=' + q(target) + '&name=' + q(f.name));
       xhr.upload.onprogress = function (e) { if (e.lengthComputable) { fill.style.transform = barTf(e.loaded / e.total); pct.textContent = fmt(e.loaded) + ' of ' + fmt(e.total); } };
@@ -1757,7 +2115,7 @@
   function tvLabel() { return tvs.length > 1 ? 'All TVs' : tvs.length ? tvs[0].name : 'TV Screen'; }
   function target(key, label, meta, glyph, color) {
     var row = el('div', 'row i'), ic = row.appendChild(el('span', 'ico'));
-    ic.style.setProperty('--c', color); ic.innerHTML = I[glyph];
+    row.dataset.k = 't' + key; ic.style.setProperty('--c', color); ic.innerHTML = I[glyph];
     var name = el('span', 'txt'), t = name.appendChild(el('span', 't', label)); if (meta) name.appendChild(el('span', 's', meta));
     if (key === 'tv') t.id = 'n-tv-name';
     var box = el('input', 'switch'); box.type = 'checkbox'; box.setAttribute('switch', ''); box.setAttribute('aria-label', label); box.checked = !!chosen[key];
@@ -1766,11 +2124,14 @@
   }
   // The Send To page: the TV screen (every TV), each phone (others on, this one off, to start with) and the pin.
   function renderTargets() {
-    var t = $('n-targets'); t.textContent = '';
-    t.appendChild(target('tv', tvLabel(), null, 'gTv', 'var(--tint-fill)'));
-    phones.forEach(function (p) {
-      if (!(p.id in chosen)) chosen[p.id] = p.id !== device.id;
-      t.appendChild(target(p.id, p.name + (p.id === device.id ? ' (this phone)' : ''), p.alerts ? 'Lock screen' : 'When Woodruff is open', 'gPhone', p.alerts ? 'var(--green)' : 'var(--gray)'));
+    var t = $('n-targets');
+    morph(PG['send-to'].scroller, function () {   // a phone that comes or goes glides in or out
+      t.textContent = '';
+      t.appendChild(target('tv', tvLabel(), null, 'gTv', 'var(--tint-fill)'));
+      phones.forEach(function (p) {
+        if (!(p.id in chosen)) chosen[p.id] = p.id !== device.id;
+        t.appendChild(target(p.id, p.name + (p.id === device.id ? ' (this phone)' : ''), p.alerts ? 'Lock screen' : 'When Woodruff is open', 'gPhone', p.alerts ? 'var(--green)' : 'var(--gray)'));
+      });
     });
     renderTo();
   }
@@ -1783,8 +2144,8 @@
     else if (n === 1) s = on[0].id === device.id ? 'This Phone' : on[0].name;
     else if (n) s = n + ' phones';
     else s = pin ? '' : 'No One';
-    $('n-to-d').textContent = pin ? (s ? s + ' · Pinned' : 'Pinned on Home') : s;
-    if ($('n-tv-name')) $('n-tv-name').textContent = tvLabel();
+    swapText($('n-to-d'), pin ? (s ? s + ' · Pinned' : 'Pinned on Home') : s);
+    if ($('n-tv-name')) swapText($('n-tv-name'), tvLabel());
   }
   $('n-pin').onchange = renderTo;
   function message(text) {
@@ -1794,7 +2155,7 @@
     return { title: device.name ? 'From ' + device.name : 'Announcement', body: text };
   }
   // Send sits in the navigation bar, like Mail's, so it's in reach with the keyboard up; it turns on with text.
-  function canSend() { $('n-send').disabled = !$('n-text').value.trim(); }
+  function canSend() { var b = $('n-send'), off = !$('n-text').value.trim(); if (b.disabled !== off) dissolve(b, function () { b.disabled = off; }); }   // it lights up (cross-fades)
   $('n-text').addEventListener('input', canSend);
   function sendAnnouncement(btn) {
     var text = $('n-text').value; if (!text.trim()) return;
@@ -1845,7 +2206,8 @@
   document.querySelectorAll('.pad .dir, .vol button').forEach(function (b) {
     b.addEventListener('touchstart', function () {
       stopRepeat();
-      repeatTimer = setTimeout(function () { repeatTimer = setInterval(function () { press(b.dataset.key, b); }, 140); }, 450);
+      // (only while it's still pressed: a hold that turns into a swipe on the clickpad stops repeating)
+      repeatTimer = setTimeout(function () { repeatTimer = setInterval(function () { if (b.classList.contains('pressed')) press(b.dataset.key, b); else stopRepeat(); }, 140); }, 450);
     }, { passive: true });
     ['touchend', 'touchcancel'].forEach(function (ev) { b.addEventListener(ev, stopRepeat, { passive: true }); });
   });
@@ -1868,8 +2230,11 @@
   function renderTvs() {
     var many = tvs.length > 1, t = chosenTv();
     if (!t && tvs.length) { tvId = tvs[0].id; t = tvs[0]; }   // that TV was unlinked
-    setHidden($('rm-tv'), !many); setHidden($('rm-title'), many);
-    if (t) { setText($('rm-tv-name'), t.name); setHidden($('rm-tv-dot'), !playing(t)); }
+    // The title (Remote, or the TV picker): new words cross-dissolve in place.
+    var nm = t ? t.name : $('rm-tv-name').textContent, dot = t ? !playing(t) : $('rm-tv-dot').hidden;
+    if ($('rm-tv').hidden !== !many || $('rm-title').hidden !== many || $('rm-tv-name').textContent !== nm || $('rm-tv-dot').hidden !== dot) {
+      dissolve(rmTitle, function () { setHidden($('rm-tv'), !many); setHidden($('rm-title'), many); setText($('rm-tv-name'), nm); setHidden($('rm-tv-dot'), dot); });
+    }
     renderTo();
     renderTvList();
   }
@@ -1881,12 +2246,16 @@
   function position(p) { return Math.min(p.duration, p.position + (p.playing ? Date.now() - tvsAt : 0)); }
   var tvRows = {};
   function renderTvList() {
+    var ids = tvs.map(function (t) { return t.id; }).join();
+    if (ids === renderTvList.ids) fillTvList(); else { renderTvList.ids = ids; glideTop(fillTvList); }   // a TV linked or unlinked: rows glide
+  }
+  function fillTvList() {
     var box = $('tv-list'), on = tvs.filter(playing), seen = {};
     // The TVs row in Settings: "Living Room · Playing", "2 Playing", or the TV (or how many there are)
-    setText($('tvs-status'), on.length === 1 ? on[0].name + ' · Playing' : on.length ? on.length + ' Playing' : tvs.length === 1 ? tvs[0].name : tvs.length ? tvs.length + ' TVs' : '');
+    swapText($('tvs-status'), on.length === 1 ? on[0].name + ' · Playing' : on.length ? on.length + ' Playing' : tvs.length === 1 ? tvs[0].name : tvs.length ? tvs.length + ' TVs' : '');
     // The Smoothness Report row: it's this TV's (the one this phone talks to), named when there are several.
     var me = tvs.filter(function (t) { return t.id === 'this'; })[0];
-    setText($('sm-tv'), me && tvs.length > 1 ? me.name : '');
+    swapText($('sm-tv'), me && tvs.length > 1 ? me.name : '');
     tvs.forEach(function (t, i) {
       var r = tvRows[t.id], id = t.id;
       if (!r) {   // rows are kept and updated, so a tap or the bar's movement isn't interrupted every second
@@ -1901,7 +2270,7 @@
       seen[id] = true;
       var p = t.playing, bar = !!(t.online && p && p.duration > 0);
       var c = t.online ? 'var(--tint-fill)' : 'var(--gray)'; if (r.c !== c) { r.c = c; r.ico.style.setProperty('--c', c); }
-      setText(r.name, t.name); setText(r.st, statusLine(t));
+      swapText(r.name, t.name); swapText(r.st, statusLine(t));
       setHidden(r.bar, !bar); r.bar.classList.toggle('on', bar && !!p.playing);
       if (bar) setTf(r.fill, barTf(position(p) / p.duration));
       if (box.children[i] !== r.row) box.insertBefore(r.row, box.children[i] || null);
@@ -1932,14 +2301,19 @@
     }).catch(function (e) { if (seq === smooth.seq) { err(e); if (!smooth.text) calm('smooth', renderSmooth); } })
       .then(function () { if (seq === smooth.seq && smooth.ends) smooth.timer = setTimeout(loadSmooth, 5000); });
   }
+  // Nothing in it jumps: the report fades in over the spinner, a fresh one cross-dissolves into the last (lines that
+  // didn't change stay still), Record's words and its countdown cross-dissolve, and the page glides if the report
+  // grows or shrinks.
   function renderSmooth() {
-    var left = Math.ceil((smooth.ends - Date.now()) / 1000), on = left > 0;
-    $('sm-record').disabled = on;
-    setText($('sm-record-t'), on ? 'Recording…' : 'Record 3 Minutes');
-    setHidden($('sm-left'), !on);
-    if (on) setText($('sm-left'), fmtTime(left * 1000) + ' left');
-    setHidden($('sm-loading'), true); setHidden($('sm-row'), false); $('sm-box').classList.remove('is-empty');
-    setText($('sm-text'), smooth.text || "Couldn't get the report from the TV.");
+    var left = Math.ceil((smooth.ends - Date.now()) / 1000), on = left > 0, l = $('sm-left');
+    glideTop(function () {
+      $('sm-record').disabled = on;
+      swapText($('sm-record-t'), on ? 'Recording…' : 'Record 3 Minutes');
+      if (on) { if (l.hidden) { setText(l, fmtTime(left * 1000) + ' left'); setHidden(l, false); appear(l); } else swapText(l, fmtTime(left * 1000) + ' left'); }
+      else if (!l.hidden) dissolve(l, function () { setHidden(l, true); });
+      setHidden($('sm-loading'), true); setHidden($('sm-row'), false); $('sm-box').classList.remove('is-empty');
+      swapText($('sm-text'), smooth.text || "Couldn't get the report from the TV.");
+    });
   }
   // The countdown moves on between fetches; once it's up, the finished report is fetched.
   setInterval(function () {
@@ -1999,10 +2373,10 @@
   // Under the picture: what that TV is playing.
   function renderScreenNow() {
     var t = tvs.filter(function (x) { return x.id === screenTv; })[0], p = t && t.playing, on = !!(t && t.online), bar = !!(on && p && p.duration > 0);
-    setText($('scr-tv'), t ? t.name : '');
-    setText($('scr-title'), !t ? '' : !on ? t.name + ' is off' : p ? p.title : 'Nothing Playing');
-    setText($('scr-sub'), !t || (on && !p) ? '' : !on ? 'Or not reachable' : (p.playing ? '' : 'Paused · ') + (p.app || ''));
-    setHidden($('scr-bar'), !bar);
+    swapText($('scr-tv'), t ? t.name : '');
+    swapText($('scr-title'), !t ? '' : !on ? t.name + ' is off' : p ? p.title : 'Nothing Playing');
+    swapText($('scr-sub'), !t || (on && !p) ? '' : !on ? 'Or not reachable' : (p.playing ? '' : 'Paused · ') + (p.app || ''));
+    if ($('scr-bar').hidden === bar) resizeSheet($('scr'), function () { setHidden($('scr-bar'), !bar); }, [], [$('scr-bar')]);   // the sheet grows or shrinks to it
     if (!bar) return;
     var pos = position(p);
     setTf($('scr-fill'), barTf(pos / p.duration)); $('scr-bar').classList.toggle('on', !!p.playing);
@@ -2023,10 +2397,50 @@
   }
   $('scr-close').onclick = function () { closeScreen(); };
   sheetDrag($('scr'), closeScreen);
-  // Tap the picture for a smaller one beside what's playing, or a big one again; this phone remembers.
+  // Tap the picture for a smaller one beside what's playing, or a big one again; this phone remembers. The picture
+  // zooms between its two sizes, what's playing fades over to its new place, and the sheet glides to its new height.
   function sizeScreen() { $('live').className = 'nowcard' + (stored('woodruff.smallScreen') ? '' : ' big'); }
-  $('screen').onclick = function () { store('woodruff.smallScreen', stored('woodruff.smallScreen') ? '' : '1'); sizeScreen(); };
+  $('screen').onclick = function () {
+    store('woodruff.smallScreen', stored('woodruff.smallScreen') ? '' : '1');
+    resizeSheet($('scr'), sizeScreen, [$('screen')], [$('live').querySelector('.now')]);
+  };
   sizeScreen();
+  // resizeSheet(sheet, change, zoom, swap): the floating sheet changes height without a jump. It's anchored at the
+  // bottom, so only its top edge moves, from where it's seen now (even mid-way through a resize, so a second tap
+  // carries on from there): going up, the sheet starts pushed down (its foot below the edge of the screen) and
+  // rises; going down, it stays as tall as it looks (min-height) while it slides down, then takes its new height
+  // where nothing shows. Inside it, zoom elements scale from their old box to the new one; swap elements fade in at
+  // their new place while a copy of their old self fades out at the old one. Transforms and opacity only.
+  function stopResize(sh) { if (sh._rs) { var l = sh._rs; sh._rs = null; l.forEach(function (a) { a.cancel(); }); } sh.style.minHeight = ''; }
+  function resizeSheet(sh, change, zoom, swap) {
+    if (!onScreen(sh) || sh._ov || reduceMotion.matches) { stopResize(sh); change(); sh._h = 0; return; }
+    function box(e) { var r = e.getBoundingClientRect(), t = sh.getBoundingClientRect().top; return { x: r.left, y: r.top - t, w: r.width, h: r.height, vis: !!(r.width || r.height) }; }
+    var top0 = sh.getBoundingClientRect().top, sx = sh.getBoundingClientRect().left, z0 = zoom.map(box), w0 = swap.map(box);
+    var copies = swap.map(function (e, i) {
+      if (!w0[i].vis) return null;
+      var g = inert(e.cloneNode(true)); g.classList.add('ghost');
+      g.style.cssText += ';left:' + (w0[i].x - sx) + 'px;top:' + w0[i].y + 'px;width:' + w0[i].w + 'px;height:' + w0[i].h + 'px;z-index:0;opacity:' + getComputedStyle(e).opacity;
+      return g;
+    });
+    stopResize(sh);
+    change(); sh._h = 0;
+    var d = sh.getBoundingClientRect().top - top0, s = spring(0.45, 0.92), l = sh._rs = [];   // d > 0: its top edge goes down
+    if (d > 0.5) sh.style.minHeight = (sh.offsetHeight + d) + 'px';
+    function run(e, kf, t) { var a = tracked(e.animate(kf, t)); l.push(a); return a; }
+    zoom.forEach(function (e, i) {
+      var b = box(e), o = z0[i]; if (!b.vis || !o.vis) return;
+      var k = o.w / b.w;
+      if (Math.abs(k - 1) > 0.005 || Math.abs(o.x - b.x) > 0.5 || Math.abs(o.y - b.y) > 0.5) run(e, [{ transformOrigin: '0 0', transform: 'translate(' + (o.x - b.x).toFixed(1) + 'px,' + (o.y - b.y).toFixed(1) + 'px) scale(' + k.toFixed(4) + ')' }, { transformOrigin: '0 0', transform: 'none' }], { duration: s.ms, easing: s.easing });
+    });
+    swap.forEach(function (e, i) {
+      var b = box(e), o = w0[i];
+      if (copies[i]) { sh.appendChild(copies[i]); tracked(copies[i].animate([{ opacity: copies[i].style.opacity }, { opacity: 0 }], { duration: 180, easing: 'ease-in', fill: 'forwards' })).onfinish = function () { copies[i].remove(); }; }
+      if (b.vis) run(e, [{ opacity: 0, transform: o.vis ? 'translate(' + (o.x - b.x).toFixed(1) + 'px,' + (o.y - b.y).toFixed(1) + 'px)' : 'none' }, { opacity: 0, offset: 0.25 }, { opacity: getComputedStyle(e).opacity, transform: 'none' }], { duration: s.ms, easing: s.easing });
+    });
+    if (Math.abs(d) < 0.5) return;
+    run(sh, d > 0 ? [{ transform: 'translateY(0)' }, { transform: 'translateY(' + d.toFixed(1) + 'px)' }] : [{ transform: 'translateY(' + (-d).toFixed(1) + 'px)' }, { transform: 'translateY(0)' }], { duration: s.ms, easing: s.easing })
+      .onfinish = function () { if (sh._rs === l) { sh._rs = null; sh.style.minHeight = ''; } };
+  }
 
   // ---- Keyboard -----------------------------------------------------------------------------------
   var field = null, typeTimer = null, pollTimer = null, kbOpen = false;
@@ -2048,19 +2462,21 @@
     if ($('rm-kb-hint').hidden !== pill) {
       if (current === 'remote' && !kbOpen) flipPad(function () { $('rm-kb-hint').hidden = pill; }); else $('rm-kb-hint').hidden = pill;
     }
-    if ($('kb-open2')) $('kb-open2').classList.toggle('ready', !!f && !kbOpen);
-    if (!f) { field = null; setClass($('kb-dot'), 'dot'); setText($('kb-status'), 'No text box selected on the TV'); return; }
+    var kb2 = $('kb-open2'), ready = !!f && !kbOpen;   // the keyboard button lights up (cross-fades) when there's a text box
+    if (kb2 && kb2.classList.contains('ready') !== ready) dissolve(kb2, function () { kb2.classList.toggle('ready', ready); });
+    if (!f) { field = null; setClass($('kb-dot'), 'dot'); swapText($('kb-status'), 'No text box selected on the TV'); return; }
     if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
     field = f;
-    setText($('rm-kb-hint-t'), 'Type into ' + f.label);
+    swapText($('rm-kb-hint-t'), 'Type into ' + f.label);
     setClass($('kb-dot'), 'dot live');
-    setText($('kb-status'), f.label + (f.secret ? ' (hidden)' : ''));
+    swapText($('kb-status'), f.label + (f.secret ? ' (hidden)' : ''));
     var sec = f.secret ? 'disc' : 'none'; if ($('kb-text').style.webkitTextSecurity !== sec) $('kb-text').style.webkitTextSecurity = sec;
   }
-  // The "Type into …" pill coming or going resizes the clickpad: it springs to its new size (transform only).
+  // The "Type into …" pill (or the Add to Home Screen tip) coming or going resizes the clickpad: the pill fades in or
+  // out where it is (morph) and the clickpad springs to its new size (transforms and opacity only).
   function flipPad(change) {
     var pad = $('pad'), a = pad.getBoundingClientRect();
-    change();
+    morph($('remote-root').querySelector('.scroller'), change, { sel: ':scope > .remote > :not(.padbox)' });
     var b = pad.getBoundingClientRect();
     if (!b.width || reduceMotion.matches) return;
     var sc = a.width / b.width, dy = (a.top + a.height / 2) - (b.top + b.height / 2);
@@ -2086,7 +2502,7 @@
 
   // ---- Notes --------------------------------------------------------------------------------------
   var notesData = [], noteFilter = '', draft = null, notesRoot = null, notePage = null;
-  function loadNotes() { api('/api/notes').then(function (d) { notesData = d.notes; renderNotes(); }, err); }
+  function loadNotes() { api('/api/notes').then(function (d) { notesData = d.notes; renderNotes(true); }, err); }
   function when(ms) {
     if (!ms || ms < 1e11) return '';
     var d = new Date(ms), now = new Date();
@@ -2094,12 +2510,17 @@
     return d.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' });
   }
   function noteById(id) { return notesData.filter(function (n) { return n.id === id; })[0]; }
-  function renderNotes() {
-    var k = noteFilter + '\u0001' + JSON.stringify(notesData); if (k === renderNotes.k) return; renderNotes.k = k;   // rebuilt only when something changed
+  // Rebuilt only when something changed. A change from the TV (a note pinned, added, deleted or edited) glides: notes
+  // move to their new places, new ones fade in, deleted ones fade out (morph); typing a search filters at once.
+  function renderNotes(glide) {
+    var k = noteFilter + '\u0001' + JSON.stringify(notesData); if (k === renderNotes.k) return; renderNotes.k = k;
+    if (glide) morph(notesRoot.scroller, buildNotes); else buildNotes();
+  }
+  function buildNotes() {
     var box = $('note-list'), f = noteFilter.trim().toLowerCase(); box.textContent = '';
     var notes = f ? notesData.filter(function (n) { return (n.title + '\n' + n.body).toLowerCase().indexOf(f) >= 0; }) : notesData;
     if (!notes.length) {
-      var c = box.appendChild(el('div', 'cuv'));
+      var c = box.appendChild(el('div', 'cuv')); c.dataset.k = 'cuv';
       c.innerHTML = I.note; c.appendChild(el('b', null, f ? 'No Results' : 'No Notes'));
       c.appendChild(el('span', null, f ? 'Nothing matches "' + noteFilter.trim() + '".' : 'Tap the pencil to write one.'));
       return;
@@ -2107,8 +2528,8 @@
     var pinned = notes.filter(function (n) { return n.pinned; });
     [['Pinned', pinned], [pinned.length ? 'Notes' : null, notes.filter(function (n) { return !n.pinned; })]].forEach(function (part) {
       if (!part[1].length) return;
-      if (part[0]) box.appendChild(el('div', 'head', part[0]));
-      var g = el('div', 'group' + (part[0] ? '' : ' flush'));
+      if (part[0]) box.appendChild(el('div', 'head', part[0])).dataset.k = 'h' + part[0];
+      var g = el('div', 'group' + (part[0] ? '' : ' flush')); g.dataset.k = 'g' + (part[0] || 'Notes');
       if (!part[0]) g.style.marginTop = '12px';
       part[1].forEach(function (n) {
         var row = el('button', 'row tap note'), text = el('span', 'txt');
@@ -2117,7 +2538,7 @@
         text.appendChild(el('span', 't', title));
         var sub = [when(n.updated), lines.join(' ')].filter(Boolean).join('  ');
         text.appendChild(el('span', 's', sub || 'No additional text'));
-        row.appendChild(text); row.dataset.id = n.id;
+        row.appendChild(text); row.dataset.id = n.id; row.dataset.k = 'n' + n.id;
         row.onclick = function () { openNote(n, row); };
         g.appendChild(row);
       });
@@ -2203,16 +2624,17 @@
     var body = { id: device.id, name: device.name }; if (alerts != null) body.alerts = alerts;
     return post('/api/phone/hello', body).then(function (r) { device.alerts = r.phone.alerts; device.topic = r.phone.topic || ''; saveDevice(); renderDevice(); return r; });
   }
-  function renderDevice() {
+  function renderDevice() { glideTop(applyDevice); }
+  function applyDevice() {
     if (document.activeElement !== $('p-name')) $('p-name').value = device.name || '';
-    $('p-alerts').checked = !!device.alerts;
+    if ($('p-alerts').checked !== !!device.alerts) $('p-alerts').checked = !!device.alerts;
     var ntfy = !!(device.topic && device.alerts);
-    $('p-ntfy').hidden = !ntfy;   // How to Set Up (ntfy)
-    $('p-topic').textContent = device.topic || '';
-    $('name-me').hidden = !!device.name;
-    $('me-name').textContent = device.name || 'Name This Phone';
+    setHidden($('p-ntfy'), !ntfy);   // How to Set Up (ntfy)
+    setText($('p-topic'), device.topic || '');
+    setHidden($('name-me'), !!device.name);
+    swapText($('me-name'), device.name || 'Name This Phone');
     $('me-name').classList.toggle('act', !device.name);
-    $('me-sub').textContent = device.name ? 'This phone · Lock-screen alerts ' + (device.alerts ? 'on' : 'off') : 'So it can get announcements too';
+    swapText($('me-sub'), device.name ? 'This phone · Lock-screen alerts ' + (device.alerts ? 'on' : 'off') : 'So it can get announcements too');
   }
   // Saved as soon as it changes, like iOS Settings.
   function saveName() {
@@ -2230,17 +2652,40 @@
   };
   $('p-copy').onclick = function () { if (device.topic) copy(device.topic, 'Topic copied'); };
   function showAlert(m) {
-    setText($('alert-from'), 'From ' + (m.from || 'the TV'));
-    setText($('alert-title'), m.title); setText($('alert-body'), m.body || '');
-    if (!$('alert').classList.contains('show')) overlay($('alert'), true, LOOK.banner, spring(0.5, 0.8));
+    var b = $('alert');
+    function set() { setText($('alert-from'), 'From ' + (m.from || 'the TV')); setText($('alert-title'), m.title); setText($('alert-body'), m.body || ''); }
+    if (!b.classList.contains('show')) { set(); overlay(b, true, LOOK.banner, spring(0.5, 0.8)); }
+    else swap(b, bannerTf, set);   // another one while it's up: the new one takes its place
     clearTimeout(showAlert.h); showAlert.h = setTimeout(hideAlert, 8000);
   }
-  function hideAlert() { if ($('alert').classList.contains('show')) overlay($('alert'), false, LOOK.banner, spring(0.35, 1)); }
-  $('alert').onclick = hideAlert;
-  (function () {   // swipe a banner up to put it away
-    var y0 = null;
-    $('alert').addEventListener('touchstart', function (e) { y0 = e.touches[0].clientY; }, { passive: true });
-    $('alert').addEventListener('touchmove', function (e) { if (y0 != null && e.touches[0].clientY - y0 < -12) { y0 = null; hideAlert(); } }, { passive: true });
+  function hideAlert(v, from, lead) { if ($('alert').classList.contains('show')) overlay($('alert'), false, LOOK.banner, spring(0.35, 1, v || 0), from, null, lead); }
+  $('alert').onclick = function () { hideAlert(); };
+  // A banner follows a finger: up and away (let go moving up, or past a third of its height, and it goes, at the
+  // finger's speed), or down a little, rubber-banded; anything less springs back. The banner takes no pan
+  // (touch-action: none), so these stay passive.
+  (function () {
+    var b = $('alert'), d = null;
+    function y(dy) { return dy < 0 ? dy : Math.sqrt(dy) * 3; }
+    b.addEventListener('touchstart', function (e) {
+      if (!b.classList.contains('show')) return;
+      var y0 = 0; if (b._ov) { y0 = new DOMMatrix(getComputedStyle(b).transform).m42; b._ov.cancel(); b._ov = null; b.style.transform = 'translate3d(0,' + y0 + 'px,0)'; }
+      d = { y: e.touches[0].clientY - y0, dy: y0, pts: [] }; clearTimeout(showAlert.h);
+    }, { passive: true });
+    b.addEventListener('touchmove', function (e) {
+      if (!d) return;
+      d.dy = e.touches[0].clientY - d.y; d.pts.push([e.timeStamp, d.dy]); if (d.pts.length > 6) d.pts.shift();
+      b.style.transform = 'translate3d(0,' + y(d.dy).toFixed(1) + 'px,0)';
+    }, { passive: true });
+    function end(e) {
+      if (!d) return; var g = d; d = null;
+      var v = 0; if (g.pts.length > 1) { var p = g.pts[0], q = g.pts[g.pts.length - 1]; v = (q[1] - p[1]) / Math.max(1, q[0] - p[0]); }   // px per ms
+      var from = { transform: 'translateY(' + y(g.dy).toFixed(1) + 'px)', opacity: 1 }, lead = since(g.pts, e.timeStamp);
+      b.style.transform = '';
+      if (Math.abs(g.dy) < 4 && g.pts.length < 2) { showAlert.h = setTimeout(hideAlert, 8000); return; }   // a tap: its click puts it away
+      if (g.dy < -b.offsetHeight / 3 || v < -0.3) hideAlert(-v * 1000 / Math.max(40, b.offsetHeight + 30 + g.dy), from, lead);
+      else { overlay(b, true, LOOK.banner, spring(0.4, 0.75, 0), from, null, lead); showAlert.h = setTimeout(hideAlert, 8000); }
+    }
+    b.addEventListener('touchend', end, { passive: true }); b.addEventListener('touchcancel', end, { passive: true });
   })();
   function checkInbox() {
     if (!device.name || document.hidden) return;
@@ -2265,8 +2710,11 @@
   }
   function chain(p) { var c = [p]; while (p.o.parent && PG[p.o.parent]) { p = PG[p.o.parent]; c.unshift(p); } return c; }
   function loadSettings() { api('/api/settings').then(renderSettings, err); }
-  function status(ids, text, ok) { ids.forEach(function (id) { setText($(id), text); setClass($(id), 'detail' + (ok ? ' on' : '')); }); }
-  function renderSettings(s) {
+  function status(ids, text, ok) { ids.forEach(function (id) { swapText($(id), text); setClass($(id), 'detail' + (ok ? ' on' : '')); }); }
+  // What's on the page on screen glides into its new state (rows coming and going, words changing); the rest
+  // just changes.
+  function renderSettings(s) { glideTop(function () { applySettings(s); }); }
+  function applySettings(s) {
     settings = s;
     var g = s.google, on = [];
     status(['g-status', 'g-status2'], g.connected ? 'Connected' : g.hasSecret ? 'Sign in on TV' : 'Not set up', g.connected);
@@ -2291,14 +2739,15 @@
     status(['away-status'], s.awayUrl ? 'On' : 'Off', false);
     if (!$('w-place').value) $('w-place').value = s.weather || '';
     status(['w-status'], s.weather || 'Off', false);
-    setText($('version'), s.version ? 'Woodruff Family ' + s.version : '');
+    swapText($('version'), s.version ? 'Woodruff Family ' + s.version : '');
     setHidden($('crash-group'), !s.crash);
     setText($('crash-text'), (s.crash || '').split('\n').slice(0, 14).join('\n'));
     if (!s.crash && current === 'settings' && topOf('settings') === PG['set-crash']) goBack();
     var ml = $('m-list'), mk = JSON.stringify(s.mail); if (mk === ml.k) return finishSettings(s); ml.k = mk; ml.textContent = '';   // the list is rebuilt only when it changes
-    if (!s.mail.length) ml.appendChild(el('div', 'row', 'No accounts yet')).style.color = 'var(--label2)';
+    if (!s.mail.length) { var none = ml.appendChild(el('div', 'row', 'No accounts yet')); none.style.color = 'var(--label2)'; none.dataset.k = 'none'; }
     s.mail.forEach(function (m) {
       var row = el('button', 'row tap'), t = el('span', 'txt'); t.appendChild(el('span', 't', m.email)); t.appendChild(el('span', 's', m.provider)); row.appendChild(t);
+      row.dataset.k = 'm' + m.id;
       row.onclick = function () { confirmSheet(m.email, 'Remove this account and its password from the TV?', 'Remove Account', function () { post('/api/mail/delete', { id: m.id }).then(renderSettings, err); }); };
       ml.appendChild(row);
     });
@@ -2313,9 +2762,11 @@
   }
   function providerHelp() {
     var p = settings.providers.filter(function (x) { return x.id === $('m-provider').value; })[0];
-    $('m-help').textContent = p ? p.help : '';
-    $('m-provider-label').textContent = p ? p.label : '';
-    $('m-hostrow').hidden = !(p && p.custom);
+    glideTop(function () {   // the IMAP Server row comes or goes, the words change
+      swapText($('m-help'), p ? p.help : '');
+      swapText($('m-provider-label'), p ? p.label : '');
+      setHidden($('m-hostrow'), !(p && p.custom));
+    });
   }
   $('away-copy').onclick = function () { if (settings && settings.awayUrl) copy(settings.awayUrl, 'Link copied'); };
   $('share-copy').onclick = function () { if (settings && settings.shareUrl) copy(settings.shareUrl, 'Share link copied'); };
@@ -2397,7 +2848,7 @@
   measure();
   var install = iOS && !standalone && !stored('woodruff.installHint');
   if (install) $('install').hidden = false;
-  $('install-x').onclick = function () { $('install').hidden = true; store('woodruff.installHint', '1'); };
+  $('install-x').onclick = function () { flipPad(function () { $('install').hidden = true; }); store('woodruff.installHint', '1'); };
   renderDevice();
   route(location.hash || '#remote');
   requestAnimationFrame(function () { setTimeout(function () {
