@@ -45,6 +45,13 @@
         <item name="android:windowEnterAnimation">@anim/tv_sheet_enter</item>
         <item name="android:windowExitAnimation">@anim/tv_sheet_exit</item>
     </style>
+    <!-- A notice over other apps (NoticeOverlay's window, top right): glides down from above, and back up.
+         WindowManager runs it for overlay windows too (TYPE_APPLICATION_OVERLAY, and TYPE_PHONE on
+         Android 7), and keeps a removed one on screen until its exit has run, as it does for toasts. -->
+    <style name="Animation.TVExplorer.Notice" parent="@android:style/Animation">
+        <item name="android:windowEnterAnimation">@anim/tv_notice_enter</item>
+        <item name="android:windowExitAnimation">@anim/tv_notice_exit</item>
+    </style>
 
     <!-- Screens of their own (activities): the one arriving grows in like a page; the one under it stays.
          Anything else (a whole task coming or going) as Android does it, from Animation.Activity. -->

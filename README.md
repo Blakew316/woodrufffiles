@@ -221,6 +221,10 @@ each frame of an animation), so a busy moment doesn't stall a motion that's unde
   smooth even when the app is busy. The player, photos and the slideshow open and close the same way.
 - **Screens** chosen in the side menu cross-fade with a slight scale; the menu glides in and out; Settings pages
   slide like iOS; notices and messages glide in.
+- **Over a film**, the player's cards (Skip intro, Next episode, Up next, the doorbell's, the title, its messages
+  and options) glide up into place and back down instead of popping; a notice over another app drops in from the
+  top edge. A camera opened full screen in the Command center grows in over the grid and its picture clears from
+  black (a live picture can't fade itself); closing reverses it.
 
 Every spring and duration is in `ui/motion/TvMotion.kt`; the gliding highlight is `ui/motion/FocusPlatter.kt`.
 

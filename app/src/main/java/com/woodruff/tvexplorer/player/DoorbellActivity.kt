@@ -4,7 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
@@ -15,10 +18,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -34,6 +39,9 @@ import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.ui.screens.LiveVideo
+import com.woodruff.tvexplorer.ui.motion.AppMotion
+import com.woodruff.tvexplorer.ui.motion.TvMotion
+import com.woodruff.tvexplorer.ui.motion.useAppMotion
 import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
 
@@ -51,6 +59,10 @@ class DoorbellActivity : ComponentActivity() {
         ThemeSetting.load(this)
         Nest.warm() // lists the cameras if this TV hasn't yet
         val camera = intent.getStringExtra(EXTRA_CAMERA)
+        // The app's motion plays at its own speed, even on a TV with Android's animations turned off; and
+        // whether Android will glide this screen in and out at all (its window animation scale).
+        window.decorView.useAppMotion(lifecycle)
+        AppMotion.refresh(this)
 
         setContent {
             TvExplorerTheme {
@@ -63,10 +75,26 @@ class DoorbellActivity : ComponentActivity() {
                 }
                 val cam = cams.getOrNull(index)
                 val focus = remember { FocusRequester() }
+                // Android glides this screen in over the film like a pop-up, and back out. With the TV's
+                // window animations off it would just appear (and vanish going): its picture fades in from
+                // black instead, and back to black before it closes. A black cover over it fades: the
+                // live picture is a SurfaceView, which no layer can fade.
+                val cover = remember { if (AppMotion.windowsAnimate || AppMotion.reduced) null else Animatable(1f) }
+                var leaving by remember { mutableStateOf(false) }
+                LaunchedEffect(leaving) {
+                    if (cover == null) return@LaunchedEffect
+                    if (!leaving) cover.animateTo(0f, tween(TvMotion.PresentMs, easing = TvMotion.GlideEase))
+                    else { cover.animateTo(1f, tween(TvMotion.DismissMs, easing = TvMotion.GlideEase)); finish() }
+                }
+                BackHandler(enabled = cover != null) { leaving = true }
                 Box(
                     Modifier
                         .fillMaxSize()
                         .background(Color.Black)
+                        .drawWithContent {
+                            drawContent()
+                            if (cover != null) drawRect(Color.Black, alpha = cover.value.coerceIn(0f, 1f))
+                        }
                         .focusRequester(focus)
                         .onKeyEvent { e ->
                             if (e.type != KeyEventType.KeyDown || cams.size < 2 || index < 0) return@onKeyEvent false

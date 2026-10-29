@@ -13,6 +13,7 @@ import androidx.lifecycle.compose.currentStateAsState
 
 import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -35,6 +36,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -44,13 +46,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -58,8 +64,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -84,6 +93,7 @@ import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.CardStyle
 import com.woodruff.tvexplorer.ui.theme.Palette
@@ -92,6 +102,8 @@ import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.Qr
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import org.webrtc.EglRenderer
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
@@ -136,60 +148,66 @@ fun CommandCenterScreen(vm: MainViewModel) {
 
     val cams = state.cameras
     val fullIndex = full
-    // Full screen: the Command Center's tabs step aside.
+    // Full screen: it glides in over the grid, and the Command Center's tabs step aside under it.
     val isFull = state.step == NestStep.CONNECTED && fullIndex != null && cams.isNotEmpty()
-    LaunchedEffect(isFull) { cameraFullScreen.value = isFull }
+    // Opened straight onto a camera, the grid isn't built under it: its cameras would start streaming
+    // only to stop again.
+    val glide = remember { FullScreenGlide(shown = isFull, gridUnder = fullIndex == null) }
+    LaunchedEffect(isFull) { if (isFull) glide.open() else glide.close() }
     DisposableEffect(Unit) { onDispose { cameraFullScreen.value = false } }
-    if (state.step == NestStep.CONNECTED && fullIndex != null && cams.isNotEmpty()) {
-        FullCamera(cams, fullIndex.coerceIn(0, cams.size - 1), onChange = { full = it })
-        return
-    }
 
-    Column(Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 24.dp)) {
-        // The title over the cameras; the controls over the notifications column, exactly as wide as
-        // it (the same weights and gap as the row below).
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text("Command center", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(2.2f))
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (state.step == NestStep.CONNECTED) {
-                    val ctx = LocalContext.current
-                    HubTile(
-                        if (Appearance.allInOne) Sym.GridView else Sym.Dashboard,
-                        if (Appearance.allInOne) "Cameras only" else "All on one", Modifier.weight(1f),
-                    ) { Appearance.toggleAllInOne(ctx) }
-                    HubTile(Sym.Refresh, "Refresh", Modifier.weight(1f)) { Nest.refresh() }
-                } else {
-                    Spacer(Modifier.weight(2f))
+    Box(Modifier.fillMaxSize()) {
+        // The grid, also under a camera opening from it (or closing back to it) until that covers it.
+        if (!isFull || glide.gridUnder) Column(Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 24.dp)) {
+            // The title over the cameras; the controls over the notifications column, exactly as wide as
+            // it (the same weights and gap as the row below).
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                Text("Command center", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(2.2f))
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (state.step == NestStep.CONNECTED) {
+                        val ctx = LocalContext.current
+                        HubTile(
+                            if (Appearance.allInOne) Sym.GridView else Sym.Dashboard,
+                            if (Appearance.allInOne) "Cameras only" else "All on one", Modifier.weight(1f),
+                        ) { Appearance.toggleAllInOne(ctx) }
+                        HubTile(Sym.Refresh, "Refresh", Modifier.weight(1f)) { Nest.refresh() }
+                    } else {
+                        Spacer(Modifier.weight(2f))
+                    }
+                    HubTile(Sym.Home, "Home", Modifier.weight(1f)) { vm.show(Screen.HOME) }
                 }
-                HubTile(Sym.Home, "Home", Modifier.weight(1f)) { vm.show(Screen.HOME) }
+            }
+            state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
+
+            when (state.step) {
+                NestStep.NEED_GOOGLE -> SetupText(
+                    "Cameras use the same Google Cloud keys as Google Drive. Set those up first (Google Drive in the menu), then come back here.",
+                ) { Button(onClick = { vm.show(Screen.DRIVE) }) { Text("Set up Google keys") } }
+                NestStep.NEED_PROJECT -> SetupText(
+                    "One-time setup with Google Device Access:\n\n" +
+                        "1.  In Google Cloud (the project you made for Drive) open APIs & Services → Library and enable \"Smart Device Management API\".\n" +
+                        "2.  Go to console.nest.google.com/device-access, accept the terms and pay Google's one-time \$5 fee.\n" +
+                        "3.  Create project: any name; for OAuth client ID paste the same Client ID you use for Drive; skip events.\n" +
+                        "4.  Copy the Project ID it shows and enter it here (or in the phone's Settings tab).",
+                ) { Button(onClick = { askProject = true }) { Text("Enter Project ID") } }
+                NestStep.SIGN_IN -> SignInPanel(state)
+                NestStep.CONNECTED -> {
+                    if (state.loading && cams.isEmpty()) {
+                        EmptyState("Loading cameras…")
+                    } else if (Appearance.allInOne) {
+                        Row(Modifier.fillMaxSize().padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                            CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull, covered = isFull) { full = it }
+                            SidePanel(Modifier.weight(1f).fillMaxHeight())
+                        }
+                    } else {
+                        CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp), focusOn = lastFull, covered = isFull) { full = it }
+                    }
+                }
             }
         }
-        state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
-
-        when (state.step) {
-            NestStep.NEED_GOOGLE -> SetupText(
-                "Cameras use the same Google Cloud keys as Google Drive. Set those up first (Google Drive in the menu), then come back here.",
-            ) { Button(onClick = { vm.show(Screen.DRIVE) }) { Text("Set up Google keys") } }
-            NestStep.NEED_PROJECT -> SetupText(
-                "One-time setup with Google Device Access:\n\n" +
-                    "1.  In Google Cloud (the project you made for Drive) open APIs & Services → Library and enable \"Smart Device Management API\".\n" +
-                    "2.  Go to console.nest.google.com/device-access, accept the terms and pay Google's one-time \$5 fee.\n" +
-                    "3.  Create project: any name; for OAuth client ID paste the same Client ID you use for Drive; skip events.\n" +
-                    "4.  Copy the Project ID it shows and enter it here (or in the phone's Settings tab).",
-            ) { Button(onClick = { askProject = true }) { Text("Enter Project ID") } }
-            NestStep.SIGN_IN -> SignInPanel(state)
-            NestStep.CONNECTED -> {
-                if (state.loading && cams.isEmpty()) {
-                    EmptyState("Loading cameras…")
-                } else if (Appearance.allInOne) {
-                    Row(Modifier.fillMaxSize().padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull) { full = it }
-                        SidePanel(Modifier.weight(1f).fillMaxHeight())
-                    }
-                } else {
-                    CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp), focusOn = lastFull) { full = it }
-                }
-            }
+        // The camera full screen, over the grid and the pills, while it shows or glides in or out.
+        if (glide.shown && cams.isNotEmpty()) {
+            FullCamera(cams, (fullIndex ?: lastFull).coerceIn(0, cams.size - 1), glide, open = isFull, onChange = { full = it })
         }
     }
 
@@ -231,9 +249,13 @@ private fun SignInPanel(state: NestState) {
     }
 }
 
-/** [focusOn]: the camera that takes the focus (the last if there are fewer now). */
+/**
+ * [focusOn]: the camera that takes the focus (the last if there are fewer now). [covered]: a camera
+ * full screen is over it (still gliding in): the focus is that camera's then, and comes back here as
+ * it closes.
+ */
 @Composable
-private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, focusOn: Int, onOpen: (Int) -> Unit) {
+private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, focusOn: Int, covered: Boolean, onOpen: (Int) -> Unit) {
     val focus = remember { FocusRequester() }
     val focusAt = minOf(focusOn, cams.lastIndex)
     // Plain scrolling rows, not a lazy grid: live video is an Android view, and Android views in
@@ -272,17 +294,21 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, foc
             }
         }
     }
-    LaunchedEffect(cams.size) { runCatching { focus.requestFocus() } }
+    // Also when a camera turned back half-way in closes: the grid stayed under it, so isn't new.
+    LaunchedEffect(cams.size, covered) { if (!covered) runCatching { focus.requestFocus() } }
 }
 
+/**
+ * A camera full screen, over the whole window (the Command center's pills too). It comes and goes as
+ * [glide] moves it; [open]: it's opening or open, not closing.
+ */
 @Composable
-private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) {
+private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, open: Boolean, onChange: (Int) -> Unit) {
     val cam = cams[index]
     val focus = remember { FocusRequester() }
     Box(
         Modifier
-            .fillMaxSize()
-            .background(Color.Black)
+            .overWindow(LocalView.current)
             .focusRequester(focus)
             .onKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown || cams.size < 2) return@onKeyEvent false
@@ -292,20 +318,126 @@ private fun FullCamera(cams: List<Camera>, index: Int, onChange: (Int) -> Unit) 
                     else -> false
                 }
             }
+            // The focus stays here, as when nothing else was on screen: the grid and the pills are
+            // still under it while it glides in.
+            .focusProperties {
+                up = FocusRequester.Cancel; down = FocusRequester.Cancel
+                left = FocusRequester.Cancel; right = FocusRequester.Cancel
+            }
             .focusable(),
     ) {
         // One video view for the whole visit: Left/Right moves it to the next camera's stream and
         // clears the last picture (a view per camera set GL up and tore it down on the main thread).
-        LiveVideo(cam, audio = true)
-        Column(Modifier.align(Alignment.TopStart).padding(28.dp)) {
-            Text(cam.label, style = MaterialTheme.typography.headlineSmall, color = Color.White)
-            Text(
-                if (cams.size > 1) "◀ ▶ switch camera  ·  Back for all cameras" else "Back for all cameras",
-                style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f),
-            )
+        // Drawn only while the page covers everything around it, never faded or moved (see
+        // FullScreenGlide), and with its sound only then.
+        Box(
+            Modifier.fillMaxSize().graphicsLayer {
+                alpha = if (glide.live) 1f else 0f
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            },
+        ) { LiveVideo(cam, audio = glide.live) }
+        // The page: black over the picture until it shows (then cleared), and the camera's name. It
+        // grows into place as it fades in, as a screen does, and shrinks away going.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val p = glide.page.value
+                    alpha = p.coerceIn(0f, 1f)
+                    val s = TvMotion.PageScale + (1f - TvMotion.PageScale) * p
+                    scaleX = s; scaleY = s
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                }
+                .drawBehind { drawRect(Color.Black, alpha = glide.cover.value.coerceIn(0f, 1f)) },
+        ) {
+            Column(Modifier.align(Alignment.TopStart).padding(28.dp)) {
+                Text(cam.label, style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                Text(
+                    if (cams.size > 1) "◀ ▶ switch camera  ·  Back for all cameras" else "Back for all cameras",
+                    style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f),
+                )
+            }
         }
     }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    // Into it as it opens (and again when it turns back while closing: the grid took the focus then).
+    LaunchedEffect(open) { if (open) runCatching { focus.requestFocus() } }
+}
+
+/**
+ * How a camera full screen comes and goes. Its live picture is a SurfaceView, which Android shows
+ * under the window through a hole the view cuts in everything drawn there: no layer can fade or move
+ * the picture (the hole is all or nothing), and an offscreen copy of it would hide it. So the page
+ * around it (black, with the camera's name) grows in over the grid first, as a screen does; only once
+ * that all but covers the screen is the picture drawn, under the page's black, which then clears.
+ * Closing, the black comes back over the picture first, the picture stops being drawn, and the page
+ * shrinks away. All of it in drawing layers ([TvMotion]'s Live numbers): nothing is composed or laid
+ * out again per frame, and the picture's view is made once per visit (turning back half-way keeps it).
+ */
+@Stable
+internal class FullScreenGlide(shown: Boolean, gridUnder: Boolean) {
+    /** The page: 0 gone to 1 in (its fade and growth). */
+    val page = Animatable(0f, visibilityThreshold = 0.002f)
+    /** The page's black over the picture: 1 covering it to 0 clear. */
+    val cover = Animatable(1f, visibilityThreshold = 0.002f)
+    /** The picture is drawn: it then shows through the whole window, whatever is drawn under it. */
+    var live by mutableStateOf(false)
+        private set
+    /** The full screen is there at all. */
+    var shown by mutableStateOf(shown)
+        private set
+    /** The grid is kept under a camera opening from it (or closing back to it). */
+    var gridUnder by mutableStateOf(gridUnder)
+        private set
+
+    suspend fun open(): Unit = coroutineScope {
+        shown = true
+        // Opened straight onto a camera (from Home, a doorbell ring): the Command center glides in
+        // around it, and its pills go at once.
+        if (!gridUnder) cameraFullScreen.value = true
+        val pageIn = launch { page.animateTo(1f, TvMotion.ScreenIn) }
+        if (!live) {
+            while (pageIn.isActive && page.value < TvMotion.LiveSwap) withFrameNanos { }
+            live = true
+        }
+        cover.animateTo(0f, TvMotion.LiveClear)
+        pageIn.join()
+        // All in, picture and all: the grid and the pills go, unseen under it.
+        gridUnder = false
+        cameraFullScreen.value = true
+    }
+
+    suspend fun close(): Unit = coroutineScope {
+        cameraFullScreen.value = false
+        if (!shown) return@coroutineScope
+        // The grid comes back under it (and takes the focus at once), and the pills with it.
+        gridUnder = true
+        val dark = launch { cover.animateTo(1f, TvMotion.LiveDim) }
+        if (live) {
+            while (dark.isActive && cover.value < TvMotion.LiveSwap) withFrameNanos { }
+            live = false
+        }
+        page.animateTo(0f, TvMotion.ScreenOut)
+        shown = false
+    }
+}
+
+/**
+ * Laid out over the whole [window] (its root view) from where this sits, which must reach the
+ * window's bottom right corner, as the Command center's screen does under its pills. So a camera
+ * opening from the grid covers the pills too (they go, and come back, unseen under it), and its video
+ * view keeps one size all along (a SurfaceView resized reallocates its picture's buffers).
+ */
+private fun Modifier.overWindow(window: View): Modifier = layout { measurable, constraints ->
+    val w = window.width
+    val h = window.height
+    if (w <= 0 || h <= 0 || !constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+        val p = measurable.measure(constraints)
+        return@layout layout(p.width, p.height) { p.place(0, 0) }
+    }
+    val placeable = measurable.measure(Constraints.fixed(w, h))
+    layout(constraints.maxWidth, constraints.maxHeight) {
+        placeable.place(constraints.maxWidth - w, constraints.maxHeight - h)
+    }
 }
 
 /**

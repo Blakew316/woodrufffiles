@@ -33,6 +33,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.woodruff.tvexplorer.cloud.GoogleAuth
+import com.woodruff.tvexplorer.ui.motion.useAppMotion
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
@@ -52,6 +53,8 @@ class ImageViewerActivity : ComponentActivity() {
         val start = paths.indexOf(intent.getStringExtra(EXTRA_START)).coerceAtLeast(0)
         if (paths.isEmpty()) { finish(); return }
         val needsDrive = paths.any { MediaRef.parse(it).needsDriveAuth }
+        // The app's motion plays at its own speed, even on a TV with Android's animations turned off.
+        window.decorView.useAppMotion(lifecycle)
 
         setContent {
             var index by remember { mutableIntStateOf(start) }

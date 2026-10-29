@@ -46,6 +46,18 @@ class WindowMotionTest {
         assertEquals("top", exit.android("zAdjustment"))
     }
 
+    @Test fun aNoticeOverOtherAppsGlidesDownFromAboveAndBackUp() {
+        val above = "-${TvMotion.NoticeDropPercent}%"
+        val enter = anim("tv_notice_enter")
+        drop(enter, above, "0", TvMotion.PresentMs)
+        fade(enter, 0f, 1f, TvMotion.PresentFadeMs)
+        val exit = anim("tv_notice_exit")
+        drop(exit, "0", above, TvMotion.DismissMs)
+        fade(exit, 1f, 0f, TvMotion.DismissMs)
+        // A newer notice arriving where it was stays above it as it goes.
+        assertEquals("", exit.android("zAdjustment"))
+    }
+
     @Test fun theScreenUnderneathStaysPutForAsLong() {
         for ((name, ms) in listOf("tv_hold_enter" to TvMotion.PresentMs, "tv_hold_exit" to TvMotion.DismissMs)) {
             val hold = anim(name)
@@ -112,6 +124,14 @@ class WindowMotionTest {
         val t = part(set, "translate")
         assertEquals(from, t.android("fromXDelta"))
         assertEquals(to, t.android("toXDelta"))
+        assertEquals(ms, t.android("duration").toInt())
+    }
+
+    private fun drop(set: Element, from: String, to: String, ms: Int) {
+        val t = part(set, "translate")
+        assertEquals(from, t.android("fromYDelta"))
+        assertEquals(to, t.android("toYDelta"))
+        assertEquals("", t.android("fromXDelta"))
         assertEquals(ms, t.android("duration").toInt())
     }
 

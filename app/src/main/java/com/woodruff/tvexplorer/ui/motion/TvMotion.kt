@@ -73,6 +73,11 @@ object TvMotion {
     /** The platter fading out where it is as the focus leaves the list (both critically damped). */
     const val PlatterOutStiffness = 1100f
     const val PlatterAppearScale = 0.94f
+    /**
+     * A list made of Views (the player's options) glides its highlight from row to row in this long, on
+     * [GlideEase]: as long as the platter's [Glide] takes to land on a row.
+     */
+    const val ListGlideMs = 200
 
     // ---- Screens, pages and banners, in their drawing layers (fades with ModulateAlpha) ----------
 
@@ -112,6 +117,26 @@ object TvMotion {
     const val PageScale = 0.97f
     /** A side sheet slides in from the right edge by this share of the screen's width (and back out). */
     const val SheetShiftPercent = 7
+    /**
+     * A notice over other apps (NoticeOverlay, at the top right) glides down into place from above, by
+     * this share of its own height, as the in-app one does, and back up going.
+     */
+    const val NoticeDropPercent = 100
+
+    // ---- A live camera full screen (the Command center) -------------------------------------------
+    // Its picture is a SurfaceView: Android shows it under the window, through a hole the view cuts in
+    // whatever the window draws there, so no layer can fade or move the picture itself. Opening, the
+    // page around it (black, with the camera's name) grows in from [PageScale] as a screen does
+    // (ScreenIn); once the page is [LiveSwap] of the way in, the picture is shown under the page's
+    // black, which then clears ([LiveClear]). Closing, the black comes back over the picture first
+    // ([LiveDim]); once it's [LiveSwap] dark the picture goes, and the page shrinks away (ScreenOut).
+
+    /** How far in the page (or its black) must be to show or hide the picture under it unnoticed. */
+    const val LiveSwap = 0.97f
+    /** The page's black clearing off the live picture. */
+    val LiveClear: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 700f)
+    /** The page's black coming back over the picture before the page goes: quicker. */
+    val LiveDim: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 1000f)
 }
 
 /** Where the focused item's leading edge comes to rest: [fraction] of the visible length, plus [offset]. */

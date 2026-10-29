@@ -5,7 +5,6 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -39,6 +38,7 @@ class PlayerActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private lateinit var view: PlayerView
     private lateinit var upNext: android.widget.TextView
+    private lateinit var upNextCard: GlidingCard
     private val countdown = android.os.Handler(android.os.Looper.getMainLooper())
     private var secondsLeft = 0
     private lateinit var recent: RecentStore
@@ -115,14 +115,16 @@ class PlayerActivity : ComponentActivity() {
                 setOnClickListener { showOptions() }
             }, 0, android.widget.LinearLayout.LayoutParams(px, px).apply { setMargins(pad / 2, 0, pad / 2, 0) })
         }
+        // The cards over the film glide up into place and back down, the title down from the top
+        // (GlidingCard): none of them pops in or out.
         skip = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
             textSize = 20f
             text = "Skip intro  ▸  OK"
             setPadding(44, 26, 44, 26)
             background = android.graphics.drawable.GradientDrawable().apply { setColor(0xE6101820.toInt()); cornerRadius = 36f }
-            visibility = android.view.View.GONE
         }
+        skipCard = GlidingCard(skip, GlidingCard.Way.Rise)
         // "Next episode" during the end credits, like Netflix: OK skips them.
         nextEp = android.widget.TextView(this).apply {
             setTextColor(0xFF0B1220.toInt())
@@ -131,8 +133,8 @@ class PlayerActivity : ComponentActivity() {
             text = "Next episode  ▸  OK"
             setPadding(48, 26, 48, 26)
             background = android.graphics.drawable.GradientDrawable().apply { setColor(android.graphics.Color.WHITE); cornerRadius = 36f }
-            visibility = android.view.View.GONE
         }
+        nextCard = GlidingCard(nextEp, GlidingCard.Way.Rise)
         // "Up next" card, bottom right, shown when an episode ends and there's another queued.
         upNext = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
@@ -141,8 +143,8 @@ class PlayerActivity : ComponentActivity() {
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(0xE6101820.toInt()); cornerRadius = 36f
             }
-            visibility = android.view.View.GONE
         }
+        upNextCard = GlidingCard(upNext, GlidingCard.Way.Rise)
         // "Someone's at the door" when the doorbell rings, in the same corner.
         doorbell = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
@@ -151,8 +153,8 @@ class PlayerActivity : ComponentActivity() {
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(0xE6101820.toInt()); cornerRadius = 36f
             }
-            visibility = android.view.View.GONE
         }
+        doorbellCard = GlidingCard(doorbell, GlidingCard.Way.Rise)
         // What's playing, big at the top whenever the controls are up (they had no title at all).
         titleBar = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
@@ -165,25 +167,39 @@ class PlayerActivity : ComponentActivity() {
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(0xCC000000.toInt(), 0x00000000),
             )
-            visibility = android.view.View.GONE
         }
+        titleCard = GlidingCard(titleBar, GlidingCard.Way.Drop)
+        // The player's own messages ("Sleeping in 30 minutes"), at the bottom in the middle: Android's
+        // toasts popped up over the film in the system's own way.
+        message = android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 18f
+            gravity = android.view.Gravity.CENTER
+            maxWidth = resources.displayMetrics.widthPixels * 3 / 5
+            setPadding(44, 22, 44, 22)
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xE6101820.toInt()); cornerRadius = 36f }
+        }
+        messageCard = GlidingCard(message, GlidingCard.Way.Rise)
         view.setControllerVisibilityListener(androidx.media3.ui.PlayerView.ControllerVisibilityListener { v ->
             titleBar.text = player?.currentMediaItem?.mediaMetadata?.title ?: ""
-            titleBar.visibility = v
+            titleCard.set(v == android.view.View.VISIBLE)
             // The corner buttons would cover the controls' own (and OK goes to the controls then).
-            if (v == android.view.View.VISIBLE) { skip.visibility = android.view.View.GONE; nextEp.visibility = android.view.View.GONE }
+            if (v == android.view.View.VISIBLE) { skipCard.hide(); nextCard.hide() }
             else player?.let { updateSkip(it) }
             // The doorbell's card waits behind them too.
-            doorbell.visibility = if (ringing && v != android.view.View.VISIBLE) android.view.View.VISIBLE else android.view.View.GONE
+            doorbellCard.set(ringing && v != android.view.View.VISIBLE)
         })
         val root = android.widget.FrameLayout(this)
+        // Not clipping its children: a card gliding up from below its place in the corner's column is
+        // drawn there too, instead of being cut off at the column's bottom edge.
+        root.clipChildren = false
         root.addView(view)
         root.addView(titleBar, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.TOP,
         ))
         // The doorbell's card sits above Up next's when both are up.
-        root.addView(android.widget.LinearLayout(this).apply {
+        val corner = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.END
             addView(doorbell, android.widget.LinearLayout.LayoutParams(
@@ -192,7 +208,20 @@ class PlayerActivity : ComponentActivity() {
             addView(upNext, android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
             ))
-        }, android.widget.FrameLayout.LayoutParams(
+        }
+        // Up next's card coming or going under the doorbell's moves the doorbell's (the column grows or
+        // shrinks at its top): it glides to its new place instead of jumping there.
+        val cornerGlide = ViewGlide(corner)
+        var doorbellPlaced = false
+        corner.addOnLayoutChangeListener { v, _, top, _, _, _, oldTop, _, oldBottom ->
+            val was = doorbellPlaced
+            doorbellPlaced = doorbell.visibility != android.view.View.GONE
+            if (was && doorbellPlaced && oldBottom > 0 && top != oldTop) {
+                v.translationY += (oldTop - top).toFloat()
+                cornerGlide.shiftTo(0f, com.woodruff.tvexplorer.ui.motion.TvMotion.PresentMs)
+            }
+        }
+        root.addView(corner, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.END,
         ).apply { setMargins(0, 0, 72, 72) })
@@ -204,6 +233,10 @@ class PlayerActivity : ComponentActivity() {
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.END,
         ).apply { setMargins(0, 0, 72, 72) })
+        root.addView(message, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL,
+        ).apply { setMargins(0, 0, 0, 72) })
         // Scrubbing preview: a frame from that point of the film, above the progress bar.
         val d = resources.displayMetrics.density
         previewImage = android.widget.ImageView(this).apply {
@@ -230,11 +263,46 @@ class PlayerActivity : ComponentActivity() {
             }
             addView(previewImage, android.widget.LinearLayout.LayoutParams((PREVIEW_W * d).toInt(), (PREVIEW_H * d).toInt()))
             addView(previewTime, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
-            visibility = android.view.View.GONE
         }
+        // A pop-up: in from just larger as it fades, and back out (its own shift places it over the bar).
+        previewCard = GlidingCard(previewBox, GlidingCard.Way.Zoom)
         root.addView(previewBox, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.TOP or android.view.Gravity.START,
+        ))
+        // Player options (sleep timer, Skip intro): a pop-up over the film, in from just larger like the
+        // app's own. Android's dialog it replaces popped in and out on a TV with window animations off.
+        // Its highlight glides from row to row behind them.
+        optionRowHeight = (52 * d).toInt()
+        optionRows = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL }
+        optionHighlight = android.view.View(this).apply {
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0x33FFFFFF); cornerRadius = 14 * d }
+        }
+        optionGlide = ViewGlide(optionHighlight)
+        options = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            val pad = (24 * d).toInt()
+            setPadding(pad, pad, pad, pad)
+            minimumWidth = (420 * d).toInt()
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xF0101820.toInt()); cornerRadius = 28 * d }
+            addView(android.widget.TextView(this@PlayerActivity).apply {
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 22f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                text = "Player options"
+                setPadding((16 * d).toInt(), 0, (16 * d).toInt(), (14 * d).toInt())
+            })
+            addView(android.widget.FrameLayout(this@PlayerActivity).apply {
+                addView(optionHighlight, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, optionRowHeight))
+                addView(optionRows, android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                ))
+            })
+        }
+        optionsCard = GlidingCard(options, GlidingCard.Way.Zoom)
+        root.addView(options, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.CENTER,
         ))
         rootView = root
         setContentView(root)
@@ -243,7 +311,7 @@ class PlayerActivity : ComponentActivity() {
             override fun onScrubMove(timeBar: androidx.media3.ui.TimeBar, position: Long) = showPreview(timeBar as android.view.View, position, starting = false)
             override fun onScrubStop(timeBar: androidx.media3.ui.TimeBar, position: Long, canceled: Boolean) {
                 preview?.cancel()
-                previewBox.visibility = android.view.View.GONE
+                previewCard.hide()
             }
         })
     }
@@ -275,6 +343,7 @@ class PlayerActivity : ComponentActivity() {
 
     private lateinit var rootView: android.widget.FrameLayout
     private lateinit var previewBox: android.widget.LinearLayout
+    private lateinit var previewCard: GlidingCard
     private lateinit var previewImage: android.widget.ImageView
     private lateinit var previewTime: android.widget.TextView
     private var preview: ScrubPreview? = null
@@ -304,16 +373,37 @@ class PlayerActivity : ComponentActivity() {
         val x = bar[0] - rootPos[0] + timeBar.width * (position.toFloat() / duration) - boxW / 2
         previewBox.translationX = x.coerceIn(24 * d, (rootView.width - boxW - 24 * d).coerceAtLeast(24 * d))
         previewBox.translationY = (bar[1] - rootPos[1] - boxH - 18 * d).coerceAtLeast(24 * d)
-        previewBox.visibility = android.view.View.VISIBLE
+        previewCard.show()
     }
 
     // ---- Sleep timer, skip intro, remembered tracks ----------------------------------------
 
     private lateinit var skip: android.widget.TextView
+    private lateinit var skipCard: GlidingCard
     private lateinit var titleBar: android.widget.TextView
+    private lateinit var titleCard: GlidingCard
     private lateinit var nextEp: android.widget.TextView
+    private lateinit var nextCard: GlidingCard
     /** The episode whose "Next episode" button was waved away with Back (don't show it again for it). */
     private var nextDismissedFor: String? = null
+
+    // ---- Messages ------------------------------------------------------------------------------
+
+    private lateinit var message: android.widget.TextView
+    private lateinit var messageCard: GlidingCard
+    private val hideMessage = Runnable { messageCard.hide() }
+
+    /**
+     * Says something over the film, as Android's toasts did, but gliding in and out like the player's
+     * other cards. It stays as long as a short toast did ([long]: a long one); a newer message
+     * replaces it at once.
+     */
+    private fun say(text: String, long: Boolean = false) {
+        message.text = text
+        messageCard.show()
+        countdown.removeCallbacks(hideMessage)
+        countdown.postDelayed(hideMessage, if (long) LONG_MESSAGE_MS else MESSAGE_MS)
+    }
 
     // ---- Watch together ----------------------------------------------------------------------
     /** This TV started a watch-together: it leads, the linked TVs follow. */
@@ -350,7 +440,7 @@ class PlayerActivity : ComponentActivity() {
             // Playing: only correct real drift. Paused: line up exactly on the leader's frame.
             p.seekTo(target)
         }
-        if (u.playing && upNext.visibility == android.view.View.VISIBLE) cancelUpNext()
+        if (u.playing && upNextCard.shown) cancelUpNext()
         p.playWhenReady = u.playing
     }
     private var sleepAtEnd = false
@@ -383,28 +473,76 @@ class PlayerActivity : ComponentActivity() {
         finish()
     }
 
+    // ---- Player options ------------------------------------------------------------------------
+
+    private lateinit var options: android.widget.LinearLayout
+    private lateinit var optionsCard: GlidingCard
+    private lateinit var optionRows: android.widget.LinearLayout
+    private lateinit var optionHighlight: android.view.View
+    private lateinit var optionGlide: ViewGlide
+    private var optionRowHeight = 0
+    /** What each row does, and the row the highlight is on. */
+    private var optionActions: List<() -> Unit> = emptyList()
+    private var optionAt = 0
+
+    /** The options pop-up (the menu button, or the sleep button by the controls): Up / Down, OK, Back. */
     private fun showOptions() {
         val p = player ?: return
         val intro = ShowPrefs.introEnd(this, show())
         val here = p.currentPosition
-        val items = arrayOf(
-            "Sleep in 30 minutes", "Sleep in 60 minutes", "Sleep in 90 minutes", "Sleep at the end of this episode", "Sleep timer off",
-            "Intro ends here (${com.woodruff.tvexplorer.util.Format.duration(here)}): use for this show",
-            if (intro > 0) "Forget this show's intro" else null,
-        ).filterNotNull().toTypedArray()
-        android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Player options")
-            .setItems(items) { _, which ->
-                countdown.removeCallbacks(sleep); sleepAtEnd = false
-                when (which) {
-                    0, 1, 2 -> { val min = 30L * (which + 1); countdown.postDelayed(sleep, min * 60_000L); Toast.makeText(this, "Sleeping in $min minutes", Toast.LENGTH_SHORT).show() }
-                    3 -> { sleepAtEnd = true; Toast.makeText(this, "Sleeping after this episode", Toast.LENGTH_SHORT).show() }
-                    4 -> Toast.makeText(this, "Sleep timer off", Toast.LENGTH_SHORT).show()
-                    5 -> { ShowPrefs.setIntroEnd(this, show(), here); introEnd = here; Toast.makeText(this, "Skip intro will jump here", Toast.LENGTH_SHORT).show() }
-                    6 -> { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 }
-                }
-            }
-            .show()
+        val choices = listOfNotNull<Pair<String, () -> Unit>>(
+            "Sleep in 30 minutes" to { sleepIn(30) },
+            "Sleep in 60 minutes" to { sleepIn(60) },
+            "Sleep in 90 minutes" to { sleepIn(90) },
+            "Sleep at the end of this episode" to { sleepAtEnd = true; say("Sleeping after this episode") },
+            "Sleep timer off" to { say("Sleep timer off") },
+            "Intro ends here (${com.woodruff.tvexplorer.util.Format.duration(here)}): use for this show" to {
+                ShowPrefs.setIntroEnd(this, show(), here); introEnd = here; say("Skip intro will jump here")
+            },
+            if (intro > 0) ("Forget this show's intro" to { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 }) else null,
+        )
+        val d = resources.displayMetrics.density
+        optionRows.removeAllViews()
+        for ((label, _) in choices) optionRows.addView(android.widget.TextView(this).apply {
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 20f
+            text = label
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding((16 * d).toInt(), 0, (16 * d).toInt(), 0)
+        }, android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, optionRowHeight))
+        optionActions = choices.map { it.second }
+        optionAt = 0
+        markOption(glide = false)
+        optionsCard.show()
+    }
+
+    private fun sleepIn(minutes: Long) {
+        countdown.postDelayed(sleep, minutes * 60_000L)
+        say("Sleeping in $minutes minutes")
+    }
+
+    private fun moveOption(by: Int) {
+        val to = (optionAt + by).coerceIn(0, optionActions.lastIndex.coerceAtLeast(0))
+        if (to == optionAt) return
+        optionAt = to
+        markOption(glide = true)
+    }
+
+    /** The highlight onto row [optionAt]: gliding there from the row it was on, or there at once as the pop-up opens. */
+    private fun markOption(glide: Boolean) {
+        val y = (optionAt * optionRowHeight).toFloat()
+        if (glide) optionGlide.shiftTo(y, com.woodruff.tvexplorer.ui.motion.TvMotion.ListGlideMs)
+        else { optionGlide.stop(); optionHighlight.translationY = y }
+    }
+
+    private fun chooseOption() {
+        val action = optionActions.getOrNull(optionAt) ?: return
+        optionsCard.hide()
+        // Any choice starts the sleep timer afresh, as it always has.
+        countdown.removeCallbacks(sleep); sleepAtEnd = false
+        action()
     }
 
     /** "Skip intro" while inside this show's intro. */
@@ -412,8 +550,8 @@ class PlayerActivity : ComponentActivity() {
         show() // refreshes introEnd when the episode changed
         val end = introEnd
         val pos = p.currentPosition
-        val free = upNext.visibility != android.view.View.VISIBLE && !view.isControllerFullyVisible && !ringing
-        skip.visibility = if (end > 0 && pos in 1_000 until end - 2_000 && free) android.view.View.VISIBLE else android.view.View.GONE
+        val free = !upNextCard.shown && !view.isControllerFullyVisible && !ringing
+        skipCard.set(end > 0 && pos in 1_000 until end - 2_000 && free)
         // The last 40 s of an episode with the next one of the same show queued: the credits,
         // roughly. Not for films or home videos (it said "Next episode" over the end of a movie).
         val left = p.duration - pos
@@ -421,10 +559,10 @@ class PlayerActivity : ComponentActivity() {
         val title = p.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty()
         val next = if (p.hasNextMediaItem()) p.getMediaItemAt(p.nextMediaItemIndex) else null
         val nextTitle = next?.mediaMetadata?.title?.toString().orEmpty()
-        nextEp.visibility = if (
+        nextCard.set(
             p.hasNextMediaItem() && p.duration > 60_000 && left in 1..40_000 && p.pauseAtEndOfMediaItems && free &&
-            key != nextDismissedFor && ShowPrefs.isEpisode(title) && showFor(next?.mediaId, nextTitle) == show()
-        ) android.view.View.VISIBLE else android.view.View.GONE
+                key != nextDismissedFor && ShowPrefs.isEpisode(title) && showFor(next?.mediaId, nextTitle) == show(),
+        )
     }
 
     /** This show's audio / subtitle choice, applied when an episode starts. */
@@ -549,16 +687,18 @@ class PlayerActivity : ComponentActivity() {
 
     private fun startUpNext() {
         secondsLeft = 10
-        nextEp.visibility = android.view.View.GONE
-        skip.visibility = android.view.View.GONE
-        upNext.visibility = android.view.View.VISIBLE
+        nextCard.hide()
+        skipCard.hide()
         countdown.removeCallbacks(tick)
-        countdown.post(tick)
+        // Its first words at once (they were a moment later), so the card glides in with them.
+        tick.run()
+        upNextCard.show()
     }
 
-    private fun cancelUpNext() {
+    /** [animate] false: gone at once (the player stopping). */
+    private fun cancelUpNext(animate: Boolean = true) {
         countdown.removeCallbacks(tick)
-        upNext.visibility = android.view.View.GONE
+        upNextCard.hide(animate)
     }
 
     private fun playNext() {
@@ -670,6 +810,7 @@ class PlayerActivity : ComponentActivity() {
     // ---- Doorbell ------------------------------------------------------------------------------
 
     private lateinit var doorbell: android.widget.TextView
+    private lateinit var doorbellCard: GlidingCard
     /** The doorbell's card is up (for 20 s, or until Back). */
     private var ringing = false
     /** The camera that rang, for OK; null when this TV's cameras aren't signed in (a linked TV's ring). */
@@ -690,17 +831,18 @@ class PlayerActivity : ComponentActivity() {
         doorbell.text = if (line.isEmpty()) "Someone's at the door" else "Someone's at the door\n$line"
         ringing = true
         view.hideController()
-        doorbell.visibility = android.view.View.VISIBLE
+        doorbellCard.show()
         player?.let { updateSkip(it) } // Skip intro / Next episode make way
         countdown.removeCallbacks(hideDoorbell)
         countdown.postDelayed(hideDoorbell, 20_000)
     }
 
-    private fun dismissDoorbell() {
+    /** [animate] false: gone at once (the player stopping). */
+    private fun dismissDoorbell(animate: Boolean = true) {
         countdown.removeCallbacks(hideDoorbell)
         ringing = false
         ringingCamera = null
-        if (::doorbell.isInitialized) doorbell.visibility = android.view.View.GONE
+        if (::doorbellCard.isInitialized) doorbellCard.hide(animate)
     }
 
     override fun onStart() {
@@ -788,7 +930,7 @@ class PlayerActivity : ComponentActivity() {
                             stalledKey = key
                             val msg = if (http == 401 || http == 403) "Google Drive turned it down. Trying again… (if this keeps happening, sign in to Google Drive again in Settings)"
                             else "Lost the connection. Trying again…"
-                            Toast.makeText(this@PlayerActivity, msg, Toast.LENGTH_LONG).show()
+                            say(msg, long = true)
                         }
                         retry.removeCallbacksAndMessages(null)
                         retry.postDelayed({ if (player === p) p.prepare() }, 10_000)
@@ -805,7 +947,7 @@ class PlayerActivity : ComponentActivity() {
                         generateSequence<Throwable>(error) { it.cause }.take(10).any { it is OutOfMemoryError } -> "this TV ran out of memory"
                         else -> error.errorCodeName
                     }
-                    Toast.makeText(this@PlayerActivity, "Can't play ${p.currentMediaItem?.mediaMetadata?.title ?: "this file"}: $why", Toast.LENGTH_LONG).show()
+                    say("Can't play ${p.currentMediaItem?.mediaMetadata?.title ?: "this file"}: $why", long = true)
                     if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
                 }
 
@@ -915,15 +1057,19 @@ class PlayerActivity : ComponentActivity() {
     override fun onStop() {
         com.woodruff.tvexplorer.util.FrameStats.detach(this)
         preview?.release(); preview = null
-        if (::previewBox.isInitialized) previewBox.visibility = android.view.View.GONE
+        // Off the screen: the preview, the options and any message go at once, as the cards below do.
+        if (::previewCard.isInitialized) previewCard.hide(animate = false)
+        if (::optionsCard.isInitialized) optionsCard.hide(animate = false)
+        countdown.removeCallbacks(hideMessage)
+        if (::messageCard.isInitialized) messageCard.hide(animate = false)
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         reporter.removeCallbacks(report)
         retry.removeCallbacksAndMessages(null)
         followJob?.cancel(); followJob = null
         doorbellJob?.cancel(); doorbellJob = null
         tokenJob?.cancel(); tokenJob = null
-        dismissDoorbell()
-        cancelUpNext()
+        dismissDoorbell(animate = false)
+        cancelUpNext(animate = false)
         countdown.removeCallbacks(sleep)
         rateSwitch?.cancel()
         com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = null
@@ -1055,11 +1201,25 @@ class PlayerActivity : ComponentActivity() {
 
     /** The presses this activity acts on itself (before PlayerView sees them). */
     private fun handleKey(event: KeyEvent): Boolean {
+        // The options pop-up, while it's up: Up / Down choose, OK does it, Back (or the menu button) closes
+        // it. Other keys (play, pause) go on to the player as before.
+        if (optionsCard.shown) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> moveOption(-1)
+                KeyEvent.KEYCODE_DPAD_DOWN -> moveOption(1)
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> chooseOption()
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_INFO -> optionsCard.hide()
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> Unit // nowhere to go sideways
+                else -> return false
+            }
+            return true
+        }
         if (event.keyCode == KeyEvent.KEYCODE_MENU || event.keyCode == KeyEvent.KEYCODE_INFO) {
             showOptions(); return true
         }
-        // The doorbell's card first: OK looks at the door, Back closes the card.
-        if (doorbell.visibility == android.view.View.VISIBLE) {
+        // The doorbell's card first: OK looks at the door, Back closes the card. (A card gliding out
+        // is gone already, as far as the keys go.)
+        if (doorbellCard.shown) {
             val camera = ringingCamera
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (camera != null) {
@@ -1068,18 +1228,18 @@ class PlayerActivity : ComponentActivity() {
                 KeyEvent.KEYCODE_BACK -> { dismissDoorbell(); return true }
             }
         }
-        if (nextEp.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible) {
+        if (nextCard.shown && !view.isControllerFullyVisible) {
             when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { nextEp.visibility = android.view.View.GONE; playNext(); return true }
-                KeyEvent.KEYCODE_BACK -> { nextDismissedFor = player?.currentMediaItem?.mediaId; nextEp.visibility = android.view.View.GONE; return true }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { nextCard.hide(); playNext(); return true }
+                KeyEvent.KEYCODE_BACK -> { nextDismissedFor = player?.currentMediaItem?.mediaId; nextCard.hide(); return true }
             }
         }
-        if (skip.visibility == android.view.View.VISIBLE && !view.isControllerFullyVisible &&
+        if (skipCard.shown && !view.isControllerFullyVisible &&
             (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)
         ) {
-            show(); player?.seekTo(introEnd); skip.visibility = android.view.View.GONE; return true
+            show(); player?.seekTo(introEnd); skipCard.hide(); return true
         }
-        if (upNext.visibility == android.view.View.VISIBLE) {
+        if (upNextCard.shown) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { playNext(); return true }
                 KeyEvent.KEYCODE_BACK -> {
@@ -1101,6 +1261,9 @@ class PlayerActivity : ComponentActivity() {
         // Half the first size: big enough to recognise a scene, small enough not to cover the film.
         private const val PREVIEW_W = 144
         private const val PREVIEW_H = 81
+        /** How long a message stays over the film: as long as Android's short and long toasts did. */
+        private const val MESSAGE_MS = 2_000L
+        private const val LONG_MESSAGE_MS = 3_500L
         private const val EXTRA_KEYS = "keys"
         private const val EXTRA_TITLES = "titles"
         private const val EXTRA_START = "start"

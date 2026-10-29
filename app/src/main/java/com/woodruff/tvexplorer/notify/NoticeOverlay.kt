@@ -10,24 +10,45 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.res.ResourcesCompat
 import com.woodruff.tvexplorer.R
+import com.woodruff.tvexplorer.player.GlidingCard
+import com.woodruff.tvexplorer.ui.motion.AppMotion
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 
 /**
  * A small card in the top-right corner over any app (needs "Display over other apps"). Plain
  * Views rather than Compose, because an overlay window has no Activity lifecycle to host Compose.
  * It never takes focus, so the remote keeps controlling whatever is playing.
+ *
+ * It glides down from the screen's top edge as it fades in, and back up when it goes, as the in-app
+ * notice does. That's its window's animation ([R.style.Animation_TVExplorer_Notice]): WindowManager
+ * runs it on the system's own thread, so it stays smooth while the TV is busy with whatever is
+ * playing (this app is in the background then), and it keeps a removed card on screen until its exit
+ * has run, as it does for toasts. With the TV's window animations off, WindowManager would just show
+ * it and take it away: then the card glides in its window itself ([GlidingCard]), and the window goes
+ * once the card has glided out.
  */
 object NoticeOverlay {
     private val main = Handler(Looper.getMainLooper())
-    private var current: View? = null
+    private var current: Shown? = null
+    /** Takes [current] away once its time is up. */
+    private var dismiss: Runnable? = null
+
+    /** A notice on screen: its window's view, and its card's own glide when the window doesn't animate. */
+    private class Shown(val root: View, val glide: GlidingCard?)
 
     fun show(context: Context, n: Notice) = main.post {
         val app = context.applicationContext
         val wm = app.getSystemService(WindowManager::class.java)
-        current?.let { runCatching { wm.removeView(it) } }
+        // A newer notice replaces the one up: that one glides away as this one comes in over it.
+        dismiss?.let { main.removeCallbacks(it) }
+        dismiss = null
+        current?.let { takeAway(wm, it) }
+        current = null
         val density = app.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val font = runCatching { ResourcesCompat.getFont(app, R.font.inter_semibold) }.getOrNull()
@@ -54,28 +75,53 @@ object NoticeOverlay {
                 typeface = fontBody ?: Typeface.DEFAULT
             })
         }
+        // Its window reaches up to the screen's top edge (see-through above the card, which still rests
+        // 32 dp down), so the card glides down from that edge, whichever of the two moves it.
+        val root = FrameLayout(app).apply {
+            setPadding(0, dp(32), 0, 0)
+            // Cut off at the window's edge, not at the padding (32 dp down) as a FrameLayout would.
+            clipToPadding = false
+            addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        }
+        // Read now: the app may not have been on screen since the TV's settings last changed.
+        AppMotion.refresh(app)
+        val glide = if (AppMotion.windowsAnimate || AppMotion.reduced) null else GlidingCard(card, GlidingCard.Way.Drop)
         val params = WindowManager.LayoutParams(
             dp(380), WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(32); y = dp(32) }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END; x = dp(32); y = 0
+            windowAnimations = R.style.Animation_TVExplorer_Notice
+        }
         try {
-            wm.addView(card, params)
-            current = card
-            card.alpha = 0f
-            card.animate().alpha(1f).setDuration(250).start()
-            main.postDelayed({
-                card.animate().alpha(0f).setDuration(300).withEndAction {
-                    runCatching { wm.removeView(card) }
-                    if (current === card) current = null
-                }.start()
-            }, n.showMs)
+            // Already on its way in (from its first frame) when it glides itself.
+            glide?.show()
+            wm.addView(root, params)
+            val shown = Shown(root, glide)
+            current = shown
+            // Its time up, it glides away.
+            val away = Runnable {
+                if (current === shown) { current = null; dismiss = null }
+                takeAway(wm, shown)
+            }
+            dismiss = away
+            main.postDelayed(away, n.showMs)
         } catch (e: Exception) {
             // Permission revoked between the check and now, or a TV that refuses pop-ups: a regular
             // notification instead (the history list has it either way).
             Notices.systemNotification(app, n)
         }
+    }
+
+    /** Off the screen: its window goes (and its animation glides it away), or its card glides out first. */
+    private fun takeAway(wm: WindowManager, s: Shown) {
+        val glide = s.glide
+        if (glide == null) { runCatching { wm.removeView(s.root) }; return }
+        glide.hide { runCatching { wm.removeView(s.root) } }
+        // Whatever happens to the glide, the window never stays (removing it twice does nothing).
+        main.postDelayed({ runCatching { wm.removeView(s.root) } }, TvMotion.DismissMs + 1_000L)
     }
 
     /**

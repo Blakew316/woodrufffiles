@@ -13,12 +13,15 @@ import android.service.dreams.DreamService
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import coil.request.CachePolicy
 import coil.request.Disposable
 import coil.request.ImageRequest
+import com.woodruff.tvexplorer.player.ViewGlide
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -51,6 +54,12 @@ class SlideshowView(context: Context) : FrameLayout(context) {
         gravity = Gravity.CENTER
         setPadding(96, 0, 96, 0)
     }
+    // The fades play at their own speed, whatever Android's animation scales are: on a TV with those
+    // off, Android's animators jumped from one photo to the next. Each photo's on the curve its
+    // cross-fade always had (Android's default for animations).
+    private val fades = HashMap<ImageView, ViewGlide>()
+    private fun fade(photo: ImageView) = fades.getOrPut(photo) { ViewGlide(photo, AccelerateDecelerateInterpolator()) }
+    private val messageFade = ViewGlide(message)
     private var photos: List<File> = emptyList()
     private var index = 0
     private var request: Disposable? = null
@@ -102,6 +111,9 @@ class SlideshowView(context: Context) : FrameLayout(context) {
         misses = 0
         Appearance.load(context)
         main.post(tick)
+        // (Its words fading from the last time it ran stop where they are.)
+        messageFade.stop()
+        message.alpha = 1f
         message.text = "Loading photos…"
         // Walking a large photo folder can take a moment; don't block the UI thread.
         io.execute {
@@ -112,10 +124,14 @@ class SlideshowView(context: Context) : FrameLayout(context) {
             main.post {
                 if (!running) return@post
                 photos = found
-                message.text = if (found.isEmpty()) {
-                    "No photos yet.\n\nSend photos from your phone (Woodruff → Files), then pick their folder in Settings → Screensaver."
-                } else ""
-                if (found.isNotEmpty()) main.post(advance)
+                if (found.isEmpty()) {
+                    message.text = "No photos yet.\n\nSend photos from your phone (Woodruff → Files), then pick their folder in Settings → Screensaver."
+                } else {
+                    // "Loading photos…" fades away as the first photo fades in (it used to vanish at once).
+                    messageFade.fadeTo(0f, TvMotion.DismissMs)
+                    messageFade.then { message.text = "" }
+                    main.post(advance)
+                }
             }
         }
     }
@@ -186,21 +202,21 @@ class SlideshowView(context: Context) : FrameLayout(context) {
     private fun fadeIn(file: File, d: Drawable) {
         shown = file
         back.setImageDrawable(d)
-        back.animate().alpha(1f).setDuration(FADE_MS).start()
+        fade(back).run { fadeTo(1f, FADE_MS); then(null) }
         val old = front
         // Once hidden, the old photo lets go of its picture: only the one on screen and the next are held.
-        old.animate().alpha(0f).setDuration(FADE_MS).withEndAction { if (old.alpha == 0f) old.setImageDrawable(null) }.start()
+        fade(old).run { fadeTo(0f, FADE_MS); then { if (old.alpha == 0f) old.setImageDrawable(null) } }
         front = back
         back = old
         front.bringToFront()
         message.bringToFront()
         clock.bringToFront()
         main.removeCallbacks(preloadNext)
-        main.postDelayed(preloadNext, FADE_MS)
+        main.postDelayed(preloadNext, FADE_MS.toLong())
     }
 }
 
-private const val FADE_MS = 1200L
+private const val FADE_MS = 1200
 
 /** The TV's own screensaver ("Daydream"), when chosen in the TV's settings or with adb. */
 class SlideshowDream : DreamService() {
