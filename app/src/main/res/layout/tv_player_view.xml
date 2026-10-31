@@ -11,7 +11,5 @@
     android:background="@android:color/black"
     app:controller_layout_id="@layout/tv_player_controls"
     app:show_timeout="5000"
-    app:previous_icon="@drawable/tv_ic_previous"
-    app:next_icon="@drawable/tv_ic_next"
     app:auto_show="true"
     app:use_controller="true" />

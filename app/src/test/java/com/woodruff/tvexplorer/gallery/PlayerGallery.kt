@@ -76,7 +76,7 @@ class PlayerGallery {
         subs.requestFocus()
         menu.show("Subtitles", listOf(
             TvMenu.Row("Off") {}, TvMenu.Row("English", checked = true) {}, TvMenu.Row("English (SDH)") {},
-            TvMenu.Row("Español") {}, TvMenu.Row("Français") {},
+            TvMenu.Row("Español") {},
         ), subs)
         settle()
         save(root, "player-menu")

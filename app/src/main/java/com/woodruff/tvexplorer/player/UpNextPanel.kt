@@ -37,29 +37,29 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
     private val artFrame = FrameLayout(context).apply {
         clipToOutline = true
         outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(18f)) }
+            override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, dp(14f)) }
         }
         elevation = dp(20f)
-        foreground = GradientDrawable().apply { cornerRadius = dp(18f); setStroke(dp(1f).toInt().coerceAtLeast(1), 0x26FFFFFF) }
+        foreground = GradientDrawable().apply { cornerRadius = dp(14f); setStroke(dp(1f).toInt().coerceAtLeast(1), 0x26FFFFFF) }
         addView(art, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
     private val eyebrow = TextView(context).apply {
         text = "UP NEXT"
         setTextColor(0x99FFFFFF.toInt())
-        textSize = 15f
+        textSize = 12f
         typeface = PlayerStyle.bold(context)
         letterSpacing = 0.14f
     }
     private val show = TextView(context).apply {
         setTextColor(PlayerStyle.SECONDARY)
-        textSize = 20f
+        textSize = 15f
         typeface = PlayerStyle.semibold(context)
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
     private val title = TextView(context).apply {
         setTextColor(0xFFFFFFFF.toInt())
-        textSize = 40f
+        textSize = 30f
         typeface = PlayerStyle.display(context)
         letterSpacing = -0.018f
         maxLines = 2
@@ -68,36 +68,36 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
     private val ring = CountdownRing(context)
     private val playLabel = TextView(context).apply {
         text = "Play Now"
-        textSize = 20f
+        textSize = 16f
         typeface = PlayerStyle.semibold(context)
     }
     private val play = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(14f).toInt(), dp(12f).toInt(), dp(30f).toInt(), dp(12f).toInt())
-        addView(ring, LinearLayout.LayoutParams(dp(34f).toInt(), dp(34f).toInt()).apply { marginEnd = dp(12f).toInt() })
+        setPadding(dp(10f).toInt(), dp(8f).toInt(), dp(22f).toInt(), dp(8f).toInt())
+        addView(ring, LinearLayout.LayoutParams(dp(26f).toInt(), dp(26f).toInt()).apply { marginEnd = dp(9f).toInt() })
         addView(playLabel)
     }
     private val done = TextView(context).apply {
         text = "Done"
-        textSize = 20f
+        textSize = 16f
         typeface = PlayerStyle.semibold(context)
         gravity = Gravity.CENTER
-        setPadding(dp(30f).toInt(), dp(12f).toInt(), dp(30f).toInt(), dp(12f).toInt())
-        minHeight = dp(58f).toInt()
+        setPadding(dp(22f).toInt(), dp(8f).toInt(), dp(22f).toInt(), dp(8f).toInt())
+        minHeight = dp(42f).toInt()
     }
     private val content = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.BOTTOM
         clipChildren = false
         clipToPadding = false
-        addView(artFrame, LinearLayout.LayoutParams(dp(400f).toInt(), dp(225f).toInt()))
+        addView(artFrame, LinearLayout.LayoutParams(dp(304f).toInt(), dp(171f).toInt()))
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
             clipToPadding = false
             addView(eyebrow)
-            addView(show, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10f).toInt() })
+            addView(show, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8f).toInt() })
             addView(title, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2f).toInt() })
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -107,9 +107,9 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
                 // Room for the chosen pill to grow and cast its shadow.
                 setPadding(0, 0, 0, dp(16f).toInt())
                 addView(play)
-                addView(done, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16f).toInt() })
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(26f).toInt() })
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(44f).toInt() })
+                addView(done, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12f).toInt() })
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18f).toInt() })
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(32f).toInt() })
     }
     private val scrimCard = GlidingCard(scrim, GlidingCard.Way.Fade)
     private val contentCard = GlidingCard(content, GlidingCard.Way.Rise)
@@ -123,7 +123,7 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
     init {
         root.addView(scrim, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         root.addView(content, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
-            setMargins(dp(80f).toInt(), 0, dp(80f).toInt(), dp(48f).toInt())
+            setMargins(dp(64f).toInt(), 0, dp(64f).toInt(), dp(36f).toInt())
         })
         choose(done = false, animate = false)
     }
@@ -166,8 +166,8 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
 
     private fun style(v: View, lit: Boolean, animate: Boolean) {
         v.background = PlayerStyle.pillBackground(context, lit)
-        v.elevation = if (lit) dp(12f) else 0f
-        val s = if (lit) 1.06f else 1f
+        v.elevation = if (lit) dp(10f) else 0f
+        val s = if (lit) 1.05f else 1f
         if (animate) v.animate().scaleX(s).scaleY(s).setDuration(160).start() else { v.scaleX = s; v.scaleY = s }
     }
 
@@ -186,11 +186,11 @@ internal class CountdownRing(context: Context) : View(context) {
     var dark = true
         set(value) { field = value; invalidate() }
 
-    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3 * d }
-    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3 * d; strokeCap = Paint.Cap.ROUND }
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f * d }
+    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f * d; strokeCap = Paint.Cap.ROUND }
     private val number = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
-        textSize = 15 * resources.displayMetrics.scaledDensity
+        textSize = 12 * resources.displayMetrics.scaledDensity
         typeface = PlayerStyle.bold(context)
         fontFeatureSettings = "tnum"
     }

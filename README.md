@@ -87,15 +87,16 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   An iPhone **Shortcut** can POST to `/api/notify?k=…&tvs=all` (the URL is shown on that tab) for automations like "when
   I get home". `tvs` can also be `this` or TV names, comma-separated; links copied before this version reach only that TV.
 - **Player controls**, laid out like tvOS: what's playing at the bottom left (the show and *S2, E5* small above the
-  episode's name), round glass buttons at the bottom right (Previous, Next, Subtitles, Audio, Speed, **…**) and a thin
-  scrub bar with the time played and the time left. The scrub bar has focus as they come up: Left/Right scrub with a
+  episode's name), three small round buttons tucked at the far right (Subtitles, Audio, and **…** for speed, the next
+  episode, sleep timer and intro) and a thin scrub bar with the time played and the time left. Play, pause, Next and
+  Previous are the remote's own buttons. The scrub bar has focus as they come up: Left/Right scrub with a
   picture of that spot (faster the longer it's held), OK or a pause plays from there, Back goes back to where it was;
   OK on the bar plays/pauses. Back puts the controls away first, a second Back leaves.
 - **Player options**: the **…** button in the player's controls (or the remote's Menu/Info button) sets a sleep
   timer (30/60/90 minutes or end of episode; then the slideshow takes over) and marks where a show's intro ends.
   After that, *Skip intro* appears during the intro of every episode of that show; OK skips it.
-- **Subtitles, audio and speed**: their buttons open a menu above them (✓ marks what's on); the subtitle and audio
-  choices are remembered per show.
+- **Subtitles, audio and speed**: Subtitles and Audio open a menu above their button (✓ marks what's on), speed is
+  under **…**; the subtitle and audio choices are remembered per show.
 - **Voice and the screensaver**: "Hey Google, pause" / Alexa (pause, play, rewind) and Bluetooth buttons work in the
   player; other apps go quiet while a film plays; a paused film lets the TV's screensaver come on and comes back paused.
   The last few seconds stay buffered, so a short rewind is instant.

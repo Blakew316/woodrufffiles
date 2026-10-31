@@ -44,6 +44,7 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var infoRow: android.view.View
     private lateinit var subtitlesButton: android.widget.ImageButton
     private lateinit var audioButton: android.widget.ImageButton
+    private lateinit var moreButton: android.view.View
     private lateinit var menu: TvMenu
     private lateinit var upNextPanel: UpNextPanel
     /** The controls were up at the last visibility change (focus goes to the scrub bar as they come up). */
@@ -111,9 +112,8 @@ class PlayerActivity : ComponentActivity() {
         infoRow = view.findViewById(com.woodruff.tvexplorer.R.id.player_info_row)
         subtitlesButton = view.findViewById<android.widget.ImageButton>(com.woodruff.tvexplorer.R.id.player_subtitles).apply { setOnClickListener { showSubtitles(it) } }
         audioButton = view.findViewById<android.widget.ImageButton>(com.woodruff.tvexplorer.R.id.player_audio).apply { setOnClickListener { showAudio(it) } }
-        view.findViewById<android.view.View>(com.woodruff.tvexplorer.R.id.player_speed).setOnClickListener { showSpeed(it) }
-        // Sleep timer and "Skip intro" setup.
-        view.findViewById<android.view.View>(com.woodruff.tvexplorer.R.id.player_more).setOnClickListener { showOptions(it) }
+        // Speed, the next episode, the sleep timer and "Skip intro" setup.
+        moreButton = view.findViewById<android.view.View>(com.woodruff.tvexplorer.R.id.player_more).apply { setOnClickListener { showOptions(it) } }
         // The cards over the film glide up into place and back down (GlidingCard): none of them pops
         // in or out. Skip intro and Next episode are white pills, as tvOS draws the button OK presses.
         skip = PlayerStyle.pill(this, "Skip Intro")
@@ -126,7 +126,7 @@ class PlayerActivity : ComponentActivity() {
         doorbellCard = GlidingCard(doorbell, GlidingCard.Way.Drop)
         // The player's own messages ("Sleeping in 30 minutes"), at the bottom in the middle: Android's
         // toasts popped up over the film in the system's own way.
-        message = PlayerStyle.card(this, 18f).apply {
+        message = PlayerStyle.card(this, 16f).apply {
             gravity = android.view.Gravity.CENTER
             maxWidth = resources.displayMetrics.widthPixels * 3 / 5
         }
@@ -176,7 +176,7 @@ class PlayerActivity : ComponentActivity() {
         }
         previewTime = android.widget.TextView(this).apply {
             setTextColor(android.graphics.Color.WHITE)
-            textSize = 16f
+            textSize = 14f
             typeface = PlayerStyle.semibold(this@PlayerActivity)
             fontFeatureSettings = "tnum"
             gravity = android.view.Gravity.CENTER
@@ -384,11 +384,18 @@ class PlayerActivity : ComponentActivity() {
 
     // ---- Menus: options, subtitles, audio, speed -----------------------------------------------
 
-    /** The options (the "…" button, or the menu button): sleep timer and Skip intro. */
+    /** The options (the "…" button, or the menu button): speed, the next episode, sleep timer and Skip intro. */
     private fun showOptions(anchor: android.view.View? = null) {
         val p = player ?: return
         val intro = ShowPrefs.introEnd(this, show())
         val here = p.currentPosition
+        val at = anchor?.takeIf { view.isControllerFullyVisible }
+        val speed = SPEEDS.firstOrNull { kotlin.math.abs(it.second - p.playbackParameters.speed) < 0.01f }?.first ?: "Normal"
+        // Speed and the next episode don't touch the sleep timer.
+        val first = listOfNotNull(
+            TvMenu.Row("Speed: $speed") { showSpeed(at) },
+            if (p.hasNextMediaItem()) TvMenu.Row("Play next") { playNext() } else null,
+        )
         val choices = listOfNotNull<Pair<String, () -> Unit>>(
             "Sleep in 30 minutes" to { sleepIn(30) },
             "Sleep in 60 minutes" to { sleepIn(60) },
@@ -401,9 +408,9 @@ class PlayerActivity : ComponentActivity() {
             if (intro > 0) ("Forget this show's intro" to { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 }) else null,
         )
         // Any choice starts the sleep timer afresh, as it always has.
-        menu.show("Options", choices.map { (label, action) ->
+        menu.show("Options", first + choices.map { (label, action) ->
             TvMenu.Row(label) { countdown.removeCallbacks(sleep); sleepAtEnd = false; action() }
-        }, anchor?.takeIf { view.isControllerFullyVisible })
+        }, at)
     }
 
     private fun sleepIn(minutes: Long) {
@@ -449,7 +456,7 @@ class PlayerActivity : ComponentActivity() {
         menu.show("Audio", tracks.map { (g, i, on) -> TvMenu.Row(trackNames.getTrackName(g.getTrackFormat(i)), checked = on) { choose(p, g, i) } }, anchor)
     }
 
-    private fun showSpeed(anchor: android.view.View) {
+    private fun showSpeed(anchor: android.view.View?) {
         val p = player ?: return
         val now = p.playbackParameters.speed
         menu.show("Speed", SPEEDS.map { (label, speed) ->
@@ -1206,8 +1213,8 @@ class PlayerActivity : ComponentActivity() {
 
     companion object {
         // Half the first size: big enough to recognise a scene, small enough not to cover the film.
-        private const val PREVIEW_W = 192
-        private const val PREVIEW_H = 108
+        private const val PREVIEW_W = 176
+        private const val PREVIEW_H = 99
         /** How long the controls stay up after the last press (paused, they stay). */
         private const val CONTROLS_TIMEOUT_MS = 5_000
         /** Up next's countdown, and how far into the next episode its picture is taken from. */

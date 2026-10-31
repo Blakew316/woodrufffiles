@@ -23,17 +23,17 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
     /** A row: what it says, whether it's the current choice, and what OK on it does. */
     class Row(val label: String, val checked: Boolean = false, val action: () -> Unit)
 
-    private val rowHeight = dp(50f).toInt()
+    private val rowHeight = dp(42f).toInt()
     private val header = TextView(context).apply {
         setTextColor(0x99FFFFFF.toInt())
-        textSize = 15f
+        textSize = 13f
         typeface = PlayerStyle.semibold(context)
         letterSpacing = 0.02f
-        setPadding(dp(18f).toInt(), dp(6f).toInt(), dp(18f).toInt(), dp(10f).toInt())
+        setPadding(dp(14f).toInt(), dp(4f).toInt(), dp(14f).toInt(), dp(8f).toInt())
     }
     private val rows = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     private val highlight = View(context).apply {
-        background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFFFFFF.toInt()); cornerRadius = dp(14f) }
+        background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFFFFFF.toInt()); cornerRadius = dp(11f) }
     }
     private val highlightGlide = ViewGlide(highlight)
     private val scroll = ScrollView(context).apply {
@@ -47,11 +47,11 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
     }
     val panel = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        val pad = dp(10f).toInt()
-        setPadding(pad, dp(14f).toInt(), pad, pad)
-        background = PlayerStyle.glass(context, 24f, 0xF51C1C1E.toInt())
-        elevation = dp(24f)
-        minimumWidth = dp(300f).toInt()
+        val pad = dp(8f).toInt()
+        setPadding(pad, dp(12f).toInt(), pad, pad)
+        background = PlayerStyle.glass(context, 18f, 0xF51C1C1E.toInt())
+        elevation = dp(20f)
+        minimumWidth = dp(220f).toInt()
         addView(header, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
     }
@@ -81,7 +81,7 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
         at = rows.indexOfFirst { it.checked }.coerceAtLeast(0)
 
         // Its size: as wide as its longest row (within limits), as tall as fits on screen.
-        val maxW = dp(560f).toInt()
+        val maxW = dp(440f).toInt()
         val margin = dp(24f).toInt()
         val spaceAbove = anchor?.let { locationIn(it)[1] - dp(16f).toInt() - margin } ?: (root.height - 2 * margin)
         val listH = rows.size * rowHeight
@@ -101,7 +101,7 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
             val h = panel.measuredHeight.coerceAtMost(chrome + (scroll.layoutParams.height.takeIf { it > 0 } ?: listH))
             lp.gravity = Gravity.TOP or Gravity.START
             lp.leftMargin = (ax + anchor.width - w).coerceIn(margin, (root.width - w - margin).coerceAtLeast(margin))
-            lp.topMargin = (ay - dp(16f).toInt() - h).coerceAtLeast(margin)
+            lp.topMargin = (ay - dp(12f).toInt() - h).coerceAtLeast(margin)
             // It grows from the corner nearest the button.
             panel.pivotX = w.toFloat()
             panel.pivotY = h.toFloat()
@@ -169,14 +169,14 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
     private fun rowView(row: Row, checks: Boolean): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(18f).toInt(), 0, dp(22f).toInt(), 0)
+        setPadding(dp(14f).toInt(), 0, dp(18f).toInt(), 0)
         if (checks) addView(ImageView(context).apply {
             setImageResource(R.drawable.tv_ic_check)
             visibility = if (row.checked) View.VISIBLE else View.INVISIBLE
-        }, LinearLayout.LayoutParams(dp(20f).toInt(), dp(20f).toInt()).apply { marginEnd = dp(14f).toInt() })
+        }, LinearLayout.LayoutParams(dp(16f).toInt(), dp(16f).toInt()).apply { marginEnd = dp(10f).toInt() })
         addView(TextView(context).apply {
             text = row.label
-            textSize = 20f
+            textSize = 16f
             typeface = PlayerStyle.text(context)
             setTextColor(0xFFFFFFFF.toInt())
             maxLines = 1

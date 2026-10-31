@@ -58,7 +58,7 @@ class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xCCFFFFFF.toInt()
-        textSize = 17 * resources.displayMetrics.scaledDensity
+        textSize = 13 * resources.displayMetrics.scaledDensity
         typeface = runCatching { ResourcesCompat.getFont(context, R.font.inter_semibold) }.getOrNull()
         // Digits all one width, so the times don't jiggle as they count.
         fontFeatureSettings = "tnum"
@@ -198,13 +198,13 @@ class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     override fun setAdGroupTimesMs(adGroupTimesMs: LongArray?, playedAdGroups: BooleanArray?, adGroupCount: Int) = Unit
 
     companion object {
-        private const val BAR_DP = 6f
-        private const val BAR_FOCUSED_DP = 10f
-        private const val BAR_AREA_DP = 28f
-        private const val LABELS_DP = 28f
-        private const val LABEL_BASELINE_DP = 20f
-        private const val PLAYHEAD_W_DP = 4f
-        private const val PLAYHEAD_OVER_DP = 18f
+        private const val BAR_DP = 4f
+        private const val BAR_FOCUSED_DP = 7f
+        private const val BAR_AREA_DP = 18f
+        private const val LABELS_DP = 22f
+        private const val LABEL_BASELINE_DP = 16f
+        private const val PLAYHEAD_W_DP = 3f
+        private const val PLAYHEAD_OVER_DP = 12f
         private const val GROW_MS = 180L
         /** The spot is played this long after the last press (OK plays it at once). */
         private const val COMMIT_MS = 1_200L

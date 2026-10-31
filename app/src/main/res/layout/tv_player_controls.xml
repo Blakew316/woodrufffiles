@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Player controls laid out like tvOS: what's playing at the bottom left, a row of round glass
-    buttons at the bottom right, and a thin scrub bar under them with the time played and the time
-    left. The ids Media3 knows (exo_*) keep their jobs; Subtitles, Audio, Speed and "…" open the
-    player's own menus (TvMenu). Everything sits in exo_center_controls, the
-    part Media3 fades in and out; exo_controls_background is the scrim behind it.
+    Player controls laid out like tvOS, kept small so the film stays the picture: what's playing
+    at the bottom left, three small round buttons tucked at the far right (Subtitles, Audio, and
+    "…" for speed, sleep timer and intro), and a thin scrub bar under them with the time played
+    and the time left. Play, pause and seeking are the remote's. Everything sits in
+    exo_center_controls, the part Media3 fades in and out; exo_controls_background is the scrim.
 -->
 <merge xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -25,12 +25,13 @@
         android:paddingStart="@dimen/tv_player_side"
         android:paddingTop="40dp"
         android:paddingEnd="@dimen/tv_player_side"
-        android:paddingBottom="36dp">
+        android:paddingBottom="26dp">
 
         <LinearLayout
             android:id="@+id/player_info_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:baselineAligned="false"
             android:clipChildren="false"
             android:clipToPadding="false"
             android:gravity="bottom"
@@ -39,7 +40,7 @@
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="32dp"
+                android:layout_marginEnd="24dp"
                 android:layout_weight="1"
                 android:orientation="vertical">
 
@@ -50,45 +51,31 @@
                     android:ellipsize="end"
                     android:fontFamily="@font/inter_semibold"
                     android:singleLine="true"
-                    android:textColor="#B3FFFFFF"
-                    android:textSize="18sp"
+                    android:textColor="#A6FFFFFF"
+                    android:textSize="13sp"
                     android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/player_title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
                     android:ellipsize="end"
-                    android:fontFamily="@font/interdisplay_bold"
-                    android:letterSpacing="-0.016"
-                    android:maxLines="2"
+                    android:fontFamily="@font/interdisplay_semibold"
+                    android:letterSpacing="-0.01"
+                    android:singleLine="true"
                     android:textColor="@android:color/white"
-                    android:textSize="34sp" />
+                    android:textSize="22sp" />
             </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/player_buttons"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="2dp"
                 android:clipChildren="false"
                 android:clipToPadding="false"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
-
-                <ImageButton
-                    android:id="@id/exo_prev"
-                    style="@style/TvPlayerButton"
-                    android:contentDescription="Previous" />
-
-                <ImageButton
-                    android:id="@id/exo_next"
-                    style="@style/TvPlayerButton"
-                    android:contentDescription="Next" />
-
-                <View
-                    android:layout_width="14dp"
-                    android:layout_height="1dp" />
 
                 <ImageButton
                     android:id="@+id/player_subtitles"
@@ -103,16 +90,10 @@
                     android:src="@drawable/tv_ic_audio" />
 
                 <ImageButton
-                    android:id="@+id/player_speed"
-                    style="@style/TvPlayerButton"
-                    android:contentDescription="Playback speed"
-                    android:src="@drawable/tv_ic_speed" />
-
-                <ImageButton
                     android:id="@+id/player_more"
                     style="@style/TvPlayerButton"
                     android:layout_marginEnd="0dp"
-                    android:contentDescription="Sleep timer and intro"
+                    android:contentDescription="Speed, sleep timer and intro"
                     android:src="@drawable/tv_ic_more" />
             </LinearLayout>
         </LinearLayout>
@@ -121,6 +102,6 @@
             android:id="@id/exo_progress"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp" />
+            android:layout_marginTop="12dp" />
     </LinearLayout>
 </merge>

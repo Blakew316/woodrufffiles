@@ -45,33 +45,33 @@ internal object PlayerStyle {
     fun pill(c: Context, label: String, icon: Int? = null): TextView = TextView(c).apply {
         text = label
         setTextColor(INK)
-        textSize = 20f
+        textSize = 16f
         typeface = semibold(c)
         gravity = Gravity.CENTER_VERTICAL
-        val h = dp(c, 30f).toInt()
-        val v = dp(c, 16f).toInt()
-        setPadding(if (icon != null) dp(c, 24f).toInt() else h, v, h, v)
+        val h = dp(c, 22f).toInt()
+        val v = dp(c, 11f).toInt()
+        setPadding(if (icon != null) dp(c, 18f).toInt() else h, v, h, v)
         background = pillBackground(c, lit = true)
-        elevation = dp(c, 12f)
+        elevation = dp(c, 10f)
         if (icon != null) {
             val dr = c.getDrawable(icon)?.mutate()?.apply {
                 setTint(INK)
-                val s = dp(c, 20f).toInt()
+                val s = dp(c, 16f).toInt()
                 setBounds(0, 0, s, s)
             }
             setCompoundDrawables(dr, null, null, null)
-            compoundDrawablePadding = dp(c, 12f).toInt()
+            compoundDrawablePadding = dp(c, 9f).toInt()
         }
     }
 
     /** A message or notice card over the film: glass, white text. */
-    fun card(c: Context, sizeSp: Float = 20f): TextView = TextView(c).apply {
+    fun card(c: Context, sizeSp: Float = 17f): TextView = TextView(c).apply {
         setTextColor(0xFFFFFFFF.toInt())
         textSize = sizeSp
         typeface = text(c)
         setLineSpacing(dp(c, 3f), 1f)
-        setPadding(dp(c, 28f).toInt(), dp(c, 20f).toInt(), dp(c, 28f).toInt(), dp(c, 20f).toInt())
-        background = glass(c, 22f)
+        setPadding(dp(c, 22f).toInt(), dp(c, 15f).toInt(), dp(c, 22f).toInt(), dp(c, 15f).toInt())
+        background = glass(c, 18f)
         elevation = dp(c, 12f)
     }
 }
