@@ -1,55 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Built-in player controls, sized and styled for a TV across the room. These override the
-    media3 library's own values and styles of the same names (same structure, bigger numbers and a
-    visible focus ring), so every control keeps working exactly as before.
+    The player's tvOS-style controls (layout/tv_player_controls). Media3's controller slides its
+    bottom bar and time bar by these sizes as it shows and hides them; the whole layout fades
+    instead, so they're zero (nothing slides, and the scrub bar keeps its own place).
 -->
 <resources>
-    <dimen name="exo_icon_size">76dp</dimen>
-    <dimen name="exo_icon_horizontal_margin">14dp</dimen>
-    <dimen name="exo_icon_padding">12dp</dimen>
-    <dimen name="exo_icon_text_size">12dp</dimen>
-    <dimen name="exo_icon_padding_bottom">26dp</dimen>
+    <dimen name="exo_styled_bottom_bar_height">0dp</dimen>
+    <dimen name="exo_styled_progress_bar_height">0dp</dimen>
+    <dimen name="exo_styled_progress_margin_bottom">0dp</dimen>
 
-    <dimen name="exo_small_icon_width">60dp</dimen>
-    <dimen name="exo_small_icon_height">60dp</dimen>
-    <dimen name="exo_small_icon_horizontal_margin">6dp</dimen>
-    <dimen name="exo_small_icon_padding_horizontal">14dp</dimen>
-    <dimen name="exo_small_icon_padding_vertical">14dp</dimen>
+    <!-- How far the controls sit in from the sides of the screen. -->
+    <dimen name="tv_player_side">80dp</dimen>
 
-    <dimen name="exo_styled_progress_bar_height">5dp</dimen>
-    <dimen name="exo_styled_progress_enabled_thumb_size">16dp</dimen>
-    <dimen name="exo_styled_progress_dragged_thumb_size">22dp</dimen>
-    <dimen name="exo_styled_progress_margin_bottom">74dp</dimen>
-    <dimen name="exo_styled_bottom_bar_height">80dp</dimen>
-    <dimen name="exo_styled_bottom_bar_time_padding">28dp</dimen>
-
-    <!-- Settings popups (speed, audio, subtitles): bigger rows and text. -->
-    <dimen name="exo_setting_width">300dp</dimen>
-    <dimen name="exo_settings_height">64dp</dimen>
-    <dimen name="exo_settings_icon_size">30dp</dimen>
-    <dimen name="exo_settings_text_height">30dp</dimen>
-    <dimen name="exo_settings_main_text_size">20sp</dimen>
-    <dimen name="exo_settings_sub_text_size">16sp</dimen>
-
-    <color name="exo_bottom_bar_background">#00000000</color>
-    <color name="exo_black_opacity_60">#99000000</color>
-
-    <style name="ExoStyledControls.Button">
-        <item name="android:background">@drawable/player_button_bg</item>
-        <item name="android:scaleType">fitXY</item>
-        <item name="android:layout_marginLeft">@dimen/exo_icon_horizontal_margin</item>
-        <item name="android:layout_marginRight">@dimen/exo_icon_horizontal_margin</item>
-    </style>
-
-    <style name="ExoStyledControls.TimeText">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_gravity">center_vertical</item>
-        <item name="android:paddingLeft">6dp</item>
-        <item name="android:paddingRight">6dp</item>
-        <item name="android:textStyle">bold</item>
-        <item name="android:textSize">20sp</item>
-        <item name="android:gravity">center</item>
+    <!-- A round glass button in the row above the scrub bar. -->
+    <style name="TvPlayerButton">
+        <item name="android:layout_width">60dp</item>
+        <item name="android:layout_height">60dp</item>
+        <item name="android:layout_marginEnd">14dp</item>
+        <item name="android:padding">16dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:background">@drawable/tv_player_button_bg</item>
+        <item name="android:tint">@color/tv_player_icon</item>
+        <item name="android:focusable">true</item>
+        <item name="android:stateListAnimator">@animator/tv_player_button_focus</item>
     </style>
 </resources>

@@ -17,8 +17,8 @@ import com.woodruff.tvexplorer.ui.motion.TvMotion
  * glides away, and only then goes (GONE).
  */
 internal class GlidingCard(private val view: View, private val way: Way) {
-    /** How it comes and goes: up from below its place, down from above it, or in from just larger (a pop-up). */
-    enum class Way { Rise, Drop, Zoom }
+    /** How it comes and goes: up from below its place, down from above it, in from just larger (a pop-up), or a fade in place (a scrim). */
+    enum class Way { Rise, Drop, Zoom, Fade }
 
     var shown = false
         private set
@@ -55,6 +55,7 @@ internal class GlidingCard(private val view: View, private val way: Way) {
                         Way.Rise -> view.translationY = view.height.toFloat()
                         Way.Drop -> view.translationY = -view.height.toFloat()
                         Way.Zoom -> { view.scaleX = TvMotion.DialogScale; view.scaleY = TvMotion.DialogScale }
+                        Way.Fade -> Unit
                     }
                     glideIn()
                 }
@@ -77,13 +78,18 @@ internal class GlidingCard(private val view: View, private val way: Way) {
             Way.Rise -> glide.shiftTo(view.height.toFloat(), TvMotion.DismissMs)
             Way.Drop -> glide.shiftTo(-view.height.toFloat(), TvMotion.DismissMs)
             Way.Zoom -> glide.zoomTo(TvMotion.DialogDismissScale, TvMotion.DismissMs)
+            Way.Fade -> Unit
         }
         glide.then { if (!shown) done() }
     }
 
     private fun glideIn() {
-        if (way == Way.Zoom) glide.zoomTo(1f, TvMotion.PresentMs) else glide.shiftTo(0f, TvMotion.PresentMs)
-        glide.fadeTo(1f, TvMotion.PresentFadeMs)
+        when (way) {
+            Way.Zoom -> glide.zoomTo(1f, TvMotion.PresentMs)
+            Way.Fade -> Unit
+            else -> glide.shiftTo(0f, TvMotion.PresentMs)
+        }
+        glide.fadeTo(1f, if (way == Way.Fade) TvMotion.PresentMs else TvMotion.PresentFadeMs)
         glide.then(null)
     }
 
@@ -93,7 +99,11 @@ internal class GlidingCard(private val view: View, private val way: Way) {
         view.visibility = View.GONE
         view.alpha = 1f
         // Only what it moves: the scrubbing preview's own shift places it over the bar.
-        if (way == Way.Zoom) { view.scaleX = 1f; view.scaleY = 1f } else view.translationY = 0f
+        when (way) {
+            Way.Zoom -> { view.scaleX = 1f; view.scaleY = 1f }
+            Way.Fade -> Unit
+            else -> view.translationY = 0f
+        }
         gone?.let { gone = null; it() }
     }
 }

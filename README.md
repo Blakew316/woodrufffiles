@@ -86,10 +86,16 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…&tvs=all` (the URL is shown on that tab) for automations like "when
   I get home". `tvs` can also be `this` or TV names, comma-separated; links copied before this version reach only that TV.
-- **Player options**: the clock button in the player's controls (or the remote's Menu/Info button) sets a sleep
+- **Player controls**, laid out like tvOS: what's playing at the bottom left (the show and *S2, E5* small above the
+  episode's name), round glass buttons at the bottom right (Previous, Next, Subtitles, Audio, Speed, **…**) and a thin
+  scrub bar with the time played and the time left. The scrub bar has focus as they come up: Left/Right scrub with a
+  picture of that spot (faster the longer it's held), OK or a pause plays from there, Back goes back to where it was;
+  OK on the bar plays/pauses. Back puts the controls away first, a second Back leaves.
+- **Player options**: the **…** button in the player's controls (or the remote's Menu/Info button) sets a sleep
   timer (30/60/90 minutes or end of episode; then the slideshow takes over) and marks where a show's intro ends.
   After that, *Skip intro* appears during the intro of every episode of that show; OK skips it.
-- **Subtitles and audio**: the subtitles button and the gear menu pick tracks; the choice is remembered per show.
+- **Subtitles, audio and speed**: their buttons open a menu above them (✓ marks what's on); the subtitle and audio
+  choices are remembered per show.
 - **Voice and the screensaver**: "Hey Google, pause" / Alexa (pause, play, rewind) and Bluetooth buttons work in the
   player; other apps go quiet while a film plays; a paused film lets the TV's screensaver come on and comes back paused.
   The last few seconds stay buffered, so a short rewind is instant.
@@ -110,8 +116,9 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Phone remote extras**: volume down / mute / up buttons (the TV's own volume, whatever is on screen); hold an
   arrow to keep scrolling. Play/Pause also works with Netflix, YouTube and other apps in front (most reliably with
   *See what other apps are playing* on).
-- **Up next**: when an episode (or any queued video) ends, a card counts down 10 seconds to the next one; OK
-  plays it now, Back stops. Finishing an episode puts the next one in Continue watching (*Next · S2 E5*) and on the
+- **Up next**: when an episode (or any queued video) ends, the last frame darkens and a picture from the next one
+  comes up with its show, episode and name; a ring on **Play Now** counts down 10 seconds to it. OK plays it now,
+  Right then OK (**Done**) or Back stops. Finishing an episode puts the next one in Continue watching (*Next · S2 E5*) and on the
   show's page; near a season's end the next season's first episode is queued.
 - **Recently added**: Home's first panel shows the newest Movies and TV Shows (posters) after what's in progress,
   or on their own when nothing is. Posters, Recently added and voice search are ready right after start, from the
@@ -136,7 +143,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   seen by any camera pops up on every TV, at most once per camera every 2 minutes. Toggles are in the phone app
   under Settings → Cameras.
 - **Doorbell alerts**: when the Nest doorbell rings, every linked TV shows a notice (over other apps too) and opens
-  the doorbell full screen if Woodruff is on screen. During a film in Woodruff's player a card says *Someone's at the
+  the doorbell full screen if Woodruff is on screen. During a film in Woodruff's player a card at the top right says *Someone's at the
   door · OK to look* for 20 s: OK shows the camera live with sound (Left/Right for the others), Back returns to the film. Google only announces rings through Cloud Pub/Sub: turn on
   Pub/Sub for the Device Access project, create a pull subscription to its topic in Google Cloud, enter the
   subscription's full name in the phone app (Settings → Connections → Cameras → Doorbell alerts) for one TV, then connect the
@@ -230,8 +237,7 @@ under way. What changes colour with the focus (a row's words, a button's fill) i
   smooth even when the app is busy. The player, photos and the slideshow open and close the same way.
 - **Screens** chosen in the side menu cross-fade with a slight scale; the menu glides in and out; Settings pages
   slide like iOS; notices and messages glide in.
-- **Over a film**, the player's cards (Skip intro, Next episode, Up next, the doorbell's, the title, its messages
-  and options) glide up into place and back down instead of popping; a notice over another app drops in from the
+- **Over a film**, the player's cards (Skip intro, Next episode, Up next, the doorbell's, its messages and menus) glide up into place and back down instead of popping; a notice over another app drops in from the
   top edge. A camera opened full screen in the Command center grows in over the grid and its picture clears from
   black (a live picture can't fade itself); closing reverses it.
 
