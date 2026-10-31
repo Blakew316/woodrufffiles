@@ -1,7 +1,7 @@
 {
- "build": "153",
- "commit": "39c36e4",
- "updated": "2026-10-29 17:32 UTC",
+ "build": "155",
+ "commit": "5050b05",
+ "updated": "2026-10-31 04:59 UTC",
  "tv": [
   {
    "name": "home",
@@ -74,6 +74,24 @@
    "title": "Settings",
    "dark": "img/tv-settings-dark.webp",
    "light": "img/tv-settings-light.webp"
+  },
+  {
+   "name": "player",
+   "title": "Player",
+   "dark": "img/tv-player-dark.webp",
+   "light": "img/tv-player-light.webp"
+  },
+  {
+   "name": "player-menu",
+   "title": "Player \u203a Subtitles menu",
+   "dark": "img/tv-player-menu-dark.webp",
+   "light": "img/tv-player-menu-light.webp"
+  },
+  {
+   "name": "player-up-next",
+   "title": "Player \u203a Up next",
+   "dark": "img/tv-player-up-next-dark.webp",
+   "light": "img/tv-player-up-next-light.webp"
   }
  ],
  "phone": [
