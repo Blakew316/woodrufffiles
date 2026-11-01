@@ -14,14 +14,29 @@ import com.woodruff.tvexplorer.ui.components.ConfirmDialog
 import com.woodruff.tvexplorer.update.Updater
 import com.woodruff.tvexplorer.util.Opener
 
-/** Installs the downloaded update, first asking for "Install unknown apps" if it isn't allowed yet. */
+/**
+ * Installs the downloaded update. Android's installer has the last word: some TVs (a Sony did)
+ * answer "not allowed" when asked whether Woodruff may install apps, while their Settings show it
+ * allowed, so that answer no longer stops the update. The installer asks for the permission itself
+ * when it really needs it, and says why when it refuses (shown as "last try" in Settings → Updates).
+ * Only a profile that forbids installing apps from outside the Play Store stops it here, saying so.
+ */
 fun startUpdate(context: Context, vm: MainViewModel) {
-    if (!Opener.canInstallPackages(context)) {
-        Opener.openInstallPermissionSettings(context)
-        vm.say("Allow Woodruff Family to install apps, then choose Install again")
+    if (installsBlockedByProfile(context)) {
+        vm.say("This TV's profile doesn't allow installing apps from outside the Play Store (a kids profile, parental controls or a work setup). Switch to the main profile, then choose Install again")
         return
     }
+    if (!Opener.canInstallPackages(context)) vm.say("Installing… If the TV asks, allow Woodruff Family to install apps")
     Updater.install(context)
+}
+
+/** A user restriction on this profile against apps from outside the Play Store, which no toggle in Settings lifts. */
+private fun installsBlockedByProfile(context: Context): Boolean {
+    val um = context.getSystemService(android.os.UserManager::class.java) ?: return false
+    return runCatching {
+        um.hasUserRestriction(android.os.UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES) ||
+            (android.os.Build.VERSION.SDK_INT >= 29 && um.hasUserRestriction(android.os.UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY))
+    }.getOrDefault(false)
 }
 
 /** What Settings shows next to the version. */

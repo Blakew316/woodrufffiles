@@ -206,7 +206,10 @@ and installs it with Android's package installer (which only accepts an update s
   makes the next update ask once again.
 - Older Android (11 and below) doesn't let apps update themselves silently: Android's *Update* screen opens by
   itself when Woodruff starts with an update ready, so it's one button press.
-- The TV asks once to let Woodruff Family *install unknown apps*.
+- The TV asks once to let Woodruff Family *install unknown apps*. Some TVs (a Sony did) tell Woodruff it isn't
+  allowed even while that setting shows *Allowed*; Woodruff then hands the update to Android's installer anyway,
+  which asks if it needs to and otherwise gives its reason (Settings → Updates shows it as *last try*). A kids or
+  restricted profile can't install apps from outside the Play Store at all: update from the main profile.
 - Settings → Updates shows the version, checks now, and turns automatic updates off.
 - **Fast straight after an update**: each release carries a speed profile (`WoodruffFamily-api28.dm` and
   `WoodruffFamily-api31.dm`) that installs with it on Android 9 and newer, so Android prepares the app's busiest code
