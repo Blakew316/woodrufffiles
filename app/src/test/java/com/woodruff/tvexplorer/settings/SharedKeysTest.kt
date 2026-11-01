@@ -1,13 +1,14 @@
-package com.woodruff.tvexplorer.tmdb
+package com.woodruff.tvexplorer.settings
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Which TMDB key the TVs end up sharing, and that passing it along always stops. */
-class TmdbKeyShareTest {
+/** Which keys the TVs end up sharing, and that passing them along always stops. */
+class SharedKeysTest {
     private val k1 = fingerprint("aaaa1111bbbb2222cccc3333dddd4444")
     private val k2 = fingerprint("eyJhbGciOiJIUzI1NiJ9.read-access-token")
     private val none = KeyVersion("", 0)
@@ -21,15 +22,39 @@ class TmdbKeyShareTest {
         assertFalse("aaaa1111" in k1)
     }
 
+    @Test fun theGoogleKeysTravelAsOnePair() {
+        val v = googleValue(" 123-abc.apps.googleusercontent.com ", "GOCSPX-secret ")
+        assertEquals("123-abc.apps.googleusercontent.com\nGOCSPX-secret", v)
+        assertEquals("123-abc.apps.googleusercontent.com" to "GOCSPX-secret", parseGoogle(v))
+        // Half a pair is no pair: it's never shared, and never taken.
+        assertNull(googleValue("123-abc.apps.googleusercontent.com", null))
+        assertNull(googleValue("", "GOCSPX-secret"))
+        assertNull(parseGoogle(null))
+        assertNull(parseGoogle("123-abc.apps.googleusercontent.com"))
+        assertNull(parseGoogle("a\nb\nc"))
+        assertNull(parseGoogle("\nGOCSPX-secret"))
+    }
+
+    @Test fun keysAreKnownByTheirIds() {
+        assertEquals(SharedKey.GOOGLE, SharedKey.of("google"))
+        assertEquals(SharedKey.CAMERAS, SharedKey.of("cameras"))
+        assertNull(SharedKey.of("mail"))
+        assertNull(SharedKey.of(null))
+        // Each keeps when it was set under its own name.
+        assertEquals(SharedKey.entries.size, SharedKey.entries.map { it.atName }.toSet().size)
+    }
+
     @Test fun aKeyFromBeforeSharingReachesATvWithout() {
         // The hub had its key before this version (set at 0); the new TV has none.
         val hub = KeyVersion(k1, 0)
         assertEquals(-1, winner(hub, listOf(none)))
-        assertTrue(needs(none, hub))
-        assertTrue(accepts(none, hub))
-        // ...and a TV without a key never wipes the hub's.
-        assertFalse(accepts(hub, none))
-        assertFalse(needs(hub, none))
+        for (tie in listOf(true, false)) {
+            assertTrue(needs(none, hub, tie))
+            assertTrue(accepts(none, hub, tie))
+            // ...and a TV without a key never wipes the hub's.
+            assertFalse(accepts(hub, none, tie))
+            assertFalse(needs(hub, none, tie))
+        }
     }
 
     @Test fun theHubFetchesAKeySetOnlyOnAnotherTv() {
@@ -40,10 +65,12 @@ class TmdbKeyShareTest {
     @Test fun theNewestKeyWinsWhereverItWasSet() {
         val older = KeyVersion(k1, 100)
         val newer = KeyVersion(k2, 200)
-        assertTrue(accepts(older, newer))
-        assertFalse(accepts(newer, older))
-        assertTrue(needs(older, newer))
-        assertFalse(needs(newer, older))
+        for (tie in listOf(true, false)) {
+            assertTrue(accepts(older, newer, tie))
+            assertFalse(accepts(newer, older, tie))
+            assertTrue(needs(older, newer, tie))
+            assertFalse(needs(newer, older, tie))
+        }
         assertEquals(1, winner(older, listOf(KeyVersion(k1, 150), newer, null)))
     }
 
@@ -54,21 +81,34 @@ class TmdbKeyShareTest {
         assertEquals(-1, winner(KeyVersion(k1, 0), listOf(KeyVersion(k1, 300))))
     }
 
-    @Test fun removingTheKeyLaterRemovesItEverywhere() {
+    @Test fun removingAKeyLaterRemovesItEverywhere() {
         val removed = KeyVersion("", 500)
-        assertTrue(accepts(KeyVersion(k1, 100), removed))
+        assertTrue(accepts(KeyVersion(k1, 100), removed, tieGoesToSender = false))
         assertEquals(0, winner(KeyVersion(k1, 100), listOf(removed)))
         // But a key set after that comes back.
         assertTrue(accepts(removed, KeyVersion(k2, 600)))
     }
 
-    @Test fun twoKeysFromBeforeSharingGoTheHubsWay() {
+    @Test fun twoTmdbKeysFromBeforeSharingGoTheHubsWay() {
         // Both set at 0: the hub (the one checking) keeps its own and the other TV takes it.
         val hub = KeyVersion(k1, 0)
         val other = KeyVersion(k2, 0)
         assertEquals(-1, winner(hub, listOf(other)))
-        assertTrue(needs(other, hub))
-        assertTrue(accepts(other, hub))
+        assertTrue(needs(other, hub, SharedKey.TMDB.tieGoesToSender))
+        assertTrue(accepts(other, hub, SharedKey.TMDB.tieGoesToSender))
+    }
+
+    @Test fun twoGoogleKeysFromBeforeSharingAreBothKept() {
+        // Replacing either would sign that TV out of a Drive that works: neither moves until
+        // someone sets the keys again, which then goes everywhere.
+        val hub = KeyVersion(k1, 0)
+        val other = KeyVersion(k2, 0)
+        for (key in listOf(SharedKey.GOOGLE, SharedKey.CAMERAS)) {
+            assertFalse(key.tieGoesToSender)
+            assertFalse(needs(other, hub, key.tieGoesToSender))
+            assertFalse(accepts(other, hub, key.tieGoesToSender))
+        }
+        assertTrue(accepts(other, KeyVersion(k1, 700), SharedKey.GOOGLE.tieGoesToSender))
     }
 
     @Test fun offTvsAreSkipped() {
@@ -78,48 +118,50 @@ class TmdbKeyShareTest {
     // ---- A house of TVs, run with the same rules as the app ----------------------------------
 
     /** Each TV's key, and the TVs each one is linked to (it holds their link keys). */
-    private class House(val keys: MutableMap<String, KeyVersion>, val links: Map<String, List<String>>) {
+    private class House(val keys: MutableMap<String, KeyVersion>, val links: Map<String, List<String>>, val tie: Boolean = true) {
         var messages = 0
 
-        /** A TV takes [v] if it's newer, then passes it to the TVs linked to it (TmdbKeyShare.receive). */
+        /** A TV takes [v] if it's newer, then passes it to the TVs linked to it (SharedKeys.receive). */
         fun deliver(to: String, v: KeyVersion) {
             val queue = ArrayDeque(listOf(to to v))
             while (queue.isNotEmpty()) {
                 val (tv, version) = queue.removeFirst()
                 messages++
                 check(messages < 1_000) { "the key kept bouncing between TVs" }
-                if (!accepts(keys.getValue(tv), version)) continue
+                if (!accepts(keys.getValue(tv), version, tie)) continue
                 keys[tv] = version
                 links[tv].orEmpty().forEach { queue.add(it to version) }
             }
         }
 
-        /** Someone sets [v] on [tv] (TmdbKeyShare.set): saved there, sent to its linked TVs. */
+        /** Someone sets [v] on [tv] (SharedKeys.set): saved there, sent to its linked TVs. */
         fun set(tv: String, v: KeyVersion) {
             keys[tv] = v
             links[tv].orEmpty().forEach { deliver(it, v) }
         }
 
-        /** [hub]'s check of its linked TVs (TmdbKeyShare.sync); [off]: TVs that don't answer. */
+        /** [hub]'s check of its linked TVs (SharedKeys.sync); [off]: TVs that don't answer. */
         fun sync(hub: String, off: Set<String> = emptySet()) {
             val tvs = links[hub].orEmpty()
             val theirs = tvs.map { if (it in off) null else keys.getValue(it) }
             val w = winner(keys.getValue(hub), theirs)
-            if (w >= 0 && accepts(keys.getValue(hub), theirs[w]!!)) keys[hub] = theirs[w]!!
+            if (w >= 0 && accepts(keys.getValue(hub), theirs[w]!!, tie)) keys[hub] = theirs[w]!!
             val mine = keys.getValue(hub)
-            tvs.forEachIndexed { i, tv -> val v = theirs[i] ?: return@forEachIndexed; if (needs(v, mine)) deliver(tv, mine) }
+            tvs.forEachIndexed { i, tv -> val v = theirs[i] ?: return@forEachIndexed; if (needs(v, mine, tie)) deliver(tv, mine) }
         }
 
         fun fingerprints() = keys.values.map { it.fingerprint }.toSet()
     }
 
     @Test fun aKeySetOnTheHubReachesEveryTv() {
-        val house = House(
-            mutableMapOf("hub" to none, "sony" to none, "kids" to none),
-            mapOf("hub" to listOf("sony", "kids")),
-        )
-        house.set("hub", KeyVersion(k1, 100))
-        assertEquals(setOf(k1), house.fingerprints())
+        for (tie in listOf(true, false)) {
+            val house = House(
+                mutableMapOf("hub" to none, "sony" to none, "kids" to none),
+                mapOf("hub" to listOf("sony", "kids")), tie,
+            )
+            house.set("hub", KeyVersion(k1, 100))
+            assertEquals(setOf(k1), house.fingerprints())
+        }
     }
 
     @Test fun aKeySetOnATvTheHubLinksToReachesTheRestAtTheHubsCheck() {
@@ -134,13 +176,17 @@ class TmdbKeyShareTest {
         assertEquals(setOf(k2), house.fingerprints())
     }
 
-    @Test fun aTvThatWasOffCatchesUpLater() {
+    @Test fun aTvThatWasOffOrResetCatchesUpLater() {
         val house = House(
             mutableMapOf("hub" to KeyVersion(k1, 0), "sony" to none),
-            mapOf("hub" to listOf("sony")),
+            mapOf("hub" to listOf("sony")), tie = false,
         )
         house.sync("hub", off = setOf("sony"))
         assertEquals(none, house.keys["sony"])
+        house.sync("hub")
+        assertEquals(KeyVersion(k1, 0), house.keys["sony"])
+        // Reinstalled (its keys gone): the hub's next check puts them back.
+        house.keys["sony"] = none
         house.sync("hub")
         assertEquals(KeyVersion(k1, 0), house.keys["sony"])
     }

@@ -101,6 +101,7 @@ object GoogleAuth {
     fun isConfigured(c: Context) = !clientId(c).isNullOrBlank() && !s(c).get(K_CLIENT_SECRET).isNullOrBlank()
     fun isConnected(c: Context, grant: Grant = Grant.DRIVE) = s(c).get(grant.refreshKey) != null
     fun clientId(c: Context): String? = s(c).get(K_CLIENT_ID)
+    fun clientSecret(c: Context): String? = s(c).get(K_CLIENT_SECRET)
 
     /**
      * Whether Google granted [scope] with [grant]'s sign-in. False when it isn't known: a sign-in

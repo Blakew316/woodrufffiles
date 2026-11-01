@@ -48,6 +48,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.tmdb.Tmdb
+import com.woodruff.tvexplorer.settings.SharedKey
+import com.woodruff.tvexplorer.settings.SharedKeys
 import com.woodruff.tvexplorer.tvs.LinkedTv
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.server.AutoStart
@@ -280,9 +282,9 @@ fun SettingsScreen(vm: MainViewModel) {
             about = "iCloud, Gmail, Outlook and others. You'll need an app-specific password, not your usual one.",
         ) { dialog = SettingsDialog.PickProvider }
         SettingsPage.KEYS -> buildList {
-            add(SettingItem(Sym.Key, "Google Client ID", facts.clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it.") { dialog = SettingsDialog.ClientId })
-            add(SettingItem(Sym.Lock, "Google Client secret", if (facts.configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted on this TV.") { dialog = SettingsDialog.ClientSecret })
-            add(SettingItem(Sym.Key, "Cameras project ID", facts.nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it.") { dialog = SettingsDialog.NestProject })
+            add(SettingItem(Sym.Key, "Google Client ID", facts.clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it. Copied to every linked TV.") { dialog = SettingsDialog.ClientId })
+            add(SettingItem(Sym.Lock, "Google Client secret", if (facts.configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted, and copied to every linked TV.") { dialog = SettingsDialog.ClientSecret })
+            add(SettingItem(Sym.Key, "Cameras project ID", facts.nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it. Copied to every linked TV.") { dialog = SettingsDialog.NestProject })
             add(SettingItem(Sym.Key, "TMDB key", if (facts.tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures. Copied to every linked TV.") { dialog = SettingsDialog.TmdbKey })
             // Signing out, set apart from the keys.
             var gap = true
@@ -486,19 +488,19 @@ fun SettingsScreen(vm: MainViewModel) {
             "Google Client ID", facts.clientId.orEmpty(), "Save",
             onConfirm = { id ->
                 if (!id.endsWith(".apps.googleusercontent.com")) vm.say("A Client ID ends in .apps.googleusercontent.com")
-                else { GoogleAuth.saveClientId(context, id); changed() }
+                else { SharedKeys.set(context, SharedKey.GOOGLE) { GoogleAuth.saveClientId(context, id) }; changed() }
             },
             onDismiss = { dialog = null },
             hint = "From Google Cloud → Credentials → your Web application client.",
         )
         SettingsDialog.ClientSecret -> TextInputDialog(
             "Google Client secret", "", "Save",
-            onConfirm = { secret -> GoogleAuth.saveClientSecret(context, secret); changed() },
+            onConfirm = { secret -> SharedKeys.set(context, SharedKey.GOOGLE) { GoogleAuth.saveClientSecret(context, secret) }; changed() },
             onDismiss = { dialog = null }, secret = true, hint = "Usually starts with GOCSPX-",
         )
         SettingsDialog.RemoveGoogle -> ConfirmDialog(
-            "Remove Google keys?", "Signs out of Google Drive and deletes the saved Client ID and secret from this TV.", "Remove",
-            onConfirm = { GoogleAuth.resetClient(context); changed() }, onDismiss = { dialog = null },
+            "Remove Google keys?", "Signs out of Google Drive and deletes the saved Client ID and secret from this TV and every linked TV.", "Remove",
+            onConfirm = { SharedKeys.set(context, SharedKey.GOOGLE) { GoogleAuth.resetClient(context) }; changed() }, onDismiss = { dialog = null },
         )
         SettingsDialog.ResetPairing -> ConfirmDialog(
             "Reset pairing?", "Every phone, bookmark and Shortcut will need to scan the new QR code.", "Reset",
@@ -576,14 +578,14 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsDialog.TmdbKey -> TextInputDialog(
             "TMDB API key", "", "Save",
-            onConfirm = { key -> com.woodruff.tvexplorer.tmdb.TmdbKeyShare.set(context, key); changed() },
+            onConfirm = { key -> SharedKeys.set(context, SharedKey.TMDB) { Tmdb.saveKey(context, key) }; changed() },
             onDismiss = { dialog = null }, secret = true,
             hint = "Free at themoviedb.org → Settings → API. The API Key or the Read Access Token both work.",
         )
         SettingsDialog.NestProject -> TextInputDialog(
             "Device Access Project ID", GoogleAuth.nestProject(context).orEmpty(), "Save",
             onConfirm = { id ->
-                try { GoogleAuth.saveNestProject(context, id); changed() } catch (e: IllegalArgumentException) { vm.say(e.message ?: "Check the Project ID") }
+                try { SharedKeys.set(context, SharedKey.CAMERAS) { GoogleAuth.saveNestProject(context, id) }; changed() } catch (e: IllegalArgumentException) { vm.say(e.message ?: "Check the Project ID") }
             },
             onDismiss = { dialog = null },
             hint = "From console.nest.google.com/device-access → your project.",

@@ -22,6 +22,8 @@ import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.util.Handoff
 import com.woodruff.tvexplorer.tmdb.Tmdb
+import com.woodruff.tvexplorer.settings.SharedKey
+import com.woodruff.tvexplorer.settings.SharedKeys
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
@@ -58,7 +60,7 @@ class CompanionRoutes(private val ctx: Context) {
             Notices.post(ctx, NoticeSource.SYSTEM, "TV linked", "${b.optString("from").ifBlank { "Another TV" }} can now see what's playing here.")
             return json(r)
         }
-        // A linked hub TV: its link key opens only status, screen, remote keys and the shared TMDB key.
+        // A linked hub TV: its link key opens only status, screen, remote keys and the keys every TV shares.
         if (s.uri in TvLinks.LINK_ROUTES && TvLinks.isLinkKey(ctx, s.parameters["k"]?.firstOrNull())) return handle(s)
         if (s.uri != "/oauth/callback") return null
         val state = s.parameters["state"]?.firstOrNull()
@@ -331,28 +333,42 @@ class CompanionRoutes(private val ctx: Context) {
             val secret = b.optString("client_secret").trim()
             require(id.endsWith(".apps.googleusercontent.com")) { "The Client ID ends in .apps.googleusercontent.com" }
             require(secret.isNotEmpty()) { "Enter the Client secret" }
-            GoogleAuth.saveClient(ctx, id, secret)
+            // Saved here and copied to every linked TV.
+            SharedKeys.set(ctx, SharedKey.GOOGLE) { GoogleAuth.saveClient(ctx, id, secret) }
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
         }
         s.uri == "/api/settings/tmdb" && s.method == Method.POST -> {
             // Saved here and copied to every linked TV.
-            com.woodruff.tvexplorer.tmdb.TmdbKeyShare.set(ctx, body(s).optString("key"))
+            val key = body(s).optString("key")
+            SharedKeys.set(ctx, SharedKey.TMDB) { Tmdb.saveKey(ctx, key) }
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
         }
-        // The family's one TMDB key, kept on every TV (TmdbKeyShare): a linked TV asks what this TV
-        // has (with ?key=1, the key itself) and sends a newer one, which is kept only if it is newer.
-        s.uri == "/api/tmdb" && s.method == Method.GET ->
-            json(com.woodruff.tvexplorer.tmdb.TmdbKeyShare.json(ctx, withKey = s.parameters["key"]?.firstOrNull() == "1"))
+        // The keys every TV shares (SharedKeys): a linked TV asks what this TV has (with ?id=…, that
+        // key itself) and sends a newer one, which is kept only if it is newer.
+        s.uri == "/api/keys" && s.method == Method.GET ->
+            json(SharedKeys.json(ctx, withValue = SharedKey.of(s.parameters["id"]?.firstOrNull())))
+        s.uri == "/api/keys" && s.method == Method.POST -> {
+            val b = body(s)
+            val key = SharedKey.of(b.optString("id")) ?: throw IllegalArgumentException("Unknown key")
+            SharedKeys.receive(ctx, key, b.optString("value").ifBlank { null }, b.optLong("at"))
+            json(SharedKeys.json(ctx))
+        }
+        // The TMDB key alone, as a hub on 2.0.157 (before the other keys were shared) asks for it.
+        s.uri == "/api/tmdb" && s.method == Method.GET -> {
+            val tmdb = SharedKeys.json(ctx, withValue = SharedKey.TMDB).getJSONObject(SharedKey.TMDB.id)
+            json(JSONObject().put("fp", tmdb.optString("fp")).put("at", tmdb.optLong("at"))
+                .apply { if (s.parameters["key"]?.firstOrNull() == "1") put("key", tmdb.optString("value")) })
+        }
         s.uri == "/api/tmdb" && s.method == Method.POST -> {
             val b = body(s)
-            com.woodruff.tvexplorer.tmdb.TmdbKeyShare.receive(ctx, b.optString("key").ifBlank { null }, b.optLong("at"))
-            json(com.woodruff.tvexplorer.tmdb.TmdbKeyShare.json(ctx, withKey = false))
+            SharedKeys.receive(ctx, SharedKey.TMDB, b.optString("key").ifBlank { null }, b.optLong("at"))
+            json(JSONObject().put("fp", SharedKeys.version(ctx, SharedKey.TMDB).fingerprint).put("at", SharedKeys.at(ctx, SharedKey.TMDB)))
         }
         s.uri == "/api/settings/nest" && s.method == Method.POST -> {
             val b = body(s)
-            if (b.has("project")) GoogleAuth.saveNestProject(ctx, b.optString("project"))
+            if (b.has("project")) SharedKeys.set(ctx, SharedKey.CAMERAS) { GoogleAuth.saveNestProject(ctx, b.optString("project")) }
             if (b.has("doorbell")) com.woodruff.tvexplorer.nest.Doorbell.setSubscription(ctx, b.optString("doorbell"))
             if (b.has("person") || b.has("motion")) com.woodruff.tvexplorer.nest.Doorbell.setAlerts(
                 ctx, if (b.has("person")) b.optBoolean("person") else null, if (b.has("motion")) b.optBoolean("motion") else null,

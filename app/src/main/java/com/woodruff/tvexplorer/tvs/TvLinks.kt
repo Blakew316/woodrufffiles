@@ -58,7 +58,8 @@ data class TvTargets(val here: Boolean, val others: Set<String>?) {
  * home network (mDNS, "_woodruff._tcp"). To link, the other TV shows a 6-digit code for 10 minutes
  * (Settings → Link this TV); this TV finds it on the network and swaps the code for its link key.
  * The link key is not the phone pairing key: it only opens status, screen and remote keys (and the
- * family's shared TMDB key), never files, mail or any other setting. From then on this TV (the hub) fetches each TV's status, screen and remote keys for the
+ * keys every TV shares: TMDB, Google's Client ID and secret, the cameras project), never files,
+ * mail, sign-ins or any other setting. From then on this TV (the hub) fetches each TV's status, screen and remote keys for the
  * phone, so the phone only ever talks to one TV, at home or through Tailscale.
  *
  * A TV's address can change (a new router, a power cut, another app on port 8080), so each TV also
@@ -94,8 +95,11 @@ object TvLinks {
     /** Unlinks every TV that can see this one; they'd need a new code. */
     fun resetLinkKey(c: Context) { SecretStore.get(c).put(K_LINK_KEY, TransferServer.randomToken()) }
 
-    /** /api/tmdb: the family's shared TMDB key, which every linked TV keeps a copy of (TmdbKeyShare). */
-    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/tmdb")
+    /**
+     * /api/keys: the keys every TV shares (SharedKeys: TMDB, Google Client ID and secret, cameras
+     * project). /api/tmdb: the TMDB key alone, for a hub on 2.0.157, the version before the others.
+     */
+    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/keys", "/api/tmdb")
 
     fun isLinkKey(c: Context, k: String?): Boolean =
         k != null && MessageDigest.isEqual(k.toByteArray(), linkKey(c).toByteArray())
@@ -177,8 +181,8 @@ object TvLinks {
         val tv = LinkedTv(o.getString("id"), o.getString("name"), base, o.getString("key"))
         if (tv.id == id(c)) throw IOException("That's this TV.")
         edit(c) { list -> list.filter { it.id != tv.id } + tv }
-        // The TMDB key goes to the new TV now (or comes from it), not at the next check.
-        com.woodruff.tvexplorer.tmdb.TmdbKeyShare.syncSoon(c)
+        // The shared keys go to the new TV now (or come from it), not at the next check.
+        com.woodruff.tvexplorer.settings.SharedKeys.syncSoon(c)
         tv
     }
 
@@ -267,18 +271,23 @@ object TvLinks {
         reach(tv, again = true) { t -> request("${t.base}/api/doorbell?k=${enc(t.key)}", "POST", json) }
     }
 
-    // The shared TMDB key (TmdbKeyShare). Straight to the TV, not through [reach]: a TV running a
+    // The keys every TV shares (SharedKeys). Straight to the TV, not through [reach]: a TV running a
     // Woodruff from before keys were shared refuses the route, which mustn't count as it having moved,
     // and a TV that's off is caught up on the hub's next check anyway.
 
-    /** [tv]'s TMDB key: its fingerprint and when it was set ("fp", "at"), and the key itself ("key") when [withKey]. */
-    fun tmdb(tv: LinkedTv, withKey: Boolean): JSONObject =
-        JSONObject(request("${tv.base}/api/tmdb?k=${enc(tv.key)}" + if (withKey) "&key=1" else "", "GET", null))
+    /** What shared keys [tv] has: for each ("tmdb", "google", "cameras"), its fingerprint and when it was set ("fp", "at"). */
+    fun keys(tv: LinkedTv): JSONObject = JSONObject(request("${tv.base}/api/keys?k=${enc(tv.key)}", "GET", null))
 
-    /** Gives [tv] the TMDB key [key] (null: none), set at [at]; it keeps it only if it's newer than its own. */
-    fun sendTmdb(tv: LinkedTv, key: String?, at: Long) {
-        val json = JSONObject().put("key", key ?: "").put("at", at).toString()
-        request("${tv.base}/api/tmdb?k=${enc(tv.key)}", "POST", json)
+    /** [tv]'s shared key [id] itself ("value"), with its fingerprint and when it was set. */
+    fun key(tv: LinkedTv, id: String): JSONObject =
+        keys(tv, "&id=${enc(id)}").optJSONObject(id) ?: throw IOException("No $id from ${tv.name}")
+
+    private fun keys(tv: LinkedTv, query: String) = JSONObject(request("${tv.base}/api/keys?k=${enc(tv.key)}$query", "GET", null))
+
+    /** Gives [tv] the shared key [id] ([value], null: none), set at [at]; it keeps it only if it's newer than its own. */
+    fun sendKey(tv: LinkedTv, id: String, value: String?, at: Long) {
+        val json = JSONObject().put("id", id).put("value", value ?: "").put("at", at).toString()
+        request("${tv.base}/api/keys?k=${enc(tv.key)}", "POST", json)
     }
 
     /** Every linked TV, in parallel; failures (TV off) are ignored here, and a TV that moved is looked for in the background ([lost]). */

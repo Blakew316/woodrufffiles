@@ -126,8 +126,8 @@ class TransferService : Service() {
             while (isActive) {
                 runCatching { MailPoller.check(applicationContext) }
                 runCatching { com.woodruff.tvexplorer.update.Updater.maybeAuto(applicationContext) }
-                // The linked TVs' TMDB keys: a TV that was off, or just updated, gets the family's key.
-                runCatching { com.woodruff.tvexplorer.tmdb.TmdbKeyShare.sync(applicationContext) }
+                // The keys every TV shares: a TV that was off, reset or just linked gets the family's keys.
+                runCatching { com.woodruff.tvexplorer.settings.SharedKeys.sync(applicationContext) }
                 delay(MAIL_INTERVAL_MS)
             }
         }

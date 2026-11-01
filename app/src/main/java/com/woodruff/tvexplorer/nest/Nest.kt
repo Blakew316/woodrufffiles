@@ -131,7 +131,7 @@ object Nest {
 
     fun saveProject(id: String) {
         try {
-            GoogleAuth.saveNestProject(app, id)
+            com.woodruff.tvexplorer.settings.SharedKeys.set(app, com.woodruff.tvexplorer.settings.SharedKey.CAMERAS) { GoogleAuth.saveNestProject(app, id) }
             _state.update { it.copy(cameras = emptyList(), error = null) }
             open()
         } catch (e: IllegalArgumentException) {

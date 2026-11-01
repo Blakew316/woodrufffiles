@@ -62,8 +62,9 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Several TVs**: install Woodruff Family on each TV and give each a name (Settings → TVs → This TV's name).
   On the TV you'll watch from (the hub), choose **Add another TV**, pick the other TV from the list and type the
   6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's Settings → TVs then
-  list every TV with what's playing, and the phone can see and control any of them. The TMDB key (posters, genres,
-  the Netflix-style rows) is shared by linked TVs: enter it on one and every TV gets it. Woodruff's own player is
+  list every TV with what's playing, and the phone can see and control any of them. Linked TVs share their keys
+  (TMDB, Google's Client ID and secret, the cameras project): enter them on one and every TV gets them (see
+  [Keys are entered once](#keys-are-entered-once)). Woodruff's own player is
   always reported; to also see Netflix, YouTube and other apps, turn on **See what other apps are playing** on
   each TV (Notification access; Settings shows an adb command for TVs that hide that setting). If the router gives a
   TV a new address, the others find it again by themselves within a few minutes. The phone's TV list answers at once:
@@ -332,6 +333,27 @@ Notes:
   Settings → Accounts → **Sign in to Google Drive again** and scan the code with your phone, leaving every box ticked.
   Use the same Google account on every TV. The library stays as it is.
 
+## Keys are entered once
+
+The keys (**TMDB key**, **Google Client ID and secret**, **Cameras project ID**) are entered once, on any TV or from
+the phone, and every linked TV gets them (see *Several TVs*):
+
+- **They stay through updates.** Each TV keeps its keys encrypted in its own storage, and updating Woodruff (by
+  itself, or from Downloader without uninstalling) never touches them. Only uninstalling Woodruff, or *Clear data* /
+  *Clear storage* in Android's settings, erases them.
+- **A new or reset TV gets them by itself:** link it to the hub (Settings → TVs → Add another TV) and the keys arrive
+  within a few seconds. A TV that was off gets them within 5 minutes of coming back (the hub checks its linked TVs
+  every 5 minutes while its phone connection runs).
+- **The newest wins:** a key changed on any TV replaces the older one everywhere; removing the TMDB key, the Google
+  keys or the cameras project on one TV removes it from all of them. Google keys that differ between TVs from before
+  this version are left as they are (replacing them would sign that TV out); entering them again shares them.
+- **Sign-ins are still once per TV:** Drive, Photos, Calendar and the cameras are each approved by scanning a QR code
+  with the phone, on each TV. They stay through updates too. If a TV asks to sign in to Google again every week, that's
+  Google's 7-day limit for apps in "Testing" mode: click **Publish app** on the consent screen (see the Drive setup).
+- **Not built into the APK:** releases are public downloads, so anything built into the APK could be read by anyone.
+
+TVs share keys from version 2.0.158 (2.0.157 shared only the TMDB key).
+
 ## Movie and show posters
 
 Movies and TV Shows use poster tiles. Artwork follows the Plex/Kodi convention, no API key needed:
@@ -346,11 +368,8 @@ shows and seasons without their own art then get official posters, matched from 
 video's Drive preview frame (or a title card for folders) is shown. Movies and TV Shows also need the key for their
 Netflix-style page: the featured banner, *Top rated* and the genre rows all come from TMDB.
 
-**One key for every TV:** enter it once, on any TV or from the phone, and it's copied to every linked TV (see
-*Several TVs*). Each TV keeps its own encrypted copy, so it stays through restarts and updates. A TV that's off at the
-time, or linked later, gets it from the hub within a few minutes (the hub checks its linked TVs every 5 minutes while
-its phone connection runs). If different keys were entered on different TVs, the newest one wins; removing the key
-on one TV removes it from all of them. TVs need this version or later to share it.
+**One key for every TV:** enter it once, on any TV or from the phone, and it's copied to every linked TV. See
+[Keys are entered once](#keys-are-entered-once).
 
 *This product uses the TMDB API but is not endorsed or certified by TMDB.*
 
@@ -429,7 +448,8 @@ The APK is written to `app/build/outputs/apk/release/`.
 - Lock-screen alerts go through the public ntfy.sh server. Each phone's topic is random, but anyone who learns it can read
   the announcements sent to that phone, so don't announce secrets.
 - A linked TV gets its own link key, not the phone pairing key: it can only read status, see the screen, press
-  remote keys, show messages and read or update the shared TMDB key, never touch files, mail or any other setting. **Stop other TVs seeing this one** in Settings revokes every link.
+  remote keys, show messages and read or update the shared keys (TMDB, Google's Client ID and secret, the cameras
+  project), never touch files, mail, sign-ins or any other setting. **Stop other TVs seeing this one** in Settings revokes every link.
   Linking codes last 10 minutes, work once, and die after 5 wrong tries.
 - To find a linked TV at a new address, a TV asks the device on your network that now uses that TV's name, with the
   link key, and uses it only if it answers as the same TV. Like the rest of this traffic, it's plain HTTP on your network.
