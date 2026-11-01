@@ -58,7 +58,7 @@ class CompanionRoutes(private val ctx: Context) {
             Notices.post(ctx, NoticeSource.SYSTEM, "TV linked", "${b.optString("from").ifBlank { "Another TV" }} can now see what's playing here.")
             return json(r)
         }
-        // A linked hub TV: its link key opens only status, screen and remote keys.
+        // A linked hub TV: its link key opens only status, screen, remote keys and the shared TMDB key.
         if (s.uri in TvLinks.LINK_ROUTES && TvLinks.isLinkKey(ctx, s.parameters["k"]?.firstOrNull())) return handle(s)
         if (s.uri != "/oauth/callback") return null
         val state = s.parameters["state"]?.firstOrNull()
@@ -336,9 +336,19 @@ class CompanionRoutes(private val ctx: Context) {
             json(settingsJson(s))
         }
         s.uri == "/api/settings/tmdb" && s.method == Method.POST -> {
-            Tmdb.saveKey(ctx, body(s).optString("key"))
+            // Saved here and copied to every linked TV.
+            com.woodruff.tvexplorer.tmdb.TmdbKeyShare.set(ctx, body(s).optString("key"))
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
+        }
+        // The family's one TMDB key, kept on every TV (TmdbKeyShare): a linked TV asks what this TV
+        // has (with ?key=1, the key itself) and sends a newer one, which is kept only if it is newer.
+        s.uri == "/api/tmdb" && s.method == Method.GET ->
+            json(com.woodruff.tvexplorer.tmdb.TmdbKeyShare.json(ctx, withKey = s.parameters["key"]?.firstOrNull() == "1"))
+        s.uri == "/api/tmdb" && s.method == Method.POST -> {
+            val b = body(s)
+            com.woodruff.tvexplorer.tmdb.TmdbKeyShare.receive(ctx, b.optString("key").ifBlank { null }, b.optLong("at"))
+            json(com.woodruff.tvexplorer.tmdb.TmdbKeyShare.json(ctx, withKey = false))
         }
         s.uri == "/api/settings/nest" && s.method == Method.POST -> {
             val b = body(s)

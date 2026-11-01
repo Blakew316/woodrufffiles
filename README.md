@@ -62,7 +62,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Several TVs**: install Woodruff Family on each TV and give each a name (Settings → TVs → This TV's name).
   On the TV you'll watch from (the hub), choose **Add another TV**, pick the other TV from the list and type the
   6-digit code it shows under **Link this TV to another**. The hub's Command center and the phone's Settings → TVs then
-  list every TV with what's playing, and the phone can see and control any of them. Woodruff's own player is
+  list every TV with what's playing, and the phone can see and control any of them. The TMDB key (posters, genres,
+  the Netflix-style rows) is shared by linked TVs: enter it on one and every TV gets it. Woodruff's own player is
   always reported; to also see Netflix, YouTube and other apps, turn on **See what other apps are playing** on
   each TV (Notification access; Settings shows an adb command for TVs that hide that setting). If the router gives a
   TV a new address, the others find it again by themselves within a few minutes. The phone's TV list answers at once:
@@ -339,10 +340,17 @@ Movies and TV Shows use poster tiles. Artwork follows the Plex/Kodi convention, 
 Those images are used as posters and hidden from the grid.
 
 **Automatic posters (TMDB):** add a free API key from [themoviedb.org](https://www.themoviedb.org/settings/api)
-(the API Key or the Read Access Token) in **Settings → Movie & show posters**, or in the phone's Settings tab. Movies,
+(the API Key or the Read Access Token) in **Settings → Keys & sign-out → TMDB key**, or in the phone's Settings tab. Movies,
 shows and seasons without their own art then get official posters, matched from names like `Inception (2010).mkv`,
 `The.Office.S01.1080p` or `Season 2`. Lookups are cached on the TV. Your own art always wins. Without either, the
-video's Drive preview frame (or a title card for folders) is shown.
+video's Drive preview frame (or a title card for folders) is shown. Movies and TV Shows also need the key for their
+Netflix-style page: the featured banner, *Top rated* and the genre rows all come from TMDB.
+
+**One key for every TV:** enter it once, on any TV or from the phone, and it's copied to every linked TV (see
+*Several TVs*). Each TV keeps its own encrypted copy, so it stays through restarts and updates. A TV that's off at the
+time, or linked later, gets it from the hub within a few minutes (the hub checks its linked TVs every 5 minutes while
+its phone connection runs). If different keys were entered on different TVs, the newest one wins; removing the key
+on one TV removes it from all of them. TVs need this version or later to share it.
 
 *This product uses the TMDB API but is not endorsed or certified by TMDB.*
 
@@ -421,7 +429,7 @@ The APK is written to `app/build/outputs/apk/release/`.
 - Lock-screen alerts go through the public ntfy.sh server. Each phone's topic is random, but anyone who learns it can read
   the announcements sent to that phone, so don't announce secrets.
 - A linked TV gets its own link key, not the phone pairing key: it can only read status, see the screen, press
-  remote keys and show messages, never touch files, settings or mail. **Stop other TVs seeing this one** in Settings revokes every link.
+  remote keys, show messages and read or update the shared TMDB key, never touch files, mail or any other setting. **Stop other TVs seeing this one** in Settings revokes every link.
   Linking codes last 10 minutes, work once, and die after 5 wrong tries.
 - To find a linked TV at a new address, a TV asks the device on your network that now uses that TV's name, with the
   link key, and uses it only if it answers as the same TV. Like the rest of this traffic, it's plain HTTP on your network.

@@ -735,7 +735,7 @@
     <div class="group"><div class="row"><span class="txt t">Status</span><span class="detail" id="t-status2">…</span></div></div>
     <div class="head">TMDB Key</div>
     <div class="group"><label class="row field"><input id="t-key" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="API key or Read Access Token" aria-label="TMDB key"></label></div>
-    <p class="foot">Free at themoviedb.org, under Settings → API. Adds posters, genres and ratings to Movies and TV Shows.</p>
+    <p class="foot">Free at themoviedb.org, under Settings → API. Adds posters, genres and ratings to Movies and TV Shows. One key is enough: it's copied to every linked TV.</p>
   </div></div>
 
   <div class="page" id="set-cams" data-title="Cameras" data-hash="cameras"><div class="scroller">
@@ -3356,7 +3356,7 @@
   };
   $('t-save').onclick = function () {
     var k = $('t-key').value.trim(); if (!k) return toast('Paste the TMDB key first', true);
-    post('/api/settings/tmdb', { key: k }).then(function (r) { $('t-key').value = ''; renderSettings(r); toast('Saved. Posters update on the TV'); }, err);
+    post('/api/settings/tmdb', { key: k }).then(function (r) { $('t-key').value = ''; renderSettings(r); toast('Saved. Posters update on every linked TV'); }, err);
   };
   $('c-person').onchange = function () { post('/api/settings/nest', { person: $('c-person').checked }).then(renderSettings, err); };
   $('c-motion').onchange = function () { post('/api/settings/nest', { motion: $('c-motion').checked }).then(renderSettings, err); };

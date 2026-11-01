@@ -283,7 +283,7 @@ fun SettingsScreen(vm: MainViewModel) {
             add(SettingItem(Sym.Key, "Google Client ID", facts.clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it.") { dialog = SettingsDialog.ClientId })
             add(SettingItem(Sym.Lock, "Google Client secret", if (facts.configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted on this TV.") { dialog = SettingsDialog.ClientSecret })
             add(SettingItem(Sym.Key, "Cameras project ID", facts.nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it.") { dialog = SettingsDialog.NestProject })
-            add(SettingItem(Sym.Key, "TMDB key", if (facts.tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures.") { dialog = SettingsDialog.TmdbKey })
+            add(SettingItem(Sym.Key, "TMDB key", if (facts.tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures. Copied to every linked TV.") { dialog = SettingsDialog.TmdbKey })
             // Signing out, set apart from the keys.
             var gap = true
             fun out(on: Boolean, title: String, about: String, action: () -> Unit) {
@@ -576,7 +576,7 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsDialog.TmdbKey -> TextInputDialog(
             "TMDB API key", "", "Save",
-            onConfirm = { key -> Tmdb.saveKey(context, key); changed() },
+            onConfirm = { key -> com.woodruff.tvexplorer.tmdb.TmdbKeyShare.set(context, key); changed() },
             onDismiss = { dialog = null }, secret = true,
             hint = "Free at themoviedb.org → Settings → API. The API Key or the Read Access Token both work.",
         )

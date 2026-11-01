@@ -34,6 +34,7 @@ object Tmdb {
     enum class Mode { MOVIES, SHOWS, SEASONS, EPISODES, NONE }
 
     private const val KEY = "tmdb.key"
+    private const val KEY_AT = "tmdb.key.at"
     private const val API = "https://api.themoviedb.org/3/"
     // w342 is plenty for a ~150dp poster tile and about 40% smaller to download than w500.
     private const val IMG = "https://image.tmdb.org/t/p/w342"
@@ -47,9 +48,17 @@ object Tmdb {
     fun key(c: Context): String? = SecretStore.get(c).get(KEY)?.takeIf { it.isNotBlank() }
     fun isConfigured(c: Context) = key(c) != null
 
-    /** Accepts either the v3 "API Key" or the v4 "API Read Access Token". */
-    fun saveKey(c: Context, key: String?) {
+    /** When the key was set or removed, here or on another TV (0: before keys were shared, or never). See [TmdbKeyShare]. */
+    fun keyAt(c: Context): Long = SecretStore.get(c).get(KEY_AT)?.toLongOrNull() ?: 0L
+
+    /**
+     * Accepts either the v3 "API Key" or the v4 "API Read Access Token". [at]: when it was set, kept
+     * with it so the TVs can tell the newest key apart. Someone setting it goes through
+     * [TmdbKeyShare.set], which also copies it to the linked TVs.
+     */
+    fun saveKey(c: Context, key: String?, at: Long) {
         SecretStore.get(c).put(KEY, key?.trim()?.ifBlank { null })
+        SecretStore.get(c).put(KEY_AT, at.toString())
         cache.clear()
         cacheFile(c).delete()
     }
