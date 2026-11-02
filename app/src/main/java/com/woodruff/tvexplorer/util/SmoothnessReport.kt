@@ -222,6 +222,10 @@ object SmoothnessReport {
     private fun facts(c: Context): List<String> = buildList {
         val up = SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()
         add("App ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}) · up ${since(up)}")
+        add(safe {
+            val f = com.woodruff.tvexplorer.update.Updater.installFacts(c)
+            f.summary() + (f.signIns()?.let { " · sign-ins: $it" } ?: "")
+        })
         add("${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE})")
         add("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
         add("CPU: " + safe { cpu() })
