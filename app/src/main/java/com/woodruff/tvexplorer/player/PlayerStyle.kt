@@ -107,6 +107,18 @@ internal object PlayerStyle {
         FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
         Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
     ).apply { setMargins(0, 0, 0, dp(c, 40f).toInt()) }
+
+    /**
+     * The words under the loading ring ("Reconnecting…", [BufferingIndicator]): the same card as a
+     * [message], centred, as wide as its words up to [CAPTION_MAX_DP]; longer ones wrap into even lines.
+     */
+    fun caption(c: Context): TextView = asCard(c, MessageText(c), BufferingIndicator.CAPTION_SP).apply {
+        gravity = Gravity.CENTER
+        maxWidth = dp(c, CAPTION_MAX_DP).toInt()
+    }
+
+    /** The loading ring's caption wraps past this width: two even lines rather than one long one. */
+    const val CAPTION_MAX_DP = 420f
 }
 
 /**

@@ -18,12 +18,16 @@ import androidx.media3.ui.PlayerView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.woodruff.tvexplorer.R
+import com.woodruff.tvexplorer.player.Buffering
+import com.woodruff.tvexplorer.player.BufferingIndicator
 import com.woodruff.tvexplorer.player.GlidingCard
 import com.woodruff.tvexplorer.player.PlayerStyle
 import com.woodruff.tvexplorer.player.SoundTrack
 import com.woodruff.tvexplorer.player.SoundTracks
+import com.woodruff.tvexplorer.player.Stall
 import com.woodruff.tvexplorer.player.TvMenu
 import com.woodruff.tvexplorer.player.TvTimeBar
+import com.woodruff.tvexplorer.ui.motion.AppMotion
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,8 +41,8 @@ import java.util.Locale
 
 /**
  * The player telling the family what's going on (specs/player-feedback.md): a film's sound this TV
- * can't play, said as it starts, and the Audio menu listing every track with the ones that can't
- * play marked. Drawn over a made-up frame of film (no video plays on the JVM); the rows and words
+ * can't play, said as it starts, the Audio menu listing every track with the ones that can't play
+ * marked, and the loading ring with what it says while the film loads or the connection is back. Drawn over a made-up frame of film (no video plays on the JVM); the rows and words
  * come from the player's own [SoundTracks], so the pictures show what the player really says. The
  * player is always dark, so the same picture goes under both names. Only runs with `-Pgallery`.
  */
@@ -110,9 +114,59 @@ class PlayerFeedbackGallery {
         save(root, "player-no-sound")
     }
 
+    @Test
+    fun drawLoading() {
+        // The ring would turn for as long as it's up, and the screenshots wait for the screen to be
+        // still: drawn with Reduce motion on, it stands at a fixed turn and the cards are in place on
+        // the next frame. What it says is worked out as without Reduce motion (no "Loading…").
+        AppMotion.reduced = true
+        try {
+            drawLoadingStates()
+        } finally {
+            AppMotion.reduced = false
+        }
+    }
+
+    private fun drawLoadingStates() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val root = FrameLayout(activity)
+        root.clipChildren = false
+        root.background = BitmapDrawable(activity.resources, film(1920, 1080))
+        val player = activity.layoutInflater.inflate(R.layout.tv_player_view, root, false) as PlayerView
+        player.setShutterBackgroundColor(0)
+        player.setBackgroundColor(0)
+        root.addView(player)
+        // Where the player puts it: over the film and its controls, under everything else.
+        val loading = BufferingIndicator(activity, root)
+        activity.setContentView(root)
+        player.hideController()
+        settle()
+
+        // A slow start or seek, the controls away: the ring alone, after half a second of it.
+        loading.show(Buffering.look(waitingMs = 600, stall = null, stalledMs = 0, reduced = false)!!)
+        settle()
+        save(root, "player-buffering")
+
+        // The Wi-Fi dropped: trying again, and saying so.
+        loading.show(Buffering.look(waitingMs = null, stall = Stall.NETWORK, stalledMs = 2_000, reduced = false)!!)
+        settle()
+        save(root, "player-reconnecting")
+
+        // Half a minute later: the longest words it has, in two even lines.
+        loading.show(Buffering.look(waitingMs = null, stall = Stall.NETWORK, stalledMs = 31_000, reduced = false)!!)
+        settle()
+        save(root, "player-still-reconnecting")
+
+        // Google ended the Drive sign-in: nothing to wait for, so no ring; what to do instead.
+        loading.show(Buffering.look(waitingMs = null, stall = Stall.SIGNED_OUT, stalledMs = 40_000, reduced = false)!!)
+        settle()
+        save(root, "player-signed-out")
+    }
+
     private fun settle() {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(800))
     }
+
 
     private fun save(root: View, name: String) {
         for (scheme in listOf("dark", "light")) root.captureRoboImage(File(out, "tv-$name-$scheme.png").path)

@@ -59,9 +59,22 @@ class PlayerActivity : ComponentActivity() {
     private var savedQueue: Pair<List<String>, List<String>>? = null
     /** One retry with a fresh Google token after a sign-in error, per item. */
     private var retriedKey: String? = null
-    /** Waiting for the connection (or Google) to come back, on this item: retries without skipping it. */
-    private val retry = android.os.Handler(android.os.Looper.getMainLooper())
+    /**
+     * Waiting for the connection (or Google) to come back, on this item: retries without skipping
+     * it ([stalled]). [stall] is why, which the loading ring says, and [stalledSince] since when.
+     */
     private var stalledKey: String? = null
+    private var stall: Stall? = null
+    private var stalledSince: Long? = null
+    /**
+     * The next try for a stalled film: in [RETRY_MS], or the moment the network is back. A try
+     * prepares the player again where it was (nothing happens if a try is already under way).
+     */
+    private val retry by lazy {
+        RetryWait(lifecycleScope, com.woodruff.tvexplorer.util.NetworkWatch.comebacks, RETRY_MS) {
+            if (stall != null && stall != Stall.SIGNED_OUT) player?.prepare()
+        }
+    }
     /** The item playing a moment ago and where it was, saved when Next / Previous moves on from it. */
     private var lastSeen: RecentItem? = null
     /** The key whose OK / Back press was handled here: its release is ours too (PlayerView would pop the controls up). */
@@ -143,6 +156,9 @@ class PlayerActivity : ComponentActivity() {
         // Not clipping its children: a card gliding up from below its place is drawn there too.
         root.clipChildren = false
         root.addView(view)
+        // The loading ring, in the middle over the film and its controls (and under everything else):
+        // a picture that pauses to load says so rather than looking frozen.
+        loading = BufferingIndicator(this, root)
         // At an episode's end: Up next, over the film's last frame.
         upNextPanel = UpNextPanel(this, root)
         root.addView(nextEp, android.widget.FrameLayout.LayoutParams(
@@ -335,14 +351,94 @@ class PlayerActivity : ComponentActivity() {
 
     /**
      * Says something over the film, as Android's toasts did, but gliding in and out like the player's
-     * other cards. It stays [ms]: as long as a short toast did unless told otherwise ([LONG_MESSAGE_MS],
-     * [NOTICE_MESSAGE_MS]); a newer message replaces it at once.
+     * other cards. It stays [ms]: as long as a short toast did unless told otherwise
+     * ([NOTICE_MESSAGE_MS]); a newer message replaces it at once.
      */
     private fun say(text: String, ms: Long = MESSAGE_MS) {
         message.text = text
         messageCard.show()
         countdown.removeCallbacks(hideMessage)
         countdown.postDelayed(hideMessage, ms)
+    }
+
+    // ---- Loading, and trying again ------------------------------------------------------------
+
+    private lateinit var loading: BufferingIndicator
+    /** Since when the player has been meant to play without playing (the ring shows after 500 ms of it). */
+    private val waitClock = WaitClock()
+    private val updateLoadingLater = Runnable { updateLoading() }
+
+    /**
+     * The loading ring, as things stand now ([Buffering]): after half a second of loading while
+     * meant to play (a slow start, a seek, a stall), and all the while the player is trying again
+     * after the connection or Google failed, with what's going on under it. Gone the moment the film
+     * plays, when it's paused (unless it's still trying again), with Up next, and when the player
+     * stops. Called on each player event that can change it; one timer covers the next change of
+     * words ("Still loading…" after 10 s), so nothing polls.
+     */
+    private fun updateLoading() {
+        if (!::loading.isInitialized) return
+        countdown.removeCallbacks(updateLoadingLater)
+        val p = player ?: run { loading.hide(animate = false); return }
+        val now = android.os.SystemClock.elapsedRealtime()
+        waitClock.update(p.playWhenReady, p.playbackState, p.isPlaying, now)
+        val waited = waitClock.waitedMs(p.playbackState, now)
+        val stalledMs = stalledSince?.let { now - it } ?: 0L
+        val look = if (upNextPanel.shown) null else Buffering.look(waited, stall, stalledMs, com.woodruff.tvexplorer.ui.motion.AppMotion.reduced)
+        if (look != null) loading.show(look) else loading.hide()
+        Buffering.nextChangeMs(waited, stall, stalledMs)?.let { countdown.postDelayed(updateLoadingLater, it) }
+    }
+
+    /**
+     * The connection or Google failed on [key] (after the one immediate try with a current token):
+     * stay on it, say what's going on under the ring, and try again in [RETRY_MS], or the moment the
+     * network is back, whichever comes first ([retry]). Drive's refusal is checked against the
+     * sign-in: when Google has ended it, trying stops and the ring's card says how to sign in again.
+     */
+    private fun stalled(p: ExoPlayer, key: String?, kind: Stall) {
+        if (stalledKey == null) stalledSince = android.os.SystemClock.elapsedRealtime()
+        stalledKey = key
+        stall = kind
+        // Media3 brings the controls up whenever the player is idle (between tries) and lets them go
+        // during the next try: they'd come and go every few seconds over "Reconnecting…". The ring
+        // says what's happening; OK or Play/Pause still bring the controls up.
+        view.controllerAutoShow = false
+        retry.arm()
+        if (kind == Stall.REFUSED) checkDriveSignIn(p)
+        updateLoading()
+    }
+
+    /**
+     * Google Drive turned the film down while this TV looked signed in: whether Google has ended the
+     * sign-in (read off the main thread: it's in the TV's secret store). If so, nothing from Drive
+     * will play until someone signs in again, so the player stops trying and says how.
+     */
+    private fun checkDriveSignIn(p: ExoPlayer) {
+        val app = applicationContext
+        lifecycleScope.launch {
+            val signedIn = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { GoogleAuth.isConnected(app) }.getOrDefault(true)
+            }
+            if (signedIn || player !== p || stall != Stall.REFUSED) return@launch
+            stall = Stall.SIGNED_OUT
+            stopTrying()
+            updateLoading()
+        }
+    }
+
+    /** No more tries. */
+    private fun stopTrying() {
+        retry.stop()
+    }
+
+    /** The film plays (or is loaded and ready) again: the stall is over. */
+    private fun clearStall() {
+        if (stalledKey == null && stall == null) return
+        stalledKey = null
+        stall = null
+        stalledSince = null
+        stopTrying()
+        view.controllerAutoShow = true
     }
 
     // ---- Watch together ----------------------------------------------------------------------
@@ -716,13 +812,16 @@ class PlayerActivity : ComponentActivity() {
                 ?: pv.request(next.mediaId, UP_NEXT_ART_MS) { if (upNextPanel.shown) upNextPanel.setArt(it) }
         }
         countdown.postDelayed(tick, 1_000)
+        updateLoading() // the ring makes way too
     }
 
     /** [animate] false: gone at once (the player stopping). */
     private fun cancelUpNext(animate: Boolean = true) {
         countdown.removeCallbacks(tick)
+        val wasUp = ::upNextPanel.isInitialized && upNextPanel.shown
         if (::upNextPanel.isInitialized) upNextPanel.hide(animate)
         view.useController = true
+        if (wasUp) updateLoading()
     }
 
     /** Done on Up next (or Back): this one is finished, so leave rather than sit paused on its last frame. */
@@ -905,6 +1004,12 @@ class PlayerActivity : ComponentActivity() {
         // rate and the next season are seen to again (the TV may have switched back meanwhile).
         autoSubsOn = false
         stalledKey = null
+        stall = null
+        stalledSince = null
+        view.controllerAutoShow = true
+        waitClock.reset()
+        // Knowing when the Wi-Fi comes back, a stalled film tries again that moment (once per process).
+        com.woodruff.tvexplorer.util.NetworkWatch.start(applicationContext)
         rateMatchedFor = null
         nextSeasonFor = null
         matchRate = FrameRateMatch.enabled(this)
@@ -946,48 +1051,37 @@ class PlayerActivity : ComponentActivity() {
                 override fun onPlayerError(error: PlaybackException) {
                     val key = p.currentMediaItem?.mediaId
                     val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
+                    val drive = key?.startsWith("drive:") == true
                     // The connection or Google, not this file: every other item would fail the same way.
-                    val passing = http == 401 || http == 403 || http == 429 || (http ?: 0) in 500..599 ||
-                        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
-                        error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT
-                    // Google Drive turned the request down (sign-in ran out, a hiccup): try this episode
-                    // again at once, from where it was, with a current token.
-                    if (key != null && key.startsWith("drive:") && retriedKey != key && passing) {
-                        retriedKey = key
-                        p.prepare()
-                        return
-                    }
-                    if (passing) {
-                        // Stay on it and try again shortly (it used to skip ahead, item after item, until
-                        // the Wi-Fi came back many episodes later). Said once, not on every try.
-                        if (stalledKey != key) {
-                            stalledKey = key
-                            val msg = if (http == 401 || http == 403) "Google Drive turned it down. Trying again… (if this keeps happening, sign in to Google Drive again in Settings)"
-                            else "Lost the connection. Trying again…"
-                            say(msg, LONG_MESSAGE_MS)
+                    val kind = PlaybackErrors.stallOf(http, error.errorCode, drive)
+                    if (kind != null) {
+                        // Google Drive turned the request down (sign-in ran out, a hiccup): try this episode
+                        // again at once, from where it was, with a current token.
+                        if (drive && retriedKey != key) {
+                            retriedKey = key
+                            p.prepare()
+                            return
                         }
-                        retry.removeCallbacksAndMessages(null)
-                        retry.postDelayed({ if (player === p) p.prepare() }, 10_000)
+                        // Stay on it and try again (it used to skip ahead, item after item, until the
+                        // Wi-Fi came back many episodes later), the ring saying what's going on.
+                        stalled(p, key, kind)
                         return
                     }
-                    // Unsupported codec etc.: say so and move on rather than sitting on a black screen.
-                    // The whole cause goes to the log: the TV running out of memory partway through a
-                    // big remux otherwise looks just like a bad file.
+                    // Unsupported codec etc.: say so in plain words and move on rather than sitting on a
+                    // black screen. The whole cause goes to the log: the TV running out of memory partway
+                    // through a big remux otherwise looks just like a bad file.
                     android.util.Log.w("Player", "Can't play $key: ${error.errorCodeName}", error)
-                    val why = when {
-                        http == 401 || http == 403 -> "Google Drive refused it (sign in to Google Drive again in Settings)"
-                        http == 404 -> "it's no longer in Google Drive"
-                        http != null -> "Google Drive error $http"
-                        generateSequence<Throwable>(error) { it.cause }.take(10).any { it is OutOfMemoryError } -> "this TV ran out of memory"
-                        else -> error.errorCodeName
-                    }
-                    say("Can't play ${p.currentMediaItem?.mediaMetadata?.title ?: "this file"}: $why", LONG_MESSAGE_MS)
+                    clearStall()
+                    waitClock.reset()
+                    val why = PlaybackErrors.why(error.errorCode, http, drive, PlaybackErrors.outOfMemory(error))
+                    say(PlaybackErrors.cantPlay(p.currentMediaItem?.mediaMetadata?.title?.toString(), why), NOTICE_MESSAGE_MS)
                     if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
+                    updateLoading()
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying) { retriedKey = null; stalledKey = null }
+                    if (isPlaying) { retriedKey = null; clearStall() }
+                    updateLoading()
                     if (leader) sendSync()
                 }
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -1044,12 +1138,16 @@ class PlayerActivity : ComponentActivity() {
 
                 override fun onPlaybackStateChanged(state: Int) {
                     updateScreenOn()
+                    // Loaded again after a stall, even while paused: the connection is back.
+                    if (p.playbackState == Player.STATE_READY) clearStall()
+                    updateLoading()
                     // Last item of a music queue (no pause at the end): leave like a video does.
                     if (state == Player.STATE_ENDED) { p.currentMediaItem?.mediaId?.let(::finished); finish() }
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     updateScreenOn()
+                    updateLoading()
                     if (playWhenReady || reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) return
                     if (sleepAtEnd) { sleepNow(); return }
                     if (p.hasNextMediaItem()) startUpNext()
@@ -1063,6 +1161,9 @@ class PlayerActivity : ComponentActivity() {
                     cancelUpNext()
                     // A look at the last item's sound that hadn't happened yet is for an item no longer playing.
                     countdown.removeCallbacks(checkSound)
+                    // Moved on while waiting to try again (Next pressed): try this one now, not at the
+                    // next try (a sign-in that ended may not matter to it: a film on a USB drive).
+                    if (stalledKey != null && p.playbackState == Player.STATE_IDLE) p.prepare()
                     autoSubsOn = false
                     applyShowTracks(p)
                     bindTitle(mediaItem)
@@ -1117,7 +1218,7 @@ class PlayerActivity : ComponentActivity() {
         if (::messageCard.isInitialized) messageCard.hide(animate = false)
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         reporter.removeCallbacks(report)
-        retry.removeCallbacksAndMessages(null)
+        stopTrying()
         followJob?.cancel(); followJob = null
         doorbellJob?.cancel(); doorbellJob = null
         tokenJob?.cancel(); tokenJob = null
@@ -1145,6 +1246,8 @@ class PlayerActivity : ComponentActivity() {
         }
         heldForRate = false
         player = null
+        // Off the screen: the loading ring goes at once, as the cards above do.
+        updateLoading()
         super.onStop()
     }
 
@@ -1323,11 +1426,15 @@ class PlayerActivity : ComponentActivity() {
         /** A button with nothing to offer (no subtitles, or no sound, in the video). */
         private const val DIM = 0.4f
         private val SPEEDS = listOf("0.5×" to 0.5f, "0.75×" to 0.75f, "Normal" to 1f, "1.25×" to 1.25f, "1.5×" to 1.5f, "2×" to 2f)
-        /** How long a message stays over the film: as long as Android's short and long toasts did. */
+        /** How long a message stays over the film: as long as Android's short toasts did. */
         private const val MESSAGE_MS = 2_000L
-        private const val LONG_MESSAGE_MS = 3_500L
-        /** A message there's more to read in, said once (a film's sound this TV can't play). */
+        /** A message there's more to read in, said once (a film's sound this TV can't play, "Can’t play …"). */
         private const val NOTICE_MESSAGE_MS = 6_000L
+        /**
+         * How long a stalled film waits before trying again when nothing says the network is back
+         * (it was down for a moment only, or it's Google that's failing): see [RetryWait].
+         */
+        private const val RETRY_MS = 10_000L
         /** How long after a film's first picture its sound is looked at: after the window's own entrance. */
         private const val SOUND_CHECK_DELAY_MS = 1_000L
         private const val EXTRA_KEYS = "keys"

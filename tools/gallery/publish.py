@@ -18,6 +18,8 @@ TITLES = {
     'tv-screen': 'Settings › TVs › TV Screen', 'settings-tvs': 'Settings › TVs', 'send-to': 'Send › To',
     'player': 'Player', 'player-menu': 'Player › Subtitles menu', 'player-up-next': 'Player › Up next',
     'player-audio-menu': 'Player › Audio menu', 'player-no-sound': 'Player · sound this TV can’t play',
+    'player-buffering': 'Player · loading', 'player-reconnecting': 'Player · reconnecting',
+    'player-still-reconnecting': 'Player · still reconnecting', 'player-signed-out': 'Player · Drive sign-in ended',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -32,7 +34,8 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
 ORDER = ['home', 'home-menu', 'home-notice', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
-         'player', 'player-menu', 'player-up-next', 'player-audio-menu', 'player-no-sound', 'files', 'tv', 'keyboard', 'send']
+         'player', 'player-menu', 'player-up-next', 'player-audio-menu', 'player-no-sound',
+         'player-buffering', 'player-reconnecting', 'player-still-reconnecting', 'player-signed-out', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {
