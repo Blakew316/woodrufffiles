@@ -80,12 +80,18 @@ object Nest {
         // Reading the encrypted settings goes through the Keystore; keep it off the main thread at
         // launch. This also warms the settings cache, so Settings and Drive open instantly later.
         scope.launch {
-            // The cameras as last listed, first: a ring can come before any screen opens.
+            // The cameras as last listed, first: a ring can come before any screen opens. The list is
+            // kept only while they're connected (it goes when they're signed out or the project
+            // changes), so with one saved they show as connected straight away: Home's tiles don't
+            // wait for the sign-in to be read from the Keystore (just below, which puts it right if
+            // it changed meanwhile), and nothing says "aren't connected" for a moment at every start.
+            // (Every change to the state is made on the main thread: this read and write is one step.)
             val known = withContext(Dispatchers.IO) { camerasFromJson(prefs().getString(K_CAMERAS, null)) }
-            if (known.isNotEmpty()) _state.update { if (it.cameras.isEmpty()) it.copy(cameras = known) else it }
+            val (shown, guessed) = startingWith(_state.value, known)
+            _state.value = shown
             saved.complete(Unit)
             val s = withContext(Dispatchers.IO) { step() }
-            _state.update { if (it.step == NestStep.NEED_GOOGLE) it.copy(step = s) else it }
+            _state.update { signInRead(it, s, guessed) }
             if (s == NestStep.CONNECTED) {
                 // The tiles' GL thread is made now, in the background, before Home shows them.
                 CameraGl.warm()
@@ -169,9 +175,10 @@ object Nest {
 
     /**
      * For the Home dashboard and the doorbell view: load cameras when already connected, without
-     * starting any sign-in. Whether they are is read off the main thread (the Keystore).
+     * starting any sign-in. Whether they are is read off the main thread (the Keystore); the job
+     * returned is done once it has been (the doorbell view waits for it before saying they aren't).
      */
-    fun warm() {
+    fun warm(): Job =
         scope.launch {
             val s = withContext(Dispatchers.IO) { step() }
             _state.update { it.copy(step = s) }
@@ -180,7 +187,6 @@ object Nest {
                 if (_state.value.cameras.isEmpty() && !_state.value.loading) refresh()
             }
         }
-    }
 
     private var refreshJob: Job? = null
 
@@ -262,3 +268,23 @@ object Nest {
 
     fun dismissError() = _state.update { it.copy(error = null) }
 }
+
+/**
+ * What shows at start-up once the cameras saved at the last listing ([known]) have been read, over
+ * [state], before the sign-in is read from the Keystore: those cameras, as connected (the list is
+ * kept only while they are), unless something has already said otherwise. Second: whether that
+ * step is the saved list's guess, for [signInRead] to replace.
+ */
+internal fun startingWith(state: NestState, known: List<Camera>): Pair<NestState, Boolean> {
+    if (known.isEmpty() || state.cameras.isNotEmpty()) return state to false
+    val guess = state.step == NestStep.NEED_GOOGLE
+    return state.copy(cameras = known, step = if (guess) NestStep.CONNECTED else state.step) to guess
+}
+
+/**
+ * [state] once the sign-in has been read at start-up as [read]: it replaces the step unless
+ * something else set it meanwhile (the Command Center opening, a sign-in finishing). [guessed]: the
+ * step showing is [startingWith]'s guess, which it does replace.
+ */
+internal fun signInRead(state: NestState, read: NestStep, guessed: Boolean): NestState =
+    if (state.step == NestStep.NEED_GOOGLE || (guessed && state.step == NestStep.CONNECTED)) state.copy(step = read) else state

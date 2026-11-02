@@ -55,6 +55,7 @@ import com.woodruff.tvexplorer.ui.screens.rangAt
 import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
 import com.woodruff.tvexplorer.util.NetworkWatch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 
@@ -83,11 +84,13 @@ class DoorbellActivity : ComponentActivity() {
     private var leaving by mutableStateOf(false)
     /** The TV's window animations are off: the picture fades from and to black itself. */
     private var fades = false
+    /** Reading whether the cameras are connected (off the main thread); until it's done that isn't news. */
+    private var checking: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThemeSetting.load(this)
-        Nest.warm() // lists the cameras if this TV hasn't yet (off the main thread)
+        checking = Nest.warm() // lists the cameras if this TV hasn't yet (off the main thread)
         origin = runCatching { Origin.valueOf(intent.getStringExtra(EXTRA_ORIGIN).orEmpty()) }.getOrDefault(Origin.FILM)
         val camera = intent.getStringExtra(EXTRA_CAMERA)
         // When the ring that opened it rang (from the player's card: the doorbell remembers).
@@ -171,6 +174,10 @@ class DoorbellActivity : ComponentActivity() {
         LaunchedEffect(networkUp) {
             if (networkUp) offline = false else { delay(4_000); offline = true }
         }
+        // Whether the cameras are connected has been read since this opened (a moment, off the main
+        // thread): before that, a view Woodruff just started again isn't told they aren't.
+        var checked by remember { mutableStateOf(checking?.isCompleted != false) }
+        LaunchedEffect(Unit) { checking?.join(); checked = true }
         val focus = remember { FocusRequester() }
         // Android glides this screen in like a pop-up, and back out. With the TV's window animations
         // off it would just appear (and vanish going): its picture fades in from black instead, and
@@ -203,7 +210,7 @@ class DoorbellActivity : ComponentActivity() {
                 hint = cameraHint(back, cams.size),
                 message = when {
                     // (It only opens with the cameras connected; this is in case they were signed out meanwhile.)
-                    state.step != NestStep.CONNECTED -> "Connect your cameras in the Command Center first"
+                    state.step != NestStep.CONNECTED -> if (checked) "Connect your cameras in the Command Center first" else "Connecting…"
                     cam != null && !cam.webRtc -> "This camera model doesn’t support live view here"
                     offline -> "Offline · reconnecting…"
                     cam == null -> "Connecting…"
