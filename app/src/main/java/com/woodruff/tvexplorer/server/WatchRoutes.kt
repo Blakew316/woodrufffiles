@@ -108,8 +108,10 @@ class WatchRoutes(
     // ---- GET /api/watch/home -------------------------------------------------------------------
 
     private fun home(s: IHTTPSession): Response {
-        // Positions from the family's other TVs, so Continue watching is current (at most every couple of minutes).
-        FamilySync.pullSoon(ctx)
+        // Positions from the family's other TVs, so Continue watching and its progress are current: fetched
+        // unless that was done in the last few seconds, waited for half a second at most (it carries on, and
+        // the next answer has it).
+        runBlocking { FamilySync.awaitFresh(ctx) }
         val h = WatchHome.get { buildHome() }
         if (s.headers["if-none-match"] == h.etag) {
             return NanoHTTPD.newFixedLengthResponse(Response.Status.NOT_MODIFIED, "application/json", "").apply { addHeader("ETag", h.etag) }
@@ -316,6 +318,10 @@ class WatchRoutes(
             val got = runBlocking { withTimeoutOrNull(EPISODES_MS) { job.await() } }
             got ?: Seasons.plain(ctx, folderId)?.takeIf { Seasons.runningFor(folderId) > PREPARE_GRACE_MS }
         } ?: return seasonLoading()
+        // Each is this show's, whatever its file is called, when the phone starts one here (as the title
+        // page's are): its Skip intro and audio and subtitle choices, and its poster in Continue watching.
+        // Only ever a season of this show (checked above), so no other folder's videos are filed under it.
+        EpisodeShows.remember(ctx, season.videos.associate { WatchJson.driveKey(it.id) to show.id })
         // Each as the TV's episode card says it: TMDB's numbers, names, synopses and lengths where it knows them.
         return json(JSONObject().put("state", "ready").put("episodes", JSONArray().apply {
             season.videos.forEach { v -> put(WatchJson.episode(v, show, facts, folderId)) }
@@ -381,11 +387,16 @@ class WatchRoutes(
         val position = b.optLong("position").coerceAtLeast(0)
         require(MediaRef.parse(key) is MediaRef.Drive) { "Only Google Drive videos can be watched together" }
         WatchLibrary.changed()
-        if (id == "all") return json(watchTogether(key, title, position))
-        if (id == "this") return json(JSONObject().put("ok", true).put("started", start(PlayerActivity.intent(ctx, listOf(key), listOf(title), key, position))).put("tv", TvLinks.name(ctx)))
+        // Every TV from the same spot, worked out here once the family's latest is in.
+        if (id == "all") return json(WatchStart.spotted(ctx, b, title).let { watchTogether(it.key, it.title, it.positionMs ?: 0L) })
+        if (id == "this") {
+            val s = WatchStart.of(ctx, b, title)
+            return json(JSONObject().put("ok", true).put("started", start(PlayerActivity.intent(ctx, listOf(s.key), listOf(s.title), s.key, s.positionMs))).put("tv", TvLinks.name(ctx)))
+        }
         val tv = TvLinks.find(id) ?: throw IllegalArgumentException("That TV isn’t linked any more.")
         val answer = try {
-            TvLinks.watch(tv, key, title, position, again = false)
+            // A resume starts where that TV knows the family last stopped (its own spot included), not at this TV's.
+            TvLinks.watch(tv, key, title, position, again = false, resume = WatchStart.resumes(b), latest = WatchStart.goesOn(b))
         } catch (e: TvLinks.Refused) {
             throw IllegalArgumentException("${tv.name}: ${e.message}")
         } catch (e: IOException) {
@@ -470,21 +481,25 @@ internal fun watchState(signIn: SignInState, saved: Boolean, empty: Boolean, lis
  * costs a 304 ([etag]). Built afresh after anything the phone changed ([forget]).
  */
 internal object WatchHome {
-    class Built(val body: String, val etag: String, val at: Long)
+    /** [synced]: [FamilySync.updates] as it was built: the other TVs' progress merged in since then builds it afresh. */
+    class Built(val body: String, val etag: String, val at: Long, val synced: Int = 0)
     private const val KEEP_MS = 10_000L
     @Volatile private var last: Built? = null
     /** Moves on with every [forget]: an answer that was being built meanwhile isn't kept (it may predate a mark). */
     @Volatile private var generation = 0
 
     fun get(build: () -> String): Built {
-        last?.let { if (System.currentTimeMillis() - it.at in 0 until KEEP_MS) return it }
+        val synced = FamilySync.updates.value
+        last?.let { if (kept(it, synced)) return it }
         synchronized(this) {
-            last?.let { if (System.currentTimeMillis() - it.at in 0 until KEEP_MS) return it }
+            last?.let { if (kept(it, synced)) return it }
             val was = generation
             val body = build()
-            return Built(body, etagOf(body), System.currentTimeMillis()).also { if (generation == was) last = it }
+            return Built(body, etagOf(body), System.currentTimeMillis(), synced).also { if (generation == was) last = it }
         }
     }
+
+    private fun kept(b: Built, synced: Int) = b.synced == synced && System.currentTimeMillis() - b.at in 0 until KEEP_MS
 
     fun forget() { generation++; last = null }
 

@@ -68,6 +68,7 @@ await page.tap('#w-cw .cwi:nth-child(1)');
 await settle(page, 700);
 const resume = sent('/api/watch')[0];
 check(!!resume && resume.body.key === 'drive:m-harbor' && resume.body.position === 2710000, 'resumes Midnight Harbor at 45:10 on Living Room');
+check(!!resume && resume.body.resume === true, 'as a resume: the TV starts it where the family last stopped');
 check((await text(page, '#toast-t')) === 'Resuming on Living Room', 'toast: Resuming on Living Room');
 await settle(page, 1800);
 
@@ -84,6 +85,7 @@ await page.tap('#ts-alt');
 await settle(page, 900);
 const over = sent('/api/watch')[0];
 check(!!over && over.body.position === 0, 'Start Over sends position 0');
+check(!!over && !over.body.resume && !over.body.latest, 'Start Over is no resume: from 0, wherever anyone stopped');
 check((await text(page, '#toast-t')) === 'Playing on Living Room', 'toast: Playing on Living Room');
 check(!(await sheetOpen(page)), 'the sheet closes after a start');
 await settle(page, 1800);
@@ -105,6 +107,7 @@ await page.tap('#ts-play');
 await settle(page, 900);
 const den = sent('/api/tvs/watch')[0];
 check(!!den && den.body.id === 'b' && den.body.key === 'drive:m-harbor' && den.body.position === 2710000, 'Resume plays on Den');
+check(!!den && den.body.resume === true, 'Den starts it where the family last stopped (its own spot included)');
 check((await text(page, '#toast-t')) === 'Resuming on Den', 'toast: Resuming on Den');
 await settle(page, 1800);
 
@@ -157,6 +160,14 @@ await page.locator('#d-btns button', { hasText: 'OK' }).tap();
 await settle(page);
 await mock('set', { watch: { started: true } });
 
+// A show's tile goes on with the show on the TV that plays it: its newest episode there (another TV may have moved on).
+clear();
+await page.tap('#w-cw .cwi:nth-child(2)');
+await settle(page, 900);
+const goOn = sent('/api/watch')[0];
+check(!!goOn && goOn.body.resume === true && goOn.body.latest === true, 'a show’s tile asks for its newest episode, from where the family stopped');
+await settle(page, 1800);
+
 // A show: its sheet at the season it's in, episodes with ✓ and progress; an episode plays and the sheet closes.
 await page.tap('#w-shows .ptile:nth-child(1)');
 await settle(page, 1500);
@@ -199,6 +210,7 @@ await page.tap('#ts-eplist .ep:nth-child(5)');
 await settle(page, 900);
 const ep = sent('/api/watch')[0];
 check(!!ep && /^drive:/.test(ep.body.key) && ep.body.position === 0, 'an episode not started plays from 0');
+check(!!ep && ep.body.resume === true && !ep.body.latest, 'an episode picked from the list resumes as itself');
 check((await text(page, '#toast-t')) === 'Playing on Living Room' && !(await sheetOpen(page)), 'toast, and the sheet closes');
 await settle(page, 1800);
 

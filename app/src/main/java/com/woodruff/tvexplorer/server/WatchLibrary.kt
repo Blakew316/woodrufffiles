@@ -186,9 +186,15 @@ internal object WatchJson {
     fun resumeAt(recent: List<RecentItem>, key: String): Long =
         recent.firstOrNull { it.key == key }?.takeIf { it.progress < 0.95f }?.positionMs ?: 0L
 
-    /** Everything needed to start something, so the phone never builds titles or positions itself. */
-    fun play(key: String, title: String, position: Long, label: String, duration: Long): JSONObject =
+    /**
+     * Everything needed to start something, so the phone never builds titles or positions itself.
+     * [resume]: the TV that plays it starts it where the family last stopped ([WatchStart]; [position]
+     * is what this TV knew, for the button and a TV on an older Woodruff); [latest]: a show's "go on",
+     * its newest episode then. Neither: from [position] (Start Over, Play from the Start).
+     */
+    fun play(key: String, title: String, position: Long, label: String, duration: Long, resume: Boolean = false, latest: Boolean = false): JSONObject =
         JSONObject().put("key", key).put("title", title).put("position", position.coerceAtLeast(0)).put("label", label).put("duration", duration.coerceAtLeast(0))
+            .apply { if (resume) put("resume", true); if (latest) put("latest", true) }
 
     /**
      * The film [f] stands for: itself, or the film kept in its own folder when that folder's listing
@@ -200,7 +206,7 @@ internal object WatchJson {
     fun filmPlay(film: DriveFile, recent: List<RecentItem>): JSONObject {
         val key = driveKey(film.id)
         val at = resumeAt(recent, key)
-        return play(key, film.name, at, if (at > RESUME_FROM_MS) resumeLabel(at) else "Play", durationOf(recent, key))
+        return play(key, film.name, at, if (at > RESUME_FROM_MS) resumeLabel(at) else "Play", durationOf(recent, key), resume = true)
     }
 
     /** A film's Start Over, only when its primary button resumes. */
@@ -224,11 +230,12 @@ internal object WatchJson {
     /**
      * "Resume S2 E4" (in progress) / "Play S2 E5" (up next), the TV's words; without a code "Resume" / "Play Next Episode".
      * [title]: what the player is given; the title it was last played with unless the episode's real name is known.
+     * A show's "go on": the TV that plays it starts the show's newest episode there, where the family last stopped.
      */
     fun episodePlay(r: RecentItem, title: String = r.title): JSONObject {
         val code = episodeCode(r.title)
         val label = if (r.upNext) code?.let { "Play $it" } ?: "Play Next Episode" else code?.let { "Resume $it" } ?: "Resume"
-        return play(r.key, title, if (r.upNext) 0 else r.positionMs, label, r.durationMs)
+        return play(r.key, title, if (r.upNext) 0 else r.positionMs, label, r.durationMs, resume = true, latest = true)
     }
 
     /**
@@ -237,18 +244,22 @@ internal object WatchJson {
      */
     fun episodeTitle(show: DriveFile, ep: DriveFile): String = episodePlayTitle(Library.info(show).title, ep)
 
-    /** "Play S1 E1" for [show]'s first episode [ep] ("Play First Episode" when nothing says its number), from its start. */
+    /**
+     * "Play S1 E1" for [show]'s first episode [ep] ("Play First Episode" when nothing says its number): from its start,
+     * unless another TV has started it meanwhile (a resume: the TV that plays it knows).
+     */
     fun firstEpisodePlay(show: DriveFile, ep: DriveFile, recent: List<RecentItem>): JSONObject =
-        play(driveKey(ep.id), episodeTitle(show, ep), 0, "Play " + (episodeCodeOf(ep.episode, ep.name) ?: "First Episode"), durationOf(recent, driveKey(ep.id)))
+        play(driveKey(ep.id), episodeTitle(show, ep), 0, "Play " + (episodeCodeOf(ep.episode, ep.name) ?: "First Episode"), durationOf(recent, driveKey(ep.id)), resume = true)
 
     /**
      * "Play S3 E2" for [show]'s first new episode [e] (episodes spec §3.5; "Play New Episode" when its name doesn't say), from
-     * its start; [meta] is TMDB's word on it, when known, for the player's title.
+     * its start unless another TV has started it meanwhile, as "Play S1 E1"; [meta] is TMDB's word on it, when known, for
+     * the player's title.
      */
     fun newEpisodePlay(show: DriveFile, e: FreshEpisode, meta: EpisodeMeta?, recent: List<RecentItem>): JSONObject =
-        play(e.key, episodeTitle(show, standIn(e.id, e.name, meta)), 0, "Play " + (e.code ?: "New Episode"), durationOf(recent, e.key))
+        play(e.key, episodeTitle(show, standIn(e.id, e.name, meta)), 0, "Play " + (e.code ?: "New Episode"), durationOf(recent, e.key), resume = true)
 
-    /** "Play from the Start": [show]'s first episode [first], beside a button that goes on with the show. */
+    /** "Play from the Start": [show]'s first episode [first] from 0, wherever anyone stopped, beside a button that goes on with the show. */
     fun restartPlay(show: DriveFile, first: DriveFile, recent: List<RecentItem>): JSONObject =
         play(driveKey(first.id), episodeTitle(show, first), 0, "Play from the Start", durationOf(recent, driveKey(first.id)))
 
@@ -426,7 +437,7 @@ internal object WatchJson {
             .put("position", r.positionMs).put("duration", r.durationMs).put("upNext", r.upNext)
             .put("poster", entry?.let(::posterUrl) ?: JSONObject.NULL)
             .put("drive", r.key.startsWith(DRIVE))
-            .put("play", if (kind == "show") episodePlay(r) else play(r.key, r.title, resumeAt(listOf(r), r.key), if (r.positionMs > RESUME_FROM_MS) resumeLabel(r.positionMs) else "Play", r.durationMs))
+            .put("play", if (kind == "show") episodePlay(r) else play(r.key, r.title, resumeAt(listOf(r), r.key), if (r.positionMs > RESUME_FROM_MS) resumeLabel(r.positionMs) else "Play", r.durationMs, resume = true))
             .put("restart", restart ?: if (kind == "movie" && r.positionMs > RESUME_FROM_MS) play(r.key, r.title, 0, "Start Over", r.durationMs) else JSONObject.NULL)
             .put("where", JSONObject.NULL)
     }

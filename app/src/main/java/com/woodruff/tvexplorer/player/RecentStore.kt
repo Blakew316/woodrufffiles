@@ -1,6 +1,7 @@
 package com.woodruff.tvexplorer.player
 
 import android.content.Context
+import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FamilyMerge
 import com.woodruff.tvexplorer.cloud.FamilySync
 import org.json.JSONArray
@@ -40,8 +41,13 @@ class RecentStore(context: Context) {
      * What to offer: items worth resuming (started, and not within the last few percent) and up-next
      * episodes. One per show, its newest, so a binge is one tile rather than one per episode.
      */
-    fun continueWatching(): List<RecentItem> =
-        all().filter { it.upNext || (it.positionMs > 10_000 && it.progress < FINISHED) }.distinctBy { showOf(it) }
+    fun continueWatching(): List<RecentItem> {
+        val all = all()
+        // Each one's show worked out with the others (one whose show isn't known yet is its namesake's).
+        val show = showsOf(all)
+        return all.indices.filter { all[it].upNext || (all[it].positionMs > 10_000 && all[it].progress < FINISHED) }
+            .distinctBy { show[it] }.map { all[it] }
+    }
 
     fun resumePosition(key: String): Long =
         all().firstOrNull { it.key == key }?.takeIf { it.progress < FINISHED }?.positionMs ?: 0L
@@ -88,8 +94,9 @@ class RecentStore(context: Context) {
      * show and an older, abandoned episode would otherwise take its place. A film is just itself.
      */
     fun removeShow(item: RecentItem) {
-        val show = showOf(item)
-        (all().filter { showOf(it) == show }.map { it.key } + item.key).distinct().forEach { remove(it) }
+        val items = all() + item
+        val show = showsOf(items)
+        (items.indices.filter { show[it] == show.last() }.map { items[it].key } + item.key).distinct().forEach { remove(it) }
     }
 
     /** Taken out of Continue watching (finished, or removed by hand), Drive videos only: key to when. */
@@ -125,9 +132,15 @@ class RecentStore(context: Context) {
     }
 
     companion object {
-        /** The show an episode belongs to ("show:the office (2005)"); a film or a clip is its own. */
-        fun showOf(item: RecentItem): String =
-            if (ShowPrefs.isEpisode(item.title) && ShowPrefs.namesShow(item.title)) "show:" + ShowPrefs.showKey(item.title) else item.key
+        /**
+         * The show an episode belongs to: its library entry when it's known, else its show's name
+         * ([ShowKeys.groups]), so the title page's "Backyard Science S02E05 The Volcano" and the
+         * file's "Backyard Science (2019) - S02E06 - The Lava" are one show. A film or a clip is its own.
+         */
+        fun showOf(item: RecentItem): String = showsOf(listOf(item)).single()
+
+        /** [showOf] for each of [items], worked out together: an episode whose entry isn't known yet is that of another with its show's name. */
+        fun showsOf(items: List<RecentItem>): List<String> = ShowKeys.groups(items, EpisodeShows.map.value)
 
         private const val KEY = "items"
         private const val GONE = "gone"

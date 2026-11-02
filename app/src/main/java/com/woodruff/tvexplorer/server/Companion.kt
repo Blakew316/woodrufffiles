@@ -195,18 +195,21 @@ class CompanionRoutes(private val ctx: Context) {
                 }
                 else -> key to (Uri.parse(key).lastPathSegment ?: key)
             }
-            val position = if (b.has("position")) b.optLong("position").coerceAtLeast(0) else null
+            // A resume starts where this TV last stopped it (the player reads it), not where the phone was told.
+            val position = if (!WatchStart.resumes(b) && b.has("position")) b.optLong("position").coerceAtLeast(0) else null
             started(launch(PlayerActivity.intent(ctx, listOf(item), listOf(b.optString("title").ifBlank { name }), item, position), hold = true))
         }
-        // Watch together: another TV (or a phone) starts the same Drive video here at a position. The
-        // answer says whether it's on screen ("started") or waiting for Woodruff to be opened here.
+        // A Drive video from the phone, the hub, or another TV for Watch together. A resume starts where
+        // anyone in the family last stopped ([WatchStart]); a spot given otherwise is where it starts.
+        // The answer says whether it's on screen ("started") or waiting for Woodruff to be opened here.
         s.uri == "/api/watch" && s.method == Method.POST -> {
             val b = body(s)
             val key = b.optString("key")
             val ref = com.woodruff.tvexplorer.player.MediaRef.parse(key)
             require(ref is com.woodruff.tvexplorer.player.MediaRef.Drive) { "Only Google Drive videos can be watched together" }
             WatchLibrary.changed()
-            started(launch(PlayerActivity.intent(ctx, listOf(key), listOf(b.optString("title").ifBlank { "Video" }), key, b.optLong("position").coerceAtLeast(0)), hold = true))
+            val start = WatchStart.of(ctx, b, b.optString("title").ifBlank { "Video" })
+            started(launch(PlayerActivity.intent(ctx, listOf(start.key), listOf(start.title), start.key, start.positionMs), hold = true))
         }
         // A message the hub pinned: "at" is when it was pinned there (a hub from before sends none),
         // so a TV shows it once, also when the hub sends it again later for a TV that was off.

@@ -75,6 +75,56 @@ object ShowPrefs {
     /** A key this keeps per show: "i:" skip-intro mark, "a:" audio or "t:" subtitle language. */
     internal fun isChoice(key: String): Boolean = key.startsWith("i:") || key.startsWith("a:") || key.startsWith("t:")
 
+    // The shows carried over in this run of the app: each is looked at once.
+    private val carried = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    /**
+     * Gives [show] ([ShowKeys.of]'s key) the choices kept for it under [older] keys
+     * ([ShowKeys.older]): an older Woodruff kept them under its title's own key ("backyard science
+     * (2019)"), and a TV that didn't know the show's library entry under its name. So does a key whose
+     * show is called [name], if only one show is (not when a remake and its original, or a film of the
+     * same name, both are). Each kind (Skip intro, audio, subtitles) only while [show] has none of its
+     * own: the newest one, with when it was made, so the family's other TVs still take whichever is
+     * newest. Once per show in a run of the app.
+     */
+    fun carryOver(c: Context, show: String, older: List<String>, name: String?) {
+        if (show.isBlank() || show in carried) return
+        synchronized(this) {
+            val all = p(c).all
+            val edit = p(c).edit()
+            var changed = false
+            // Looked for only when the show is missing a kind.
+            val byName by lazy { name?.let { n -> byName(all.keys, n, setOf(show) + older) } }
+            for (kind in listOf("i:", "a:", "t:")) {
+                if ("$kind$show" in all || "@$kind$show" in all) continue
+                val kept = older.filter { "$kind$it" in all || "@$kind$it" in all } + listOfNotNull(byName?.takeIf { "$kind$it" in all })
+                // The newest; the likeliest first when they're as old (an older Woodruff's, from before choices had a time).
+                val from = kept.maxByOrNull { all["@$kind$it"] as? Long ?: 0L } ?: continue
+                val value = all["$kind$from"]
+                val at = all["@$kind$from"] as? Long ?: 0L
+                when (value) {
+                    is Long -> edit.putLong("$kind$show", value)
+                    is String -> edit.putString("$kind$show", value)
+                    // Taken off there last: off here too.
+                    else -> {}
+                }
+                edit.putLong("@$kind$show", at)
+                changed = true
+            }
+            if (changed) edit.apply()
+            carried += show
+        }
+    }
+
+    /** The one show whose kept choices' keys name [name] ("backyard science (2019)" for "backyard science"), [known] aside; null for none, or more than one. */
+    private fun byName(keys: Set<String>, name: String, known: Set<String>): String? =
+        keys.asSequence().filter { isChoice(it) }.map { it.substring(2) }
+            .filter { it !in known && !it.startsWith("show:") && com.woodruff.tvexplorer.cloud.Library.showMatchKey(it) == name }
+            .toSet().singleOrNull()
+
+    /** For tests: carries over again, as a new run of the app would. */
+    internal fun forgetCarried() = carried.clear()
+
     /** For [FamilySync]: every choice with when it was made; one taken off has no value. */
     internal fun stamps(c: Context): Map<String, Stamped> {
         val all = p(c).all

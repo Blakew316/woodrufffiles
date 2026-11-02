@@ -47,8 +47,11 @@ internal fun rememberResume(): (start: () -> Unit) -> Unit {
  * merged): its show's entry now (another TV may have finished that episode and gone on to the next),
  * else the tile's own. A film is its own entry.
  */
-internal fun latestOf(tile: RecentItem, watching: List<RecentItem>): RecentItem =
-    watching.firstOrNull { RecentStore.showOf(it) == RecentStore.showOf(tile) } ?: tile
+internal fun latestOf(tile: RecentItem, watching: List<RecentItem>): RecentItem {
+    // Worked out together: an episode another TV saved, whose show isn't known here yet, is still the tile's show's.
+    val show = RecentStore.showsOf(watching + tile)
+    return watching.indices.firstOrNull { show[it] == show.last() }?.let { watching[it] } ?: tile
+}
 
 /** Whether the activity behind [this] is in front (a window over it, like a title's page, doesn't change that). */
 internal fun Context.inFront(): Boolean {
