@@ -67,5 +67,9 @@
         <item name="android:activityOpenExitAnimation">@anim/tv_hold_enter</item>
         <item name="android:activityCloseEnterAnimation">@anim/tv_hold_exit</item>
         <item name="android:activityCloseExitAnimation">@anim/tv_dialog_exit</item>
+        <!-- Opened by Woodruff's screensaver it's a task of its own: it comes and goes the same way
+             then (the app under it moves as that app does). -->
+        <item name="android:taskOpenEnterAnimation">@anim/tv_dialog_enter</item>
+        <item name="android:taskCloseExitAnimation">@anim/tv_dialog_exit</item>
     </style>
 </resources>
