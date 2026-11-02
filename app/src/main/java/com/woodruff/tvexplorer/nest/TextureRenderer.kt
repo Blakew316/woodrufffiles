@@ -100,8 +100,10 @@ internal fun holdsPicture(now: Long, lastInput: Long): Boolean = now - lastInput
  * The camera views' GL work that held up the main thread. Each tile had a GL thread of its own:
  * making one waits for it to start and set up GL, and letting one go waits for its GL clean-up,
  * four times over on every visit to Home or the Command center. Now every tile draws on one shared
- * GL thread, made once in the background (as soon as cameras are connected) and kept while the app
- * runs, and the views are set up and let go on a background thread, in the order asked.
+ * GL thread, made once in the background (as soon as cameras are connected and one of Woodruff's
+ * screens is up) and kept while it's used; once Woodruff has been off screen a while it's let go
+ * ([trim], util/LeanMemory) and made again with the next tile. The views are set up and let go on a
+ * background thread, in the order asked.
  */
 internal object CameraGl {
     private const val TAG = "CameraGl"
@@ -120,10 +122,37 @@ internal object CameraGl {
     // Only touched on [worker].
     private var thread: EglThread? = null
     private var keeper: EglBase? = null
+    private var keep: Keep? = null
     private var failed = false
+    /** Tiles drawing on the shared thread now: counted up as each starts on it, back down as each lets go ([Keep]). */
+    private val tiles = java.util.concurrent.atomic.AtomicInteger()
 
-    /** Cameras are connected: the shared thread is made now, in the background, before a tile needs it. */
-    fun warm() = later { shared() }
+    /**
+     * Cameras are connected: the shared thread is made now, in the background, before a tile needs it.
+     * Only with one of Woodruff's screens up: at a start with none (the TV turning on, an update) it
+     * would sit there for nobody. A tile makes it anyway if it isn't there.
+     */
+    fun warm() {
+        if (com.woodruff.tvexplorer.util.LeanMemory.onScreen) later { shared() }
+    }
+
+    /**
+     * Woodruff has been off screen a while: the shared thread and its GL context go, unless a tile
+     * still draws on it. The next tile makes them again. In the background, after what was asked before.
+     */
+    fun trim() = later {
+        val t = thread ?: return@later
+        if (tiles.get() > 0) return@later
+        val off = keeper
+        thread = null
+        keeper = null
+        // Its small off-screen surface goes on the thread it was made on, then the thread itself.
+        runCatching { ThreadUtils.invokeAtFrontUninterruptibly(t.handler, Runnable { off?.release() }) }
+            .onFailure { Log.w(TAG, "keeper", it) }
+        keep?.forever = false
+        keep = null
+        t.release()
+    }
 
     /** Runs [task] on the background thread, after everything asked before it. */
     fun later(task: () -> Unit) = worker.execute {
@@ -134,8 +163,14 @@ internal object CameraGl {
     fun attach(egl: EglRenderer) {
         val shared = shared()
         val keep = keeper
-        if (shared != null && keep != null) egl.init(shared, TileDrawer(keep), false)
-        else egl.init(Rtc.egl.eglBaseContext, EglBase.CONFIG_PLAIN, GlRectDrawer())
+        if (shared != null && keep != null) {
+            // Counted before it starts: whatever happens as it does, its release counts it back off
+            // ([Keep]), so the thread is never let go under a tile (at worst it's kept).
+            tiles.incrementAndGet()
+            egl.init(shared, TileDrawer(keep), false)
+        } else {
+            egl.init(Rtc.egl.eglBaseContext, EglBase.CONFIG_PLAIN, GlRectDrawer())
+        }
     }
 
     /** The shared thread, made now if need be; null if this TV can't make it (tiles then get one each, as before). */
@@ -150,6 +185,7 @@ internal object CameraGl {
             val k = t.createEglBaseWithSharedConnection().also { off = it }
             ThreadUtils.invokeAtFrontUninterruptibly(t.handler, Runnable { k.createDummyPbufferSurface() })
             keep.forever = true
+            this.keep = keep
             keeper = k
             thread = t
             t
@@ -162,10 +198,17 @@ internal object CameraGl {
         }
     }
 
-    /** Keeps the shared thread once it's set up: every tile's release asks to end it. */
+    /**
+     * Keeps the shared thread once it's set up: every tile's release asks to end it, and is counted off
+     * [tiles] instead. Only [trim] (or a thread that couldn't be set up) ends it.
+     */
     private class Keep : EglThread.ReleaseMonitor {
         @Volatile var forever = false
-        override fun onRelease(eglThread: EglThread): Boolean = !forever
+        override fun onRelease(eglThread: EglThread): Boolean {
+            if (!forever) return true
+            tiles.updateAndGet { (it - 1).coerceAtLeast(0) }
+            return false
+        }
     }
 
     /**
