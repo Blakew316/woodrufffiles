@@ -13,6 +13,7 @@ import com.woodruff.tvexplorer.cloud.DriveViewModel
 import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.episodePlayTitle
+import com.woodruff.tvexplorer.cloud.filmPlayTitle
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.ui.MainViewModel
@@ -104,7 +105,8 @@ fun TitleHost(vm: MainViewModel, drive: DriveViewModel, layer: TitleLayer = Titl
         artHeaders = { url -> if (isGoogle(url) && token != null) mapOf("Authorization" to "Bearer $token") else emptyMap() },
         // The page has fetched the other TVs' latest (and waited for it) before calling these.
         onPlay = { fromStart -> close(); playTitle(context, f, fromStart) },
-        onPlayEpisode = { ep, queue, fromStart -> close(); playEpisodes(context, f, ep, queue, fromStart) },
+        // A show's episode with its season after it; in Movies, the film kept in this folder, under the folder's title.
+        onPlayEpisode = { ep, queue, fromStart -> close(); if (isShow) playEpisodes(context, f, ep, queue, fromStart) else playFilmIn(context, f, ep, fromStart) },
         onPlayKey = { key, title -> close(); context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(title), key)) },
         openLabel = if (isShow) "All folders" else "Open",
         onOpen = { close(); drive.openIn(r.place, f); vm.show(Screen.DRIVE) },
@@ -119,24 +121,38 @@ fun TitleHost(vm: MainViewModel, drive: DriveViewModel, layer: TitleLayer = Titl
     )
 }
 
-/** A film that's a file of its own, on its own (no rolling on into the next title): where it was, or [fromStart]. */
+/**
+ * A film that's a file of its own, on its own (no rolling on into the next title): where it was, or
+ * [fromStart]. The player is given its title, never its file's name ([filmPlayTitle]).
+ */
 internal fun playTitle(context: Context, f: DriveFile, fromStart: Boolean) {
     val key = MediaRef.Drive(f.id).key
-    context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(f.name), key, positionMs = if (fromStart) 0L else null))
+    context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(filmPlayTitle(f)), key, positionMs = if (fromStart) 0L else null))
 }
 
 /**
- * [episode] of [show] (or a film kept in its folder), with [queue] (its season, in order) after it,
- * where it was or [fromStart]. Each is remembered as the show's, so Continue watching shows its poster
- * whatever its file is called, and goes to the player by its real name when TMDB knows it.
+ * [episode] of [show], with [queue] (its season, in order) after it, where it was or [fromStart]. Each
+ * goes to the player by its real name when TMDB knows it ([episodePlayTitle]).
  */
 internal fun playEpisodes(context: Context, show: DriveFile, episode: DriveFile, queue: List<DriveFile>, fromStart: Boolean) {
-    EpisodeShows.remember(context, queue.associate { MediaRef.Drive(it.id).key to show.id })
     val name = Library.info(show).title
+    playAs(context, show, episode, queue, fromStart) { episodePlayTitle(name, it) }
+}
+
+/** [film], kept in its own [folder] (Plex style), on its own, under the folder's title ([filmPlayTitle]): where it was, or [fromStart]. */
+internal fun playFilmIn(context: Context, folder: DriveFile, film: DriveFile, fromStart: Boolean) =
+    playAs(context, folder, film, listOf(film), fromStart) { filmPlayTitle(it, folder) }
+
+/**
+ * [queue] from [start], each called as [title] says, where it was or [fromStart]. Each is remembered as
+ * [entry]'s (the show, or the film's folder), so Continue watching shows its poster whatever its file is called.
+ */
+private fun playAs(context: Context, entry: DriveFile, start: DriveFile, queue: List<DriveFile>, fromStart: Boolean, title: (DriveFile) -> String) {
+    EpisodeShows.remember(context, queue.associate { MediaRef.Drive(it.id).key to entry.id })
     context.startActivity(
         PlayerActivity.intent(
-            context, queue.map { MediaRef.Drive(it.id).key }, queue.map { episodePlayTitle(name, it) },
-            MediaRef.Drive(episode.id).key, positionMs = if (fromStart) 0L else null,
+            context, queue.map { MediaRef.Drive(it.id).key }, queue.map(title),
+            MediaRef.Drive(start.id).key, positionMs = if (fromStart) 0L else null,
         ),
     )
 }

@@ -29,6 +29,7 @@ import com.woodruff.tvexplorer.cloud.NewEpisodes
 import com.woodruff.tvexplorer.cloud.NewShow
 import com.woodruff.tvexplorer.cloud.episodeCodeOf
 import com.woodruff.tvexplorer.cloud.episodePlayTitle
+import com.woodruff.tvexplorer.cloud.filmPlayTitle
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.EpisodeLabel
@@ -307,7 +308,7 @@ private fun together(first: TitleAction, main: MainPlay?, entry: DriveFile?): Ti
     val t = when (first) {
         is TitleAction.PlayTile -> TitleAction.Together(first.tile.key, first.tile.title, if (first.tile.upNext) 0 else first.tile.positionMs, tile = first.tile)
         is TitleAction.Play -> when (val p = main) {
-            is MainPlay.Film -> TitleAction.Together(MediaRef.Drive(p.file.id).key, if (p.folder != null) episodePlayTitle(show, p.file) else p.file.name, p.resumeMs)
+            is MainPlay.Film -> TitleAction.Together(MediaRef.Drive(p.file.id).key, filmPlayTitle(p.file, p.folder), p.resumeMs)
             is MainPlay.GoOn -> TitleAction.Together(p.item.key, p.item.title, if (p.item.upNext) 0 else p.item.positionMs)
             is MainPlay.New -> TitleAction.Together(p.episode.key, newEpisodeTitle(show, p), 0)
             is MainPlay.First -> TitleAction.Together(MediaRef.Drive(p.episode.id).key, episodePlayTitle(show, p.episode), 0)
@@ -555,7 +556,7 @@ internal class TitleRun(
             is MainPlay.Film -> {
                 val go = {
                     beforePlay()
-                    if (play.folder != null) playEpisodes(context, play.folder, play.file, listOf(play.file), fromStart)
+                    if (play.folder != null) playFilmIn(context, play.folder, play.file, fromStart)
                     else playTitle(context, play.file, fromStart)
                 }
                 if (fromStart) go() else resume(go)
