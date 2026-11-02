@@ -27,9 +27,9 @@ import kotlinx.coroutines.launch
  *
  *  - the posters, banners and backdrops kept decoded for scrolling back ([images]: Coil's memory cache);
  *  - what the phone's TV Screen copies pictures into ([TvScreen.release]);
- *  - the camera tiles' graphics thread ([CameraGl.trim]), when no tile holds it: tiles still up on the
- *    screen that was left keep it until Woodruff is back (their streams stop at once, but a screen
- *    off the TV isn't rebuilt, so its tiles aren't let go).
+ *  - the camera tiles' graphics thread ([CameraGl.trim]): the tiles on the screen that was left let go
+ *    of their own graphics as it stops, with their streams, and none holds it then (they're set up
+ *    again as the screen comes back).
  *
  * It does at once if Android says memory is short while Woodruff is off screen (Android 9 to 13).
  * Everything comes back by itself when it's needed: a screen's pictures decode again from the disk,

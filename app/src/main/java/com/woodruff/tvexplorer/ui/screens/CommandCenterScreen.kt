@@ -575,6 +575,9 @@ private class Renderer(
     /** A tile's frame rate follows its focus. */
     val focus: (Boolean) -> Unit,
     val release: () -> Unit,
+    /** Its screen stopped: a tile lets go of its GL side (the picture stays), and [resume] sets it up again. */
+    val pause: () -> Unit = {},
+    val resume: () -> Unit = {},
 ) {
     /** The camera it shows (read on the GL thread too, by a frame grab). */
     @Volatile var camera: String? = null
@@ -627,7 +630,7 @@ private class Renderer(
 /** A tile: the picture fills it and takes its rounded corners (a TextureView, on the tiles' shared GL thread). */
 private fun tileRenderer(context: Context): Renderer {
     val t = TextureRenderer(context)
-    return Renderer(t, t, { l -> t.addFrameListener(l, 0.3f) }, t::afterNextFrame, t::clearImage, t::setFocused, t::release)
+    return Renderer(t, t, { l -> t.addFrameListener(l, 0.3f) }, t::afterNextFrame, t::clearImage, t::setFocused, t::release, t::pause, t::resume)
 }
 
 /** Full screen: the whole frame, letterboxed if need be (a SurfaceView, the cheapest to draw). */
@@ -690,10 +693,12 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -
         if (renderer.camera.let { it != null && it != cam.name }) renderer.clear()
         renderer.camera = cam.name
         // Attached while this screen is started. Stopping (a film, another app) lets go at once,
-        // straight from the lifecycle rather than the next recomposition.
+        // straight from the lifecycle rather than the next recomposition (a stopped screen isn't
+        // recomposed): the stream, then a tile's GL side, so none of it stays behind another app.
         var mine: CameraStreams.Hold? = null
         val watcher = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START && mine == null) {
+                renderer.resume()
                 val h = CameraStreams.acquire(context, cam, renderer.sink, wantsAudio)
                 mine = h
                 hold = h
@@ -701,6 +706,7 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -
                 mine?.let { CameraStreams.release(it, linger = false) }
                 mine = null
                 hold = null
+                renderer.pause()
             }
         }
         lifecycle.addObserver(watcher)

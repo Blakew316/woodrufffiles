@@ -30,12 +30,18 @@ import java.util.concurrent.Executors
  * holds, so moving the focus gets the main thread). The tiles without the focus all draw on one
  * shared beat ([BeatGate]), so their redraws tend to land together rather than each at its own
  * moment. Its GL work runs on the tiles' shared GL thread ([CameraGl]): nothing here waits for GL
- * on the main thread.
+ * on the main thread. While its screen is stopped ([pause], [resume]) it holds no GL at all.
  */
 class TextureRenderer(context: Context) : TextureView(context), TextureView.SurfaceTextureListener, VideoSink {
     private val egl = EglRenderer("camera-tile")
-    /** Let go of: set up after that (in the background), it would never be released. */
-    @Volatile private var released = false
+    /**
+     * Its GL side: set up in the background, on the shared GL thread (frames that come before then
+     * are skipped); let go while its screen is stopped and set up again as it starts; let go for good
+     * with [release]. Set up again, it makes its picture's surface again from the one it had.
+     */
+    private val gl = TileGl(CameraGl::later, setUp = { CameraGl.attach(egl) }, letGo = { egl.release() }) { drawn ->
+        egl.addFrameListener({ drawn() }, 0f, null, true)
+    }
     /** The tile has the focus: it plays smoothest, on the renderer's own clock. */
     @Volatile private var focused = false
     /** Without the focus, its frames go through on the beat every tile shares. */
@@ -47,8 +53,6 @@ class TextureRenderer(context: Context) : TextureView(context), TextureView.Surf
         surfaceTextureListener = this
         isFocusable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        // Set up in the background, on the shared GL thread; frames that come before then are skipped.
-        CameraGl.later { if (!released) CameraGl.attach(egl) }
     }
 
     /** The tile with the focus plays smoothest; the others at a third of that, together on the shared beat. */
@@ -58,7 +62,7 @@ class TextureRenderer(context: Context) : TextureView(context), TextureView.Surf
     }
 
     override fun onFrame(frame: VideoFrame) {
-        if (released || holdsPicture(System.currentTimeMillis(), AppVisibility.lastInput)) return
+        if (gl.released || holdsPicture(System.currentTimeMillis(), AppVisibility.lastInput)) return
         if (!focused && !beat.pass(SystemClock.uptimeMillis())) return
         egl.onFrame(frame)
     }
@@ -70,24 +74,29 @@ class TextureRenderer(context: Context) : TextureView(context), TextureView.Surf
      * [drawn] runs (on the GL thread) once this view next draws a frame into its picture: one it skips
      * (held after a press, off the shared beat) or can't draw yet (no surface) doesn't count, and no
      * copy of it is made. Asked for on the background thread after its GL side is set up there (in
-     * order), as a renderer not yet set up would drop the request.
+     * order), as a renderer not yet set up would drop the request; asked for again if it's set up
+     * again before then.
      */
-    fun afterNextFrame(drawn: () -> Unit) = CameraGl.later {
-        if (!released) egl.addFrameListener({ drawn() }, 0f, null, true)
-    }
+    fun afterNextFrame(drawn: () -> Unit) = gl.afterNextFrame(drawn)
 
     /** Clears the picture. */
     fun clearImage() = egl.clearImage()
 
     /**
+     * Its screen stopped (another app in front, a film over Home): the GL side goes, in the background,
+     * so nothing of the tiles' graphics stays behind another app and their shared thread can go
+     * ([CameraGl.trim]). The picture it shows stays. Detach the view from its stream first. Main thread.
+     */
+    fun pause() = gl.pause()
+
+    /** Its screen started again: the GL side is set up again, in the background, before its stream comes back. Main thread. */
+    fun resume() = gl.resume()
+
+    /**
      * Lets go of the GL side, in the background (it waits for the GL thread to clean up). Detach the
      * view from its stream first. Main thread.
      */
-    fun release() {
-        if (released) return
-        released = true
-        CameraGl.later { egl.release() }
-    }
+    fun release() = gl.release()
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
         fill(width, height)
@@ -107,6 +116,61 @@ class TextureRenderer(context: Context) : TextureView(context), TextureView.Surf
 
     /** Frames are cropped to the view's shape: the picture fills it, nothing stretched. */
     private fun fill(width: Int, height: Int) = egl.setLayoutAspectRatio(if (width > 0 && height > 0) width.toFloat() / height else 0f)
+}
+
+/**
+ * A camera tile's GL side through its life ([TextureRenderer]): set up when the tile is made; let go
+ * while its screen is stopped ([pause]: another app in front, a film over Home), so nothing of the
+ * tiles' graphics stays behind another app and their shared thread can go ([CameraGl.trim]); set up
+ * again as the screen starts ([resume]); let go for good with [release]. Each step runs on [run] (the
+ * tiles' background thread), in the order asked. Letting go forgets what was waited for
+ * ([afterNextFrame]), so that's asked for again once it's set up again. Pure, for tests.
+ */
+internal class TileGl(
+    private val run: (() -> Unit) -> Unit,
+    private val setUp: () -> Unit,
+    private val letGo: () -> Unit,
+    /** Calls back (on the GL thread) once the view next draws a frame; forgotten when it's let go. */
+    private val listen: (() -> Unit) -> Unit,
+) {
+    /** Let go of for good: set up after that, it would never be let go. */
+    @Volatile var released = false
+        private set
+    /** Set up (or being set up) now. Only touched on [run]'s thread. */
+    private var up = false
+    /** Asked for with [afterNextFrame] and not drawn yet. Guarded by itself: the GL thread takes them off. */
+    private val waiting = ArrayList<() -> Unit>()
+
+    init { run { if (!released) { up = true; setUp() } } }
+
+    /** [drawn] runs once the view next draws a frame into its picture, however often it's let go and set up again meanwhile. */
+    fun afterNextFrame(drawn: () -> Unit) = run {
+        if (released) return@run
+        synchronized(waiting) { waiting += drawn }
+        if (up) listenFor(drawn)
+    }
+
+    fun pause() = run {
+        if (released || !up) return@run
+        up = false
+        letGo()
+    }
+
+    fun resume() = run {
+        if (released || up) return@run
+        up = true
+        setUp()
+        synchronized(waiting) { waiting.toList() }.forEach(::listenFor)
+    }
+
+    /** Main thread. */
+    fun release() {
+        if (released) return
+        released = true
+        run { if (up) { up = false; letGo() } }
+    }
+
+    private fun listenFor(drawn: () -> Unit) = listen { if (synchronized(waiting) { waiting.remove(drawn) }) drawn() }
 }
 
 /** Frames a second a camera tile shows: each one redraws the window on the main thread. */
@@ -146,9 +210,10 @@ internal fun holdsPicture(now: Long, lastInput: Long): Boolean = now - lastInput
  * making one waits for it to start and set up GL, and letting one go waits for its GL clean-up,
  * four times over on every visit to Home or the Command center. Now every tile draws on one shared
  * GL thread, made once in the background (as soon as cameras are connected and one of Woodruff's
- * screens is up) and kept while it's used; once Woodruff has been off screen a while with no tile
- * left on it, it's let go ([trim], util/LeanMemory) and made again with the next tile. The views are
- * set up and let go on a background thread, in the order asked.
+ * screens is up) and kept while it's used. The tiles of a screen that stops let go of theirs at once
+ * ([TileGl]), so once Woodruff has been off screen a while the thread is let go too ([trim],
+ * util/LeanMemory) and made again with the next tile. The views are set up and let go on a background
+ * thread, in the order asked.
  */
 internal object CameraGl {
     private const val TAG = "CameraGl"
