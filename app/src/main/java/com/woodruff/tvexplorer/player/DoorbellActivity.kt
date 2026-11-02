@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.woodruff.tvexplorer.nest.Doorbell
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestStep
+import com.woodruff.tvexplorer.ui.components.rememberOfflineShown
 import com.woodruff.tvexplorer.ui.motion.AppMotion
 import com.woodruff.tvexplorer.ui.motion.DpadGate
 import com.woodruff.tvexplorer.ui.motion.TvMotion
@@ -53,7 +54,6 @@ import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
 import com.woodruff.tvexplorer.util.NetworkWatch
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import java.text.DateFormat
 
 /**
@@ -186,11 +186,9 @@ class DoorbellActivity : ComponentActivity() {
             if (i >= 0) index = i else if (index !in cams.indices) index = if (cams.isEmpty()) -1 else 0
         }
         val cam = cams.getOrNull(index)
-        // Offline words only after a moment: a TV just woken is usually back on its Wi-Fi by then.
-        var offline by remember { mutableStateOf(false) }
-        LaunchedEffect(networkUp) {
-            if (networkUp) offline = false else { delay(4_000); offline = true }
-        }
+        // Offline words only after the grace every offline state waits (a TV just woken is usually
+        // back on its Wi-Fi by then), and gone the moment it's back.
+        val offline = rememberOfflineShown(!networkUp)
         // Whether the cameras are connected has been read since this opened (a moment, off the main
         // thread): before that, a view Woodruff just started again isn't told they aren't.
         var checked by remember { mutableStateOf(checking?.isCompleted != false) }
