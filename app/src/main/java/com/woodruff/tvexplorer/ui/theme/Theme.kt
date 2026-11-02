@@ -174,6 +174,9 @@ fun TvExplorerTheme(content: @Composable () -> Unit) {
         onSurface = Palette.text,
         surfaceVariant = Palette.surfaceHigh,
         onSurfaceVariant = Palette.muted,
+        // The platter behind a menu's focused row (and tv-material's focused pills): the app's one, as in Settings.
+        inverseSurface = Palette.text,
+        inverseOnSurface = Palette.background,
         error = Palette.danger,
     ) else darkColorScheme(
             primary = Palette.accent,
@@ -185,6 +188,8 @@ fun TvExplorerTheme(content: @Composable () -> Unit) {
             onSurface = Palette.text,
             surfaceVariant = Palette.surfaceHigh,
             onSurfaceVariant = Palette.muted,
+            inverseSurface = Palette.text,
+            inverseOnSurface = Palette.background,
             error = Palette.danger,
         )
     MaterialTheme(colorScheme = scheme, typography = AppTypography) {

@@ -4,15 +4,15 @@
     at the bottom left, three small round buttons tucked at the far right (Subtitles, Audio, and
     "…" for speed, sleep timer and intro), and a thin scrub bar under them with the time played
     and the time left. Play, pause and seeking are the remote's. Everything sits in
-    exo_center_controls, the part Media3 fades in and out; exo_controls_background is the scrim.
+    exo_center_controls, the part Media3 fades in and out; exo_controls_background is the scrim,
+    which Media3 fades with them and which draws itself under the subtitles (ControlsScrim).
 -->
 <merge xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <View
+    <com.woodruff.tvexplorer.player.ControlsScrim
         android:id="@id/exo_controls_background"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/player_scrim" />
+        android:layout_height="match_parent" />
 
     <LinearLayout
         android:id="@id/exo_center_controls"
@@ -51,7 +51,7 @@
                     android:ellipsize="end"
                     android:fontFamily="@font/inter_semibold"
                     android:singleLine="true"
-                    android:textColor="#A6FFFFFF"
+                    android:textColor="#B3FFFFFF"
                     android:textSize="13sp"
                     android:visibility="gone" />
 

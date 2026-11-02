@@ -320,14 +320,22 @@ class TitleGallery {
         }
     }
 
-    /** The TV Shows Overview: the banner, then Recently added with what's new under three posters, in blue. */
+    /**
+     * The TV Shows Overview with the focus on Recently added's first poster, where the TV comes to rest a step
+     * down from the banner (its own way of scrolling, as MainActivity provides it): the banner out of sight,
+     * the row just under the header, what's new under three posters, in blue.
+     */
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     @Test
     fun drawShowsOverview() {
         val shows = sampleShows()
         val news = sampleNews(shows)
         compose.setContent {
             TvExplorerTheme {
-                CompositionLocalProvider(LocalPosterPainter provides ::decode) {
+                CompositionLocalProvider(
+                    LocalPosterPainter provides ::decode,
+                    androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.woodruff.tvexplorer.ui.SmoothBringIntoView,
+                ) {
                     key(Palette.light) {
                         Box(Modifier.fillMaxSize().background(Palette.background).ambientBackdrop()) {
                             PosterBackdrop(remember { mutableStateOf(posterArt(shows[0])) }, null)
@@ -366,7 +374,8 @@ class TitleGallery {
     /**
      * The title menu (hold OK on a poster) for a film in progress, over Streaming's Movies: its title on one line,
      * "45% watched", and Resume from 1h 05m / Start over / Watch together on all TVs / Mark as watched / Download
-     * to this TV. The menu is its own window, so the whole screen is captured.
+     * to this TV. The menu is its own window, so the whole screen is captured, with the dim the TV draws
+     * behind a dialog's window.
      */
     @Test
     fun drawTitleMenu() {
@@ -401,6 +410,9 @@ class TitleGallery {
                                 }
                             }
                         }
+                        // The dim Android draws behind every dialog window (the Material dialog's 60 % black, which
+                        // the TV's window manager adds and the JVM doesn't draw), as UpdateGallery draws it.
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
                         TitleMenuView(model, onClose = {}, onRow = {})
                     }
                 }

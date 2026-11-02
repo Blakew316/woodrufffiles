@@ -77,7 +77,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
+import com.woodruff.tvexplorer.ui.components.TvButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
@@ -192,7 +192,19 @@ fun CommandCenterScreen(vm: MainViewModel) {
             // The title over the cameras; the controls over the notifications column, exactly as wide as
             // it (the same weights and gap as the row below).
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Text("Command center", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(2.2f))
+                Column(Modifier.weight(2.2f)) {
+                    Text("Command Center", style = MaterialTheme.typography.headlineLarge)
+                    // Offline: a calm line under the title (never red: the cameras come back by themselves),
+                    // in the room the 64 dp tiles beside the title leave under it. It takes no height, so the
+                    // cameras don't move when it comes and goes, and their bottom row stays on screen.
+                    if (offline) Row(Modifier.hangBelow(), verticalAlignment = Alignment.CenterVertically) {
+                        TvIcon(Sym.CloudOff, size = 18.dp, tint = Palette.muted)
+                        Text(
+                            cameraOfflineLine(google = networkUp), color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (state.step == NestStep.CONNECTED) {
                         val ctx = LocalContext.current
@@ -208,14 +220,8 @@ fun CommandCenterScreen(vm: MainViewModel) {
                 }
             }
             when {
-                // Calm, never red: they come back by themselves.
-                offline -> Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TvIcon(Sym.CloudOff, size = 18.dp, tint = Palette.muted)
-                    Text(
-                        cameraOfflineLine(google = networkUp), color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
+                // Said under the title (above).
+                offline -> Unit
                 // A sign-in Google ended: the panel below says it all.
                 ended -> Unit
                 else -> state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
@@ -224,14 +230,14 @@ fun CommandCenterScreen(vm: MainViewModel) {
             when (state.step) {
                 NestStep.NEED_GOOGLE -> SetupText(
                     "Cameras use the same Google Cloud keys as Google Drive. Set those up first (Google Drive in the menu), then come back here.",
-                ) { Button(onClick = { vm.show(Screen.DRIVE) }) { Text("Set up Google keys") } }
+                ) { TvButton(onClick = { vm.show(Screen.DRIVE) }) { Text("Set up Google keys") } }
                 NestStep.NEED_PROJECT -> SetupText(
                     "One-time setup with Google Device Access:\n\n" +
                         "1.  In Google Cloud (the project you made for Drive) open APIs & Services → Library and enable \"Smart Device Management API\".\n" +
                         "2.  Go to console.nest.google.com/device-access, accept the terms and pay Google’s one-time \$5 fee.\n" +
                         "3.  Create project: any name; for OAuth client ID paste the same Client ID you use for Drive; skip events.\n" +
                         "4.  Copy the Project ID it shows and enter it here (or in the phone’s Settings tab).",
-                ) { Button(onClick = { askProject = true }) { Text("Enter Project ID") } }
+                ) { TvButton(onClick = { askProject = true }) { Text("Enter Project ID") } }
                 NestStep.SIGN_IN -> SignInPanel(state, ended)
                 NestStep.CONNECTED -> {
                     // Offline before any camera was listed: said calmly; they appear by themselves.
@@ -271,6 +277,16 @@ private fun SetupText(text: String, action: @Composable () -> Unit) {
         Text(text, style = MaterialTheme.typography.bodyLarge)
         action()
     }
+}
+
+/**
+ * Laid out at its own size but taking no room in its parent: it hangs below what comes before it, over
+ * the space after it (the offline line under the Command Center's title, in the room the hub's tiles
+ * leave beside and below the title, clear of the cameras).
+ */
+private fun Modifier.hangBelow(): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints.copy(minHeight = 0))
+    layout(placeable.width, 0) { placeable.place(0, 0) }
 }
 
 /**

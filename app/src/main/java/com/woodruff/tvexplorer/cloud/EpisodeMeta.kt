@@ -91,6 +91,16 @@ fun episodePlayTitle(show: String, ep: DriveFile): String {
 }
 
 /**
+ * What the player is given as a film's title: the title the library shows ("Midnight Harbor"), as the
+ * Apple TV app names a film, never its Drive file's name ("Midnight.Harbor.2024.2160p.WEB-DL.mkv"). The
+ * player's controls, Continue watching and the phone's now playing all read it. A film kept in its own
+ * [folder] (Plex style) goes by the folder's title, as its poster and page do. The file's name only when
+ * there's no title at all.
+ */
+fun filmPlayTitle(film: DriveFile, folder: DriveFile? = null): String =
+    Library.info(folder ?: film).title.trim().ifEmpty { film.name }
+
+/**
  * [text] as it's kept: at most [max] characters, cut at a word with "…" when it's longer. Whitespace
  * runs (TMDB's synopses have line breaks) become single spaces.
  */

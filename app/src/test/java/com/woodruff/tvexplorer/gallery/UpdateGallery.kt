@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -115,7 +116,10 @@ class UpdateGallery {
             settle()
             repeat(6) { compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }; settle(4) }
             settle()
-            home?.let { captureScreenRoboImage(File(out, "tv-$it-$scheme.png").path) }
+            home?.let {
+                check(compose.onAllNodesWithText("Living Room").fetchSemanticsNodes().isNotEmpty()) { "This TV's name isn't the sample's" }
+                captureScreenRoboImage(File(out, "tv-$it-$scheme.png").path)
+            }
             compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
             settle()
             captureScreenRoboImage(File(out, "tv-$page-$scheme.png").path)
@@ -138,6 +142,8 @@ class UpdateGallery {
 
     /** Something in progress on Home, behind the offer (nothing here touches the network). */
     private fun seed(app: Application) {
+        // This TV's name, as the other shots have it (Settings' first page shows it), not the JVM's device name.
+        com.woodruff.tvexplorer.tvs.TvLinks.setName(app, "Living Room")
         Notices.load(app)
         Notices.dismissLatest()
         RecentStore(app).apply {
