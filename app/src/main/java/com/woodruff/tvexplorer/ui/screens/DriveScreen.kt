@@ -149,8 +149,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         onStopOrDispose { drive.showing(false) }
     }
     // Google's access tokens last an hour: keep the screen's current (its art, a show's episodes),
-    // on coming back from the player and while the screen stays open.
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { drive.refreshToken() }
+    // on coming back from the player and while the screen stays open. And what the other TVs
+    // watched, as Home does: a TV woken into Movies or TV Shows used to offer last week's spot.
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { drive.refreshToken(); FamilySync.pullSoon(context) }
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(5 * 60_000L)
@@ -201,7 +202,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val latestShown by rememberUpdatedState(shown)
     // A film in Movies / TV Shows plays on its own: no rolling on into the next title (and the
     // queue is never cut short of the one chosen). In a folder, the media around it queue up after it.
-    val onOpen: (DriveFile) -> Unit = { f ->
+    val openNow: (DriveFile) -> Unit = { f ->
         // An episode opened inside a show's folders: remember the show for the ones queued with it.
         val showFolder = (state.stack.getOrNull(1) as? DrivePlace.Folder)?.takeIf { state.stack.firstOrNull() == DrivePlace.TvShows }
         if (showFolder != null && f.kind == FileKind.VIDEO) {
@@ -209,6 +210,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         }
         openDriveFile(context, f, if (state.filterable) listOf(f) else latestShown, drive::open, onOther = { menuFor = it })
     }
+    // Videos and music start where anyone in the family last stopped (see rememberResume); folders
+    // and pictures open at once.
+    val resume = rememberResume()
+    val onOpen: (DriveFile) -> Unit = { f -> if (f.kind == FileKind.VIDEO || f.kind == FileKind.AUDIO) resume { openNow(f) } else openNow(f) }
 
     var moreOpen by remember { mutableStateOf(false) }
     // In the Filter panel at a library's top; the More menu in a show's folders. Made once: a new
@@ -454,9 +459,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         TitleDetail(
             f, posterArt(f), token, all = state.files, isShow = isShow,
             artHeaders = { url -> if (isGoogle(url) && token != null) mapOf("Authorization" to "Bearer $token") else emptyMap() },
+            // The page has fetched the other TVs' latest (and waited for it) before calling these.
             onPlay = { fromStart ->
                 detailFor = null
-                if (fromStart) playFromStart(context, f, listOf(f)) else onOpen(f)
+                if (fromStart) playFromStart(context, f, listOf(f)) else openNow(f)
             },
             onPlayEpisode = { ep, queue, fromStart ->
                 detailFor = null

@@ -161,6 +161,8 @@ fun AppRoot(vm: MainViewModel) {
     // Voice search: the menu's Search item, or the remote's search button. Speech when the TV has a
     // recognizer, otherwise typing. Searches the Movies and TV Shows already loaded.
     val searchContext = LocalContext.current
+    // A film found plays from where anyone in the family last stopped (see rememberResume).
+    val resumeFound = com.woodruff.tvexplorer.ui.screens.rememberResume()
     var searchResults by remember { mutableStateOf<Pair<String, List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>>?>(null) }
     var typingSearch by remember { mutableStateOf(false) }
     val showResults: (String) -> Unit = { q ->
@@ -333,7 +335,7 @@ fun AppRoot(vm: MainViewModel) {
             actions = found.map { (place, f) ->
                 MenuAction(com.woodruff.tvexplorer.cloud.Library.label(f) + " · " + place.title, if (f.isFolder) Sym.Tv else Sym.Movie) {
                     if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
-                    else {
+                    else resumeFound {
                         val key = com.woodruff.tvexplorer.player.MediaRef.Drive(f.id).key
                         searchContext.startActivity(com.woodruff.tvexplorer.player.PlayerActivity.intent(searchContext, listOf(key), listOf(f.name), key))
                     }

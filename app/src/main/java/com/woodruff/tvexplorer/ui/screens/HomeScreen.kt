@@ -160,7 +160,15 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Another TV's progress merged in while Home is up: show it.
     val syncSeen = remember { FamilySync.updates.value }
     LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) reloads.trySend(Unit) } }
-    val play = { r: RecentItem -> context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key)) }
+    // Resumed where anyone in the family last stopped: the other TVs' latest is fetched first (half
+    // a second at most, usually already in), and a show another TV went on with plays its next episode.
+    val resume = rememberResume()
+    val play = { r: RecentItem ->
+        resume {
+            val now = latestOf(r, store.continueWatching())
+            context.startActivity(PlayerActivity.intent(context, listOf(now.key), listOf(now.title), now.key))
+        }
+    }
     // Recently added movies and shows, after what's in progress.
     val added by drive.recentlyAdded.collectAsStateWithLifecycle()
     // Posters for what's in progress, from the Movies / TV Shows entries they belong to.
@@ -174,7 +182,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     val driveToken by remember(drive) { drive.state.map { it.token }.distinctUntilChanged() }.collectAsStateWithLifecycle(drive.state.value.token)
     val openAdded = { (place, f): Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile> ->
         if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
-        else { val key = MediaRef.Drive(f.id).key; context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(f.name), key)) }
+        else resume { val key = MediaRef.Drive(f.id).key; context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(f.name), key)) }
     }
     val scope = rememberCoroutineScope()
     val linked by TvLinks.linked.collectAsStateWithLifecycle()
@@ -211,9 +219,12 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
                 // Same Drive video on every linked TV, from the same spot.
                 if (linked.isNotEmpty() && MediaRef.parse(r.key) is MediaRef.Drive) MenuAction("Watch together on all TVs", Sym.Groups) {
                     scope.launch {
-                        withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, r.key, r.title, r.positionMs) } }
+                        // From where anyone last stopped, as Play does.
+                        FamilySync.awaitFresh(context)
+                        val now = latestOf(r, store.continueWatching())
+                        withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, now.key, now.title, now.positionMs) } }
                         // This TV leads: pause, seek and its position keep the others in step.
-                        context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key, r.positionMs, together = true))
+                        context.startActivity(PlayerActivity.intent(context, listOf(now.key), listOf(now.title), now.key, now.positionMs, together = true))
                     }
                 } else null,
                 // As finishing it in the player does: off Continue watching, with a ✓ on its poster

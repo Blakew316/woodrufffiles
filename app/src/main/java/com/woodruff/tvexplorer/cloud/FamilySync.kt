@@ -7,8 +7,11 @@ import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.ShowPrefs
 import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.tvs.TvLinks
+import com.woodruff.tvexplorer.util.NetworkWatch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -16,9 +19,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -48,6 +54,13 @@ object FamilySync {
     /** A change goes out this long after it, so a burst of them is one upload. */
     private const val DEBOUNCE_MS = 45_000L
     private const val PULL_EVERY_MS = 2 * 60_000L
+    /**
+     * A pull that reached Google this recently is fresh enough to resume from: a title's page or a
+     * resume doesn't ask again. Short, since moving from one TV to the next takes about this long.
+     */
+    private const val FRESH_MS = 15_000L
+    /** How long playback waits, at most, for the other TVs' latest progress before resuming (see [awaitFresh]). */
+    const val RESUME_WAIT_MS = 500L
     private const val SIGN_IN = "Sign in to Google Drive to share progress between TVs."
     private const val SIGN_IN_AGAIN = "Sign in to Google Drive again to share progress between TVs."
     private const val OFFLINE = "Couldn't reach Google Drive. Trying again soon."
@@ -60,7 +73,13 @@ object FamilySync {
     private var pending: Job? = null
     private var pendingAt = 0L
     private var edits = 0L
-    @Volatile private var lastPull = 0L
+    /** When pulls ran and reached Google. Guarded by this object's lock. */
+    private val clock = PullClock()
+    /** The pull under way: answers true once the other TVs' progress is merged. Guarded by this object's lock. */
+    private var pulling: CompletableDeferred<Boolean>? = null
+    /** A pull a resume already waited its fill for: a second resume on it doesn't wait again. Guarded by this object's lock. */
+    private var waitedOut: Deferred<Boolean>? = null
+    private val watching = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastProblem: String? = null
 
     private val _updates = MutableStateFlow(0)
@@ -76,7 +95,7 @@ object FamilySync {
         prefs(app).edit().putBoolean("on", on).apply()
         if (on) {
             // Back on: send everything (changes made meanwhile weren't counted) and fetch the others'.
-            synchronized(this) { lastPull = 0L }
+            synchronized(this) { clock.reset() }
             markDirty(app)
             pullSoon(app)
         } else synchronized(this) {
@@ -105,16 +124,75 @@ object FamilySync {
         schedulePush(app, 1_000L, quick = true)
     }
 
-    /** Fetch the other TVs' progress (at most every couple of minutes); [updates] ticks when something merged in. */
+    /**
+     * Fetch the other TVs' progress (Home, Streaming): at most every couple of minutes once it has
+     * reached Google, again 10 s after a try that didn't (a TV woken before its Wi-Fi was back used to
+     * wait the full two minutes), and as the network comes back. [updates] ticks when something
+     * merged in. Also sends what an earlier push couldn't (the TV slept, or the network was down).
+     */
     fun pullSoon(c: Context) {
-        val now = System.currentTimeMillis()
+        pull(c.applicationContext, PULL_EVERY_MS)
+    }
+
+    /**
+     * A title's page opened: the other TVs' latest progress, unless it was fetched in the last few
+     * seconds, so by the time Resume is pressed it's in (the page reads it again when it is).
+     */
+    fun pullFresh(c: Context) {
+        pull(c.applicationContext, FRESH_MS)
+    }
+
+    /**
+     * Right before resuming something: the other TVs' latest progress, if it can be had within
+     * [RESUME_WAIT_MS]. Returns at once when it was fetched in the last few seconds, or can't be
+     * (sharing off, no network: the comeback fetches it); otherwise waits for the pull, at most that
+     * long, and only once per pull (a second press doesn't wait again). False when it stopped
+     * waiting (the pull goes on, and [updates] ticks when it's in).
+     */
+    suspend fun awaitFresh(c: Context): Boolean {
+        val pull = pull(c.applicationContext, FRESH_MS) ?: return true
+        synchronized(this) { if (pull === waitedOut) return false }
+        val merged = withTimeoutOrNull(RESUME_WAIT_MS) { pull.await() }
+        if (merged == null) synchronized(this) { waitedOut = pull }
+        return merged ?: false
+    }
+
+    /**
+     * Starts a pull unless one isn't due ([PullClock]: one reached Google less than [maxAgeMs] ago,
+     * or one failed a moment ago and the network hasn't just come back) or the TV has no network;
+     * joins the one under way. Its answer: true once the other TVs' progress is merged.
+     */
+    private fun pull(app: Context, maxAgeMs: Long, afterComeback: Boolean = false): Deferred<Boolean>? {
+        watchNetwork(app)
         synchronized(this) {
-            if (now - lastPull < PULL_EVERY_MS) return
-            lastPull = now
+            pulling?.takeIf { it.isActive }?.let { return it }
+            val now = System.currentTimeMillis()
+            if (!clock.due(now, maxAgeMs, afterComeback) || !NetworkWatch.online.value) return null
+            clock.started(now)
+            val merged = CompletableDeferred<Boolean>()
+            pulling = merged
+            // Whether sharing is on and signed in is read there, off the main thread (stored settings).
+            scope.launch { sync(app, pull = true, quick = false, merged = merged) }
+            return merged
         }
-        val app = c.applicationContext
-        // Also sends what an earlier push couldn't (the TV slept, or the network was down).
-        scope.launch { sync(app, pull = true, quick = false) }
+    }
+
+    /**
+     * Pulls as the network comes back, if the last pull is older than the usual couple of minutes:
+     * a TV woken from standby tried on Home before its Wi-Fi was back, and that try failed. Watched
+     * once per run, from the first pull on.
+     */
+    private fun watchNetwork(app: Context) {
+        if (!watching.compareAndSet(false, true)) return
+        NetworkWatch.start(app)
+        scope.launch {
+            // The Wi-Fi comes up, then is checked for the internet a moment later (two ticks): a pull
+            // begun on the first can fail for want of the second, so it's tried once more after it.
+            NetworkWatch.comebacks.drop(1).collectLatest {
+                val first = pull(app, PULL_EVERY_MS, afterComeback = true) ?: return@collectLatest
+                if (!first.await()) pull(app, PULL_EVERY_MS, afterComeback = true)
+            }
+        }
     }
 
     /** Why sharing isn't working, for Settings; null when it works or is turned off. */
@@ -137,7 +215,7 @@ object FamilySync {
         val app = c.applicationContext
         if (!enabled(app)) return
         synchronized(this) {
-            lastPull = 0L
+            clock.reset()
             lastProblem = null
         }
         markDirty(app)
@@ -180,12 +258,22 @@ object FamilySync {
         if (pending === job) pending = null
     }
 
-    private suspend fun sync(app: Context, pull: Boolean, quick: Boolean) {
-        busy.withLock { round(app, pull, quick) }
+    /** One round with Drive (see [round]); [merged] hears when a pull's part of it is done. */
+    private suspend fun sync(app: Context, pull: Boolean, quick: Boolean, merged: CompletableDeferred<Boolean>? = null) {
+        try {
+            busy.withLock { round(app, pull, quick, merged) }
+        } finally {
+            // However it ended (signed out, offline, cancelled), a resume waiting on it waits no longer.
+            merged?.complete(false)
+        }
     }
 
-    /** One round with Drive: fetch and merge the other TVs' files ([pull]), then send this TV's if it changed. */
-    private fun round(app: Context, pull: Boolean, quick: Boolean) {
+    /**
+     * One round with Drive: fetch and merge the other TVs' files ([pull]), then send this TV's if it
+     * changed. [merged] is told as soon as the others' are in (before this TV's is sent): a resume
+     * waiting on it can start.
+     */
+    private fun round(app: Context, pull: Boolean, quick: Boolean, merged: CompletableDeferred<Boolean>? = null) {
         // Without the shared folder this stays off quietly; Settings says why (problem).
         if (!enabled(app) || !GoogleAuth.isConnected(app) || !GoogleAuth.hasScope(app, GoogleAuth.APPDATA)) return
         // A push with nothing new to send (an earlier round sent it).
@@ -219,6 +307,9 @@ object FamilySync {
                 if (fresh.isNotEmpty() && mergeIn(app, fresh)) _updates.value = _updates.value + 1
                 prefs(app).edit().putString(K_SEEN, JSONObject().apply { listed.forEach { (id, at) -> put(id, at) } }.toString())
                     .putString(K_FILE, mine).apply()
+                // Reached Google: the next routine pull waits its couple of minutes from now.
+                synchronized(this) { clock.reached(System.currentTimeMillis()) }
+                merged?.complete(true)
             }
             if (dirty(app) || (pull && mine == null)) {
                 val editsWhenRead = synchronized(this) { edits }
@@ -407,6 +498,35 @@ object FamilySync {
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
+}
+
+/**
+ * When to fetch the other TVs' progress, kept apart from Android so it's tested. A pull is due
+ * when none reached Google in the last maxAge, and none was begun in the last [RETRY_MS] (one that
+ * failed, the TV still waking up), unless the network has just come back. A clock that went back
+ * counts as a long time ago. Not thread-safe: [FamilySync] guards it.
+ */
+internal class PullClock {
+    /** When a pull last reached Google (0: not this run). */
+    var pulledAt = 0L
+        private set
+    /** When a pull was last begun. */
+    var triedAt = 0L
+        private set
+
+    fun due(now: Long, maxAgeMs: Long, afterComeback: Boolean = false): Boolean =
+        now - pulledAt !in 0 until maxAgeMs && (afterComeback || now - triedAt !in 0 until RETRY_MS)
+
+    fun started(now: Long) { triedAt = now }
+    fun reached(now: Long) { pulledAt = now }
+
+    /** Sharing turned back on, or signed in again: due at once. */
+    fun reset() { pulledAt = 0L; triedAt = 0L }
+
+    companion object {
+        /** After a pull that didn't reach Google, the next waits this long (unless the network comes back). */
+        const val RETRY_MS = 10_000L
+    }
 }
 
 /** A setting and when it was set; a null [value] was cleared then. */
