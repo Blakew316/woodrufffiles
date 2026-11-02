@@ -232,6 +232,7 @@ fun SettingsScreen(vm: MainViewModel) {
         }
     }
 
+    val installed = remember(v) { Updater.installFacts(context) }
     fun rows(page: SettingsPage): List<SettingItem> = when (page) {
         SettingsPage.HOME -> {
             val linked = listOf(facts.connected, facts.photosConnected, calendar.connected, facts.nestConnected).count { it } + facts.accounts.size
@@ -378,6 +379,12 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Autorenew, "Install updates automatically", onOff(facts.autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !facts.autoUpdate); changed() },
             // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
             SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
+            // How this copy came to be: a fresh install (after an uninstall) is what erases every sign-in.
+            SettingItem(
+                Sym.Info, "This copy", installed.summary(), spaced = true,
+                detail = installed.signIns()?.let { "Sign-ins: $it" },
+                about = "When Woodruff was installed fresh on this TV and last updated, and what installed it. Installing over the top keeps every sign-in; uninstalling first erases them.",
+            ),
         )
         SettingsPage.ADVANCED -> listOf(
             SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames while navigating on each screen, and what they were spent on. OK starts counting again and records 3 minutes for the phone's Smoothness Report.") {

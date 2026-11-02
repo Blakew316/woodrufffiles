@@ -48,6 +48,9 @@ object Updater {
     private val PROFILE_NAME = Regex("""WoodruffFamily-api(\d+)(?:-(\d+))?\.dm""")
     /** Which build's speed profile went into an install (0: none), so a refusal can be retried without it. */
     internal const val EXTRA_PROFILE = "com.woodruff.tvexplorer.update.PROFILE"
+    /** Whether someone chose Install (else it went in on its own), and which build: see [K_ASKED]. */
+    internal const val EXTRA_MANUAL = "com.woodruff.tvexplorer.update.MANUAL"
+    internal const val EXTRA_BUILD = "com.woodruff.tvexplorer.update.BUILD"
     private const val PREFS = "updates"
     /** In the background (the phone-connection service's loop). */
     private const val CHECK_EVERY_MS = 3_600_000L
@@ -89,12 +92,22 @@ object Updater {
     fun setAuto(c: Context, on: Boolean) { prefs(c).edit().putBoolean("auto", on).apply() }
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** Can this update go in without a prompt? Android 12+, and Woodruff installed the current copy. */
+    /**
+     * Can this update go in without a prompt? Android 12+ lets an app with
+     * UPDATE_PACKAGES_WITHOUT_USER_ACTION update itself without asking, whoever installed it
+     * (Downloader, or Woodruff itself), so it's tried. It isn't held back by "Install unknown apps"
+     * answering no: a Sony answered no while its Settings showed it allowed, and its updates then
+     * waited for a button press every time. If Android asks anyway for a build ([K_ASKED]), that
+     * build waits for the prompt the next time Woodruff is on screen instead of being retried.
+     */
     fun canInstallSilently(c: Context): Boolean {
         if (Build.VERSION.SDK_INT < 31) return false
-        val installer = runCatching { c.packageManager.getInstallSourceInfo(c.packageName).installingPackageName }.getOrNull()
-        return installer == c.packageName && c.packageManager.canRequestPackageInstalls()
+        val build = _state.value.latest ?: return true
+        return prefs(c).getInt(K_ASKED, 0) != build
     }
+
+    /** The build Android asked about (a prompt) when it was installed silently: it waits for someone to press Install. */
+    private const val K_ASKED = "askedFor"
 
     /**
      * The background routine: check and download (at most hourly, or every 10 minutes when
@@ -137,6 +150,42 @@ object Updater {
     fun takeReopen(c: Context): Boolean {
         val p = prefs(c)
         return p.getBoolean("reopen", false).also { if (it) p.edit().remove("reopen").apply() }
+    }
+
+    /**
+     * How this copy of Woodruff came to be, for Settings → Updates and the phone's TV report: when it
+     * was installed fresh (an uninstall before it erases every sign-in), when it was last updated, and
+     * what installed it. Plus, when it happened, the day the TV's Keystore lost the sign-ins' key.
+     */
+    fun installFacts(c: Context): InstallFacts {
+        val pm = c.packageManager
+        @Suppress("DEPRECATION")
+        val info = runCatching { pm.getPackageInfo(c.packageName, 0) }.getOrNull()
+        @Suppress("DEPRECATION")
+        val installer = runCatching {
+            if (Build.VERSION.SDK_INT >= 30) pm.getInstallSourceInfo(c.packageName).installingPackageName else pm.getInstallerPackageName(c.packageName)
+        }.getOrNull()
+        val by = when (installer) {
+            null -> "adb or a file app"
+            c.packageName -> "Woodruff itself"
+            else -> runCatching { pm.getApplicationLabel(pm.getApplicationInfo(installer, 0)).toString() }.getOrDefault(installer)
+        }
+        return InstallFacts(info?.firstInstallTime ?: 0, info?.lastUpdateTime ?: 0, by,
+            com.woodruff.tvexplorer.settings.SecretStore.get(c).lostAt())
+    }
+
+    data class InstallFacts(val firstInstall: Long, val lastUpdate: Long, val installedBy: String, val signInsLostAt: Long?) {
+        /** "Installed fresh Oct 31 · updated Nov 2 by Woodruff itself". */
+        fun summary(): String {
+            val fresh = "Installed fresh ${day(firstInstall)}"
+            return if (lastUpdate > firstInstall + 60_000) "$fresh · updated ${day(lastUpdate)} by $installedBy" else "$fresh by $installedBy"
+        }
+
+        /** Why this TV's sign-ins may be gone, in words; null when nothing says they were lost. */
+        fun signIns(): String? = signInsLostAt?.let { "Lost ${day(it)}: the TV's key store lost their key" }
+
+        private fun day(ms: Long): String = if (ms <= 0) "?" else
+            java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US).format(java.util.Date(ms))
     }
 
     /** Settings → Check for updates. */
@@ -300,6 +349,7 @@ object Updater {
                     // Mutable: the installer adds the result (and the prompt to show) to this intent.
                     val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
                     val answer = Intent(app, InstallResultReceiver::class.java).putExtra(EXTRA_PROFILE, if (profile != null) build else 0)
+                        .putExtra(EXTRA_MANUAL, manual).putExtra(EXTRA_BUILD, build)
                     val result = PendingIntent.getBroadcast(app, id, answer, flags)
                     session.commit(result.intentSender)
                 }
@@ -319,9 +369,11 @@ object Updater {
     }
 
     /** The installer's answer. [profile]: the build whose speed profile went in with the APK (0: none). */
-    internal fun onResult(c: Context, status: Int, message: String?, confirm: Intent?, profile: Int = 0) {
+    internal fun onResult(c: Context, status: Int, message: String?, confirm: Intent?, profile: Int = 0, manual: Boolean = true, build: Int = 0) {
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                // Android wants a yes for this one after all: no more silent tries for it, the prompt instead.
+                if (!manual && build > 0) prefs(c).edit().putInt(K_ASKED, build).apply()
                 if (confirm != null && AppVisibility.foreground) {
                     runCatching { c.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }
@@ -441,6 +493,8 @@ class InstallResultReceiver : BroadcastReceiver() {
             intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE),
             confirm,
             intent.getIntExtra(Updater.EXTRA_PROFILE, 0),
+            intent.getBooleanExtra(Updater.EXTRA_MANUAL, true),
+            intent.getIntExtra(Updater.EXTRA_BUILD, 0),
         )
     }
 }
