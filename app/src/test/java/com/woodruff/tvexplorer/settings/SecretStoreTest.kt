@@ -3,6 +3,7 @@ package com.woodruff.tvexplorer.settings
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -24,6 +25,8 @@ import javax.crypto.SecretKey
 @Config(sdk = [34])
 class SecretStoreTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @After fun leaveTheStoreEmpty() = leaveNoSecrets(context)
 
     private class Vault : SecretStore.KeyVault {
         var key: SecretKey? = null

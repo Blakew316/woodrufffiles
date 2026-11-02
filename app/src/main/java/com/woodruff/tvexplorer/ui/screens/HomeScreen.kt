@@ -868,7 +868,7 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     val offline = rememberOfflineShown(samples == null && state.step == NestStep.CONNECTED && (state.offline || !networkUp)) || DashboardSamples.camerasOffline
     // Whether Google ended the cameras' sign-in (read off the main thread when it stops being connected).
     val ended by produceState(false, state.step) {
-        value = state.step != NestStep.CONNECTED && withContext(Dispatchers.IO) { GoogleAuth.endedAt(context, GoogleAuth.Grant.NEST) != null }
+        value = state.step != NestStep.CONNECTED && withContext(Dispatchers.IO) { GoogleAuth.hasEnded(context, GoogleAuth.Grant.NEST) }
     }
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {

@@ -173,7 +173,7 @@ fun CommandCenterScreen(vm: MainViewModel) {
     // Whether Google ended the cameras' sign-in (read off the main thread when it isn't connected).
     val context = LocalContext.current
     val ended by produceState(false, state.step) {
-        value = state.step == NestStep.SIGN_IN && withContext(Dispatchers.IO) { GoogleAuth.endedAt(context, GoogleAuth.Grant.NEST) != null }
+        value = state.step == NestStep.SIGN_IN && withContext(Dispatchers.IO) { GoogleAuth.hasEnded(context, GoogleAuth.Grant.NEST) }
     }
     val fullIndex = full
     // Full screen: it glides in over the grid, and the Command Center's tabs step aside under it.

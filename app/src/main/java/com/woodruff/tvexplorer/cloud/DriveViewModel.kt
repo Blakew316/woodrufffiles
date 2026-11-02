@@ -678,7 +678,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Whether Google ended this TV's Drive sign-in (so signing in is "again"); read with the sign-in step, before its panel shows. */
-    private fun endedHere() = GoogleAuth.endedAt(ctx, GoogleAuth.Grant.DRIVE) != null
+    private fun endedHere() = GoogleAuth.hasEnded(ctx, GoogleAuth.Grant.DRIVE)
 
     /** Called when the Drive screen opens: load files, or get the phone sign-in ready. */
     fun start() {
@@ -710,7 +710,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 val a = GoogleAuth.newAttempt(ctx, base)
                 CompanionHub.expect(a)
                 // Whether Google ended the last sign-in (then it's "sign in again"), even after a restart.
-                val ended = withContext(Dispatchers.IO) { GoogleAuth.endedAt(ctx, GoogleAuth.Grant.DRIVE) != null }
+                val ended = withContext(Dispatchers.IO) { GoogleAuth.hasEnded(ctx, GoogleAuth.Grant.DRIVE) }
                 // Never over a library that's (back) on screen: a sign-in that finished meanwhile.
                 _state.update { if (it.connected) it else it.copy(step = SignInStep.SIGN_IN, qrUrl = a.authUrl, error = null, ended = ended || it.ended) }
             }
@@ -937,7 +937,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 byHand = false
                 // Only a sign-in that really ended (never a network failure) brings the QR code.
                 if (outcome == Fetch.SignedOut) {
-                    askToSignIn(ended = withContext(Dispatchers.IO) { GoogleAuth.endedAt(ctx, GoogleAuth.Grant.DRIVE) != null })
+                    askToSignIn(ended = withContext(Dispatchers.IO) { GoogleAuth.hasEnded(ctx, GoogleAuth.Grant.DRIVE) })
                     return@launch
                 }
                 _state.update { it.after(outcome, here = it.place == place, now = clock(), google = NetworkWatch.online.value) }

@@ -271,5 +271,12 @@ class SecretStore internal constructor(
         @Volatile private var instance: SecretStore? = null
         fun get(context: Context): SecretStore =
             instance ?: synchronized(this) { instance ?: SecretStore(context).also { instance = it } }
+
+        /**
+         * Tests: [get] hands out [store] (one over a stand-in Keystore) from now on. Returns the one it
+         * replaces, to be put back the same way.
+         */
+        @androidx.annotation.VisibleForTesting
+        internal fun swapForTest(store: SecretStore?): SecretStore? = synchronized(this) { instance.also { instance = store } }
     }
 }
