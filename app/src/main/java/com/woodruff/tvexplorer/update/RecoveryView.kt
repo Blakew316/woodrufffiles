@@ -404,8 +404,9 @@ class RecoveryView internal constructor(private val activity: Activity) : FrameL
         internal var leave: (Activity) -> Unit = { it.moveTaskToBack(true) }
         /**
          * Try opening again: one more early close brings this screen back at once; then the main screen
-         * starts over as usual. (Made again in place: it's a single-task screen, so starting it anew would
-         * only hand this one the request.)
+         * starts over as usual. (Made again in place, with no intent: the main window is single-top and
+         * this screen is it, so opening it anew, even through MainIntents, would only hand this window the
+         * request, which the recovery screen doesn't take.)
          */
         internal var tryAgain: (Activity) -> Unit = { a -> EarlyCrashes.tryAgain(a); a.recreate() }
 
