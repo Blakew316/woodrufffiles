@@ -45,8 +45,9 @@ internal object Sidecars {
      * "Heat (1995).en.forced.srt". When several videos' names fit, the longest one has it ("Heat.2.mkv"
      * keeps "Heat.2.en.srt" from "Heat.mkv"); two copies with the same name (an .mkv and an .mp4)
      * both take it. In the video's own folder ([ownFolder]: one video and no other folders) every
-     * subtitle is the video's, whatever it's called ("English.srt", "2_English.srt"). Anything else
-     * isn't paired: a stray subtitle never lands on the wrong film.
+     * subtitle is the video's, whatever it's called ("English.srt", "2_English.srt"), unless its
+     * name is for another episode ([sameEpisode]). Anything else isn't paired: a stray subtitle never
+     * lands on the wrong film.
      *
      * [videos] and [subtitles] are the files of one folder, named by [videoName] and [subtitleName].
      * Returns, for each video in order, its subtitles in the order given. Each subtitle's name is
@@ -77,7 +78,8 @@ internal object Sidecars {
                     val name = describe(s.substring(prefix.length).removePrefix(".").split('.'))
                     for (v in owners) out[v] += SidecarMatch(sub, name)
                 }
-                ownFolder && videos.size == 1 -> out[0] += SidecarMatch(sub, describe(wordsAfter(plain(stem(videoName(videos[0]))), s)))
+                ownFolder && videos.size == 1 && sameEpisode(videoName(videos[0]), subtitleName(sub)) ->
+                    out[0] += SidecarMatch(sub, describe(wordsAfter(plain(stem(videoName(videos[0]))), s)))
             }
         }
         return out
@@ -174,6 +176,28 @@ internal object Sidecars {
             .setSelectionFlags(if (sidecar.forced) C.SELECTION_FLAG_FORCED else 0)
             .setRoleFlags(if (sidecar.sdh) C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND else 0)
             .build()
+
+    /**
+     * Whether subtitle file [subtitle], found in [video]'s own folder under another name, can be
+     * that video's: not when its name is for an episode ("Show.S01E02.en.srt") other than the
+     * video's own, as in a season folder with only one episode downloaded beside every episode's
+     * subtitles, or a film's folder with a show's file left in it. Those would show another
+     * episode's words under this one, and in English by themselves for foreign speech.
+     */
+    fun sameEpisode(video: String, subtitle: String): Boolean {
+        val its = episodeOf(subtitle) ?: return true
+        return episodeOf(video) == its
+    }
+
+    /** The episode a name is for ("S01E02", "s1 e2", "1x02"), as season and episode; null when it names none. */
+    private fun episodeOf(name: String): Pair<Int, Int>? {
+        val m = EPISODE_CODE.find(name) ?: return null
+        val (s1, e1, s2, e2) = m.destructured
+        return if (s1.isNotEmpty()) s1.toInt() to e1.toInt() else s2.toInt() to e2.toInt()
+    }
+
+    /** "S01E02" / "S1 E2" / "s01x02", or "1x02": not inside a longer word or number ("1920x1080", "x264"). */
+    private val EPISODE_CODE = Regex("""(?i)(?<![a-z0-9])(?:s(\d{1,2})\s*[ex]\s*(\d{1,3})|(\d{1,2})x(\d{2,3}))(?![0-9])""")
 
     /** A file's name without its extension. */
     private fun stem(name: String): String = name.substringBeforeLast('.', name)

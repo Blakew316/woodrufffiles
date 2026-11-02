@@ -145,6 +145,23 @@ class SidecarsTest {
         )
     }
 
+    @Test fun anotherEpisodesSubtitlesNeverGoWithTheOneEpisodeInItsFolder() {
+        // A season folder with only one episode downloaded so far, beside every episode's subtitles.
+        val found = pair(
+            listOf("Show.S01E01.1080p.WEB.mkv"),
+            listOf("Show.S01E02.en.srt", "Show S01 E03.en.srt", "Show.1x04.en.srt", "Show.S01E01.WEB-DL.en.srt", "English.srt"),
+            ownFolder = true,
+        )
+        // Its own (by another release's name), and the one whose name says no episode at all.
+        assertEquals(listOf("Show.S01E01.WEB-DL.en.srt" to SidecarName("en"), "English.srt" to SidecarName("en")), found.single())
+        // A show's subtitles left in a film's own folder aren't the film's either.
+        assertEquals(emptyList<Pair<String, SidecarName>>(), pair(listOf("Heat (1995).mkv"), listOf("Show.S02E05.en.srt"), ownFolder = true).single())
+        // Release words that look a little like a code are none: 1920x1080, x264.
+        assertTrue(Sidecars.sameEpisode("Heat.1995.mkv", "Heat.1995.1920x1080.x264.en.srt"))
+        assertTrue(Sidecars.sameEpisode("Show.S01E01.mkv", "show.s1e1.en.srt"))
+        assertTrue(Sidecars.sameEpisode("Show 1x01.mkv", "Show.S01E01.en.srt"))
+    }
+
     @Test fun aTitleWordIsNeverTakenForALanguage() {
         // "It" (2017): its subtitle file "It.srt" isn't Italian.
         assertEquals(listOf("It.srt" to SidecarName()), pair(listOf("It (2017).mkv"), listOf("It.srt"), ownFolder = true).single())
