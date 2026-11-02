@@ -260,7 +260,11 @@ class SlideshowDream : DreamService() {
                 DoorbellActivity.intent(this, ring, DoorbellActivity.Origin.SCREENSAVER)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS),
             )
-        }.onFailure { android.util.Log.w("Slideshow", "couldn't open the doorbell from the screensaver", it) }
+        }.onFailure {
+            android.util.Log.w("Slideshow", "couldn't open the doorbell from the screensaver", it)
+            // No view on its way after all: the next ring isn't kept for one, and this one's card shows.
+            Doorbell.unclaim(ring)
+        }
         runCatching { if (Build.VERSION.SDK_INT >= 29) wakeUp() else finish() }
     }
 }

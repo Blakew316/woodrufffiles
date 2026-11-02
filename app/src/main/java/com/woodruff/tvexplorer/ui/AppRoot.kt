@@ -349,6 +349,9 @@ fun AppRoot(vm: MainViewModel) {
     LaunchedEffect(Unit) {
         val bell = com.woodruff.tvexplorer.nest.Doorbell
         bell.opens.collect { ring ->
+            // Woodruff's screens left the front just then (Home pressed, say): not taken here, so the
+            // ring's card pops up a moment later, rather than a view Android won't start from behind.
+            if (!com.woodruff.tvexplorer.notify.AppVisibility.foreground) return@collect
             if (!bell.claim(ring, com.woodruff.tvexplorer.nest.Doorbell.Host.APP)) return@collect
             val cams = com.woodruff.tvexplorer.nest.Nest.state.value.cameras
             val requests = com.woodruff.tvexplorer.ui.screens.cameraRequests
