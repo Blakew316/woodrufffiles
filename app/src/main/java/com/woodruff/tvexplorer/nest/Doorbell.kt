@@ -276,6 +276,9 @@ object Doorbell {
      */
     fun viewOpening() { viewOpeningAt = clock() }
 
+    /** Whether a doorbell view a screen started is on its way now (for tests: [viewOpening] and what clears it). */
+    @VisibleForTesting internal fun viewOpeningNow(): Boolean = viewOnItsWay(viewOpeningAt, clock())
+
     private fun present(host: Host, on: Boolean) {
         when (host) {
             // Up: it takes rings itself from now on (nothing's on its way any more).
