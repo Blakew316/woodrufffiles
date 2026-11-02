@@ -124,6 +124,18 @@ object TvScreen {
         return true
     }
 
+    /**
+     * Whether a press from the phone would land in Woodruff now ([keyWindow]): one of its screens is up and in
+     * front, not behind another app or one of Android's own screens. The phone's typing asks it too, so a text box
+     * left open behind Home or an install prompt is never typed into, nor its Done pressed, where nobody can see.
+     * Any thread: a server thread waits for the main thread ([WAIT_MS] at most; no answer counts as no).
+     */
+    fun canPress(): Boolean = when {
+        top() == null -> false
+        Looper.myLooper() == Looper.getMainLooper() -> keyWindow() != null
+        else -> onMain { keyWindow() != null } == true
+    }
+
     /** The button the phone's remote sends as [key]; null for one it doesn't press here. */
     internal fun keyCode(key: String): Int? = when (key) {
         "up" -> KeyEvent.KEYCODE_DPAD_UP
