@@ -192,7 +192,19 @@ fun CommandCenterScreen(vm: MainViewModel) {
             // The title over the cameras; the controls over the notifications column, exactly as wide as
             // it (the same weights and gap as the row below).
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Text("Command center", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(2.2f))
+                Column(Modifier.weight(2.2f)) {
+                    Text("Command center", style = MaterialTheme.typography.headlineLarge)
+                    // Offline: a calm line under the title (never red: the cameras come back by themselves),
+                    // in the room the 64 dp tiles beside the title leave under it. It takes no height, so the
+                    // cameras don't move when it comes and goes, and their bottom row stays on screen.
+                    if (offline) Row(Modifier.hangBelow(), verticalAlignment = Alignment.CenterVertically) {
+                        TvIcon(Sym.CloudOff, size = 18.dp, tint = Palette.muted)
+                        Text(
+                            cameraOfflineLine(google = networkUp), color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (state.step == NestStep.CONNECTED) {
                         val ctx = LocalContext.current
@@ -208,14 +220,8 @@ fun CommandCenterScreen(vm: MainViewModel) {
                 }
             }
             when {
-                // Calm, never red: they come back by themselves.
-                offline -> Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TvIcon(Sym.CloudOff, size = 18.dp, tint = Palette.muted)
-                    Text(
-                        cameraOfflineLine(google = networkUp), color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
+                // Said under the title (above).
+                offline -> Unit
                 // A sign-in Google ended: the panel below says it all.
                 ended -> Unit
                 else -> state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
@@ -271,6 +277,16 @@ private fun SetupText(text: String, action: @Composable () -> Unit) {
         Text(text, style = MaterialTheme.typography.bodyLarge)
         action()
     }
+}
+
+/**
+ * Laid out at its own size but taking no room in its parent: it hangs below what comes before it, over
+ * the space after it (the offline line under the Command Center's title, in the room the hub's tiles
+ * leave beside and below the title, clear of the cameras).
+ */
+private fun Modifier.hangBelow(): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints.copy(minHeight = 0))
+    layout(placeable.width, 0) { placeable.place(0, 0) }
 }
 
 /**
