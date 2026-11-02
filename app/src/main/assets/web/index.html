@@ -1215,7 +1215,7 @@
 <div class="menu" id="menu" role="menu"></div>
 <div class="msheet" id="kb" role="dialog" aria-modal="true" aria-label="Keyboard">
   <div class="grab"></div>
-  <div class="sbar"><button class="gb glass ic" id="kb-close" aria-label="Close"><i data-ic="xmark"></i></button><b>Keyboard</b><button class="gb prom" id="kb-enter">Enter</button></div>
+  <div class="sbar"><button class="gb glass ic" id="kb-close" aria-label="Close"><i data-ic="xmark"></i></button><span class="stt"><b>Keyboard</b><small id="kb-tv"></small></span><button class="gb prom" id="kb-enter">Enter</button></div>
   <div class="sbody">
     <div class="group">
       <div class="row"><span class="dot" id="kb-dot"></span><span class="txt t" id="kb-status">Looking for a text box on the TV…</span><button class="link" id="kb-clear">Clear</button></div>
@@ -2829,11 +2829,11 @@
     calm('reach', renderReach);
   }
   function renderReach() {
-    var t = chosenTv(), linked = tvId !== 'this', who = '', why = '';
+    var t = chosenTv(), linked = tvId !== 'this', who = '', why = '', kb = '';
     if (reach.hub >= 2) { who = hubName(); why = 'Check that it’s on and this phone is on the same Wi-Fi.'; }
-    else if (linked && t && refused(t)) { who = t.name; why = 'Its link stopped working. Link it again in Settings → TVs.'; }
+    else if (linked && t && refused(t)) { who = t.name; why = 'Its link stopped working. Link it again in Settings → TVs.'; kb = who + '’s link stopped working. Link it again in Settings → TVs.'; }
     else if (linked && reach.tv >= 2) { who = tvName(tvId); why = 'Check that it’s on.'; }
-    if (who && kbOpen) { setClass($('kb-dot'), 'dot'); swapText($('kb-status'), 'Can’t reach ' + who); }
+    if (who && kbOpen) { setClass($('kb-dot'), 'dot'); swapText($('kb-status'), kb || 'Can’t reach ' + who); }
     var key = who && who + '|' + why, card = $('rm-reach');
     if (key === reach.shown) return;
     reach.shown = key;
@@ -3651,7 +3651,7 @@
   // arrive out of order. Another TV picked: its own text box, and the keyboard starts again, empty.
   var field = null, typeTimer = null, pollTimer = null, kbOpen = false, fieldSeq = 0, typing = { busy: false, next: null };
   function openKb(focus) {
-    kbOpen = true; presentSheet($('kb'));
+    kbOpen = true; setText($('kb-tv'), tvName(tvId)); presentSheet($('kb'));   // (the TV it types into, named as the TV Screen sheet does)
     if (focus) $('kb-text').focus({ preventScroll: true }); // within the tap, so iOS shows the keyboard
     pollField();
   }
@@ -3674,6 +3674,7 @@
   }
   // note: why a linked TV can't take typing from here ("Den needs a newer Woodruff for typing").
   function showField(f, note) {
+    setText($('kb-tv'), tvName(tvId));
     var pill = !f || kbOpen || !!reach.shown;
     if ($('rm-kb-hint').hidden !== pill) {
       if (current === 'remote' && !kbOpen) flipPad(function () { $('rm-kb-hint').hidden = pill; }); else $('rm-kb-hint').hidden = pill;
