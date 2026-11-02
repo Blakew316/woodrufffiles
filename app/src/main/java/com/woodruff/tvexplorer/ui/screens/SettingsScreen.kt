@@ -208,11 +208,12 @@ fun SettingsScreen(vm: MainViewModel) {
     // first frame, so nothing flashes, then off the main thread each time something changes or the
     // TV comes back from Android's settings. Google Photos connects in its own dialog: read again
     // when it closes.
-    val facts by produceState(remember { readFacts(context) }, v, showPhotos, showCalendar) {
+    // (Read again when the doorbell's listener changes what it's doing.)
+    val doorbellListening by Doorbell.listening.collectAsStateWithLifecycle()
+    val facts by produceState(remember { readFacts(context) }, v, showPhotos, showCalendar, doorbellListening) {
         value = withContext(Dispatchers.IO) { readFacts(context) }
     }
     val update by Updater.state.collectAsStateWithLifecycle()
-    val doorbellStatus by Doorbell.status.collectAsStateWithLifecycle()
     // Asked of the other TVs over the network, so only while their page is open.
     val otherTvs by produceState(emptyList<com.woodruff.tvexplorer.tvs.TvStatus>(), v, here) {
         if (here == SettingsPage.TVS) value = runCatching { TvLinks.statuses(context) }.getOrDefault(emptyList())
@@ -431,9 +432,11 @@ fun SettingsScreen(vm: MainViewModel) {
                 Sym.Android, "App code", appCode,
                 about = "Whether the TV has compiled Woodruff's code, so it starts and moves faster. Updates are compiled as they install; if not, the TV does it while idle, usually overnight.",
             ),
+            // Watching / Through Living Room / Off, or what's wrong (doorbell.md §3.5), in amber when
+            // someone has to fix it.
             SettingItem(
-                Sym.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (facts.doorbellWatching) "Watching" else "Off",
-                about = "Doorbell presses pop up on this TV. Set it up in the phone app.",
+                Sym.NotificationsActive, "Doorbell alerts", facts.doorbell.value, about = facts.doorbell.about,
+                attention = facts.doorbell.attention,
             ),
             SettingItem(
                 Sym.NotificationsActive, "Pop-ups over other apps", onOff(facts.overlay),
@@ -861,7 +864,7 @@ private data class SettingsFacts(
     val seesOtherApps: Boolean, val accounts: List<MailAccount>, val overlay: Boolean,
     // This TV's own switches: nothing on the phone shows them, so changing one only refreshes this screen.
     val shareProgress: Boolean, val shareProblem: String?, val shareSignIn: Boolean,
-    val chime: Boolean, val matchFrameRate: Boolean, val doorbellWatching: Boolean,
+    val chime: Boolean, val matchFrameRate: Boolean, val doorbell: com.woodruff.tvexplorer.nest.DoorbellAlerts,
 )
 
 /** Reads [SettingsFacts]: about 20 reads, two of them calls into Android's services. */
@@ -892,7 +895,7 @@ private fun readFacts(context: android.content.Context): SettingsFacts {
         shareSignIn = FamilySync.needsNewSignIn(context),
         chime = Chime.enabled(context),
         matchFrameRate = FrameRateMatch.enabled(context),
-        doorbellWatching = Doorbell.subscription(context) != null,
+        doorbell = Doorbell.alerts(context),
     )
 }
 

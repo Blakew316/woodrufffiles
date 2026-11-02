@@ -1,21 +1,28 @@
 package com.woodruff.tvexplorer.nest
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
+import com.woodruff.tvexplorer.util.NetworkWatch
+import com.woodruff.tvexplorer.util.isNetworkFailure
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
@@ -31,14 +38,17 @@ import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /** Shared WebRTC engine: one factory and one GL context for every camera tile. */
 object Rtc {
     @Volatile private var factory: PeerConnectionFactory? = null
+    private val warming = AtomicBoolean(false)
     val egl: EglBase by lazy { EglBase.create() }
 
     @Synchronized
@@ -52,28 +62,60 @@ object Rtc {
             .createPeerConnectionFactory()
             .also { factory = it }
     }
+
+    /**
+     * Makes the factory now, on a thread of its own, when a camera is about to show (Home's tiles, the
+     * Command Center, a doorbell ring): loading WebRTC and setting up its GL context takes a moment the
+     * first camera to start would otherwise wait for (and the full-screen view's GL context, made on
+     * the main thread, finds it ready). Not at start-up: a TV nobody watches cameras on never loads it.
+     */
+    fun warm(c: Context) {
+        if (factory != null || !warming.compareAndSet(false, true)) return
+        val app = c.applicationContext
+        Thread({
+            // Done either way: a factory that couldn't be made (or is let go of one day) is tried again next time.
+            try { runCatching { factory(app) }.onFailure { Log.w("Rtc", "WebRTC couldn't start", it) } } finally { warming.set(false) }
+        }, "camera-rtc").start()
+    }
 }
 
 /**
  * One camera's live stream, shown by any number of views at once ([CameraStreams] shares it): each
  * view [attach]es its picture and [detach]es it, and the stream runs from [start] until [close].
- * Google's live streams end after about five minutes, so this extends the stream every four, and
- * reconnects from scratch if extending or the connection fails.
+ *
+ * A picture is live only while its frames come ([StreamHealth]): a connection that's up but sends
+ * nothing (a camera asleep, Google ending the media, the Wi-Fi gone for a moment) isn't shown as live.
+ * A few seconds without a frame and the views hold the last picture and say so; longer, or when
+ * WebRTC gives the connection up, it's made again, waiting longer after each failure until frames
+ * flow again for a while. Google's live streams end after about five minutes, so this extends the
+ * stream every four.
  */
 class CameraStream(private val context: Context, private val camera: Camera) {
+    /** What the stream's views show. */
     sealed interface Status {
+        /** Starting: no picture yet. */
         data object Connecting : Status
+
+        /** Frames are arriving: the picture is live. */
         data object Live : Status
-        data class Failed(val message: String) : Status
+
+        /** Still connected, but no frame for a few seconds: the views hold the last picture. [since]: its last frame (elapsedRealtime). */
+        data class Stalled(val since: Long) : Status
+
+        /** The connection dropped or couldn't be made, and is being made again. [since]: when the trouble began (elapsedRealtime). */
+        data class Reconnecting(val since: Long) : Status
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _status = MutableStateFlow<Status>(Status.Connecting)
     val status: StateFlow<Status> = _status
     @Volatile private var pc: PeerConnection? = null
+    /** Google requires a data channel. PeerConnection.dispose() doesn't free it (nor does a finalizer): it's kept to dispose with the connection. */
+    @Volatile private var channel: DataChannel? = null
     @Volatile private var sessionId: String? = null
     @Volatile private var audioOn = false
-    @Volatile private var dropped: CompletableDeferred<Unit>? = null
+    /** Renewing Google's session, when that's under way (beside the frame watch, so a renewal that hangs never hides frames stopping). */
+    @Volatile private var renewal: Deferred<String>? = null
     @Volatile private var job: Job? = null
     @Volatile private var onClosed: (() -> Unit)? = null
 
@@ -87,6 +129,8 @@ class CameraStream(private val context: Context, private val camera: Camera) {
     private var live: Any? = null
     private var video: VideoTrack? = null
     private var audio: AudioTrack? = null
+    /** When the connection's frames come: a sink of its own on the picture, besides the views'. */
+    private var frames: FrameClock? = null
 
     fun start() {
         if (job != null) return
@@ -107,33 +151,80 @@ class CameraStream(private val context: Context, private val camera: Camera) {
     }
 
     private suspend fun run() {
-        var failures = 0
+        val health = StreamHealth()
         while (true) {
-            val mark = com.woodruff.tvexplorer.util.NetworkWatch.comebacks.value
+            val mark = NetworkWatch.comebacks.value
+            val start = StartLog(camera.label)
+            var stopOld: String? = null
             try {
                 Gate.awaitTurn()
-                connect()
-                failures = 0
-                // Keep the stream going; reconnect if the network drops it.
-                val drop = CompletableDeferred<Unit>().also { dropped = it }
-                while (true) {
-                    val lost = withTimeoutOrNull(EXTEND_EVERY_MS) { drop.await() } != null
-                    if (lost) throw IllegalStateException("Connection lost")
-                    sessionId = NestApi.extendStream(context, camera, sessionId ?: break)
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
+                keepUp(connect(start), health, start)
+            } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w("CameraStream", "${camera.label}: ${e.message}")
-                failures++
-                if (e is RateLimited) Gate.limited()
-                _status.value = Status.Failed(e.message ?: "Couldn't connect")
+                Log.w(TAG, "${camera.label}: ${e.message}")
+                val cause = (e as? RenewalFailed)?.cause ?: e
+                if (cause is RateLimited) Gate.limited()
+                // Google turned down a renewal (not "too many requests", not the network): its old
+                // session is told to stop before a new one is asked for. Nothing else is: a dropped
+                // or stuck connection's session ends by itself in a few minutes.
+                if (e is RenewalFailed && stopsOldSession(cause)) stopOld = e.session
+                // Its session is let go either way: closing the stream later doesn't stop it again.
+                sessionId = null
+                start.failed(e)
+                CameraTimings.reconnected()
+                _status.value = health.failed(clock())
             }
             teardown()
-            // Back off: 5 s, 10 s, … up to two minutes, so an offline camera doesn't spam Google; but
-            // at once when the TV's network comes back (woken from standby), not minutes later.
-            com.woodruff.tvexplorer.util.NetworkWatch.awaitComeback(mark, minOf(120_000L, 5_000L * failures.coerceAtLeast(1)))
-            _status.value = Status.Connecting
+            val stopping = stopOld?.let { id -> scope.launch { NestApi.stopStream(context, camera, id) } }
+            // Back off: 5 s more after each failure in a row, up to two minutes, so a camera that's
+            // off doesn't spam Google; but at once when the TV's network comes back (woken from
+            // standby), not minutes later.
+            NetworkWatch.awaitComeback(mark, health.pauseMs())
+            // The old session's stop gets a moment more, never long: it's only tidiness.
+            if (stopping != null) withTimeoutOrNull(STOP_WAIT_MS) { stopping.join() }
+            _status.value = health.connecting()
+        }
+    }
+
+    /**
+     * Keeps connection [c] going until it should be dropped (it returns only by throwing): judges its
+     * frames twice a second ([StreamHealth]), and extends Google's session every four minutes.
+     */
+    private suspend fun keepUp(c: Connection, health: StreamHealth, start: StartLog) {
+        var renewAt = clock() + EXTEND_EVERY_MS
+        var stalled = false
+        while (true) {
+            if (withTimeoutOrNull(TICK_MS) { c.dropped.await() } != null) throw ConnectionLost()
+            val now = clock()
+            val first = c.frames.first
+            val status = health.judge(now, c.answeredAt, first, c.frames.last) ?: throw NoPicture(first > 0)
+            if (first > 0) start.pictured(first)
+            if (status is Status.Stalled) {
+                if (!stalled) CameraTimings.stalled()
+                stalled = true
+                // The network came back after the picture stopped: the old connection's way out has
+                // likely gone with it, so it's made again now rather than in 15 s. (A comeback while
+                // it was connecting, or long ago with frames flowing since, says nothing of this stall.)
+                if (NetworkWatch.comebacks.value != c.frames.network) throw NetworkChanged()
+            } else {
+                stalled = false
+            }
+            _status.value = status
+
+            val r = renewal
+            if (r == null) {
+                if (now >= renewAt) {
+                    val id = sessionId ?: throw IllegalStateException("No live session to extend")
+                    renewal = scope.async { NestApi.extendStream(context, camera, id) }
+                }
+            } else if (r.isCompleted) {
+                renewal = null
+                // Already finished, so this never waits (and can't be this coroutine's cancellation).
+                val renewed = runCatching { r.await() }
+                sessionId = renewed.getOrElse { e -> throw RenewalFailed(sessionId, e as? Exception ?: IllegalStateException(e)) }
+                renewAt = clock() + EXTEND_EVERY_MS
+            }
         }
     }
 
@@ -145,7 +236,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
         synchronized(tracks) {
             val isNew = sinks.put(sink, wantsAudio) == null
             // Only a track of the live connection: teardown() lets go of it under this lock first.
-            if (isNew) video?.let { v -> runCatching { v.addSink(sink) }.onFailure { Log.w("CameraStream", "attach", it) } }
+            if (isNew) video?.let { v -> runCatching { v.addSink(sink) }.onFailure { Log.w(TAG, "attach", it) } }
         }
         updateAudio()
     }
@@ -157,7 +248,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
     fun detach(sink: VideoSink) {
         synchronized(tracks) {
             if (sinks.remove(sink) == null) return
-            video?.let { v -> runCatching { v.removeSink(sink) }.onFailure { Log.w("CameraStream", "detach", it) } }
+            video?.let { v -> runCatching { v.removeSink(sink) }.onFailure { Log.w(TAG, "detach", it) } }
         }
         updateAudio()
     }
@@ -194,31 +285,55 @@ class CameraStream(private val context: Context, private val camera: Camera) {
         if (j == null) then() else j.cancel()
     }
 
-    private suspend fun connect() {
+    /** A connection made: its frames, WebRTC giving it up, and when Google's answer was applied. */
+    private class Connection(val frames: FrameClock, val dropped: CompletableDeferred<Unit>, val answeredAt: Long)
+
+    private suspend fun connect(start: StartLog): Connection {
+        start.begin()
         val factory = Rtc.factory(context)
-        val gathered = CompletableDeferred<Unit>()
+        val addresses = AddressWait()
+        // Nudged by WebRTC's address callbacks, so the wait below ends the moment it can.
+        val found = Channel<Unit>(Channel.CONFLATED)
+        val drop = CompletableDeferred<Unit>()
+        val frameClock = FrameClock()
         val config = PeerConnection.RTCConfiguration(
             listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()),
         ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
         // Marks this connection's callbacks, so late ones from it change nothing after teardown.
         val token = Any()
+        fun mine() = synchronized(tracks) { live === token }
 
         val conn = factory.createPeerConnection(config, object : PeerConnection.Observer {
             override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-                if (synchronized(tracks) { live !== token }) return
+                if (!mine()) return
                 when (state) {
-                    PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> _status.value = Status.Live
-                    // DISCONNECTED often recovers by itself; FAILED doesn't.
-                    PeerConnection.IceConnectionState.FAILED -> dropped?.complete(Unit)
+                    PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> start.linked(clock())
+                    // DISCONNECTED often recovers by itself (the frames say if it doesn't); FAILED doesn't.
+                    PeerConnection.IceConnectionState.FAILED -> drop.complete(Unit)
+                    else -> Unit
+                }
+            }
+            // The whole connection's state (the network path and its encryption): FAILED gives it up too.
+            override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
+                if (!mine()) return
+                when (newState) {
+                    PeerConnection.PeerConnectionState.CONNECTED -> start.linked(clock())
+                    PeerConnection.PeerConnectionState.FAILED -> drop.complete(Unit)
                     else -> Unit
                 }
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) {}
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
-                if (state == PeerConnection.IceGatheringState.COMPLETE) gathered.complete(Unit)
+                if (state == PeerConnection.IceGatheringState.COMPLETE) {
+                    addresses.complete()
+                    found.trySend(Unit)
+                }
             }
-            override fun onIceCandidate(candidate: IceCandidate?) {}
+            override fun onIceCandidate(candidate: IceCandidate?) {
+                addresses.found(candidateType(candidate?.sdp), clock(), candidate?.sdpMLineIndex ?: 0)
+                found.trySend(Unit)
+            }
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
             override fun onAddStream(stream: MediaStream?) {}
             override fun onRemoveStream(stream: MediaStream?) {}
@@ -226,11 +341,12 @@ class CameraStream(private val context: Context, private val camera: Camera) {
             override fun onRenegotiationNeeded() {}
             override fun onTrack(transceiver: RtpTransceiver?) {
                 when (val track = transceiver?.receiver?.track()) {
-                    // Every view attached so far gets this connection's picture (and later ones in attach()).
                     is VideoTrack -> synchronized(tracks) {
                         if (live !== token) return@synchronized
                         video = track
-                        sinks.keys.forEach { s -> runCatching { track.addSink(s) }.onFailure { Log.w("CameraStream", "addSink", it) } }
+                        // When its frames come, then every view attached so far (and later ones in attach()).
+                        frames?.let { f -> runCatching { track.addSink(f) }.onFailure { Log.w(TAG, "frames", it) } }
+                        sinks.keys.forEach { s -> runCatching { track.addSink(s) }.onFailure { Log.w(TAG, "addSink", it) } }
                     }
                     is AudioTrack -> {
                         val mine = synchronized(tracks) { (live === token).also { if (it) audio = track } }
@@ -242,23 +358,40 @@ class CameraStream(private val context: Context, private val camera: Camera) {
             }
         }) ?: throw IllegalStateException("WebRTC isn't available on this TV")
         pc = conn
-        synchronized(tracks) { live = token }
+        synchronized(tracks) {
+            live = token
+            frames = frameClock
+        }
 
         // Google requires audio, then video, then a data channel in the offer, in that order.
         val recvOnly = RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY)
         conn.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, recvOnly)
         conn.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
-        conn.createDataChannel("dataSendChannel", DataChannel.Init())
+        channel = conn.createDataChannel("dataSendChannel", DataChannel.Init())
 
         val offer = sdp { obs -> conn.createOffer(obs, MediaConstraints()) }
+        val asking = clock()
+        addresses.begin(asking)
         setDescription { obs -> conn.setLocalDescription(obs, offer) }
-        // Include our network candidates in the offer (Google doesn't take trickled ones).
-        withTimeoutOrNull(3_000) { gathered.await() }
+        // This TV's network addresses go in the offer (Google takes none found later): until each part
+        // of it has a public one, or half a second after the first local one, or all are in, 3 s at
+        // most. The offer then carries the ones found so far.
+        while (true) {
+            val left = addresses.left(clock())
+            if (left <= 0) break
+            withTimeoutOrNull(left) { found.receive() }
+        }
+        start.addressed(clock() - asking, addresses.end)
         val local = conn.localDescription?.description ?: offer.description
 
+        val asked = clock()
         val session = NestApi.startStream(context, camera, local)
+        start.answered(clock() - asked)
         sessionId = session.mediaSessionId
         setDescription { obs -> conn.setRemoteDescription(obs, SessionDescription(SessionDescription.Type.ANSWER, session.answerSdp)) }
+        val answeredAt = clock()
+        start.applied(answeredAt)
+        return Connection(frameClock, drop, answeredAt)
     }
 
     /**
@@ -267,20 +400,32 @@ class CameraStream(private val context: Context, private val camera: Camera) {
      */
     @Synchronized
     private fun teardown() {
-        dropped = null
+        // A renewal still under way is for this connection: whatever it brings back isn't needed.
+        renewal?.cancel()
+        renewal = null
         // First the views stop being fed, under the lock attach(), detach() and onTrack use: from here
         // on nothing touches this connection's tracks (they're disposed below), and its late onTrack
         // changes nothing. The connection is closed outside the lock: closing waits on the signaling
         // thread, where onTrack may be waiting for it.
         synchronized(tracks) {
             live = null
-            video?.let { v -> sinks.keys.forEach { s -> runCatching { v.removeSink(s) } } }
+            video?.let { v ->
+                sinks.keys.forEach { s -> runCatching { v.removeSink(s) } }
+                frames?.let { f -> runCatching { v.removeSink(f) } }
+            }
             video = null
             audio = null
+            frames = null
         }
+        val dc = channel
+        channel = null
         val p = pc ?: return
         pc = null
         runCatching { p.close() }
+        // After the connection is closed and before it's disposed (dispose() frees its streams,
+        // senders, receivers and transceivers, never its data channels): one leaked native object per
+        // connection otherwise, about one a minute on a TV that rotates its tiles, for days.
+        runCatching { dc?.dispose() }
         runCatching { p.dispose() }
     }
 
@@ -305,7 +450,107 @@ class CameraStream(private val context: Context, private val camera: Camera) {
     }
 
     companion object {
+        private const val TAG = "CameraStream"
         private const val EXTEND_EVERY_MS = 4 * 60_000L
+        /** How often the frames are judged. */
+        private const val TICK_MS = 500L
+        /** How long the next try waits, at most, for an old session's stop to reach Google. */
+        private const val STOP_WAIT_MS = 3_000L
+
+        private fun clock() = SystemClock.elapsedRealtime()
+    }
+
+    /** WebRTC gave the connection up. */
+    private class ConnectionLost : IllegalStateException("Connection lost")
+
+    /** No picture for too long ([hadOne]: it stopped, rather than never came): dropped, to be made again. */
+    private class NoPicture(val hadOne: Boolean) : IllegalStateException(if (hadOne) "The picture stopped" else "No picture came")
+
+    /** The TV's network came back while the picture was stuck. */
+    private class NetworkChanged : IllegalStateException("The network came back")
+
+    /** Extending Google's session [session] failed with [cause]. */
+    private class RenewalFailed(val session: String?, override val cause: Exception) : IllegalStateException("Couldn't extend the stream: ${cause.message}", cause)
+
+    /**
+     * When a connection's frames arrive (on WebRTC's decoder thread): its first and its latest, by the
+     * uptime clock, and the network's comebacks then ([network], [NetworkWatch.comebacks]). A sink on
+     * the picture that draws nothing, so the stream knows its frames are coming whatever its views do
+     * with them (a tile skips most).
+     */
+    private class FrameClock : VideoSink {
+        @Volatile var first = 0L
+            private set
+        @Volatile var last = 0L
+            private set
+        /** [NetworkWatch.comebacks] as the latest frame came: a different count later means the network came back since. */
+        @Volatile var network = NetworkWatch.comebacks.value
+            private set
+
+        override fun onFrame(frame: VideoFrame) {
+            val now = clock()
+            if (first == 0L) first = now
+            last = now
+            network = NetworkWatch.comebacks.value
+        }
+    }
+
+    /**
+     * One connection's start, step by step, for the smoothness report ([CameraTimings]): recorded
+     * once, when its picture comes or the start fails. Its steps come from the stream's coroutine and
+     * WebRTC's signaling thread.
+     */
+    private class StartLog(private val camera: String) {
+        /** When it began, by this TV's clock (for the report's time of day). */
+        @Volatile private var at = System.currentTimeMillis()
+        @Volatile private var addressesMs: Long? = null
+        @Volatile private var addressesEnd: AddressesEnd? = null
+        @Volatile private var googleMs: Long? = null
+        @Volatile private var appliedAt = 0L
+        @Volatile private var linkedAt = 0L
+        private var done = false
+
+        /** The connection is being made now, its turn come (the wait between starts isn't counted). */
+        fun begin() { at = System.currentTimeMillis() }
+        fun addressed(ms: Long, end: AddressesEnd?) { addressesMs = ms; addressesEnd = end }
+        fun answered(ms: Long) { googleMs = ms }
+        fun applied(now: Long) { appliedAt = now }
+        fun linked(now: Long) { if (linkedAt == 0L) linkedAt = now }
+
+        /** Its first frame came at [firstFrame]. */
+        @Synchronized fun pictured(firstFrame: Long) {
+            if (done) return
+            done = true
+            val linked = linkedAt
+            CameraTimings.add(
+                CameraTimings.Start(
+                    camera, at, addressesMs, addressesEnd, googleMs,
+                    linkMs = linked.takeIf { it > 0 && appliedAt > 0 }?.let { (it - appliedAt).coerceAtLeast(0) },
+                    pictureMs = (linked.takeIf { it > 0 } ?: appliedAt).takeIf { it > 0 }?.let { (firstFrame - it).coerceAtLeast(0) },
+                ),
+            )
+        }
+
+        /** It ended with [e] (before its picture came, or later: then it was recorded already). */
+        @Synchronized fun failed(e: Exception) {
+            if (done) return
+            done = true
+            val linked = linkedAt
+            val cause = (e as? RenewalFailed)?.cause ?: e
+            CameraTimings.add(
+                CameraTimings.Start(
+                    camera, at, addressesMs, addressesEnd, googleMs,
+                    linkMs = linked.takeIf { it > 0 && appliedAt > 0 }?.let { (it - appliedAt).coerceAtLeast(0) },
+                    outcome = when {
+                        e is NoPicture -> if (linked > 0) "no picture after ${FIRST_FRAME_LIMIT_MS / 1000} s" else "no link after ${FIRST_FRAME_LIMIT_MS / 1000} s"
+                        e is ConnectionLost -> "link failed"
+                        cause is RateLimited -> "Google is limiting camera requests"
+                        isNetworkFailure(cause) -> "couldn’t reach Google"
+                        else -> cause.message?.take(60) ?: "couldn’t start"
+                    },
+                ),
+            )
+        }
     }
 
     /**

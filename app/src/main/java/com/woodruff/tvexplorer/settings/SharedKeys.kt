@@ -22,6 +22,7 @@ import java.security.MessageDigest
 /**
  * The keys every TV in the house shares, so they're entered once: on any TV or from the phone.
  * Sign-ins (scanning a QR code with the phone) stay one per TV; these are what they're built on.
+ * (The doorbell's subscription, a name rather than a key, and its person / motion choice are shared the same way.)
  *
  * [tieGoesToSender]: when two TVs hold different keys from before keys were shared, whether the
  * hub's replaces the other's. Yes for the TMDB key (harmless); no for the Google keys and the
@@ -32,7 +33,17 @@ enum class SharedKey(val id: String, internal val atName: String, val tieGoesToS
     /** The Google Client ID and secret, as one: Drive, Photos, Calendar and the cameras use them. */
     GOOGLE("google", "google.keys.at", false),
     /** The Device Access project ID the cameras use. */
-    CAMERAS("cameras", "nest.project.at", false);
+    CAMERAS("cameras", "nest.project.at", false),
+    /**
+     * The doorbell's Pub/Sub subscription (its name, not a credential): each TV whose cameras are
+     * connected makes a subscription of its own from it ([com.woodruff.tvexplorer.nest.Doorbell]).
+     */
+    DOORBELL("doorbell", "doorbell.subscription.at", false),
+    /**
+     * The doorbell's person and motion pop-ups, on or off ("person=1;motion=0"): every TV listening
+     * on its own subscription announces what the family chose. Like TMDB's, a tie goes to the hub's.
+     */
+    ALERTS("alerts", "doorbell.alerts.at", true);
 
     companion object {
         fun of(id: String?): SharedKey? = entries.firstOrNull { it.id == id }
@@ -58,6 +69,8 @@ object SharedKeys {
         SharedKey.TMDB -> Tmdb.key(c)
         SharedKey.GOOGLE -> googleValue(GoogleAuth.clientId(c), GoogleAuth.clientSecret(c))
         SharedKey.CAMERAS -> GoogleAuth.nestProject(c)
+        SharedKey.DOORBELL -> com.woodruff.tvexplorer.nest.Doorbell.subscription(c)
+        SharedKey.ALERTS -> com.woodruff.tvexplorer.nest.Doorbell.alertsChoice(c)
     }
 
     /** When [key] was set or removed, here or on another TV (0: before keys were shared, or never). */
@@ -192,6 +205,8 @@ object SharedKeys {
                 if (pair == null) GoogleAuth.resetClient(c) else GoogleAuth.saveClient(c, pair.first, pair.second)
             }
             SharedKey.CAMERAS -> GoogleAuth.saveNestProject(c, value)
+            SharedKey.DOORBELL -> com.woodruff.tvexplorer.nest.Doorbell.received(c, value)
+            SharedKey.ALERTS -> com.woodruff.tvexplorer.nest.Doorbell.receivedAlerts(c, value)
         }
     }
 }

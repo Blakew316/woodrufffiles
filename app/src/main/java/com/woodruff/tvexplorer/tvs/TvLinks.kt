@@ -279,9 +279,14 @@ object TvLinks {
         reach(tv, again = false) { t -> request("${t.base}/api/sync?k=${enc(t.key)}", "POST", json) }
     }
 
-    /** Doorbell rang (seen by the TV that watches for it): tell [tv] too. */
-    fun doorbell(tv: LinkedTv, camera: String, label: String, kind: String = "doorbell") {
-        val json = JSONObject().put("camera", camera).put("label", label).put("kind", kind).toString()
+    /**
+     * Doorbell rang (seen by the TV that watches for it): tell [tv] too. [session] is the visit it
+     * belongs to, so a TV that also hears it from its own subscription rings once; [from], this TV's
+     * name, for that TV's Settings ("Through Living Room").
+     */
+    fun doorbell(tv: LinkedTv, camera: String, label: String, kind: String = "doorbell", session: String? = null, from: String? = null) {
+        val json = JSONObject().put("camera", camera).put("label", label).put("kind", kind)
+            .apply { if (session != null) put("session", session); if (from != null) put("from", from) }.toString()
         reach(tv, again = true) { t -> request("${t.base}/api/doorbell?k=${enc(t.key)}", "POST", json) }
     }
 

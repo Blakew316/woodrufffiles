@@ -154,12 +154,13 @@ class OfflineWordsTest {
         assertEquals("Offline · the cameras reconnect by themselves", cameraOfflineLine(google = false))
         assertEquals("Can’t reach Google right now · the cameras reconnect by themselves", cameraOfflineLine(google = true))
         assertEquals("Cameras will show when the TV is back online.", NO_CAMERAS_OFFLINE)
-        assertNull(streamWords(CameraStream.Status.Live, dropped = false, long = false))
-        assertEquals("Connecting…", streamWords(CameraStream.Status.Connecting, dropped = false, long = false))
-        // Dropped: reconnecting (Google's raw words never shown), then after 30 s it says so.
-        assertEquals("Reconnecting…", streamWords(CameraStream.Status.Failed("Camera error 500: Internal"), dropped = true, long = false))
-        assertEquals("Reconnecting…", streamWords(CameraStream.Status.Connecting, dropped = true, long = false))
-        assertEquals("Can’t reach this camera right now", streamWords(CameraStream.Status.Failed("x"), dropped = true, long = true))
+        assertNull(streamWords(CameraStream.Status.Live, long = false))
+        assertEquals("Connecting…", streamWords(CameraStream.Status.Connecting, long = false))
+        // Its frames stopped, or its connection dropped and is made again: reconnecting (a stream has no
+        // words of Google's to show), then after 30 s it says so.
+        assertEquals(OfflineWords.RECONNECTING, streamWords(CameraStream.Status.Stalled(1), long = false))
+        assertEquals(OfflineWords.RECONNECTING, streamWords(CameraStream.Status.Reconnecting(1), long = false))
+        assertEquals("Can’t reach this camera right now", streamWords(CameraStream.Status.Reconnecting(1), long = true))
     }
 
     @Test fun accountsSayEachSignInAsItStands() {
@@ -199,7 +200,7 @@ class OfflineWordsTest {
             OfflineWords.full(true), OfflineWords.full(false), OfflineWords.RECONNECTING, OfflineWords.BACK_ONLINE,
             libraryPageWords(LibraryPage.Offline(true, false), "Movies").body, libraryPageWords(LibraryPage.Offline(false, true), "Movies").body,
             libraryPageWords(LibraryPage.Keys, "Movies").body, cameraOfflineLine(true), NO_CAMERAS_OFFLINE,
-            streamWords(CameraStream.Status.Failed("x"), dropped = true, long = true)!!,
+            streamWords(CameraStream.Status.Reconnecting(1), long = true)!!,
         )
         for (w in words) for (b in banned) assertFalse("\"$w\" says \"$b\"", w.lowercase().contains(b))
     }

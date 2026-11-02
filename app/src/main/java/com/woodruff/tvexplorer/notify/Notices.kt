@@ -75,25 +75,38 @@ object Notices {
      * non-urgent news (a sign-in that ended): kept unread here (Notifications, Home's At a glance) and
      * shown in Woodruff's own banner only while Woodruff's main screen is in front; never over its
      * player, slideshow or photo viewer, never over other apps, never as a system notification, never
-     * with a sound.
+     * with a sound. [popUp] false: kept and chimed, but no card anywhere (a doorbell ring whose camera
+     * opens instead: the camera is the notice). Returns the notice, for [popUp] later.
      */
-    fun post(context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null, quiet: Boolean = false) {
+    fun post(
+        context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null,
+        quiet: Boolean = false, popUp: Boolean = true,
+    ): Notice {
         load(context)
         val sound = chime.takeIf { source != NoticeSource.MAIL && !quiet }
         val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link, chime = sound)
         _items.update { (listOf(n) + it).take(MAX) }
-        if (quiet && !AppVisibility.foreground) {
-            // Stored, unread, for when someone next looks: nothing pops up now.
-            save(context)
-            return
-        }
-        _latest.value = n
         save(context)
-        if (quiet) return
+        if (quiet) {
+            // Woodruff's own banner while its main screen is in front; otherwise stored, unread, for
+            // when someone next looks: nothing pops up now.
+            if (popUp && AppVisibility.foreground) _latest.value = n
+            return n
+        }
         // Wherever the viewer is: in Woodruff, in its player or in another app.
         if (sound != null) Chime.play(context, sound)
+        if (popUp) popUp(context, n)
+        return n
+    }
+
+    /**
+     * [n]'s card, where the viewer is: Woodruff's own banner, or over other apps (else an Android
+     * notification). Also a doorbell ring's card when its camera couldn't open after all.
+     */
+    fun popUp(context: Context, n: Notice) {
+        _latest.value = n
         // Woodruff's own player shows the doorbell in its own card (with OK to look): not twice.
-        val playerCard = sound == Chime.Sound.DOORBELL && NowPlaying.ownPlayer != null
+        val playerCard = n.chime == Chime.Sound.DOORBELL && NowPlaying.ownPlayer != null
         if (!AppVisibility.foreground && !playerCard) {
             if (Settings.canDrawOverlays(context)) NoticeOverlay.show(context, n) else systemNotification(context, n)
         }

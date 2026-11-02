@@ -666,7 +666,8 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
 @Composable
 private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     val state by Nest.state.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { if (DashboardSamples.cameras == null) Nest.warm() }
+    // (With Home's live cameras turned off, nothing streams here: WebRTC waits for the Command Center.)
+    LaunchedEffect(Unit) { if (DashboardSamples.cameras == null) Nest.warm(streams = Appearance.homeCameras != Appearance.HomeCameras.OFF) }
     val samples = DashboardSamples.cameras
     val cams = state.cameras
     val count = samples?.size ?: cams.size
@@ -718,7 +719,12 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
             // Four at a glance in a 2×2 grid; the rest are in the Command center.
-            samples != null -> CameraGrid4(samples.take(4)) { _, name -> CameraTile(name, null, live = false, offline = offline, onClick = {}) }
+            samples != null -> CameraGrid4(samples.take(4)) { _, name ->
+                // The gallery's sample cameras: streaming as CameraSamples says (there's no WebRTC there),
+                // or their last pictures with OFFLINE.
+                val sample = CameraSamples.camera(name)
+                CameraTile(name, sample, live = sample != null && !offline, offline = offline, onClick = {})
+            }
             state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4(shown) { i, cam ->
                 // Play live on their own, like the Command center.
                 key(cam.name) {
@@ -783,13 +789,17 @@ private fun <T> CameraGrid4(items: List<T>, tile: @Composable (Int, T) -> Unit) 
 }
 
 /**
- * A camera on Home: live, or its last picture (with OFFLINE over it when the cameras can't be
- * reached: [offline]), or its symbol. Its name on a chip; LIVE while it streams.
+ * A camera on Home: streaming when [live] (it's meant to), else its last picture (with OFFLINE over
+ * it when the cameras can't be reached: [offline]) or its symbol. Its name on a chip; LIVE only while
+ * the stream's frames come, never while it connects, reconnects or holds a picture that has stopped.
  */
 @Composable
 private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, offline: Boolean = false, onFocus: (Boolean) -> Unit = {}, onClick: () -> Unit) {
     // Whether this tile has the focus, read only by its video (the focused tile plays smoothest).
     val focused = remember { mutableStateOf(false) }
+    // What its video shows (live frames, a held picture, or none), for the LIVE badge.
+    var picture by remember { mutableStateOf(CameraPicture.NONE) }
+    LaunchedEffect(live) { if (!live) picture = CameraPicture.NONE }
     TvCard(
         onClick = onClick,
         shape = Shapes.card,
@@ -804,7 +814,7 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
             // The gallery's sample tiles have no camera: their pictures are kept by name.
             val still = stills[cam?.name ?: label]
             val stillImage = remember(still) { still?.bitmap?.asImageBitmap() }
-            if (live && cam != null) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
+            if (live && cam != null) LiveVideo(cam, audio = false, fill = true, focused = { focused.value }, onPicture = { picture = it })
             else if (stillImage != null) Image(stillImage, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 TvIcon(Sym.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))
@@ -820,7 +830,7 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
                     .background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 8.dp, vertical = 2.dp),
             )
             when {
-                live -> StatusBadge("LIVE", BadgeKind.LIVE, Modifier.align(Alignment.TopEnd).padding(6.dp))
+                live && picture == CameraPicture.LIVE -> StatusBadge("LIVE", BadgeKind.LIVE, Modifier.align(Alignment.TopEnd).padding(6.dp))
                 // Its last picture, as it was: OFFLINE says it isn't live (a tile with no picture says it in its middle).
                 offline && stillImage != null -> StatusBadge("OFFLINE", BadgeKind.OFFLINE, Modifier.align(Alignment.TopEnd).padding(6.dp))
             }

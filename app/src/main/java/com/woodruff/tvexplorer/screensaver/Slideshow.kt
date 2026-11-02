@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -20,6 +21,8 @@ import android.widget.TextView
 import coil.request.CachePolicy
 import coil.request.Disposable
 import coil.request.ImageRequest
+import com.woodruff.tvexplorer.nest.Doorbell
+import com.woodruff.tvexplorer.player.DoorbellActivity
 import com.woodruff.tvexplorer.player.ViewGlide
 import com.woodruff.tvexplorer.ui.motion.TvMotion
 import java.io.File
@@ -114,7 +117,8 @@ class SlideshowView(context: Context) : FrameLayout(context) {
         // (Its words fading from the last time it ran stop where they are.)
         messageFade.stop()
         message.alpha = 1f
-        message.text = "Loading photos…"
+        // Back to it (from the doorbell's camera, say): the photo it showed stays, with no "Loading".
+        message.text = if (shown != null) "" else "Loading photos…"
         // Walking a large photo folder can take a moment; don't block the UI thread.
         io.execute {
             val all = Appearance.photos(context)
@@ -218,9 +222,14 @@ class SlideshowView(context: Context) : FrameLayout(context) {
 
 private const val FADE_MS = 1200
 
-/** The TV's own screensaver ("Daydream"), when chosen in the TV's settings or with adb. */
+/**
+ * The TV's own screensaver ("Daydream"), when chosen in the TV's settings or with adb. With
+ * "Pop-ups over other apps" allowed, a doorbell ring wakes it and opens the camera; Back (or 2
+ * minutes without a key) then returns to whatever the TV showed under it.
+ */
 class SlideshowDream : DreamService() {
     private var view: SlideshowView? = null
+    private var doorbell: Doorbell.Watch? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -232,11 +241,31 @@ class SlideshowDream : DreamService() {
     override fun onDreamingStarted() {
         super.onDreamingStarted()
         view?.start()
+        doorbell = Doorbell.watchFor(Doorbell.Host.SCREENSAVER) { ring -> openDoorbell(ring) }
     }
 
     override fun onDreamingStopped() {
+        doorbell?.stop()
+        doorbell = null
         view?.stop()
         super.onDreamingStopped()
+    }
+
+    private fun openDoorbell(ring: Doorbell.Ring) {
+        // A task of its own: closing it shows what was under the screensaver (the launcher, an app),
+        // not Woodruff's last screen. Started while the screensaver is still up, then it wakes. Kept
+        // out of the TV's recent apps: once closed (or left), there's nothing there to go back to.
+        runCatching {
+            startActivity(
+                DoorbellActivity.intent(this, ring, DoorbellActivity.Origin.SCREENSAVER)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS),
+            )
+        }.onFailure {
+            android.util.Log.w("Slideshow", "couldn't open the doorbell from the screensaver", it)
+            // No view on its way after all: the next ring isn't kept for one, and this one's card shows.
+            Doorbell.unclaim(ring)
+        }
+        runCatching { if (Build.VERSION.SDK_INT >= 29) wakeUp() else finish() }
     }
 }
 
@@ -251,8 +280,25 @@ class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Res
         setContentView(view)
     }
 
-    override fun onStart() { super.onStart(); view.start(); com.woodruff.tvexplorer.remote.TvScreen.attach(this) }
-    override fun onStop() { com.woodruff.tvexplorer.remote.TvScreen.detach(this); view.stop(); super.onStop() }
+    /** A doorbell ring opens the camera over the slideshow; Back (or 2 minutes without a key) returns here. */
+    private var doorbell: Doorbell.Watch? = null
+
+    override fun onStart() {
+        super.onStart()
+        view.start()
+        com.woodruff.tvexplorer.remote.TvScreen.attach(this)
+        doorbell = Doorbell.watchFor(Doorbell.Host.SLIDESHOW) { ring ->
+            startActivity(DoorbellActivity.intent(this, ring, DoorbellActivity.Origin.SLIDESHOW))
+        }
+    }
+
+    override fun onStop() {
+        doorbell?.stop()
+        doorbell = null
+        com.woodruff.tvexplorer.remote.TvScreen.detach(this)
+        view.stop()
+        super.onStop()
+    }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean { finish(); return true }
 

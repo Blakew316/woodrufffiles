@@ -344,13 +344,35 @@ fun AppRoot(vm: MainViewModel) {
         )
     }
     com.woodruff.tvexplorer.ui.screens.UpdatePrompt(vm)
-    // Doorbell: show it full screen when Woodruff is on screen (the notice covers other apps).
+    // Doorbell: a ring while Woodruff is on screen opens that camera full screen (no card over it).
+    // On the Command Center's cameras it shows in place (Back: the grid); over any other screen the
+    // doorbell's own view opens, and Back returns to that screen exactly as it was (its focus, scroll,
+    // folder and open pages untouched underneath).
     LaunchedEffect(Unit) {
-        com.woodruff.tvexplorer.nest.Doorbell.rings.collect { camera ->
+        val bell = com.woodruff.tvexplorer.nest.Doorbell
+        bell.opens.collect { ring ->
+            // Woodruff's screens left the front just then (Home pressed, say): not taken here, so the
+            // ring's card pops up a moment later, rather than a view Android won't start from behind.
             if (!com.woodruff.tvexplorer.notify.AppVisibility.foreground) return@collect
-            val i = com.woodruff.tvexplorer.nest.Nest.state.value.cameras.indexOfFirst { it.name == camera }.coerceAtLeast(0)
-            if (vm.screen.value == Screen.CAMERAS) com.woodruff.tvexplorer.ui.screens.cameraRequests.tryEmit(i)
-            else { com.woodruff.tvexplorer.ui.screens.openCameraAt = i; vm.show(Screen.CAMERAS) }
+            if (!bell.claim(ring, com.woodruff.tvexplorer.nest.Doorbell.Host.APP)) return@collect
+            val cams = com.woodruff.tvexplorer.nest.Nest.state.value.cameras
+            val requests = com.woodruff.tvexplorer.ui.screens.cameraRequests
+            // In place only when the Command Center's cameras are there to take it (not in the frame
+            // it's still coming in): a request nobody hears would open nothing.
+            if (vm.screen.value == Screen.CAMERAS && cams.isNotEmpty() && requests.subscriptionCount.value > 0) {
+                val i = cams.indexOfFirst { it.name == ring.camera }.coerceAtLeast(0)
+                requests.tryEmit(com.woodruff.tvexplorer.ui.screens.CameraRequest(i, ring.at))
+            } else {
+                val inMemories = browserPath.let { p -> p != null && (p.startsWith(GooglePhotos.folder.path) || p.startsWith(GooglePhotos.videoFolder.path)) }
+                val name = com.woodruff.tvexplorer.ui.screens.screenName(vm.screen.value, driveTop?.title, inMemories)
+                // Until it's up, another doorbell ringing switches it rather than opening a second view.
+                bell.viewOpening()
+                runCatching {
+                    searchContext.startActivity(
+                        com.woodruff.tvexplorer.player.DoorbellActivity.intent(searchContext, ring, com.woodruff.tvexplorer.player.DoorbellActivity.Origin.SCREEN, name),
+                    )
+                }.onFailure { bell.unclaim(ring) } // its card pops up a moment later instead
+            }
         }
     }
     LaunchedEffect(railWanted) {

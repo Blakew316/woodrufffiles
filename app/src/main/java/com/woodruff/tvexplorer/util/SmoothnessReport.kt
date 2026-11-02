@@ -69,7 +69,7 @@ object SmoothnessReport {
                 gc = gc,
                 gcDuringRecording = gcDuring,
             ),
-        )
+        ) + com.woodruff.tvexplorer.nest.CameraTimings.report(c) // how long this run's camera starts took, step by step
     }
 
     internal fun format(d: Data): String = buildString {
