@@ -72,18 +72,34 @@ object Notices {
         }
     }
 
-    /** [chime]: also play that sound (announcements and the doorbell; never mail). */
-    fun post(context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null) {
+    /**
+     * [chime]: also play that sound (announcements and the doorbell; never mail). [popUp] false:
+     * kept and chimed, but no card anywhere (a doorbell ring whose camera opens instead: the camera
+     * is the notice). Returns the notice, for [popUp] later.
+     */
+    fun post(
+        context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null,
+        popUp: Boolean = true,
+    ): Notice {
         load(context)
         val sound = chime.takeIf { source != NoticeSource.MAIL }
         val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link, chime = sound)
         _items.update { (listOf(n) + it).take(MAX) }
-        _latest.value = n
         save(context)
         // Wherever the viewer is: in Woodruff, in its player or in another app.
         if (sound != null) Chime.play(context, sound)
+        if (popUp) popUp(context, n)
+        return n
+    }
+
+    /**
+     * [n]'s card, where the viewer is: Woodruff's own banner, or over other apps (else an Android
+     * notification). Also a doorbell ring's card when its camera couldn't open after all.
+     */
+    fun popUp(context: Context, n: Notice) {
+        _latest.value = n
         // Woodruff's own player shows the doorbell in its own card (with OK to look): not twice.
-        val playerCard = sound == Chime.Sound.DOORBELL && NowPlaying.ownPlayer != null
+        val playerCard = n.chime == Chime.Sound.DOORBELL && NowPlaying.ownPlayer != null
         if (!AppVisibility.foreground && !playerCard) {
             if (Settings.canDrawOverlays(context)) NoticeOverlay.show(context, n) else systemNotification(context, n)
         }

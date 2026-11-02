@@ -8,16 +8,20 @@ import com.woodruff.tvexplorer.util.NetworkWatch
 import com.woodruff.tvexplorer.util.backoffMs
 import com.woodruff.tvexplorer.util.isNetworkFailure
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class NestStep {
     /** Google client ID/secret aren't saved yet (same keys as Google Drive). */
@@ -46,13 +50,23 @@ data class NestState(
 /**
  * App-wide camera state. Lives outside any screen so the phone's sign-in callback is handled even
  * if the viewer has moved to another screen while signing in on the phone.
+ *
+ * The camera list is kept on the TV ([camerasToJson]: names, labels and rooms, nothing secret) and
+ * read back at start-up, before anything asks: so Home's camera tiles show straight away, and a
+ * doorbell or person alert names the right camera even when the TV started by itself (at power-on,
+ * after an update) with no screen open. It's listed again in the background once per run.
  */
 object Nest {
+    private const val PREFS = "nest"
+    private const val K_CAMERAS = "cameras"
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val _state = MutableStateFlow(NestState())
     val state: StateFlow<NestState> = _state
     private lateinit var app: Context
     private var signInJob: Job? = null
+    /** The saved camera list has been read (see [awaitSaved]). */
+    private val saved = CompletableDeferred<Unit>()
 
     fun init(c: Context) {
         app = c.applicationContext
@@ -60,16 +74,24 @@ object Nest {
         // Google ended the cameras' sign-in (found out by any renewal, the doorbell's included).
         scope.launch {
             GoogleAuth.expirations.collect { grant ->
-                if (grant == GoogleAuth.Grant.NEST) _state.update { it.copy(step = step(), offline = false) }
+                if (grant == GoogleAuth.Grant.NEST) { _state.update { it.copy(step = step(), offline = false) }; Doorbell.nudge() }
             }
         }
         // Reading the encrypted settings goes through the Keystore; keep it off the main thread at
         // launch. This also warms the settings cache, so Settings and Drive open instantly later.
         scope.launch {
+            // The cameras as last listed, first: a ring can come before any screen opens.
+            val known = withContext(Dispatchers.IO) { camerasFromJson(prefs().getString(K_CAMERAS, null)) }
+            if (known.isNotEmpty()) _state.update { if (it.cameras.isEmpty()) it.copy(cameras = known) else it }
+            saved.complete(Unit)
             val s = withContext(Dispatchers.IO) { step() }
             _state.update { if (it.step == NestStep.NEED_GOOGLE) it.copy(step = s) else it }
-            // Cameras connected: the tiles' GL thread is made now, in the background, before Home shows them.
-            if (s == NestStep.CONNECTED) CameraGl.warm()
+            if (s == NestStep.CONNECTED) {
+                // The tiles' GL thread is made now, in the background, before Home shows them.
+                CameraGl.warm()
+                // And the list again, behind the saved one: a camera renamed or added since.
+                refresh()
+            }
         }
         scope.launch {
             CompanionHub.googleCodes.collect { (code, attempt) ->
@@ -78,6 +100,8 @@ object Nest {
                     GoogleAuth.exchange(app, code, attempt)
                     _state.update { it.copy(step = NestStep.CONNECTED, qrUrl = null, error = null) }
                     refresh()
+                    // The doorbell listens on this TV from now on.
+                    Doorbell.nudge()
                 } catch (e: Exception) {
                     _state.update { it.copy(error = e.message ?: "Sign-in failed") }
                 }
@@ -85,6 +109,43 @@ object Nest {
         }
         // Google keys or the project ID changed (from the phone or Settings).
         scope.launch { CompanionHub.changes.collect { if (_state.value.step != NestStep.CONNECTED) _state.update { it.copy(step = step()) } } }
+    }
+
+    private fun prefs() = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** The cameras [cams] are what Google lists now: shown, and kept for the next start. */
+    private fun listed(cams: List<Camera>) {
+        _state.update { it.copy(cameras = cams) }
+        prefs().edit().putString(K_CAMERAS, camerasToJson(cams)).apply()
+    }
+
+    /** The saved list goes (signed out, another project: other cameras). */
+    private fun forgetCameras() {
+        prefs().edit().remove(K_CAMERAS).apply()
+    }
+
+    /** [camera]'s name ("Front Door"), from the list as last known; null for a camera it doesn't know. */
+    fun label(camera: String): String? = _state.value.cameras.firstOrNull { it.name == camera }?.label
+
+    /** Waits (at most [timeoutMs]) until the saved camera list has been read at start-up. */
+    suspend fun awaitSaved(timeoutMs: Long) {
+        withTimeoutOrNull(timeoutMs) { saved.await() }
+    }
+
+    private var labelListing: Deferred<Boolean>? = null
+
+    /**
+     * Lists the cameras for naming an alert from a camera the list doesn't know: once in each run of
+     * the app, waiting at most [timeoutMs] for it (it carries on in the background after that, and
+     * the next alert has it). True when the list came in.
+     */
+    suspend fun listOnce(timeoutMs: Long): Boolean {
+        val listing = synchronized(this) {
+            labelListing ?: scope.async {
+                runCatching { NestApi.cameras(app) }.onSuccess { listed(it) }.isSuccess
+            }.also { labelListing = it }
+        }
+        return withTimeoutOrNull(timeoutMs) { listing.await() } ?: false
     }
 
     private fun step(): NestStep = when {
@@ -106,12 +167,19 @@ object Nest {
         }
     }
 
-    /** For the Home dashboard: load cameras when already connected, without starting any sign-in. */
+    /**
+     * For the Home dashboard and the doorbell view: load cameras when already connected, without
+     * starting any sign-in. Whether they are is read off the main thread (the Keystore).
+     */
     fun warm() {
-        val s = step()
-        _state.update { it.copy(step = s) }
-        if (s == NestStep.CONNECTED) CameraGl.warm()
-        if (s == NestStep.CONNECTED && _state.value.cameras.isEmpty() && !_state.value.loading) refresh()
+        scope.launch {
+            val s = withContext(Dispatchers.IO) { step() }
+            _state.update { it.copy(step = s) }
+            if (s == NestStep.CONNECTED) {
+                CameraGl.warm()
+                if (_state.value.cameras.isEmpty() && !_state.value.loading) refresh()
+            }
+        }
     }
 
     private var refreshJob: Job? = null
@@ -130,7 +198,8 @@ object Nest {
                 _state.update { if (it.offline) it.copy(error = null) else it.copy(loading = true, error = null) }
                 try {
                     val cams = NestApi.cameras(app)
-                    _state.update { it.copy(cameras = cams, loading = false, offline = false, error = if (cams.isEmpty()) "No cameras were shared. Connect again and turn on your cameras on Google's sharing page." else null) }
+                    listed(cams)
+                    _state.update { it.copy(loading = false, offline = false, error = if (cams.isEmpty()) "No cameras were shared. Connect again and turn on your cameras on Google's sharing page." else null) }
                     return@launch
                 } catch (e: CancellationException) {
                     throw e
@@ -170,7 +239,10 @@ object Nest {
     fun saveProject(id: String) {
         try {
             com.woodruff.tvexplorer.settings.SharedKeys.set(app, com.woodruff.tvexplorer.settings.SharedKey.CAMERAS) { GoogleAuth.saveNestProject(app, id) }
+            // Another project: other cameras (and a new sign-in, which the doorbell waits for).
+            forgetCameras()
             _state.update { it.copy(cameras = emptyList(), error = null) }
+            Doorbell.nudge()
             open()
         } catch (e: IllegalArgumentException) {
             _state.update { it.copy(error = e.message) }
@@ -181,7 +253,9 @@ object Nest {
         refreshJob?.cancel()
         scope.launch {
             GoogleAuth.signOut(app, GoogleAuth.Grant.NEST)
+            forgetCameras()
             _state.update { NestState(step = step()) }
+            Doorbell.nudge()
             done()
         }
     }

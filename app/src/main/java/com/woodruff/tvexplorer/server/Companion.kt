@@ -179,7 +179,11 @@ class CompanionRoutes(private val ctx: Context) {
         }
         s.uri == "/api/doorbell" && s.method == Method.POST -> {
             val b = body(s)
-            com.woodruff.tvexplorer.nest.Doorbell.ring(ctx, b.optString("camera"), b.optString("label"), relay = false, kind = b.optString("kind").ifBlank { "doorbell" })
+            com.woodruff.tvexplorer.nest.Doorbell.ring(
+                ctx, b.optString("camera"), b.optString("label"), relay = false, kind = b.optString("kind").ifBlank { "doorbell" },
+                // The visit (one ring per visit, however it's heard) and the TV that passed it on.
+                session = b.optString("session").ifBlank { null }, from = b.optString("from").ifBlank { null },
+            )
             ok()
         }
         // ---- Several TVs (this one is the hub) ------------------------------------------------

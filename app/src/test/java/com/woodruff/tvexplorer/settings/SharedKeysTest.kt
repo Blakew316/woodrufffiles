@@ -38,10 +38,33 @@ class SharedKeysTest {
     @Test fun keysAreKnownByTheirIds() {
         assertEquals(SharedKey.GOOGLE, SharedKey.of("google"))
         assertEquals(SharedKey.CAMERAS, SharedKey.of("cameras"))
+        assertEquals(SharedKey.DOORBELL, SharedKey.of("doorbell"))
+        assertEquals(SharedKey.ALERTS, SharedKey.of("alerts"))
         assertNull(SharedKey.of("mail"))
         assertNull(SharedKey.of(null))
         // Each keeps when it was set under its own name.
         assertEquals(SharedKey.entries.size, SharedKey.entries.map { it.atName }.toSet().size)
+    }
+
+    @Test fun theDoorbellSubscriptionSetOnOneTvReachesTheOthersButNeverReplacesAWorkingOne() {
+        // Set on one TV before subscriptions were shared (at 0): it goes to the TVs without one.
+        val hub = KeyVersion(fingerprint("projects/p/subscriptions/doorbell"), 0)
+        assertTrue(needs(none, hub, SharedKey.DOORBELL.tieGoesToSender))
+        // Two TVs each set up with a different one, both from before: neither takes the other's.
+        val other = KeyVersion(fingerprint("projects/p/subscriptions/bell-2"), 0)
+        assertFalse(SharedKey.DOORBELL.tieGoesToSender)
+        assertFalse(accepts(other, hub, SharedKey.DOORBELL.tieGoesToSender))
+    }
+
+    @Test fun thePersonAndMotionChoiceMadeOnTheHubReachesEveryTv() {
+        // Chosen on the hub before it was shared (at 0); a new TV never chose: the hub's goes to it.
+        val hub = KeyVersion(fingerprint("person=0;motion=1"), 0)
+        assertTrue(needs(none, hub, SharedKey.ALERTS.tieGoesToSender))
+        // Two TVs that each chose differently before: the hub's (the sender) wins, as for TMDB.
+        val other = KeyVersion(fingerprint("person=1;motion=0"), 0)
+        assertTrue(accepts(other, hub, SharedKey.ALERTS.tieGoesToSender))
+        // Chosen again later anywhere: that's the newest, and it wins everywhere.
+        assertTrue(accepts(hub, KeyVersion(fingerprint("person=1;motion=1"), 1_000), SharedKey.ALERTS.tieGoesToSender))
     }
 
     @Test fun aKeyFromBeforeSharingReachesATvWithout() {
