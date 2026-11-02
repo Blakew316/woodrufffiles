@@ -17,6 +17,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -27,6 +28,9 @@ import org.robolectric.annotation.Config
 class NowPlayingTest {
     private val film = Playing("Midnight Harbor", null, "Woodruff Family", true, 2_710_000, 6_840_000, key = "drive:m1")
 
+    // NowPlaying is the process's own: a player test that ran earlier in this JVM may have left its film "playing"
+    // there, so each test starts from nothing playing.
+    @Before fun nothingPlaysYet() { NowPlaying.ownPlayer = null }
     @After fun closePlayer() { NowPlaying.ownPlayer = null }
 
     @Test fun ownPlayerOffersOnlyPlayPauseUntilItListens() {

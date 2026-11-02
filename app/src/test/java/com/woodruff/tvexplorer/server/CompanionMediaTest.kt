@@ -20,6 +20,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -35,6 +36,9 @@ class CompanionMediaTest {
     private val routes = CompanionRoutes(ctx)
     private val film = Playing("Midnight Harbor", null, "Woodruff Family", true, 2_710_000, 6_840_000, key = "drive:m1")
 
+    // NowPlaying and PendingPlay are the process's own: a player test that ran earlier in this JVM may have left its
+    // film "playing" there, so each test starts from nothing playing and nothing waiting.
+    @Before fun nothingPlaysYet() { NowPlaying.ownPlayer = null; PendingPlay.clear() }
     @After fun closePlayer() { NowPlaying.ownPlayer = null; PendingPlay.clear() }
 
     @Test fun skipsReachWoodruffsPlayerOnlyWhileItListens() = runBlocking {
