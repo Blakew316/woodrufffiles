@@ -23,6 +23,7 @@ import com.woodruff.tvexplorer.ui.SearchKey
 import com.woodruff.tvexplorer.ui.motion.DialogWindows
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
+import com.woodruff.tvexplorer.util.FrameStats
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -126,6 +127,9 @@ class SearchKeyEverywhereTest {
         val windows = DialogWindows.of(main)
         assertEquals(2, windows.size)
         assertEquals(page, windows.first())
+        // Settings → Smoothness: Search's frames as "Search"; the screen under it keeps its own name.
+        assertEquals("Search", DialogWindows.label(windows.last()))
+        assertEquals("Home", FrameStats.screen)
 
         // Again, now in Search's own window: it listens again; no second Search over the first.
         search(windows.last())

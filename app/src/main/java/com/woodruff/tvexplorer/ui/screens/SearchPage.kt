@@ -369,8 +369,9 @@ private fun SearchPage(r: SearchRequest, vm: MainViewModel, drive: DriveViewMode
     val pageClosed by TitlePages.closed.collectAsStateWithLifecycle()
     LaunchedEffect(pageClosed) { marks.intValue++ }
     Dialog(onDismissRequest = SearchPages::close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        // The page grows in as the system moves its window; nothing of its own animates in on top.
-        DialogWindowMotion(WindowMotion.Page)
+        // The page grows in as the system moves its window; nothing of its own animates in on top. Settings →
+        // Smoothness counts its frames as "Search", the screen under it keeping its own.
+        DialogWindowMotion(WindowMotion.Page, label = "Search")
         // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
         Box(Modifier.fillMaxSize().dpadGate()) {
             val refused = refusedBefore

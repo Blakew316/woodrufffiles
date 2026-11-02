@@ -20,9 +20,49 @@ internal object SourceScan {
             .toList()
     }
 
+    /**
+     * The same files with the insides of their strings and characters blanked too (the quotes kept), for rules
+     * that count brackets: a "{" in a string isn't a block.
+     */
+    val blanked: List<Pair<String, String>> by lazy { files.map { (path, code) -> path to blankStrings(code) } }
+
     /** Where [pattern] matches in the app's code: "path:line: the line" for each, for a failure that says where. */
     fun matches(pattern: Regex): List<String> = files.flatMap { (path, code) ->
         code.lines().mapIndexedNotNull { i, line -> if (pattern.containsMatchIn(line)) "$path:${i + 1}: ${line.trim()}" else null }
+    }
+
+    /** Where the bracket at [open] ("(" or "{") closes in [code] (strings blanked), or -1 when it doesn't. */
+    fun closing(code: String, open: Int): Int {
+        val (o, c) = code[open] to if (code[open] == '(') ')' else '}'
+        var depth = 0
+        for (i in open until code.length) {
+            if (code[i] == o) depth++ else if (code[i] == c && --depth == 0) return i
+        }
+        return -1
+    }
+
+    /** [code] (comments already out) with what's inside its strings and characters turned into spaces. */
+    private fun blankStrings(code: String): String {
+        val out = StringBuilder(code)
+        val n = code.length
+        var i = 0
+        while (i < n) {
+            val quote = when {
+                code.startsWith("\"\"\"", i) -> "\"\"\""
+                code[i] == '"' -> "\""
+                code[i] == '\'' -> "'"
+                else -> null
+            }
+            if (quote == null) { i++; continue }
+            var j = i + quote.length
+            while (j < n && !code.startsWith(quote, j) && (quote.length == 3 || code[j] != '\n')) {
+                if (quote.length == 1 && code[j] == '\\') { out[j] = ' '; j++; if (j < n) out[j] = ' '; j++; continue }
+                if (code[j] != '\n') out[j] = ' '
+                j++
+            }
+            i = minOf(j + quote.length, n)
+        }
+        return out.toString()
     }
 
     /**

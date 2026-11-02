@@ -155,9 +155,6 @@ fun AppRoot(vm: MainViewModel) {
     // filters, Search itself: SearchKey): Search, listening if the TV can, or, already open, listening again
     // (see SearchPages.searchKey), never a second Search.
     LaunchedEffect(Unit) { SearchKey.presses.collect { com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey() } }
-    // Search on screen: the smoothness meter counts its frames as "Search".
-    val searchOpen by remember { com.woodruff.tvexplorer.ui.screens.SearchPages.request.map { it != null }.distinctUntilChanged() }
-        .collectAsStateWithLifecycle(false)
 
     Box(
         Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background)),
@@ -371,9 +368,9 @@ fun AppRoot(vm: MainViewModel) {
         if (!railFocused && !contentFocused) enterScreen()
     }
     // The smoothness meter's name for what's on screen: Movies and TV Shows apart, and set again on
-    // coming back from the player (which counts its frames as "Player").
+    // coming back from the player (which counts its frames as "Player"). This window's own frames only:
+    // a page over it (Search, a title page) counts its frames under its own name.
     val frameLabel = when {
-        searchOpen -> "Search"
         screen == Screen.DRIVE -> driveTop?.title ?: "Google Drive"
         else -> screen.name.lowercase().replaceFirstChar { it.uppercase() }
     }
