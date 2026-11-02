@@ -126,10 +126,7 @@ class PlayerActivity : ComponentActivity() {
         doorbellCard = GlidingCard(doorbell, GlidingCard.Way.Drop)
         // The player's own messages ("Sleeping in 30 minutes"), at the bottom in the middle: Android's
         // toasts popped up over the film in the system's own way.
-        message = PlayerStyle.card(this, 16f).apply {
-            gravity = android.view.Gravity.CENTER
-            maxWidth = resources.displayMetrics.widthPixels * 3 / 5
-        }
+        message = PlayerStyle.message(this)
         messageCard = GlidingCard(message, GlidingCard.Way.Rise)
         view.setControllerVisibilityListener(androidx.media3.ui.PlayerView.ControllerVisibilityListener { v ->
             val up = v == android.view.View.VISIBLE
@@ -160,10 +157,7 @@ class PlayerActivity : ComponentActivity() {
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.TOP or android.view.Gravity.END,
         ).apply { setMargins(0, cardMargin / 2, cardMargin, 0) })
-        root.addView(message, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-            android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL,
-        ).apply { setMargins(0, 0, 0, cardMargin) })
+        root.addView(message, PlayerStyle.messageParams(this))
         // Scrubbing preview: a frame from that point of the film, above the scrub bar.
         val d = resources.displayMetrics.density
         previewImage = android.widget.ImageView(this).apply {
@@ -304,14 +298,14 @@ class PlayerActivity : ComponentActivity() {
 
     /**
      * Says something over the film, as Android's toasts did, but gliding in and out like the player's
-     * other cards. It stays as long as a short toast did ([long]: a long one); a newer message
-     * replaces it at once.
+     * other cards. It stays [ms]: as long as a short toast did unless told otherwise ([LONG_MESSAGE_MS],
+     * [NOTICE_MESSAGE_MS]); a newer message replaces it at once.
      */
-    private fun say(text: String, long: Boolean = false) {
+    private fun say(text: String, ms: Long = MESSAGE_MS) {
         message.text = text
         messageCard.show()
         countdown.removeCallbacks(hideMessage)
-        countdown.postDelayed(hideMessage, if (long) LONG_MESSAGE_MS else MESSAGE_MS)
+        countdown.postDelayed(hideMessage, ms)
     }
 
     // ---- Watch together ----------------------------------------------------------------------
@@ -449,11 +443,23 @@ class PlayerActivity : ComponentActivity() {
         menu.show("Subtitles", rows, anchor)
     }
 
+    /**
+     * Every sound track in the file, the one playing ticked (OK on another switches to it). The
+     * ones this TV can't play are listed too, dimmed and marked, and say why when chosen: the menu
+     * used to leave them out, and with none left it didn't open at all. A video with no sound says so.
+     */
     private fun showAudio(anchor: android.view.View) {
         val p = player ?: return
-        val tracks = tracksOf(p, C.TRACK_TYPE_AUDIO)
-        if (tracks.isEmpty()) return
-        menu.show("Audio", tracks.map { (g, i, on) -> TvMenu.Row(trackNames.getTrackName(g.getTrackFormat(i)), checked = on) { choose(p, g, i) } }, anchor)
+        // Still opening: its tracks aren't known yet, so there's nothing true to say.
+        if (p.currentTracks.isEmpty) return
+        val sound = SoundTracks.of(p.currentTracks)
+        if (sound.isEmpty()) { say(SoundTracks.NO_SOUND); return }
+        val rows = SoundTracks.menuRows(
+            sound.map { it.track }, java.util.Locale.getDefault(),
+            choose = { i -> choose(p, sound[i].group, sound[i].index) },
+            explain = { say(it) },
+        )
+        menu.show("Audio", rows, anchor)
     }
 
     private fun showSpeed(anchor: android.view.View?) {
@@ -464,14 +470,18 @@ class PlayerActivity : ComponentActivity() {
         }, anchor)
     }
 
-    /** Subtitles' button: filled while they're on, dimmed when the video has none. Audio's dims with no choice to make. */
+    /**
+     * Subtitles' button: filled while they're on, dimmed when the video has none. Audio's dims only
+     * when the video has no sound track at all: with one, its menu shows what's playing, and which
+     * tracks this TV can't play.
+     */
     private fun updateTrackButtons(p: ExoPlayer) {
         val text = tracksOf(p, C.TRACK_TYPE_TEXT)
         subtitlesButton.setImageResource(
             if (text.any { it.third }) com.woodruff.tvexplorer.R.drawable.tv_ic_subtitles_on else com.woodruff.tvexplorer.R.drawable.tv_ic_subtitles_off,
         )
         subtitlesButton.alpha = if (text.isEmpty()) DIM else 1f
-        audioButton.alpha = if (tracksOf(p, C.TRACK_TYPE_AUDIO).size < 2) DIM else 1f
+        audioButton.alpha = if (p.currentTracks.containsType(C.TRACK_TYPE_AUDIO)) 1f else DIM
     }
 
     /** "Skip intro" while inside this show's intro. */
@@ -600,6 +610,41 @@ class PlayerActivity : ComponentActivity() {
         }
         if (textType in changed) autoSubsOn = false // the viewer's choice now, not ours
         if (audio != null || text != null) ShowPrefs.setLanguages(this, show(), audio, text)
+    }
+
+    // ---- Sound this TV can't play ---------------------------------------------------------------
+
+    /** Items whose sound has been looked at while this player is up: what's found is said once each. */
+    private val soundChecked = HashSet<String>()
+    private val checkSound = Runnable { checkSound() }
+
+    /** Looks at the current item's sound in a moment ([checkSound]), unless it has been already. */
+    private fun scheduleSoundCheck(p: ExoPlayer) {
+        val key = p.currentMediaItem?.mediaId ?: return
+        if (key in soundChecked) return
+        countdown.removeCallbacks(checkSound)
+        countdown.postDelayed(checkSound, SOUND_CHECK_DELAY_MS)
+    }
+
+    /**
+     * A film whose sound this TV can't play says so at once, in plain words, rather than playing
+     * silently, or on a commentary track without a word: once per item, a moment after its first
+     * picture (a song, a moment after its tracks are known). A song with no sound this TV can play
+     * is skipped, like a file it can't open.
+     */
+    private fun checkSound() {
+        val p = player ?: return
+        val item = p.currentMediaItem ?: return
+        val tracks = p.currentTracks
+        if (tracks.isEmpty || !soundChecked.add(item.mediaId)) return
+        val sound = SoundTracks.of(tracks).map { it.track }
+        val verdict = SoundTracks.verdict(sound, ShowPrefs.audio(this, show())) ?: return
+        if (verdict is SoundVerdict.Silent && !tracks.containsType(C.TRACK_TYPE_VIDEO)) {
+            say(SoundTracks.songMessage(item.mediaMetadata.title?.toString() ?: "this file", verdict.codec), NOTICE_MESSAGE_MS)
+            if (p.hasNextMediaItem()) p.seekToNextMediaItem()
+            return
+        }
+        say(SoundTracks.startMessage(verdict, SoundTracks.labels(sound, java.util.Locale.getDefault())), NOTICE_MESSAGE_MS)
     }
 
     /**
@@ -886,7 +931,7 @@ class PlayerActivity : ComponentActivity() {
                             stalledKey = key
                             val msg = if (http == 401 || http == 403) "Google Drive turned it down. Trying again… (if this keeps happening, sign in to Google Drive again in Settings)"
                             else "Lost the connection. Trying again…"
-                            say(msg, long = true)
+                            say(msg, LONG_MESSAGE_MS)
                         }
                         retry.removeCallbacksAndMessages(null)
                         retry.postDelayed({ if (player === p) p.prepare() }, 10_000)
@@ -903,7 +948,7 @@ class PlayerActivity : ComponentActivity() {
                         generateSequence<Throwable>(error) { it.cause }.take(10).any { it is OutOfMemoryError } -> "this TV ran out of memory"
                         else -> error.errorCodeName
                     }
-                    say("Can't play ${p.currentMediaItem?.mediaMetadata?.title ?: "this file"}: $why", long = true)
+                    say("Can't play ${p.currentMediaItem?.mediaMetadata?.title ?: "this file"}: $why", LONG_MESSAGE_MS)
                     if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
                 }
 
@@ -924,6 +969,8 @@ class PlayerActivity : ComponentActivity() {
                         android.util.Log.i("Player", "$what: picture after ${android.os.SystemClock.elapsedRealtime() - since} ms")
                     }
                     waitingForPicture = null
+                    // A film's first picture: its sound is looked at a moment later (once).
+                    scheduleSoundCheck(p)
                 }
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -939,6 +986,8 @@ class PlayerActivity : ComponentActivity() {
                     // Known before the first frame plays: the TV can switch while nothing's lost.
                     matchFrameRate(p)
                     updateTrackButtons(p)
+                    // A song has no first picture to wait for: its sound is looked at now.
+                    if (!tracks.containsType(androidx.media3.common.C.TRACK_TYPE_VIDEO)) scheduleSoundCheck(p)
                 }
 
                 override fun onTrackSelectionParametersChanged(parameters: androidx.media3.common.TrackSelectionParameters) {
@@ -968,6 +1017,8 @@ class PlayerActivity : ComponentActivity() {
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     cancelUpNext()
+                    // A look at the last item's sound that hadn't happened yet is for an item no longer playing.
+                    countdown.removeCallbacks(checkSound)
                     autoSubsOn = false
                     applyShowTracks(p)
                     bindTitle(mediaItem)
@@ -1018,6 +1069,7 @@ class PlayerActivity : ComponentActivity() {
         if (::previewCard.isInitialized) previewCard.hide(animate = false)
         if (::menu.isInitialized) menu.hide(animate = false)
         countdown.removeCallbacks(hideMessage)
+        countdown.removeCallbacks(checkSound)
         if (::messageCard.isInitialized) messageCard.hide(animate = false)
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
         reporter.removeCallbacks(report)
@@ -1222,12 +1274,16 @@ class PlayerActivity : ComponentActivity() {
         /** Up next's countdown, and how far into the next episode its picture is taken from. */
         private const val UP_NEXT_SECONDS = 10
         private const val UP_NEXT_ART_MS = 90_000L
-        /** A button with nothing to offer (no subtitles in the video). */
+        /** A button with nothing to offer (no subtitles, or no sound, in the video). */
         private const val DIM = 0.4f
         private val SPEEDS = listOf("0.5×" to 0.5f, "0.75×" to 0.75f, "Normal" to 1f, "1.25×" to 1.25f, "1.5×" to 1.5f, "2×" to 2f)
         /** How long a message stays over the film: as long as Android's short and long toasts did. */
         private const val MESSAGE_MS = 2_000L
         private const val LONG_MESSAGE_MS = 3_500L
+        /** A message there's more to read in, said once (a film's sound this TV can't play). */
+        private const val NOTICE_MESSAGE_MS = 6_000L
+        /** How long after a film's first picture its sound is looked at: after the window's own entrance. */
+        private const val SOUND_CHECK_DELAY_MS = 1_000L
         private const val EXTRA_KEYS = "keys"
         private const val EXTRA_TITLES = "titles"
         private const val EXTRA_START = "start"
