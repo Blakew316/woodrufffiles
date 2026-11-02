@@ -97,13 +97,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private val reporter = android.os.Handler(android.os.Looper.getMainLooper())
     private val report = object : Runnable {
         override fun run() {
-            player?.let { p ->
-                com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = com.woodruff.tvexplorer.nowplaying.Playing(
-                    title = p.currentMediaItem?.mediaMetadata?.title?.toString() ?: "Video",
-                    subtitle = null, app = "Woodruff Family", playing = p.isPlaying,
-                    positionMs = p.currentPosition.coerceAtLeast(0), durationMs = p.duration.coerceAtLeast(0),
-                )
-            }
+            player?.let(::tellPhones)
             player?.let { p ->
                 updateSkip(p)
                 matchFrameRate(p)
@@ -362,6 +356,91 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             else -> return
         }
         aimAt(p, (p.currentPosition + jump).coerceAtLeast(0))
+    }
+
+    // ---- The phone's controls ------------------------------------------------------------------
+
+    /** Hears the phone's ↺10, 30↻ and Next ([com.woodruff.tvexplorer.nowplaying.NowPlaying.commands]) while this player is started. */
+    private var phoneJob: kotlinx.coroutines.Job? = null
+    /** Which of the players started so far this one is ([starts] as it started; 0 before then). */
+    private var startedAs = 0
+
+    /**
+     * This player is the one on screen: the last one started. Watch together, or a film started from
+     * the phone over another, opens a second player before the first one stops (the first stays
+     * under it, to come back to). While both are started, only the new one answers the phone and says
+     * what's playing, and the first one stopping doesn't take that back.
+     */
+    private val inFront get() = startedAs != 0 && startedAs == starts
+
+    /**
+     * From now until [onStop], the phone's controls reach this player ([fromPhone]), and what the
+     * phone is told is playing ([tellPhones]) follows every change, not only each second: the phone
+     * looks again 0.7 s after a press, and finds what the press did.
+     */
+    private fun answerPhones(p: ExoPlayer) {
+        startedAs = ++starts
+        p.addListener(object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) {
+                if (events.containsAny(
+                        Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED,
+                        Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_TIMELINE_CHANGED,
+                        Player.EVENT_AVAILABLE_COMMANDS_CHANGED,
+                    )
+                ) tellPhones(p)
+            }
+        })
+        phoneJob = lifecycleScope.launch { com.woodruff.tvexplorer.nowplaying.NowPlaying.commands.collect { fromPhone(it) } }
+    }
+
+    /**
+     * What this player plays, for the phone and the linked TVs (NowPlaying): its title; whether it
+     * plays, as the TV's own Play/Pause button has it (loading for a moment after a jump is still
+     * playing, so the phone's button pauses, as the TV's would); where it is; and what the phone's
+     * controls can do here: ↺10 and 30↻ where it can jump, Next with something queued after it, and
+     * its poster found by its Drive key ([phoneKey]). Only the player in front says.
+     */
+    private fun tellPhones(p: Player) {
+        if (!inFront) return
+        com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = com.woodruff.tvexplorer.nowplaying.Playing(
+            title = p.currentMediaItem?.mediaMetadata?.title?.toString() ?: "Video",
+            subtitle = null, app = "Woodruff Family",
+            playing = !androidx.media3.common.util.Util.shouldShowPlayButton(p) || heldForRate,
+            positionMs = p.currentPosition.coerceAtLeast(0), durationMs = p.duration.coerceAtLeast(0),
+            key = phoneKey(p.currentMediaItem?.mediaId),
+            hasNext = p.hasNextMediaItem(),
+            seekable = p.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM),
+        )
+    }
+
+    /**
+     * ↺10, 30↻ or Next from the phone ([phoneStep]), for the player in front. A jump lands as the
+     * remote's ⏪ / ⏩ do: aimed, so 10 s back plays from what's kept in memory (and lands exactly on
+     * the spot for a Watch together leader, whose TVs follow it), with the controls coming up to show
+     * where it went. Next is the player's own Next Episode: this one counts as watched.
+     */
+    private fun fromPhone(cmd: com.woodruff.tvexplorer.nowplaying.PlayerCommand) {
+        val p = player ?: return
+        if (!inFront || isFinishing) return
+        val seekable = p.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+        when (val step = phoneStep(cmd, p.currentPosition, p.duration, seekable, p.hasNextMediaItem(), upNextPanel.shown)) {
+            PhoneStep.Next -> {
+                // Another episode: a menu open over this one was about this one.
+                menu.hide()
+                nextCard.hide()
+                playNext()
+            }
+            is PhoneStep.Seek -> {
+                // The latest press wins over a spot being chosen with the TV's remote.
+                timeBar.cancelScrub()
+                if (step.playOn) cancelUpNext()
+                aimAt(p, step.toMs)
+                p.seekTo(step.toMs)
+                if (step.playOn) p.play()
+                view.showController()
+            }
+            PhoneStep.Stay -> Unit
+        }
     }
 
     // ---- Sleep timer, skip intro, remembered tracks ----------------------------------------
@@ -1484,6 +1563,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         reporter.post(report)
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
         doorbellJob = lifecycleScope.launch { com.woodruff.tvexplorer.nest.Doorbell.rings.collect { showDoorbell(it) } }
+        // The phone's ↺10, 30↻ and Next, while this player is on screen.
+        player?.let(::answerPhones)
         keepDriveTokenFresh(keys)
     }
 
@@ -1503,11 +1584,13 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         doorbellJob?.cancel(); doorbellJob = null
         tokenJob?.cancel(); tokenJob = null
         sidecarJob?.cancel(); sidecarJob = null
+        phoneJob?.cancel(); phoneJob = null
         dismissDoorbell(animate = false)
         cancelUpNext(animate = false)
         countdown.removeCallbacks(sleep)
         rateSwitch?.cancel()
-        com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = null
+        // Nothing of ours plays now, unless a player started since is in front: it says what it plays.
+        if (inFront) com.woodruff.tvexplorer.nowplaying.NowPlaying.ownPlayer = null
         // Before the player it speaks for.
         session?.release(); session = null
         player?.let { p ->
@@ -1748,6 +1831,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         private const val NEXT_SEASON_LEAD_MS = 3 * 60_000L
         /** Media session ids must differ, and two players can overlap for a moment. */
         private var sessionIds = 0
+        /** Players started so far in this process: the latest is the one in front (see inFront). Main thread. */
+        private var starts = 0
 
         /**
          * The app's HTTP client (and its connections) with Media3's own timeouts for video, as

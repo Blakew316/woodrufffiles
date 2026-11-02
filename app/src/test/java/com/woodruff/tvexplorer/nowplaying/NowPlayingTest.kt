@@ -41,6 +41,15 @@ class NowPlayingTest {
         assertEquals(listOf("playpause"), ownCan(film.copy(hasNext = true), listens = false))
     }
 
+    @Test fun skipsAreOfferedOnlyWhereTheOwnPlayerCanJump() {
+        // Still opening, or a file without an index: ↺10 and 30↻ would do nothing (or start it over), Next still goes on.
+        assertEquals(listOf("playpause"), ownCan(film.copy(seekable = false), listens = true))
+        assertEquals(listOf("playpause", "next"), ownCan(film.copy(seekable = false, hasNext = true), listens = true))
+        // Like Next, it stays on the TV: the phone only sees what it can do.
+        val sent = Playing.fromJson(JSONObject(film.copy(seekable = false, can = listOf("playpause")).toJson().toString()))!!
+        assertEquals(listOf("playpause"), sent.can)
+    }
+
     @Test fun otherAppsOfferWhatTheirSessionSaysTheyCanDo() {
         assertEquals(listOf("playpause"), sessionCan(0L))
         assertEquals(listOf("playpause"), sessionCan(PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_PAUSE))

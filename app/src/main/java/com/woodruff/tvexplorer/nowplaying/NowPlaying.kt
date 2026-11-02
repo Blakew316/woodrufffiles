@@ -20,8 +20,9 @@ import org.json.JSONObject
  * What a TV is playing right now. [can]: what the phone may do to it ([MediaAction.wire] names),
  * worked out by [NowPlaying.current]; empty from a Woodruff that doesn't say, which the phone takes
  * as Play/Pause only. [key]: the media key in Woodruff's own player ("drive:<id>"), so the phone can
- * show its poster. [hasNext]: Woodruff's own player has another item queued after this one (it
- * stays on this TV: it only decides whether Next is offered).
+ * show its poster. [hasNext]: Woodruff's own player has another item queued after this one, and
+ * [seekable]: it can jump within the one playing (not while a film is still opening, nor in a file
+ * without an index). Both stay on this TV: they only decide whether Next, ↺10 and 30↻ are offered.
  */
 data class Playing(
     val title: String,
@@ -33,6 +34,7 @@ data class Playing(
     val can: List<String> = emptyList(),
     val key: String? = null,
     val hasNext: Boolean = false,
+    val seekable: Boolean = true,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("title", title).put("subtitle", subtitle ?: "").put("app", app)
@@ -100,16 +102,16 @@ sealed interface CommandResult {
  * needs "Notification access" for [MediaWatcher], granted once in Settings (or with adb).
  */
 object NowPlaying {
-    /** Updated by the built-in player every couple of seconds; null when it's closed. */
+    /** Updated by the built-in player every second and as it changes (play/pause, a jump, the next item); null when it's closed. */
     @Volatile var ownPlayer: Playing? = null
 
     private val _commands = MutableSharedFlow<PlayerCommand>(extraBufferCapacity = 8)
 
     /**
-     * ↺10 / 30↻ / Next from the phone for Woodruff's own player. The player collects this while it
-     * plays (in PlayerActivity: seek to [PlayerCommand.target] of its position, or its own Next
-     * Episode for [PlayerCommand.NEXT]); until something collects it, the phone is offered
-     * Play/Pause only ([ownCan]), so it never shows a button that does nothing.
+     * ↺10 / 30↻ / Next from the phone for Woodruff's own player. The player collects this while it's
+     * on screen (PlayerActivity, while started: a jump to [PlayerCommand.target] of its position, or
+     * its own Next Episode for [PlayerCommand.NEXT]); until something collects it, the phone is
+     * offered Play/Pause only ([ownCan]), so it never shows a button that does nothing.
      */
     val commands: SharedFlow<PlayerCommand> = _commands.asSharedFlow()
 
@@ -229,13 +231,14 @@ private fun PlayerCommand.wire(): String = when (this) {
 }
 
 /**
- * What the phone can do to Woodruff's own player [p]: Play/Pause always; ↺10 and 30↻ once the player
- * [listens] for [NowPlaying.commands]; Next too when it has another item queued. Visible for tests.
+ * What the phone can do to Woodruff's own player [p]: Play/Pause always; once the player [listens]
+ * for [NowPlaying.commands], ↺10 and 30↻ where it can jump ([Playing.seekable]) and Next when it has
+ * another item queued. Visible for tests.
  */
 internal fun ownCan(p: Playing, listens: Boolean): List<String> = buildList {
     add(MediaAction.PLAY_PAUSE.wire)
     if (listens) {
-        add(MediaAction.BACK_10.wire); add(MediaAction.FORWARD_30.wire)
+        if (p.seekable) { add(MediaAction.BACK_10.wire); add(MediaAction.FORWARD_30.wire) }
         if (p.hasNext) add(MediaAction.NEXT.wire)
     }
 }
