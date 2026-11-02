@@ -77,6 +77,11 @@ class BannerRotationUiTest {
         compose.waitForIdle()
     }
 
+    /** [settle] until [done] (the rows worked out off the main thread can take longer on a busy machine). */
+    private fun settleUntil(done: () -> Boolean) {
+        repeat(300) { if (done()) return; settle(1) }
+    }
+
     /**
      * Moves the test's clock on to [at] in short steps, so the banner's waits and fades run as on a
      * TV. (Each step is rounded up to a whole frame: aimed at the time left, it overshoots by less
@@ -115,7 +120,7 @@ class BannerRotationUiTest {
                 )
             }
         }
-        settle()
+        settleUntil { runCatching { compose.onNodeWithText("Play").assertIsFocused() }.isSuccess }
         compose.onNodeWithText("Play").assertIsFocused()
         // The key that opened the screen, just now.
         val opened = now
