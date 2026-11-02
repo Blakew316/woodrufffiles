@@ -340,7 +340,11 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) },
             opener(SettingsPage.PHONES, count(phones.size, "phone", "None yet")),
             opener(SettingsPage.TVS, if (linkedTvs.isEmpty()) "None linked" else "${linkedTvs.size} linked"),
-            SettingItem(Sym.PowerSettingsNew, "Start when the TV turns on", onOff(facts.autoStart), about = "Opens Woodruff Family when the TV starts. OK turns it on or off.") { AutoStart.setEnabled(context, !facts.autoStart); changed() },
+            // What TransferService runs: started at boot (BootReceiver) and brought back by Android after a kill.
+            SettingItem(
+                Sym.PowerSettingsNew, "Start when the TV turns on", onOff(facts.autoStart),
+                about = "The phone connection, doorbell alerts, mail and updates start with the TV and come back by themselves, without anyone opening Woodruff. OK turns it on or off.",
+            ) { AutoStart.setEnabled(context, !facts.autoStart); changed() },
         )
         SettingsPage.PHONES ->
             if (phones.isEmpty()) listOf(SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) })
@@ -404,7 +408,12 @@ fun SettingsScreen(vm: MainViewModel) {
                 Sym.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (facts.doorbellWatching) "Watching" else "Off",
                 about = "Doorbell presses pop up on this TV. Set it up in the phone app.",
             ),
-            SettingItem(Sym.NotificationsActive, "Pop-ups over other apps", onOff(facts.overlay), about = "Lets alerts show while another app is open.") {
+            SettingItem(
+                Sym.NotificationsActive, "Pop-ups over other apps", onOff(facts.overlay),
+                // Android 12+ lets a background service come back after a kill only for apps allowed this (TransferService).
+                about = if (Build.VERSION.SDK_INT >= 31) "Lets alerts show while another app is open, and the phone connection come back by itself after Android closes Woodruff to free memory."
+                else "Lets alerts show while another app is open.",
+            ) {
                 if (!facts.overlay) {
                     val r = Opener.firstThatStarts(
                         context,

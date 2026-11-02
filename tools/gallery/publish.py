@@ -19,6 +19,9 @@ TITLES = {
     'player': 'Player', 'player-menu': 'Player › Subtitles menu', 'player-up-next': 'Player › Up next',
     'update-offer': 'An update offered as Woodruff opens', 'update-offer-retry': 'An update offered again after a try',
     'settings-updates': 'Settings › Updates',
+    'phone-waiting': 'Phone connection · waiting for the network', 'phone-waiting-focused': 'Phone connection · waiting, Network settings focused',
+    'phone-off': 'Phone connection · couldn’t start', 'settings-start': 'Settings › TVs & phones › Start when the TV turns on',
+    'settings-popups': 'Settings › Advanced › Pop-ups over other apps',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -32,8 +35,8 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     im.save(os.path.join(img_dir, out), 'WEBP', quality=82, method=6)
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
-ORDER = ['home', 'home-menu', 'home-notice', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
-         'settings-updates', 'update-offer', 'update-offer-retry', 'player', 'player-menu', 'player-up-next', 'files', 'tv', 'keyboard', 'send']
+ORDER = ['home', 'home-menu', 'home-notice', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'phone-waiting', 'phone-waiting-focused', 'phone-off', 'settings',
+         'settings-updates', 'settings-start', 'settings-popups', 'update-offer', 'update-offer-retry', 'player', 'player-menu', 'player-up-next', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {

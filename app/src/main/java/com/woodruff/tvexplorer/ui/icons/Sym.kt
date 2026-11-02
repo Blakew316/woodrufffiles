@@ -180,6 +180,8 @@ object Sym {
     val ContentPaste: ImageVector by lazy { line("M 9 2 H 15 A 1 1 0 0 1 16 3 V 5 A 1 1 0 0 1 15 6 H 9 A 1 1 0 0 1 8 5 V 3 A 1 1 0 0 1 9 2 Z", "M 16 4 h 2 a 2 2 0 0 1 2 2 v 14 a 2 2 0 0 1 -2 2 H 6 a 2 2 0 0 1 -2 -2 V 6 a 2 2 0 0 1 2 -2 h 2") }
     /** Lucide "cloud". */
     val Cloud: ImageVector by lazy { line("M 17.5 19 H 9 a 7 7 0 1 1 6.71 -9 h 1.79 a 4.5 4.5 0 1 1 0 9 Z") }
+    /** Lucide "cloud-off": Google can't be reached (offline). */
+    val CloudOff: ImageVector by lazy { line("m 2 2 l 20 20", "M 5.782 5.782 A 7 7 0 0 0 9 19 h 8.5 a 4.5 4.5 0 0 0 1.307 -0.193", "M 21.532 16.5 A 4.5 4.5 0 0 0 17.5 10 h -1.79 A 7.008 7.008 0 0 0 10 5.07") }
     /** Lucide "chevron-right". */
     val ChevronRight: ImageVector by lazy { line("m 9 18 l 6 -6 l -6 -6") }
     /** Lucide "cast". */
