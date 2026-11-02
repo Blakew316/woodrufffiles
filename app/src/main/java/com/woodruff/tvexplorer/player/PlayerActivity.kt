@@ -143,7 +143,7 @@ class PlayerActivity : ComponentActivity() {
         // "Next episode" during the end credits, like Netflix: OK skips them.
         nextEp = PlayerStyle.pill(this, "Next Episode", com.woodruff.tvexplorer.R.drawable.tv_ic_play)
         nextCard = GlidingCard(nextEp, GlidingCard.Way.Rise)
-        // "Someone's at the door" when the doorbell rings: a notice at the top right, as tvOS shows them.
+        // "Someone’s at the door" when the doorbell rings: a notice at the top right, as tvOS shows them.
         doorbell = PlayerStyle.notice(this)
         doorbellCard = GlidingCard(doorbell, GlidingCard.Way.Drop)
         // The player's own messages ("Sleeping in 30 minutes"), at the bottom in the middle: Android's
@@ -1070,13 +1070,14 @@ class PlayerActivity : ComponentActivity() {
     /**
      * The screen stays on while it plays or is about to (a stall, a voice question that takes the
      * sound for a moment, the TV switching its refresh rate), and for the whole of a Watch together.
-     * Paused or ended, the TV's own screensaver can come on.
+     * Paused or ended, the TV's own screensaver can come on. Checked every second ([report]).
      */
     private fun updateScreenOn() {
         val p = player
-        val together = leader || syncedAt?.let { android.os.SystemClock.elapsedRealtime() - it < 60_000 } == true
-        val on = together || (p != null && (p.playWhenReady || heldForRate) &&
-            (p.playbackState == Player.STATE_BUFFERING || p.playbackState == Player.STATE_READY))
+        val now = android.os.SystemClock.elapsedRealtime()
+        val together = leader || syncedAt?.let { now - it < 60_000 } == true
+        val stalledMs = stalledSince?.takeIf { stall != null && stall != Stall.SIGNED_OUT }?.let { now - it }
+        val on = together || (p != null && keepScreenOn(p.playWhenReady || heldForRate, p.playbackState, stalledMs))
         if (on == screenOn) return
         screenOn = on
         if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1180,7 +1181,7 @@ class PlayerActivity : ComponentActivity() {
         ringingCamera = camera.takeIf { canLook }
         val line = listOfNotNull(label, "OK to look".takeIf { canLook }).joinToString("  ·  ")
         // The news in bold, what to do in grey under it.
-        doorbell.text = android.text.SpannableStringBuilder("Someone's at the door").apply {
+        doorbell.text = android.text.SpannableStringBuilder("Someone’s at the door").apply {
             setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, 0)
             if (line.isNotEmpty()) {
                 append("\n")
@@ -1744,6 +1745,19 @@ internal fun tokenRenewDelayMs(expiresAt: Long, now: Long): Long = (expiresAt - 
 internal fun playerRenderers(context: Context): androidx.media3.exoplayer.DefaultRenderersFactory =
     androidx.media3.exoplayer.DefaultRenderersFactory(context)
         .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+
+/**
+ * Whether a film keeps the screen on: meant to play ([playing]) and loading or playing, or trying
+ * again after the connection dropped ([stalledMs]: how long it has been trying; null when it isn't).
+ * Between tries the player is idle, which let the TV's screensaver cover "Reconnecting…" the moment
+ * the Wi-Fi dropped, if nobody had pressed a key for a while. It keeps the screen on for the first
+ * [RECONNECTING_SCREEN_MS] of trying, then lets the TV sleep as it would for a paused film.
+ */
+internal fun keepScreenOn(playing: Boolean, state: Int, stalledMs: Long?): Boolean =
+    playing && (state == Player.STATE_BUFFERING || state == Player.STATE_READY || (stalledMs != null && stalledMs < RECONNECTING_SCREEN_MS))
+
+/** See [keepScreenOn]. */
+internal const val RECONNECTING_SCREEN_MS = 5 * 60_000L
 
 /** Heaps of this many MB or fewer get a smaller player buffer. */
 internal const val SMALL_HEAP_MB = 192
