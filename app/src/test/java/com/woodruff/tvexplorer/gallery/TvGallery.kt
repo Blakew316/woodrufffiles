@@ -23,6 +23,7 @@ import com.woodruff.tvexplorer.ui.screens.DashboardSamples
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.tvs.TvStatus
 import com.woodruff.tvexplorer.nowplaying.Playing
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +41,9 @@ import java.io.File
 @Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class TvGallery {
     @get:Rule val compose = createComposeRule()
+
+    // Settings' TV health samples (seeded below) stay with this class's shots.
+    @After fun forget() = HealthGallery.forgetSamples()
 
     private val screens = listOf(
         Screen.HOME to "home",

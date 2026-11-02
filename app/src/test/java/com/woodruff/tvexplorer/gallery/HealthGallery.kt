@@ -43,6 +43,7 @@ import com.woodruff.tvexplorer.ui.screens.SettingsScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
 import com.woodruff.tvexplorer.ui.theme.ambientBackdrop
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,6 +64,8 @@ import java.time.Duration
 @Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class HealthGallery {
     @get:Rule val compose = createComposeRule()
+
+    @After fun forget() = forgetSamples()
 
     @OptIn(ExperimentalTestApi::class)
     @Test
@@ -153,6 +156,16 @@ class HealthGallery {
                 LinkedTv("kitchen", "Kitchen", "http://kitchen.local:8080", "k2") to TvHealthView("Kitchen", false, TvHealthKind.OFF, kitchen, now - 2 * hour, now - 2 * hour),
                 LinkedTv("bedroom", "Bedroom", "http://bedroom.local:8080", "k3") to TvHealthView("Bedroom", false, TvHealthKind.REFUSED, bedroom, now - day, now - day),
             )
+        }
+
+        /**
+         * Takes the four TVs away again once a class's shots are drawn. They're kept for the whole gallery run, so
+         * every class drawn after one that seeded them showed them too: PhoneGallery's TVs & phones page said
+         * "Other TVs · 3 linked" or "None linked" depending on which class happened to run first.
+         */
+        fun forgetSamples() {
+            HealthSamples.thisReport = null
+            HealthSamples.linked = null
         }
 
         private const val CRASH = "Version 2.0.170 · Oct 20, 9:41 PM · thread main\n" +
