@@ -260,6 +260,37 @@ class DoorbellRulesTest {
 
     @Test fun nothingOpensWithoutThisTvsOwnCameras() {
         assertNull(pickHost(false, dreaming = true, canOverlay = { true }, views = 1, slideshows = 1, inApp = true))
+        assertNull(pickHost(false, dreaming = false, canOverlay = { true }, views = 0, slideshows = 0, inApp = true, viewOpening = true))
+    }
+
+    @Test fun aSecondDoorbellWhileTheViewIsOnItsWayGoesToThatView() {
+        // Two doorbells within the moment a doorbell view takes to come up: the second switches it
+        // (from the replayed ring, once it listens) rather than opening a second view over it.
+        val never = { throw AssertionError("only asked for the screensaver") }
+        assertEquals(Doorbell.Host.VIEW, pickHost(true, false, never, views = 0, slideshows = 0, inApp = true, viewOpening = true))
+        assertEquals(Doorbell.Host.VIEW, pickHost(true, false, never, views = 0, slideshows = 1, inApp = true, viewOpening = true))
+        // Even under the screensaver that started it (it's still going away): not a second task.
+        assertEquals(Doorbell.Host.VIEW, pickHost(true, dreaming = true, canOverlay = never, views = 0, slideshows = 0, inApp = false, viewOpening = true))
+    }
+
+    @Test fun aViewIsOnItsWayOnlyForAFewSeconds() {
+        assertFalse(viewOnItsWay(startedAt = 0, now = 5_000))
+        assertTrue(viewOnItsWay(startedAt = 1_000_000, now = 1_000_000))
+        assertTrue(viewOnItsWay(startedAt = 1_000_000, now = 1_000_000 + VIEW_OPENING_MS - 1))
+        // One that never came up (Android wouldn't start it) stops counting.
+        assertFalse(viewOnItsWay(startedAt = 1_000_000, now = 1_000_000 + VIEW_OPENING_MS))
+        // A clock that stepped back doesn't make it count for ever.
+        assertFalse(viewOnItsWay(startedAt = 1_000_000, now = 999_000))
+    }
+
+    @Test fun anEmptyPullGoogleHeldOpenIsFollowedAtOnce() {
+        // Google held it (a long poll): the next pull goes now, so a ring in between isn't heard up to 5 s late.
+        assertEquals(0L, emptyPullPauseMs(tookMs = LONG_POLL_MS))
+        assertEquals(0L, emptyPullPauseMs(tookMs = 25_000))
+        // Back at once: the rest of 2 s, so pulls are never closer than that.
+        assertEquals(LONG_POLL_MS, emptyPullPauseMs(tookMs = 0))
+        assertEquals(500L, emptyPullPauseMs(tookMs = 1_500))
+        assertEquals(LONG_POLL_MS, emptyPullPauseMs(tookMs = -40))
     }
 
     @Test fun eachRingOpensOnceOnTheScreenItWasMeantFor() {

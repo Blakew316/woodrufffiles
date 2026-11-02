@@ -169,6 +169,18 @@ internal fun ownPullFailed(code: Int, justMade: Boolean): OwnPullFailure = when 
 internal fun unauthorizedPauseMs(now: Long, lastAt: Long, failingMs: Long): Long =
     if (lastAt > 0 && now - lastAt in 0 until 60_000) failingMs else 5_000
 
+/** An empty pull that Google held open at least this long was a real long poll: the next one goes at once. */
+internal const val LONG_POLL_MS = 2_000L
+
+/**
+ * The pause after a pull that brought nothing and took [tookMs]. Google holds an empty pull open a
+ * while before answering, so after one it held (at least [LONG_POLL_MS]) the next pull goes at once:
+ * a ring that comes in between is heard straight away, not up to 5 s later. One that came back at once
+ * waits out the rest of [LONG_POLL_MS], so a Pub/Sub that answers instantly is still asked at most
+ * every 2 s.
+ */
+internal fun emptyPullPauseMs(tookMs: Long): Long = (LONG_POLL_MS - tookMs).coerceIn(0L, LONG_POLL_MS)
+
 /** A visit's id as another TV sent it, kept to a sane length (Nest's are under 100 characters); null for none. */
 internal fun cleanSession(session: String?): String? = session?.trim()?.take(200)?.ifEmpty { null }
 
@@ -256,22 +268,36 @@ internal fun cleanTvName(name: String?): String? =
 
 /**
  * Where a doorbell ring's camera opens on this TV (doorbell.md §2), or null for its card: nothing
- * opens without this TV's own cameras ([camerasHere]). Woodruff's screensaver covers everything, so
- * it comes first: it wakes for the camera, given the right to open it over other apps
- * ([canOverlay], asked only then); without it, the card. Then a doorbell view already up (it
- * switches to the ringing camera), the slideshow, and Woodruff's own screens ([inApp]). The
- * player, the photo viewer and other apps get the card.
+ * opens without this TV's own cameras ([camerasHere]). A doorbell view on its way ([viewOpening]: a
+ * screen took a ring a moment ago and the view isn't up yet) takes it first, so two doorbells ringing
+ * at once switch one view rather than stack two. Woodruff's screensaver covers everything, so it
+ * comes next: it wakes for the camera, given the right to open it over other apps ([canOverlay],
+ * asked only then); without it, the card. Then a doorbell view already up (it switches to the
+ * ringing camera), the slideshow, and Woodruff's own screens ([inApp]). The player, the photo viewer
+ * and other apps get the card.
  */
 internal fun pickHost(
     camerasHere: Boolean, dreaming: Boolean, canOverlay: () -> Boolean, views: Int, slideshows: Int, inApp: Boolean,
+    viewOpening: Boolean = false,
 ): Doorbell.Host? = when {
     !camerasHere -> null
+    viewOpening -> Doorbell.Host.VIEW
     dreaming -> if (canOverlay()) Doorbell.Host.SCREENSAVER else null
     views > 0 -> Doorbell.Host.VIEW
     slideshows > 0 -> Doorbell.Host.SLIDESHOW
     inApp -> Doorbell.Host.APP
     else -> null
 }
+
+/** How long a doorbell view a screen started may take to come up and still take the next ring. */
+internal const val VIEW_OPENING_MS = 10_000L
+
+/**
+ * Whether a doorbell view a screen started at [startedAt] (0: none on its way) is still coming at
+ * [now]: it takes the next ring ([pickHost]'s viewOpening). It usually comes up within a second; one
+ * that never does (Android wouldn't start it) stops counting after [VIEW_OPENING_MS].
+ */
+internal fun viewOnItsWay(startedAt: Long, now: Long): Boolean = startedAt > 0 && now - startedAt in 0 until VIEW_OPENING_MS
 
 /**
  * Which rings a screen has taken to open, so each ring opens once, on the one screen it was meant

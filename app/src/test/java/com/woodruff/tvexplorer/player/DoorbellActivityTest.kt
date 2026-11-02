@@ -6,6 +6,7 @@ import android.view.KeyEvent
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.nest.Doorbell
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -82,5 +83,26 @@ class DoorbellActivityTest {
         c.start().resume()
         wait(Duration.ofSeconds(10))
         assertFalse(c.get().isFinishing)
+    }
+
+    @Test fun itsAlwaysOneViewSoOneBackClosesIt() {
+        // Single-top: a second ring's view started while this one is up, or still on its way, comes
+        // here as a new intent instead of a second view over it.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val info = app.packageManager.getActivityInfo(android.content.ComponentName(app, DoorbellActivity::class.java), 0)
+        assertEquals(android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP, info.launchMode)
+    }
+
+    @Test fun anotherDoorbellArrivingAsANewIntentIsShownAndStartsTheTwoMinutesAgain() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val c = open(DoorbellActivity.Origin.SLIDESHOW)
+        wait(Duration.ofSeconds(100))
+        val other = Doorbell.Ring(2, "enterprises/p/devices/backyard", System.currentTimeMillis(), Doorbell.Host.SLIDESHOW)
+        c.newIntent(DoorbellActivity.intent(app, other, DoorbellActivity.Origin.SLIDESHOW))
+        assertEquals(other.camera, c.get().intent.getStringExtra("camera"))
+        wait(Duration.ofSeconds(100))
+        assertFalse(c.get().isFinishing)
+        wait(Duration.ofSeconds(21))
+        assertTrue(c.get().isFinishing)
     }
 }

@@ -77,8 +77,6 @@ object Doorbell {
     /** The TV that last passed an alert on to this one ("Through Living Room"; blank: one too old to say). */
     private const val K_RELAY_FROM = "relayFrom"
 
-    /** The pause after an empty pull (Google already held it open a while). */
-    private const val EMPTY_PAUSE_MS = 5_000L
     /** Once Google refused this TV a subscription of its own, how long until it asks again (the family may change the project's permissions). */
     private const val REFUSED_RETRY_MS = 6 * 60 * 60_000L
     /** A problem only a person can fix: looked at again this often. */
@@ -211,6 +209,8 @@ object Doorbell {
     @Volatile private var dreaming = false
     /** When a doorbell view last came on screen. */
     @Volatile private var viewStartedAt = 0L
+    /** When a screen last started a doorbell view that isn't up yet (this TV's clock); 0: none on its way. */
+    @Volatile private var viewOpeningAt = 0L
 
     /** A screen opening rings' cameras while it's up ([watchFor]); [stop] when it goes. */
     class Watch internal constructor(private val host: Host) {
@@ -258,14 +258,28 @@ object Doorbell {
     }
 
     /** True once for [ring], on the screen it's meant for ([host]), while it's fresh: that screen opens it. */
-    fun claim(ring: Ring, host: Host): Boolean = claims.claim(ring, host, clock())
+    fun claim(ring: Ring, host: Host): Boolean = claims.claim(ring, host, clock()).also { taken ->
+        // The slideshow and the screensaver always open the doorbell view for a ring they take.
+        if (taken && (host == Host.SLIDESHOW || host == Host.SCREENSAVER)) viewOpening()
+    }
 
     /** The screen that claimed [ring] couldn't open its camera after all: the ring's card pops up a moment later instead. */
-    fun unclaim(ring: Ring) = claims.release(ring.id)
+    fun unclaim(ring: Ring) {
+        claims.release(ring.id)
+        viewOpeningAt = 0L
+    }
+
+    /**
+     * A screen is starting the doorbell view (call it just before starting it). Until the view is up,
+     * a ring from another doorbell goes to it ([Host.VIEW]: it switches to that camera when it comes)
+     * rather than opening a second view over the first, which would take two presses of Back.
+     */
+    fun viewOpening() { viewOpeningAt = clock() }
 
     private fun present(host: Host, on: Boolean) {
         when (host) {
-            Host.VIEW -> if (on) { viewStartedAt = clock(); views.incrementAndGet() } else views.decrementAndGet()
+            // Up: it takes rings itself from now on (nothing's on its way any more).
+            Host.VIEW -> if (on) { viewStartedAt = clock(); viewOpeningAt = 0L; views.incrementAndGet() } else views.decrementAndGet()
             Host.SLIDESHOW -> if (on) slideshows.incrementAndGet() else slideshows.decrementAndGet()
             Host.SCREENSAVER -> dreaming = on
             Host.APP -> Unit // MainActivity says so itself (AppVisibility.foreground)
@@ -392,7 +406,10 @@ object Doorbell {
             camerasHere = GoogleAuth.isConnected(app, GoogleAuth.Grant.NEST),
             dreaming = dreaming, canOverlay = { Settings.canDrawOverlays(app) },
             views = views.get(), slideshows = slideshows.get(), inApp = AppVisibility.foreground,
+            viewOpening = viewOnItsWay(viewOpeningAt, at),
         )
+        // A camera is about to open: WebRTC is made ready meanwhile, so its picture comes sooner.
+        if (host != null) Rtc.warm(app)
         // The camera opening is the notice: no card over it (it's kept in Notifications all the same).
         val notice = Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", name, chime = Chime.Sound.DOORBELL, popUp = host == null)
         if (host != null) {
@@ -602,6 +619,7 @@ object Doorbell {
 
     /** One pull from [target]: handles any rings, acknowledges everything. */
     private suspend fun pull(app: Context, token: String, target: Target): Next {
+        val asked = android.os.SystemClock.elapsedRealtime()
         val messages = try {
             PubSub.pull(token, target.name)
         } catch (e: PubSub.Answer) {
@@ -620,7 +638,11 @@ object Doorbell {
             return if (failure == OwnPullFailure.MAKE_AGAIN_LATER) Next.After(30_000) else Next.Now
         }
         setListening(app, if (target.own) DoorbellListening.Own else DoorbellListening.Shared)
-        if (messages.length() == 0) return Next.After(EMPTY_PAUSE_MS)
+        // Nothing: after a pull Google held open, the next goes at once; after one answered at once, in a moment.
+        if (messages.length() == 0) {
+            val pause = emptyPullPauseMs(android.os.SystemClock.elapsedRealtime() - asked)
+            return if (pause > 0) Next.After(pause) else Next.Now
+        }
         // Acknowledged first: if handling one goes wrong, it still isn't delivered (and announced) again.
         // From here they're this TV's to announce, even if listening was restarted meanwhile (a long
         // pull still waiting when the phone saved the Cameras page, say): Google won't send them again.

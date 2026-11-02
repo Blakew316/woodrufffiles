@@ -109,7 +109,24 @@ class DoorbellActivity : ComponentActivity() {
         main.removeCallbacks(leave)
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
         // Another ring while it's up: that camera, here (it's the notice; nothing pops up over it).
-        watch = Doorbell.watchFor(Doorbell.Host.VIEW) { ring -> asked = ring; armAutoClose() }
+        // Going away already, it lets the ring go: its card pops up a moment later instead.
+        watch = Doorbell.watchFor(Doorbell.Host.VIEW) { ring ->
+            if (isFinishing || leaving) Doorbell.unclaim(ring)
+            else { asked = ring; armAutoClose() }
+        }
+        armAutoClose()
+    }
+
+    /**
+     * Opened again while it's up or still opening (it's single-top): another doorbell rang just then,
+     * on a screen that hadn't seen this one yet. Its camera shows here, so there's one view and one Back.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val camera = intent.getStringExtra(EXTRA_CAMERA) ?: return
+        val at = intent.getLongExtra(EXTRA_AT, 0L).takeIf { it > 0 } ?: Doorbell.ringTimes.value[camera] ?: System.currentTimeMillis()
+        if (!isFinishing && !leaving) asked = Doorbell.Ring(0, camera, at, Doorbell.Host.VIEW)
         armAutoClose()
     }
 

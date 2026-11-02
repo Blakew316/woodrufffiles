@@ -360,6 +360,8 @@ fun AppRoot(vm: MainViewModel) {
             } else {
                 val inMemories = browserPath.let { p -> p != null && (p.startsWith(GooglePhotos.folder.path) || p.startsWith(GooglePhotos.videoFolder.path)) }
                 val name = com.woodruff.tvexplorer.ui.screens.screenName(vm.screen.value, driveTop?.title, inMemories)
+                // Until it's up, another doorbell ringing switches it rather than opening a second view.
+                bell.viewOpening()
                 runCatching {
                     searchContext.startActivity(
                         com.woodruff.tvexplorer.player.DoorbellActivity.intent(searchContext, ring, com.woodruff.tvexplorer.player.DoorbellActivity.Origin.SCREEN, name),
