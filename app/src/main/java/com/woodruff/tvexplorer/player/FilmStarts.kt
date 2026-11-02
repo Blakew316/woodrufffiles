@@ -388,12 +388,19 @@ internal class WindowSink(private val cache: Cache, private val windows: StartWi
         spec = null
     }
 
-    /** Starts keeping [window] from [at] (where the read has got to in it). False if the copy can't be written. */
+    /**
+     * Starts keeping [window] from [at] (where the read has got to in it), as far as this read goes:
+     * the cache lets a read write only the stretch it holds, which ends where the next piece already
+     * kept begins (a gap in a film's kept start, from a spot played inside it). Asking for the rest
+     * of the window then was refused, and the gap was never filled. False if the copy can't be written.
+     */
     private fun startWriting(window: LongRange, at: Long): Boolean {
         stopWriting()
         val s = spec ?: return false
+        val end = if (s.length == NO_LENGTH) window.last + 1 else minOf(window.last + 1, s.position + s.length)
+        if (end <= at) return false
         return try {
-            inner.open(s.subrange(at - s.position, window.last + 1 - at))
+            inner.open(s.subrange(at - s.position, end - at))
             writing = window
             true
         } catch (e: Exception) {

@@ -164,6 +164,27 @@ class FilmStartsTest {
         assertEquals(0L, cache.cacheSpace)
     }
 
+    @Test fun aGapInTheKeptStartIsFilledTheNextTime() {
+        val film = film(2 * MB.toInt())
+        val drive = FakeDrive(film)
+        // A start read only a little way (its header), then a spot played inside the first bytes:
+        // two kept pieces with a gap between them.
+        read(FilmStarts.cachedSource(cache, drive, windows), 0, 10 * KB.toInt())
+        read(FilmStarts.cachedSource(cache, drive, windows), 30 * KB, 64 * KB.toInt())
+        assertEquals(listOf(0L until 10 * KB, 30 * KB until 64 * KB), mergeRanges(spans()))
+
+        // Played from the start: the gap comes from Drive, and is kept this time.
+        drive.opens.clear()
+        assertArrayEquals(film.copyOfRange(0, 64 * KB.toInt()), read(FilmStarts.cachedSource(cache, drive, windows), 0, 64 * KB.toInt()))
+        assertEquals(listOf(10 * KB to 20 * KB), drive.opens)
+        assertEquals(listOf(0L until 64 * KB), mergeRanges(spans()))
+
+        // And the next start reads it all from the TV.
+        drive.opens.clear()
+        assertArrayEquals(film.copyOfRange(0, 64 * KB.toInt()), read(FilmStarts.cachedSource(cache, drive, windows), 0, 64 * KB.toInt()))
+        assertTrue(drive.opens.isEmpty())
+    }
+
     @Test fun aSinkThatFailsPartWayIsLetGoQuietly() {
         val film = film(2 * MB.toInt())
         val drive = FakeDrive(film)
@@ -291,6 +312,9 @@ class FilmStartsTest {
     private fun assertEquals(expected: List<List<Byte>>, actual: List<ByteArray>) = assertEquals(expected, actual.equalsTo() as Any)
 
     private fun film(size: Int, seed: Int = 7): ByteArray = Random(seed).nextBytes(size)
+
+    /** What's kept of the film, piece by piece. */
+    private fun spans(): List<LongRange> = cache.getCachedSpans(key).map { it.position until it.position + it.length }
 
     private fun mergeRanges(ranges: List<LongRange>): List<LongRange> = ranges.sortedBy { it.first }.fold(mutableListOf()) { acc, r ->
         val last = acc.lastOrNull()
