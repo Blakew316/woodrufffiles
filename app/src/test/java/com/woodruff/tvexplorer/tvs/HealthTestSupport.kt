@@ -40,6 +40,7 @@ internal object HealthTest {
         doorbell: DoorbellFact = bell(),
         update: UpdateFact = UpdateFact("upToDate", latestName = "2.0.171"),
         installAllowed: Boolean? = true,
+        popUpsAllowed: Boolean? = true,
         crash: CrashFact? = null,
         crashesClearedAt: Long = 0,
         exits: List<AppExit>? = emptyList(),
@@ -50,7 +51,7 @@ internal object HealthTest {
         id = "den-id", name = name, version = "2.0.171", sdk = sdk, uptimeMs = 2 * DAY,
         signIns = signIns, doorbell = doorbell, update = update,
         installed = InstallFact("Installed fresh Oct 12, 9:10 AM · updated Nov 1, 3:02 AM by Woodruff itself", "Woodruff itself", at(2026, 10, 12, 9, 10), at(2026, 11, 1, 3, 2)),
-        installAllowed = installAllowed, crash = crash, crashesClearedAt = crashesClearedAt, exits = exits, freeBytes = freeBytes, keys = keys,
+        installAllowed = installAllowed, popUpsAllowed = popUpsAllowed, crash = crash, crashesClearedAt = crashesClearedAt, exits = exits, freeBytes = freeBytes, keys = keys,
     )
 
     fun report(f: HealthFacts = facts(), now: Long = this.now) = buildHealth(f, clock(now))

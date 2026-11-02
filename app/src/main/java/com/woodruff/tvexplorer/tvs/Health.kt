@@ -247,6 +247,11 @@ data class HealthFacts(
     val installed: InstallFact,
     /** Whether Woodruff may install apps ("Install unknown apps"); null below Android 8. */
     val installAllowed: Boolean?,
+    /**
+     * Whether Woodruff may show pop-ups over other apps (Settings → Advanced → Pop-ups over other apps);
+     * null below Android 10, where opening again after an update doesn't need it.
+     */
+    val popUpsAllowed: Boolean? = null,
     val crash: CrashFact?,
     /** When the phone last cleared the crash report: crashes before it no longer need attention. */
     val crashesClearedAt: Long = 0,
@@ -293,6 +298,8 @@ data class HealthReport(
     val updates: UpdatesRow,
     val lastUpdateTry: LastTryRow?,
     val installPermission: PermissionRow?,
+    /** "Pop-ups over other apps" (Android 10+; a report from an older Woodruff has none). */
+    val popUps: PermissionRow? = null,
     val signIns: Map<HealthGrant, SignInRow>,
     val doorbell: DoorbellFact,
     val lastCrash: CrashRow?,
@@ -329,6 +336,7 @@ data class HealthReport(
             .put("auto", updates.auto).put("testTv", updates.testTv).put("asks", updates.asks).apply { updates.reason?.let { put("reason", it) } })
         .put("lastUpdateTry", lastUpdateTry?.let { JSONObject().put("text", it.text).put("reason", it.reason) } ?: JSONObject.NULL)
         .put("installPermission", installPermission?.let { JSONObject().put("allowed", it.allowed).put("text", it.text).put("attention", it.attention) } ?: JSONObject.NULL)
+        .put("popUps", popUps?.let { JSONObject().put("allowed", it.allowed).put("text", it.text).put("attention", it.attention) } ?: JSONObject.NULL)
         .put("signIns", JSONObject().apply {
             signIns.forEach { (g, s) ->
                 put(g.json, JSONObject().put("state", s.state.json).put("text", s.text).put("attention", s.attention).apply { s.since?.let { put("since", it) } })
@@ -367,6 +375,7 @@ data class HealthReport(
                 updates = UpdatesRow(u.optString("step"), u.optString("text"), u.optBoolean("attention"), u.optBoolean("auto", true), u.optBoolean("testTv"), u.optString("reason").ifEmpty { null }, u.optBoolean("asks")),
                 lastUpdateTry = o.optJSONObject("lastUpdateTry")?.let { LastTryRow(it.optString("text"), it.optString("reason")) },
                 installPermission = o.optJSONObject("installPermission")?.let { PermissionRow(it.optBoolean("allowed"), it.optString("text"), it.optBoolean("attention")) },
+                popUps = o.optJSONObject("popUps")?.let { PermissionRow(it.optBoolean("allowed"), it.optString("text"), it.optBoolean("attention")) },
                 signIns = HealthGrant.entries.associateWith { g ->
                     val s = signIns.optJSONObject(g.json)
                     val state = SignInState.of(s?.optString("state")) ?: SignInState.NOT_SET_UP
@@ -422,6 +431,10 @@ internal const val KEYS_ABOUT = "Keys entered on one TV are copied to every link
 internal const val UPDATES_ABOUT = "Updates install by themselves when nobody is using Woodruff."
 
 internal fun permissionDetail(tv: String) = "Woodruff needs this to install its own updates. In $tv’s settings, allow Woodruff Family under Install unknown apps."
+/** The "Pop-ups over other apps" row's about text. */
+internal fun popUpsDetail(tv: String) = "Woodruff needs this to open again where it was after an update. On $tv: Settings → Advanced → Pop-ups over other apps."
+/** What to do when Woodruff can't open again after an update, for its attention item (the phone shows it under the item). */
+internal fun popUpsFix(tv: String) = "On $tv, open Settings → Advanced and turn on Pop-ups over other apps."
 internal fun spaceDetail(tv: String) = "Updates and saved posters need room. Free some in Storage & apps on $tv."
 internal fun waitingDetail(tv: String) = "On $tv, press Install when it asks."
 /** The Version row's about for a TV that asks before each update: Settings → Updates' own words on this TV. */
@@ -536,6 +549,12 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
     // anyway shows as waiting.
     val notAllowed = u.auto && f.sdk in 26..30 && f.installAllowed == false
     if (notAllowed) items += HealthItem("update.notAllowed", "Woodruff isn’t allowed to install updates", permissionDetail(tv), "none")
+    // Android 10+ lets Woodruff open again after an update (update/Restore, started from the update's own
+    // broadcast, in the background) only when it may show pop-ups over other apps. Without that, an update
+    // that installs by itself leaves the TV on its home screen instead of where Woodruff was.
+    val popUps = f.popUpsAllowed?.takeIf { f.sdk >= 29 }
+    val noPopUps = u.auto && popUps == false
+    if (noPopUps) items += HealthItem("update.popUps", "Woodruff can’t open again by itself after an update", popUpsFix(tv), "none")
 
     // Rules 3 and 4: crashes and Android's reasons in the last 7 days (one item each, the latest).
     val week = now - 7 * DAY
@@ -588,6 +607,7 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
         updates = UpdatesRow(u.step, updateWords(u), waiting, u.auto, u.testTv, if (u.step == "error") plainUpdateReason(u.message) else null, u.asks),
         lastUpdateTry = if (failed) LastTryRow("Didn’t install", reason ?: "The package installer said no.") else null,
         installPermission = f.installAllowed?.let { PermissionRow(it, if (it) "Allowed" else "Not allowed", notAllowed) },
+        popUps = popUps?.let { PermissionRow(it, if (it) "Allowed" else "Not allowed", noPopUps) },
         signIns = signIns,
         doorbell = f.doorbell,
         lastCrash = crash?.let { c ->

@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Process
 import android.os.StatFs
 import android.os.SystemClock
+import android.provider.Settings
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.nest.Doorbell
@@ -133,6 +134,7 @@ object Health {
             ),
             installed = InstallFact(installed.summary(), installed.installedBy, installed.firstInstall, installed.lastUpdate),
             installAllowed = if (Build.VERSION.SDK_INT >= 26) runCatching { c.packageManager.canRequestPackageInstalls() }.getOrNull() else null,
+            popUpsAllowed = if (Build.VERSION.SDK_INT >= 29) runCatching { Settings.canDrawOverlays(c) }.getOrNull() else null,
             crash = crash,
             crashesClearedAt = p.getLong(K_CRASH_CLEARED, 0L),
             exits = ExitReasons.recent(c),

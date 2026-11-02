@@ -3110,6 +3110,7 @@
     var u = r.updates || {}, up = [{ k: 'u-ver', t: 'Version ' + (r.version || ''), d: u.text || '', warn: live && u.attention, s: r.installedBy && r.installedBy.summary, two: true }];
     if (r.lastUpdateTry) up.push({ k: 'u-try', t: 'Last Update Try', d: r.lastUpdateTry.text, warn: live, s: r.lastUpdateTry.reason, two: true });
     if (r.installPermission) up.push({ k: 'u-perm', t: 'Installing Updates', d: r.installPermission.text, warn: live && r.installPermission.attention });
+    if (r.popUps) up.push({ k: 'u-popups', t: 'Pop-Ups over Other Apps', d: r.popUps.text, warn: live && r.popUps.attention });
     var c = r.lastCrash, cb = r.closedByAndroid;
     var st = [{ k: 'st-crash', t: 'Last Crash', d: c ? c.text : 'None', warn: live && c && c.attention, s: c ? c.summary : null, tap: !!(c && c.report), chev: !!(c && c.report), fn: c && c.report ? openCrash : null }];
     if (cb) st.push({ k: 'st-closed', t: 'Closed by Android', d: cb.text, warn: live && cb.attention, s: cb.detail && /camera or video code/.test(cb.detail) ? 'It crashed inside the camera or video code.' : null });
@@ -3353,6 +3354,7 @@
     L.push('Updates: ' + u.text + (r.installedBy && r.installedBy.summary ? ' · ' + r.installedBy.summary : ''));
     if (r.lastUpdateTry) L.push('Last update try: ' + lower(r.lastUpdateTry.text) + (r.lastUpdateTry.reason ? ' (' + lower(r.lastUpdateTry.reason).replace(/\.$/, '') + ')' : ''));
     if (r.installPermission) L.push('Installing updates: ' + lower(r.installPermission.text));
+    if (r.popUps) L.push('Pop-ups over other apps: ' + lower(r.popUps.text));
     L.push('Last crash: ' + (r.lastCrash ? r.lastCrash.text + (r.lastCrash.summary ? ' · ' + r.lastCrash.summary : '') : 'none'));
     if (r.closedByAndroid) L.push('Closed by Android: ' + lower(r.closedByAndroid.text));
     if (r.freeSpace) L.push('Free space: ' + r.freeSpace.text);

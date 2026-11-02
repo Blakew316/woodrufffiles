@@ -148,6 +148,33 @@ class HealthReportTest {
         assertTrue(report(facts(installAllowed = false, sdk = 29, update = UpdateFact("upToDate", auto = false))).good)
     }
 
+    @Test fun popUpsOverOtherAppsMatterWhereWoodruffOpensAgainAfterAnUpdate() {
+        // Android 10+, automatic updates on: without it, an update leaves the TV on its home screen.
+        val r = report(facts(popUpsAllowed = false, sdk = 29))
+        assertEquals(listOf("update.popUps"), ids(r))
+        assertEquals("Woodruff can’t open again by itself after an update", r.attention[0].words)
+        assertEquals("On Den, open Settings → Advanced and turn on Pop-ups over other apps.", r.attention[0].detail)
+        assertEquals("none", r.attention[0].fix)
+        assertEquals("Woodruff can’t open again by itself after an update.", r.sentence)
+        assertEquals("Not allowed", r.popUps!!.text)
+        assertTrue(r.popUps!!.attention)
+        assertEquals(listOf("update.popUps"), ids(report(facts(popUpsAllowed = false, sdk = 34))))
+        // Allowed, or automatic updates off (someone is there for each update): information only.
+        report(facts(popUpsAllowed = true, sdk = 31)).let { assertTrue(it.good); assertEquals("Allowed", it.popUps!!.text) }
+        report(facts(popUpsAllowed = false, sdk = 31, update = UpdateFact("upToDate", auto = false))).let {
+            assertTrue(it.good); assertEquals("Not allowed", it.popUps!!.text); assertFalse(it.popUps!!.attention)
+        }
+        // Android 9 opens Woodruff again without it: no row at all.
+        report(facts(popUpsAllowed = false, sdk = 28)).let { assertTrue(it.good); assertNull(it.popUps) }
+        // After "isn't allowed to install updates", in the spec's order (rule 2), on an Android 10 or 11 TV.
+        assertEquals(listOf("update.notAllowed", "update.popUps"), ids(report(facts(installAllowed = false, popUpsAllowed = false, sdk = 30))))
+        // It travels to the hub and the phones, and a report from a Woodruff before it has none.
+        val json = JSONObject(r.toJson().toString())
+        assertEquals("Not allowed", json.getJSONObject("popUps").getString("text"))
+        assertEquals(r, HealthReport.fromJson(json))
+        assertNull(HealthReport.fromJson(json.apply { remove("popUps") })!!.popUps)
+    }
+
     @Test fun updateWordsAreTheReportsOwn() {
         assertEquals("Not checked yet", updateWords(UpdateFact("idle")))
         assertEquals("Checking…", updateWords(UpdateFact("checking")))

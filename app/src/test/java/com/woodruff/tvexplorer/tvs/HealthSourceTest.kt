@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.nest.Doorbell
+import com.woodruff.tvexplorer.update.Updater
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -11,6 +12,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowSettings
 import java.io.File
 
 /** This TV's report is made from what Android and Woodruff already know, and says nothing secret. */
@@ -52,6 +54,28 @@ class HealthSourceTest {
         assertEquals("through", bell.getString("state"))
         assertEquals("Through Living Room", bell.getString("text"))
         assertFalse(bell.getBoolean("attention"))
+    }
+
+    @Test fun popUpsOverOtherAppsAreAsAndroidSays() {
+        // Android 14, automatic updates on (as on a new TV).
+        ShadowSettings.setCanDrawOverlays(false)
+        Health.report(c, fresh = true).let { r ->
+            assertEquals("Not allowed", r.popUps!!.text)
+            assertTrue(r.attention.any { it.id == "update.popUps" })
+        }
+        ShadowSettings.setCanDrawOverlays(true)
+        Health.report(c, fresh = true).let { r ->
+            assertEquals("Allowed", r.popUps!!.text)
+            assertTrue(r.attention.none { it.id == "update.popUps" })
+        }
+        // Automatic updates off: someone is there for each one, so it's information only.
+        ShadowSettings.setCanDrawOverlays(false)
+        Updater.setAuto(c, false)
+        Health.report(c, fresh = true).let { r ->
+            assertEquals("Not allowed", r.popUps!!.text)
+            assertFalse(r.popUps!!.attention)
+            assertTrue(r.attention.none { it.id == "update.popUps" })
+        }
     }
 
     @Test fun aCrashTheHandlerKeptIsTheLastCrashUntilThePhoneClearsIt() {

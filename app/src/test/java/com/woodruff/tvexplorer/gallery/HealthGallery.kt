@@ -135,7 +135,7 @@ class HealthGallery {
                 id = name.lowercase(), name = name, version = "2.0.171", sdk = 31, uptimeMs = 2 * day,
                 signIns = signIns, doorbell = doorbell, update = update,
                 installed = InstallFact("Installed fresh Oct 12, 9:10 AM · updated Nov 1, 3:02 AM by Woodruff itself", "Woodruff itself", now - 20 * day, now - day),
-                installAllowed = true, crash = crash, exits = exits, freeBytes = free,
+                installAllowed = true, popUpsAllowed = true, crash = crash, exits = exits, freeBytes = free,
                 keys = KeysFact(googleClientId = true, googleClientSecret = true, camerasProject = true, tmdb = true),
             )
             // The other TVs' cameras aren't connected: each hears the doorbell from Living Room.

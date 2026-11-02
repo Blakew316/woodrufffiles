@@ -312,6 +312,7 @@ def health_report(name, at, attention=(), states=None, doorbell=('watching', 'Wa
         'updates': {'step': updates[0], 'text': updates[1], 'attention': updates[2], 'auto': True, 'testTv': False},
         'lastUpdateTry': last_try,
         'installPermission': {'allowed': True, 'text': 'Allowed', 'attention': False},
+        'popUps': {'allowed': True, 'text': 'Allowed', 'attention': False} if android >= 29 else None,
         'signIns': sign_ins,
         'lastCrash': crash,
         'closedByAndroid': {'text': closed[0], 'attention': closed[1], 'detail': closed[2]} if android >= 30 else None,

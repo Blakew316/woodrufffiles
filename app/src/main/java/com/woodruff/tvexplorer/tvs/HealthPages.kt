@@ -46,7 +46,7 @@ data class TvHealthView(
 )
 
 /** The symbol a row shows, kept apart from the TV's symbol set so this stays plain logic. */
-enum class RowIcon { CHECK_CIRCLE, ALERT_CIRCLE, TV, LINK_OFF, LINK, UPDATE, DRIVE, PHOTOS, CALENDAR, CAMERAS, DOORBELL, INFO, INSTALL, POWER, STORAGE, KEY, REFRESH, ACTIVITY }
+enum class RowIcon { CHECK_CIRCLE, ALERT_CIRCLE, TV, LINK_OFF, LINK, UPDATE, DRIVE, PHOTOS, CALENDAR, CAMERAS, DOORBELL, INFO, INSTALL, POP_UPS, POWER, STORAGE, KEY, REFRESH, ACTIVITY }
 
 /** What OK does on a row. */
 enum class RowAction { NONE, SIGN_IN, KEYS, VERSION, CHECK, RELINK, UNLINK }
@@ -175,6 +175,7 @@ fun reportRows(v: TvHealthView, clock: HealthClock, checking: Boolean = false, a
         )
         r.lastUpdateTry?.let { rows += HealthRow("lastTry", RowIcon.INFO, "Last update try", it.text, on(true), detail = it.reason) }
         r.installPermission?.let { rows += HealthRow("permission", RowIcon.INSTALL, "Installing updates", it.text, on(it.attention), permissionDetail(v.name)) }
+        r.popUps?.let { rows += HealthRow("popUps", RowIcon.POP_UPS, "Pop-ups over other apps", it.text, on(it.attention), popUpsDetail(v.name)) }
         // Stability.
         val crash = r.lastCrash
         rows += HealthRow("crash", RowIcon.ALERT_CIRCLE, "Last crash", crash?.text ?: "None", on(crash?.attention == true),

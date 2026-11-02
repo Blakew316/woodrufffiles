@@ -1035,6 +1035,7 @@ private fun RowIcon.symbol(): ImageVector = when (this) {
     RowIcon.DOORBELL -> Sym.NotificationsActive
     RowIcon.INFO -> Sym.Info
     RowIcon.INSTALL -> Sym.InstallMobile
+    RowIcon.POP_UPS -> Sym.OpenInNew
     RowIcon.POWER -> Sym.PowerSettingsNew
     RowIcon.STORAGE -> Sym.Storage
     RowIcon.KEY -> Sym.Key
