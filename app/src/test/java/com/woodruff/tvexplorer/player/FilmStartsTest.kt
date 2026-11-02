@@ -152,6 +152,9 @@ class FilmStartsTest {
     }
 
     @Test fun aCopyThatCantBeWrittenNeverStopsTheFilm() {
+        // Opened, as Woodruff's is long before a film starts: SimpleCache reads its folder on a thread of
+        // its own, and any question waits for that (taking the folder away mid-read made this test flaky).
+        cache.cacheSpace
         // The cache's folder taken away and a file put in its place: nothing can be written there.
         folder.deleteRecursively()
         folder.writeText("not a folder")
