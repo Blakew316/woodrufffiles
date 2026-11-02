@@ -374,7 +374,8 @@ class TitleGallery {
     /**
      * The title menu (hold OK on a poster) for a film in progress, over Streaming's Movies: its title on one line,
      * "45% watched", and Resume from 1h 05m / Start over / Watch together on all TVs / Mark as watched / Download
-     * to this TV. The menu is its own window, so the whole screen is captured.
+     * to this TV. The menu is its own window, so the whole screen is captured, with the dim the TV draws
+     * behind a dialog's window.
      */
     @Test
     fun drawTitleMenu() {
@@ -409,6 +410,9 @@ class TitleGallery {
                                 }
                             }
                         }
+                        // The dim Android draws behind every dialog window (the Material dialog's 60 % black, which
+                        // the TV's window manager adds and the JVM doesn't draw), as UpdateGallery draws it.
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
                         TitleMenuView(model, onClose = {}, onRow = {})
                     }
                 }

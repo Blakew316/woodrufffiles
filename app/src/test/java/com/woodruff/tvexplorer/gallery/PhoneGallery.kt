@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -49,6 +50,8 @@ class PhoneGallery {
         val app = ApplicationProvider.getApplicationContext<Application>()
         Notices.load(app)
         Notices.dismissLatest()
+        // This TV's name, as the other shots have it (Settings → TVs & phones shows it), not the JVM's device name.
+        com.woodruff.tvexplorer.tvs.TvLinks.setName(app, "Living Room")
         val vm = MainViewModel(app)
         val out = File(System.getProperty("gallery.dir") ?: "build/gallery").apply { mkdirs() }
         compose.setContent {
@@ -91,6 +94,7 @@ class PhoneGallery {
                 settle()
                 repeat(row) { compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }; settle(4) }
                 settle()
+                if (shot == "settings-start") check(compose.onAllNodesWithText("Living Room").fetchSemanticsNodes().isNotEmpty()) { "This TV's name isn't the sample's" }
                 captureScreenRoboImage(File(out, "tv-$shot-$scheme.png").path)
                 compose.onRoot().performKeyInput { pressKey(Key.Back) }
                 settle()
