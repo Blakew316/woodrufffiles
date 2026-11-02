@@ -208,7 +208,9 @@ object Doorbell {
     class Watch internal constructor(private val host: Host) {
         internal var job: Job? = null
         private var here = false
-        private var gone = false
+        /** It went: no ring is handed to it any more, even one already on its way. */
+        @Volatile internal var gone = false
+            private set
 
         @Synchronized internal fun arrived() {
             if (gone || here) return
@@ -234,13 +236,24 @@ object Doorbell {
     fun watchFor(host: Host, open: (Ring) -> Unit): Watch {
         val watch = Watch(host)
         watch.job = main.launch {
-            _opens.onSubscription { watch.arrived() }.collect { if (claim(it, host)) open(it) }
+            _opens.onSubscription { watch.arrived() }.collect { ring ->
+                if (watch.gone || !claim(ring, host)) return@collect
+                // (This scope outlives every screen: something going wrong opening the camera is
+                // logged, and the ring's card pops up a moment later instead, rather than closing Woodruff.)
+                runCatching { open(ring) }.onFailure {
+                    Log.w("Doorbell", "couldn't open the camera over $host", it)
+                    unclaim(ring)
+                }
+            }
         }
         return watch
     }
 
     /** True once for [ring], on the screen it's meant for ([host]), while it's fresh: that screen opens it. */
     fun claim(ring: Ring, host: Host): Boolean = claims.claim(ring, host, System.currentTimeMillis())
+
+    /** The screen that claimed [ring] couldn't open its camera after all: the ring's card pops up a moment later instead. */
+    fun unclaim(ring: Ring) = claims.release(ring.id)
 
     private fun present(host: Host, on: Boolean) {
         when (host) {
@@ -266,6 +279,10 @@ object Doorbell {
         // was given it by another TV doesn't become the one it was set on).
         if (clean != subscription(app).orEmpty()) {
             SharedKeys.set(app, SharedKey.DOORBELL) { store(app, clean.ifEmpty { null }, setHere = true) }
+            // What was wrong was about the old one: the phone's answer to this doesn't repeat it
+            // (the listener, started again just below, says what it finds with the new one).
+            _listening.value = DoorbellListening.Idle
+            _status.value = null
         }
         start(app)
     }
@@ -322,6 +339,7 @@ object Doorbell {
     fun ring(c: Context, camera: String, label: String, relay: Boolean, kind: String = "doorbell", session: String? = null, from: String? = null) {
         if (kind !in KINDS) return
         val app = c.applicationContext
+        @Suppress("NAME_SHADOWING") val session = cleanSession(session)
         // Passed on by another TV (it comes here through /api/doorbell, with relay off): remembered,
         // with its name when it says it, for Settings ("Through Living Room").
         if (!relay) {
@@ -476,12 +494,20 @@ object Doorbell {
         }
     }
 
+    /** When Google last refused this TV's token for Pub/Sub (see [unauthorizedPauseMs]). */
+    @Volatile private var unauthorizedAt = 0L
+
     /** What Google's answer [e] (not a success) means for listening. */
     private fun answered(app: Context, e: PubSub.Answer): Next {
         Log.w("Doorbell", e.message.orEmpty())
         return when (e.code) {
-            // A token Google won't take (the TV's clock was off, or access just revoked): renewed on the next try.
-            401 -> { GoogleAuth.forgetAccess(app, GoogleAuth.Grant.NEST); Next.After(5_000) }
+            // A token Google won't take (access just revoked, say): renewed on the next try; again
+            // within a minute, it isn't the token, so not every 5 s.
+            401 -> {
+                GoogleAuth.forgetAccess(app, GoogleAuth.Grant.NEST)
+                val now = System.currentTimeMillis()
+                Next.After(unauthorizedPauseMs(now, unauthorizedAt, FAILING_RETRY_MS)).also { unauthorizedAt = now }
+            }
             403 -> {
                 setListening(app, DoorbellListening.Failing("Google refused", "Google turned down this TV’s doorbell subscription. Connect the cameras again on this TV, and check the subscription in the phone app: Settings → Connections → Cameras."))
                 Next.After(FAILING_RETRY_MS)
@@ -568,10 +594,18 @@ object Doorbell {
             PubSub.pull(token, target.name)
         } catch (e: PubSub.Answer) {
             if (!target.own || (e.code != 404 && e.code != 403)) throw e
-            // Gone (deleted after a day unused, the TV having been off; or in Google Cloud) or no
-            // longer allowed: made again now (or found refused). Not straight after making it.
-            prefs(app).edit().remove(K_OWN).remove(K_OWN_FOR).apply()
-            return if (System.currentTimeMillis() - ownMadeAt < 60_000) Next.After(30_000) else Next.Now
+            val p = prefs(app)
+            val now = System.currentTimeMillis()
+            val failure = ownPullFailed(e.code, justMade = now - ownMadeAt in 0 until 60_000)
+            // Not allowed to listen on the one Google just let it make: as good as refused, so it
+            // hears the doorbell as before (rather than making it and failing again every 30 s).
+            if (failure == OwnPullFailure.REFUSED) {
+                p.getString(K_OWN_FOR, null)?.let { p.edit().putString(K_REFUSED_FOR, it).putLong(K_REFUSED_AT, now).apply() }
+            }
+            // Otherwise gone (deleted after a day unused, the TV having been off; or in Google Cloud)
+            // or no longer allowed: made again now (or found refused), in a moment if just made.
+            p.edit().remove(K_OWN).remove(K_OWN_FOR).apply()
+            return if (failure == OwnPullFailure.MAKE_AGAIN_LATER) Next.After(30_000) else Next.Now
         }
         setListening(app, if (target.own) DoorbellListening.Own else DoorbellListening.Shared)
         if (messages.length() == 0) return Next.After(EMPTY_PAUSE_MS)

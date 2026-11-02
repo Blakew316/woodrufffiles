@@ -351,15 +351,20 @@ fun AppRoot(vm: MainViewModel) {
         bell.opens.collect { ring ->
             if (!bell.claim(ring, com.woodruff.tvexplorer.nest.Doorbell.Host.APP)) return@collect
             val cams = com.woodruff.tvexplorer.nest.Nest.state.value.cameras
-            if (vm.screen.value == Screen.CAMERAS && cams.isNotEmpty()) {
+            val requests = com.woodruff.tvexplorer.ui.screens.cameraRequests
+            // In place only when the Command Center's cameras are there to take it (not in the frame
+            // it's still coming in): a request nobody hears would open nothing.
+            if (vm.screen.value == Screen.CAMERAS && cams.isNotEmpty() && requests.subscriptionCount.value > 0) {
                 val i = cams.indexOfFirst { it.name == ring.camera }.coerceAtLeast(0)
-                com.woodruff.tvexplorer.ui.screens.cameraRequests.tryEmit(com.woodruff.tvexplorer.ui.screens.CameraRequest(i, ring.at))
+                requests.tryEmit(com.woodruff.tvexplorer.ui.screens.CameraRequest(i, ring.at))
             } else {
                 val inMemories = browserPath.let { p -> p != null && (p.startsWith(GooglePhotos.folder.path) || p.startsWith(GooglePhotos.videoFolder.path)) }
                 val name = com.woodruff.tvexplorer.ui.screens.screenName(vm.screen.value, driveTop?.title, inMemories)
-                searchContext.startActivity(
-                    com.woodruff.tvexplorer.player.DoorbellActivity.intent(searchContext, ring, com.woodruff.tvexplorer.player.DoorbellActivity.Origin.SCREEN, name),
-                )
+                runCatching {
+                    searchContext.startActivity(
+                        com.woodruff.tvexplorer.player.DoorbellActivity.intent(searchContext, ring, com.woodruff.tvexplorer.player.DoorbellActivity.Origin.SCREEN, name),
+                    )
+                }.onFailure { bell.unclaim(ring) } // its card pops up a moment later instead
             }
         }
     }

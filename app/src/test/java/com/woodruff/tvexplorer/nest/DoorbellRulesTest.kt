@@ -123,6 +123,35 @@ class DoorbellRulesTest {
         for (code in listOf(401, 404, 408, 429, 500, 503)) assertFalse("$code", isRefusal(code))
     }
 
+    @Test fun notAllowedToListenOnTheOneGoogleJustLetItMakeIsARefusal() {
+        // Right after making it: 403 means this TV can't listen on its own; it hears the doorbell as before.
+        assertEquals(OwnPullFailure.REFUSED, ownPullFailed(403, justMade = true))
+        // Google may take a moment to know a subscription it just made: made again in a moment, not at once.
+        assertEquals(OwnPullFailure.MAKE_AGAIN_LATER, ownPullFailed(404, justMade = true))
+        // Later: gone (it deleted itself after a day unused) or no longer allowed: made again now,
+        // which finds out whether Google still allows it.
+        assertEquals(OwnPullFailure.MAKE_AGAIN, ownPullFailed(404, justMade = false))
+        assertEquals(OwnPullFailure.MAKE_AGAIN, ownPullFailed(403, justMade = false))
+    }
+
+    @Test fun aTokenGoogleKeepsRefusingIsntRenewedEveryFewSeconds() {
+        val minutes5 = 5 * 60_000L
+        // The first refusal: a stale token, renewed and tried again in 5 s.
+        assertEquals(5_000L, unauthorizedPauseMs(now = 1_000_000, lastAt = 0, failingMs = minutes5))
+        assertEquals(5_000L, unauthorizedPauseMs(now = 1_000_000, lastAt = 1_000_000 - 61_000, failingMs = minutes5))
+        // Again within a minute: it isn't the token.
+        assertEquals(minutes5, unauthorizedPauseMs(now = 1_000_000, lastAt = 1_000_000 - 6_000, failingMs = minutes5))
+        // The TV's clock stepped back meanwhile: taken as a first refusal.
+        assertEquals(5_000L, unauthorizedPauseMs(now = 1_000_000, lastAt = 1_000_000 + 30_000, failingMs = minutes5))
+    }
+
+    @Test fun aVisitIdFromAnotherTvIsKeptToASaneLength() {
+        assertEquals("CjY5Y3VKaTZwR3o4Y19YbTVfMF", cleanSession(" CjY5Y3VKaTZwR3o4Y19YbTVfMF "))
+        assertNull(cleanSession(null))
+        assertNull(cleanSession("   "))
+        assertEquals(200, cleanSession("v".repeat(70_000))!!.length)
+    }
+
     // ---- What Settings says ----------------------------------------------------------------------
 
     private fun alerts(subscription: Boolean = true, cameras: Boolean = true, relaysOut: Boolean = false, from: String? = null, listening: DoorbellListening = DoorbellListening.Own) =
@@ -247,6 +276,17 @@ class DoorbellRulesTest {
     @Test fun aRingNoLongerFreshOpensNothing() {
         val claims = RingClaims(freshMs = 10_000)
         assertFalse(claims.claim(Doorbell.Ring(5, door, at = 0, host = Doorbell.Host.APP), Doorbell.Host.APP, now = 10_001))
+    }
+
+    @Test fun aRingAScreenCouldntOpenAfterAllIsntCountedAsOpened() {
+        val claims = RingClaims()
+        val ring = Doorbell.Ring(9, door, at = 1_000, host = Doorbell.Host.APP)
+        assertTrue(claims.claim(ring, Doorbell.Host.APP, now = 1_200))
+        claims.release(9)
+        // Its card pops up instead (the doorbell checks whether it was taken)...
+        assertFalse(claims.taken(9))
+        // ...and that screen, started again while the ring is fresh, may still open it.
+        assertTrue(claims.claim(ring, Doorbell.Host.APP, now = 2_000))
     }
 
     @Test fun claimedRingsAreBounded() {

@@ -139,6 +139,39 @@ internal fun isRefusal(code: Int): Boolean = code in 400..499 && code != 401 && 
 /** Pub/Sub's topic name for a subscription whose topic was deleted: it will never deliver anything. */
 internal const val DELETED_TOPIC = "_deleted-topic_"
 
+/** What a TV does when pulling its own subscription fails ([ownPullFailed]). */
+internal enum class OwnPullFailure {
+    /** Make it again now (which also finds out whether Google still allows it). */
+    MAKE_AGAIN,
+    /** Make it again in a moment: it was only just made, and Google may take a moment to know it. */
+    MAKE_AGAIN_LATER,
+    /** Google won't let this TV listen on its own: it hears the doorbell as before. */
+    REFUSED,
+}
+
+/**
+ * Pulling this TV's own subscription failed with [code]: 404, it's gone (it deleted itself after a
+ * day unused, or someone did in Google Cloud), or 403, not allowed. [justMade]: within a minute of
+ * making it. Not allowed to pull the one Google just let it make is a refusal; anything else, it's
+ * made again (and a refusal then shows there).
+ */
+internal fun ownPullFailed(code: Int, justMade: Boolean): OwnPullFailure = when {
+    code == 403 && justMade -> OwnPullFailure.REFUSED
+    code == 404 && justMade -> OwnPullFailure.MAKE_AGAIN_LATER
+    else -> OwnPullFailure.MAKE_AGAIN
+}
+
+/**
+ * How long to wait after Google refused this TV's token ([code] 401) at [now], the last refusal
+ * having been at [lastAt]: the token is renewed and tried again in 5 s, but a second refusal
+ * within a minute isn't a stale token, so it waits [failingMs] rather than renewing it every 5 s.
+ */
+internal fun unauthorizedPauseMs(now: Long, lastAt: Long, failingMs: Long): Long =
+    if (lastAt > 0 && now - lastAt in 0 until 60_000) failingMs else 5_000
+
+/** A visit's id as another TV sent it, kept to a sane length (Nest's are under 100 characters); null for none. */
+internal fun cleanSession(session: String?): String? = session?.trim()?.take(200)?.ifEmpty { null }
+
 // ---- How Settings describes the doorbell --------------------------------------------------------
 
 /** What this TV's doorbell listener is doing. */
@@ -259,6 +292,12 @@ internal class RingClaims(private val max: Int = 32, private val freshMs: Long =
     /** Whether a screen took the ring [id]. */
     @Synchronized
     fun taken(id: Long): Boolean = id in taken
+
+    /** The screen that took the ring [id] couldn't open it after all: its card pops up instead. */
+    @Synchronized
+    fun release(id: Long) {
+        taken.remove(id)
+    }
 }
 
 // ---- The saved camera list ----------------------------------------------------------------------

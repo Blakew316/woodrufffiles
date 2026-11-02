@@ -253,11 +253,12 @@ class SlideshowDream : DreamService() {
 
     private fun openDoorbell(ring: Doorbell.Ring) {
         // A task of its own: closing it shows what was under the screensaver (the launcher, an app),
-        // not Woodruff's last screen. Started while the screensaver is still up, then it wakes.
+        // not Woodruff's last screen. Started while the screensaver is still up, then it wakes. Kept
+        // out of the TV's recent apps: once closed (or left), there's nothing there to go back to.
         runCatching {
             startActivity(
                 DoorbellActivity.intent(this, ring, DoorbellActivity.Origin.SCREENSAVER)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK),
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS),
             )
         }.onFailure { android.util.Log.w("Slideshow", "couldn't open the doorbell from the screensaver", it) }
         runCatching { if (Build.VERSION.SDK_INT >= 29) wakeUp() else finish() }
