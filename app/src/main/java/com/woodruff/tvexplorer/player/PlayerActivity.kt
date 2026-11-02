@@ -252,6 +252,8 @@ class PlayerActivity : ComponentActivity() {
         titleView.text = label.title
         eyebrowView.text = label.eyebrow.orEmpty()
         eyebrowView.visibility = if (label.eyebrow == null) android.view.View.GONE else android.view.View.VISIBLE
+        // The title row grows or shrinks with the eyebrow: subtitles risen above it look again.
+        subtitlesMakeWay()
     }
 
     /**
@@ -370,6 +372,9 @@ class PlayerActivity : ComponentActivity() {
     private fun say(text: String, ms: Long = MESSAGE_MS) {
         message.text = text
         messageCard.show()
+        // A message replacing one already up can be taller (two lines for one): the subtitles above
+        // it look again, as they do when a message comes.
+        subtitlesMakeWay()
         countdown.removeCallbacks(hideMessage)
         countdown.postDelayed(hideMessage, ms)
     }
@@ -606,6 +611,8 @@ class PlayerActivity : ComponentActivity() {
      */
     private fun showSubtitles(anchor: android.view.View) {
         val p = player ?: return
+        // Still opening: its tracks aren't known yet, so "No subtitles" wouldn't be true (as with Audio).
+        if (p.currentTracks.isEmpty) return
         val choices = SubtitleTracks.of(p.currentTracks)
         if (choices.isEmpty()) { say(SubtitleTracks.NONE); return }
         val rows = SubtitleTracks.menuRows(
@@ -783,24 +790,8 @@ class PlayerActivity : ComponentActivity() {
         return runCatching { LocalSidecars.inFolder(dir) }.getOrDefault(emptyMap())
     }
 
-    /**
-     * The queue's films other than the one playing, given the subtitle files now known beside them.
-     * Taken out and put back in two runs (before and after the one playing), which leaves it playing
-     * on: replacing one in place only renames it, as far as Media3 goes.
-     */
-    private fun giveWaitingSidecars(p: ExoPlayer) {
-        fun swap(from: Int, to: Int) {
-            if (from >= to) return
-            val items = (from until to).map { p.getMediaItemAt(it) }
-            val given = items.map(::withSidecars)
-            if (given.indices.none { given[it] !== items[it] }) return
-            p.removeMediaItems(from, to)
-            p.addMediaItems(from, given)
-        }
-        val current = p.currentMediaItemIndex
-        swap(current + 1, p.mediaItemCount)
-        swap(0, current)
-    }
+    /** The queue's films other than the one playing, given the subtitle files now known beside them ([giveWaitingItems]). */
+    private fun giveWaitingSidecars(p: ExoPlayer) = giveWaitingItems(p, ::withSidecars)
 
     /**
      * Every sound track in the file, the one playing ticked (OK on another switches to it). The
@@ -1248,6 +1239,8 @@ class PlayerActivity : ComponentActivity() {
         // Subtitles as Woodruff draws them (or as the TV's own caption settings say), in their own place.
         applySubtitleLook()
         resetSubtitlePlace()
+        // Back above whatever is still at the bottom as the player comes back (the controls left up).
+        subtitlesMakeWay()
 
         // The buffer is Java memory in Woodruff's own heap, so how much it holds (ahead of the film and
         // behind it) depends on how big that is: see playerLoadControl.
@@ -1715,6 +1708,27 @@ class PlayerActivity : ComponentActivity() {
                 .putExtra(EXTRA_START, start)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+}
+
+/**
+ * The items in [p]'s queue other than the one playing, as [given] makes them (a film with the
+ * subtitle files now known beside it; the item itself when nothing changes). Media3 takes a film's
+ * subtitle files only as the item is added, and replacing an item in place only renames it, so
+ * those that change are taken out and put back, in two runs (after the one playing, then before
+ * it). The one playing is never touched: it plays on, from where it is.
+ */
+internal fun giveWaitingItems(p: Player, given: (MediaItem) -> MediaItem) {
+    fun swap(from: Int, to: Int) {
+        if (from >= to) return
+        val items = (from until to).map { p.getMediaItemAt(it) }
+        val now = items.map(given)
+        if (now.indices.none { now[it] !== items[it] }) return
+        p.removeMediaItems(from, to)
+        p.addMediaItems(from, now)
+    }
+    val current = p.currentMediaItemIndex
+    swap(current + 1, p.mediaItemCount)
+    swap(0, current)
 }
 
 /**
