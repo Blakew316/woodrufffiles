@@ -42,9 +42,15 @@ internal enum class CameraPicture {
     HELD,
 }
 
-/** What a view showing [status] shows; [held]: it was given a frame, so it holds a picture. */
-internal fun cameraPicture(status: CameraStream.Status, held: Boolean): CameraPicture = when {
-    status == CameraStream.Status.Live -> CameraPicture.LIVE
+/**
+ * What a view showing [status] shows; [held]: it has drawn a frame, so it holds a picture. A [tile]
+ * counts as live only once it has drawn its own first frame, so its LIVE badge comes with its picture
+ * (joining a stream that's already running, it's live a moment before it has drawn anything). A
+ * full-screen view counts as live with its stream: its caption's scrim stays put through a switch of
+ * camera, over the black before the next one's first frame.
+ */
+internal fun cameraPicture(status: CameraStream.Status, held: Boolean, tile: Boolean = false): CameraPicture = when {
+    status == CameraStream.Status.Live -> if (tile && !held) CameraPicture.NONE else CameraPicture.LIVE
     held && troubleSince(status) > 0 -> CameraPicture.HELD
     else -> CameraPicture.NONE
 }
@@ -72,24 +78,52 @@ internal fun rememberLongTrouble(since: Long): Boolean {
     return long
 }
 
+/** What [CameraOverlay] draws over a camera view ([cameraOverlay]). */
+internal enum class Overlay {
+    /** Nothing: the live picture shows. */
+    NONE,
+    /** A tile's last picture, without words: it's live, but hasn't drawn its own first frame yet. */
+    STILL,
+    /** The picture the view holds (its last frame) under the veil, with the words. */
+    VEIL,
+    /** A tile's last picture under the veil, with the words. */
+    STILL_VEIL,
+    /** The words on black (full screen). */
+    WORDS,
+    /** The camera's symbol and the words, on the camera views' dark. */
+    PLACEHOLDER,
+}
+
 /**
- * Drawn over a camera view's picture, by its state ([streamWords]; nothing while it's live): the
- * picture the view [held] (its last frame), or a tile's last [still], under a veil that says it isn't
- * live, or the words in its place when there's no picture. A full-screen view ([big]) that's
- * connecting says so on black instead: a minutes-old picture of the porch could be taken for the
- * visitor. A tile never looks live before its frames come, with or without a LIVE badge.
+ * What goes over a view showing [status]: nothing while it's live; the picture it [held] (its last
+ * frame), or a tile's last still ([hasStill]), under a veil that says it isn't live; or the words in
+ * its place when there's no picture. A full-screen view ([big]) that's connecting says so on black
+ * instead: a minutes-old picture of the porch could be taken for the visitor. A tile joining a stream
+ * that's already live shows its last still until it has drawn a frame of its own, rather than black
+ * for a moment. A tile never looks live before its frames come, with or without a LIVE badge.
  */
+internal fun cameraOverlay(status: CameraStream.Status, held: Boolean, hasStill: Boolean, big: Boolean): Overlay = when {
+    status == CameraStream.Status.Live -> if (!big && !held && hasStill) Overlay.STILL else Overlay.NONE
+    held && !(big && status == CameraStream.Status.Connecting) -> Overlay.VEIL
+    big -> Overlay.WORDS
+    hasStill -> Overlay.STILL_VEIL
+    else -> Overlay.PLACEHOLDER
+}
+
+/** Drawn over a camera view's picture, as [cameraOverlay] says, with its words ([streamWords]). */
 @Composable
 internal fun CameraOverlay(status: CameraStream.Status, longTrouble: Boolean, held: Boolean, still: ImageBitmap?, big: Boolean) {
-    val words = streamWords(status, longTrouble) ?: return
-    when {
-        held && !(big && status == CameraStream.Status.Connecting) -> StallVeil(words, big)
-        big -> CameraWords(words)
-        still != null -> {
+    val words = streamWords(status, longTrouble).orEmpty()
+    when (cameraOverlay(status, held, hasStill = still != null, big)) {
+        Overlay.NONE -> Unit
+        Overlay.STILL -> if (still != null) StillPicture(still)
+        Overlay.VEIL -> StallVeil(words, big)
+        Overlay.STILL_VEIL -> if (still != null) {
             StillPicture(still)
             StallVeil(words, big = false)
         }
-        else -> Placeholder(words)
+        Overlay.WORDS -> CameraWords(words)
+        Overlay.PLACEHOLDER -> Placeholder(words)
     }
 }
 
@@ -151,7 +185,7 @@ internal object CameraSamples {
 internal fun SampleVideo(sample: CameraSamples.Sample, fill: Boolean, onPicture: (CameraPicture) -> Unit) {
     val picture = sample.picture
     val held = picture != null && sample.status != CameraStream.Status.Connecting
-    val shows = cameraPicture(sample.status, held)
+    val shows = cameraPicture(sample.status, held, tile = fill)
     LaunchedEffect(shows) { onPicture(shows) }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (picture != null && shows != CameraPicture.NONE) {

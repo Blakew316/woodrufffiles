@@ -497,12 +497,14 @@ internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false, focus
 
 /**
  * A video view, what it renders into ([draws]), and how to take a frame from it, clear it ([wipe])
- * and let it go. The stream's frames reach it through [sink], which notes whether it holds a picture.
+ * and let it go. The stream's frames reach it through [sink]; [pictured] says whether it has drawn one.
  */
 private class Renderer(
     val view: View,
     private val draws: VideoSink,
     val grab: (EglRenderer.FrameListener) -> Unit,
+    /** Calls back (on the GL thread) once the view next draws a frame into its picture. */
+    private val afterNextFrame: (() -> Unit) -> Unit,
     /** The view's picture goes (another camera is coming into it). */
     private val wipe: () -> Unit,
     /** A tile's frame rate follows its focus. */
@@ -512,7 +514,10 @@ private class Renderer(
     /** The camera it shows (read on the GL thread too, by a frame grab). */
     @Volatile var camera: String? = null
 
-    /** Whether the view holds a picture: it has been given a frame since it was made or last cleared. Main thread. */
+    /**
+     * Whether the view shows a picture: it has drawn a frame since it was made or last cleared (a
+     * frame given to it may not be drawn yet: a tile still setting up, or skipping it). Main thread.
+     */
     val pictured = mutableStateOf(false)
     /** Moved on by [clear], so word of a frame from before then changes nothing. */
     @Volatile private var epoch = 0
@@ -520,14 +525,23 @@ private class Renderer(
     @Volatile private var seen = false
     private val main = Handler(Looper.getMainLooper())
 
-    /** What the stream draws into (WebRTC's decoder thread): the view, noting its first frame. */
+    /** What the stream draws into (WebRTC's decoder thread): the view. */
     val sink = VideoSink { frame ->
         if (!seen) {
             seen = true
+            // In case the view's own word never comes: a frame it was given this long ago shows by now.
             val e = epoch
-            main.post { if (epoch == e) pictured.value = true }
+            main.postDelayed({ if (epoch == e) pictured.value = true }, DRAWN_FALLBACK_MS)
         }
         draws.onFrame(frame)
+    }
+
+    init { watchForPicture() }
+
+    /** Its next drawn frame is the picture of what it shows now (main thread). */
+    private fun watchForPicture() {
+        val e = epoch
+        afterNextFrame { main.post { if (epoch == e) pictured.value = true } }
     }
 
     /** Another camera is coming into the view: the last one's picture goes now (main thread). */
@@ -536,13 +550,19 @@ private class Renderer(
         seen = false
         pictured.value = false
         wipe()
+        watchForPicture()
+    }
+
+    private companion object {
+        /** A view given a frame this long ago counts as showing a picture, should its own word be lost. */
+        const val DRAWN_FALLBACK_MS = 1_000L
     }
 }
 
 /** A tile: the picture fills it and takes its rounded corners (a TextureView, on the tiles' shared GL thread). */
 private fun tileRenderer(context: Context): Renderer {
     val t = TextureRenderer(context)
-    return Renderer(t, t, { l -> t.addFrameListener(l, 0.3f) }, t::clearImage, t::setFocused, t::release)
+    return Renderer(t, t, { l -> t.addFrameListener(l, 0.3f) }, t::afterNextFrame, t::clearImage, t::setFocused, t::release)
 }
 
 /** Full screen: the whole frame, letterboxed if need be (a SurfaceView, the cheapest to draw). */
@@ -565,6 +585,9 @@ private fun fullRenderer(context: Context): Renderer {
     }
     return Renderer(
         s, sink, { l -> s.addFrameListener(l, 0.3f) },
+        // Set up already (init above), and never held back by a frame rate: the next frame that reaches
+        // its surface is drawn (after a switch, the sink above lets frames through again first).
+        afterNextFrame = { drawn -> s.addFrameListener({ drawn() }, 0f) },
         wipe = { sink.waiting = true; s.pauseVideo(); s.clearImage() },
         focus = {},
         // Letting go waits for its GL thread to clean up: done in the background.
@@ -629,7 +652,7 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -
     val status = if (stream == null) CameraStream.Status.Connecting else key(stream) { stream.status.collectAsState().value }
     // What the view shows, for its host: live only while the stream's frames come.
     val held by renderer.pictured
-    val shows = cameraPicture(status, held)
+    val shows = cameraPicture(status, held, tile = fill)
     val reportPicture by rememberUpdatedState(onPicture)
     LaunchedEffect(shows) { reportPicture(shows) }
     // Keep a small recent frame of this camera for tiles that aren't streaming.

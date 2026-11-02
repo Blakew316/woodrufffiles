@@ -66,6 +66,16 @@ class TextureRenderer(context: Context) : TextureView(context), TextureView.Surf
     /** A small copy of the next frame (for the still shown when the tile isn't streaming). */
     fun addFrameListener(listener: EglRenderer.FrameListener, scale: Float) = egl.addFrameListener(listener, scale)
 
+    /**
+     * [drawn] runs (on the GL thread) once this view next draws a frame into its picture: one it skips
+     * (held after a press, off the shared beat) or can't draw yet (no surface) doesn't count, and no
+     * copy of it is made. Asked for on the background thread after its GL side is set up there (in
+     * order), as a renderer not yet set up would drop the request.
+     */
+    fun afterNextFrame(drawn: () -> Unit) = CameraGl.later {
+        if (!released) egl.addFrameListener({ drawn() }, 0f, null, true)
+    }
+
     /** Clears the picture. */
     fun clearImage() = egl.clearImage()
 

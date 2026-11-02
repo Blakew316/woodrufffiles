@@ -45,12 +45,35 @@ class CameraStatesTest {
 
     @Test fun liveOnlyWhileFramesComeAndAHeldPictureOnlyInTrouble() {
         assertEquals(CameraPicture.LIVE, cameraPicture(Status.Live, held = true))
+        // Full screen: live with its stream, so the caption's scrim stays put through a switch of camera.
         assertEquals(CameraPicture.LIVE, cameraPicture(Status.Live, held = false))
+        // A tile joining a stream that's already live: LIVE only once it has drawn its own picture.
+        assertEquals(CameraPicture.NONE, cameraPicture(Status.Live, held = false, tile = true))
+        assertEquals(CameraPicture.LIVE, cameraPicture(Status.Live, held = true, tile = true))
+        assertEquals(CameraPicture.HELD, cameraPicture(Status.Stalled(5), held = true, tile = true))
         assertEquals(CameraPicture.HELD, cameraPicture(Status.Stalled(5), held = true))
         assertEquals(CameraPicture.HELD, cameraPicture(Status.Reconnecting(5), held = true))
         assertEquals(CameraPicture.NONE, cameraPicture(Status.Reconnecting(5), held = false))
         // Connecting again with an old picture in the view: not live, and not a picture to read words over.
         assertEquals(CameraPicture.NONE, cameraPicture(Status.Connecting, held = true))
+    }
+
+    @Test fun whatGoesOverAViewFollowsItsStreamAndWhatItHasDrawn() {
+        // Live, and drawn: nothing over it.
+        assertEquals(Overlay.NONE, cameraOverlay(Status.Live, held = true, hasStill = true, big = false))
+        assertEquals(Overlay.NONE, cameraOverlay(Status.Live, held = true, hasStill = false, big = true))
+        // A tile joining a live stream keeps its last still until its own first frame, not black.
+        assertEquals(Overlay.STILL, cameraOverlay(Status.Live, held = false, hasStill = true, big = false))
+        assertEquals(Overlay.NONE, cameraOverlay(Status.Live, held = false, hasStill = false, big = false))
+        assertEquals(Overlay.NONE, cameraOverlay(Status.Live, held = false, hasStill = true, big = true))
+        // A stopped picture: held under the veil (full screen and tiles alike).
+        assertEquals(Overlay.VEIL, cameraOverlay(Status.Stalled(5), held = true, hasStill = true, big = false))
+        assertEquals(Overlay.VEIL, cameraOverlay(Status.Reconnecting(5), held = true, hasStill = false, big = true))
+        // Connecting: full screen on black (an old picture could be taken for the visitor); a tile over its still.
+        assertEquals(Overlay.WORDS, cameraOverlay(Status.Connecting, held = true, hasStill = false, big = true))
+        assertEquals(Overlay.VEIL, cameraOverlay(Status.Connecting, held = true, hasStill = true, big = false))
+        assertEquals(Overlay.STILL_VEIL, cameraOverlay(Status.Connecting, held = false, hasStill = true, big = false))
+        assertEquals(Overlay.PLACEHOLDER, cameraOverlay(Status.Reconnecting(5), held = false, hasStill = false, big = false))
     }
 
     @Test fun aLiveViewHasNothingOverItsPicture() {
