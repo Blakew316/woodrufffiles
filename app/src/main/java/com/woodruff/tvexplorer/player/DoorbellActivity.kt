@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -234,7 +233,12 @@ class DoorbellActivity : ComponentActivity() {
                     cam == null -> "Connecting…"
                     else -> null
                 },
-            ) { onPicture -> if (cam != null) key(cam.name) { LiveVideo(cam, audio = true, onPicture = onPicture) } }
+            ) { onPicture ->
+                // One video view for the whole visit, as full screen in the Command Center has: Left /
+                // Right (or another doorbell ringing) moves it to that camera's stream. A view per
+                // camera set its GL up on the main thread at every switch, holding up the next press.
+                if (cam != null) LiveVideo(cam, audio = true, onPicture = onPicture)
+            }
             // Over everything, a layer of its own that fades: nothing is drawn again for it.
             if (cover != null) Box(
                 Modifier.matchParentSize()
