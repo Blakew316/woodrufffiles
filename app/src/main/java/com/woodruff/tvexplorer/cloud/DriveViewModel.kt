@@ -74,6 +74,11 @@ data class DriveState(
     val filters: Map<String, LibraryFilter> = emptyMap(),
     /** How the last try to reach Google Drive went (offline: what's shown is the saved copy). */
     val status: DriveStatus = DriveStatus.Online,
+    /**
+     * Where the listing limit cut what's shown ([DriveApi.LIBRARY_LIMIT] for a library, else
+     * [DriveApi.LIST_LIMIT]) because Drive had more; 0 when it's all there. The screen says so.
+     */
+    val cutAt: Int = 0,
 ) {
     val place: DrivePlace get() = stack.last()
     val connected: Boolean get() = step == SignInStep.CONNECTED
@@ -165,6 +170,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      * this run, when its saved copy was. Opening one listed less than [FRESH_MS] ago lists nothing.
      */
     private val listedAt = java.util.concurrent.ConcurrentHashMap<DrivePlace, Long>()
+
+    /** Where the listing limit cut each place's last listing, for the ones it did ([DriveState.cutAt]). */
+    private val cuts = java.util.concurrent.ConcurrentHashMap<DrivePlace, Int>()
 
     /**
      * Each library's refresh, shared by the screen, both tabs and the warm-up at launch. Off the main
@@ -303,7 +311,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      * before Woodruff restarted isn't listed again at once.
      */
     private fun keepSaved(place: DrivePlace, saved: ListingCache.Saved) {
-        if (cache.putIfAbsent(place, saved.files) == null && saved.listedAt > 0) listedAt.putIfAbsent(place, saved.listedAt)
+        if (cache.putIfAbsent(place, saved.files) != null) return
+        if (saved.listedAt > 0) listedAt.putIfAbsent(place, saved.listedAt)
+        if (saved.cutAt > 0) cuts.putIfAbsent(place, saved.cutAt)
     }
 
     /**
@@ -482,6 +492,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             generation++
             cache.clear()
             listedAt.clear()
+            cuts.clear()
         }
         refreshes.cancelAll()
         warmedSaved.clear()
@@ -597,7 +608,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         // The status stays as it was until this try says otherwise: offline stays offline (no
         // flicker of the note) while the next place loads from what's saved, and the offline page
         // stays up while it tries again rather than flashing "Loading".
-        _state.update { it.copy(busy = cached == null && it.status != DriveStatus.Offline, error = null, files = cached ?: emptyList()) }
+        _state.update { it.copy(busy = cached == null && it.status != DriveStatus.Offline, error = null, files = cached ?: emptyList(), cutAt = cuts[place] ?: 0) }
         loadJob = viewModelScope.launch {
             // Nothing in memory yet (first visit since the app started): show the saved listing at
             // once, then refresh it from Drive behind the scenes.
@@ -606,9 +617,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     ListingCache.read(ctx, place)?.also { Library.prepare(it.files); if (place is DrivePlace.Named) learnMatchKeys(it.files) }
                 }
                 if (saved != null && saved.files.isNotEmpty()) {
-                    if (place is DrivePlace.Named) keepSaved(place, saved) else cache.putIfAbsent(place, saved.files)
+                    keepSaved(place, saved)
                     val shown = cache[place] ?: saved.files
-                    _state.update { if (it.place == place && it.files.isEmpty()) it.copy(files = shown, busy = false) else it }
+                    _state.update { if (it.place == place && it.files.isEmpty()) it.copy(files = shown, busy = false, cutAt = cuts[place] ?: 0) else it }
                 }
             }
             // Listed in full a moment ago (switching tabs, back from a show): as it is.
@@ -641,10 +652,16 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     /** [place]'s refresh: the listing of it under way, or a new one (see [LibraryRefreshes]). */
     private fun refreshLibrary(place: DrivePlace.Named): Deferred<Fetch> = refreshes.listing(place) { listLibrary(place) }
 
-    /** [files] as [place]'s listing from now on (unless signed out since [gen]), and on screen if the viewer is there. */
-    private fun publish(gen: Int, place: DrivePlace, files: List<DriveFile>, token: String? = null) {
-        kept(gen) { cache[place] = files }
-        _state.update { if (it.place == place) it.copy(files = files, busy = false, error = null, token = token ?: it.token) else it }
+    /**
+     * [files] as [place]'s listing from now on ([cutAt]: where the listing limit cut it), unless
+     * signed out since [gen]; and on screen if the viewer is there.
+     */
+    private fun publish(gen: Int, place: DrivePlace, files: List<DriveFile>, cutAt: Int, token: String? = null) {
+        kept(gen) {
+            cache[place] = files
+            if (cutAt > 0) cuts[place] = cutAt else cuts.remove(place)
+        }
+        _state.update { if (it.place == place) it.copy(files = files, busy = false, error = null, cutAt = cutAt, token = token ?: it.token) else it }
     }
 
     /**
@@ -670,18 +687,24 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         // genres, rows and featured title don't vanish for a moment — taking the focus with them —
         // and keeps them where a lookup fails this time (TMDB unreachable).
         val shown = cache[place]
+        val shownCut = cuts[place] ?: 0
         val before = shown?.associateBy { it.id }
         // Its art loaded ahead, once a run: opening it before the fresh listing is in shows pictures.
         if (shown != null && warmedSaved.add(place)) warm(token, stack, shown)
         return try {
             // The listing with the owner's own art first; TMDB's posters follow.
-            val files = parse(DriveApi.withPosters(token, DriveApi.list(token, place)))
+            val listing = DriveApi.listing(token, place)
+            val files = parse(DriveApi.withPosters(token, listing.files))
             val interim = carryOver(files, before)
-            if (interim != shown) publish(gen, place, interim, token)
+            if (interim != shown || listing.cutAt != shownCut) publish(gen, place, interim, listing.cutAt, token)
             val withTmdb = carryOver(tmdb(stack, files), before)
             warm(token, stack, withTmdb)
-            if (withTmdb != interim) publish(gen, place, withTmdb, token)
-            withContext(Dispatchers.IO) { if (withTmdb == shown) ListingCache.touch(ctx, place, disk) else ListingCache.write(ctx, place, withTmdb, disk) }
+            if (withTmdb != interim) publish(gen, place, withTmdb, listing.cutAt, token)
+            val unchanged = withTmdb == shown && listing.cutAt == shownCut
+            withContext(Dispatchers.IO) {
+                if (unchanged) ListingCache.touch(ctx, place, gen = disk)
+                else ListingCache.write(ctx, place, withTmdb, cutAt = listing.cutAt, gen = disk)
+            }
             kept(gen) { listedAt[place] = System.currentTimeMillis() }
             // Google answered: whatever said offline was out of date.
             _state.update { if (it.status != DriveStatus.Online) it.copy(status = DriveStatus.Online) else it }
@@ -708,11 +731,12 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         val gen = synchronized(libraryLock) { generation }
         val disk = ListingCache.generation()
         val shown = cache[place] ?: return Fetch.Done
+        val cut = cuts[place] ?: 0
         val withTmdb = carryOver(tmdb(listOf(place), shown), shown.associateBy { it.id })
         if (withTmdb == shown) return Fetch.Done
-        publish(gen, place, withTmdb)
+        publish(gen, place, withTmdb, cut)
         _state.value.token?.let { warm(it, listOf(place), withTmdb) }
-        withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb, disk) }
+        withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb, cutAt = cut, gen = disk) }
         updateRecentlyAdded()
         return Fetch.Done
     }
@@ -729,22 +753,24 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         val token = (result as GoogleAuth.TokenResult.Ok).token
         return try {
             // Show the listing (with the owner's own art) right away; TMDB posters follow.
-            val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
+            val listing = DriveApi.listing(token, place)
+            val files = listing.files.let { if (library) DriveApi.withPosters(token, it) else it }
             // What was on screen already has TMDB's pictures; this fresh listing only gets them when
             // the lookup below finishes. Until then it borrows them, so they don't vanish for a moment.
             val before = if (library && tmdbMode(stack) != Tmdb.Mode.NONE) cache[place]?.associateBy { it.id } else null
             val interim = carryOver(files, before)
             cache[place] = interim
+            if (listing.cutAt > 0) cuts[place] = listing.cutAt else cuts.remove(place)
             // Only apply if the viewer is still on this place.
-            _state.update { if (it.place == place) it.copy(token = token, files = interim, busy = false) else it }
-            if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files, disk) }
+            _state.update { if (it.place == place) it.copy(token = token, files = interim, busy = false, cutAt = listing.cutAt) else it }
+            if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files, cutAt = listing.cutAt, gen = disk) }
             if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
                 // A lookup that failed this time (TMDB unreachable) keeps what was found before.
                 val withTmdb = carryOver(tmdb(stack, files), before)
                 warm(token, stack, withTmdb)
                 cache[place] = withTmdb
                 _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
-                withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb, disk) }
+                withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb, cutAt = listing.cutAt, gen = disk) }
             }
             Fetch.Done
         } catch (e: CancellationException) {

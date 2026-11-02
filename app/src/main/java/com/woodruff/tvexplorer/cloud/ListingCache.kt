@@ -17,11 +17,11 @@ import java.io.File
  */
 object ListingCache {
     /**
-     * A saved listing: its titles, and when it was last listed in full (the file's time, which an
+     * A saved listing: its titles, when it was last listed in full (the file's time, which an
      * unchanged listing [touch]es; 0 when not known), so a library listed moments before Woodruff
-     * restarted isn't listed again at once.
+     * restarted isn't listed again at once, and where the listing limit cut it ([DriveListing.cutAt]).
      */
-    data class Saved(val files: List<DriveFile>, val listedAt: Long)
+    data class Saved(val files: List<DriveFile>, val listedAt: Long, val cutAt: Int = 0)
 
     private fun dir(c: Context) = File(c.applicationContext.cacheDir, "listings").apply { mkdirs() }
 
@@ -45,17 +45,21 @@ object ListingCache {
     @Synchronized
     fun read(c: Context, place: DrivePlace): Saved? = runCatching {
         val f = file(c, place)?.takeIf { it.exists() } ?: return null
-        Saved(JsonReader(f.bufferedReader()).use(::readFiles), f.lastModified())
+        val (files, cut) = JsonReader(f.bufferedReader()).use(::readListing)
+        Saved(files, f.lastModified(), cut)
     }.getOrNull()
 
-    /** Saves [files] as [place]'s listing, unless the saved listings were cleared (signed out) since [gen]. */
+    /**
+     * Saves [files] as [place]'s listing ([cutAt]: where the listing limit cut it), unless the saved
+     * listings were cleared (signed out) since [gen].
+     */
     @Synchronized
-    fun write(c: Context, place: DrivePlace, files: List<DriveFile>, gen: Int = generation) {
+    fun write(c: Context, place: DrivePlace, files: List<DriveFile>, cutAt: Int = 0, gen: Int = generation) {
         if (gen != generation) return
         val f = file(c, place) ?: return
         runCatching {
             val tmp = File(f.parentFile, f.name + ".tmp")
-            JsonWriter(tmp.bufferedWriter()).use { writeFiles(it, files) }
+            JsonWriter(tmp.bufferedWriter()).use { writeListing(it, files, cutAt) }
             tmp.renameTo(f)
         }
     }
@@ -74,8 +78,35 @@ object ListingCache {
         File(c.applicationContext.cacheDir, "listings").deleteRecursively()
     }
 
-    /** A listing as it's saved: an array of files. Visible for tests. */
-    internal fun writeFiles(w: JsonWriter, files: List<DriveFile>) {
+    /**
+     * A listing as it's saved: the array of its files, as always; one the listing limit cut is
+     * `{"cut": 20000, "files": [...]}`. Visible for tests.
+     */
+    internal fun writeListing(w: JsonWriter, files: List<DriveFile>, cutAt: Int) {
+        if (cutAt <= 0) return writeFiles(w, files)
+        w.beginObject().name("cut").value(cutAt.toLong()).name("files")
+        writeFiles(w, files)
+        w.endObject()
+    }
+
+    /** Reads what [writeListing] saved: the files, and where the listing was cut (0: it wasn't). Visible for tests. */
+    internal fun readListing(r: JsonReader): Pair<List<DriveFile>, Int> {
+        if (r.peek() == JsonToken.BEGIN_ARRAY) return readFiles(r) to 0
+        var files: List<DriveFile> = emptyList()
+        var cut = 0
+        r.beginObject()
+        while (r.hasNext()) {
+            when (r.nextName()) {
+                "cut" -> cut = r.nextInt()
+                "files" -> files = readFiles(r)
+                else -> r.skipValue()
+            }
+        }
+        r.endObject()
+        return files to cut.coerceAtLeast(0)
+    }
+
+    private fun writeFiles(w: JsonWriter, files: List<DriveFile>) {
         w.beginArray()
         for (d in files) {
             w.beginObject()
@@ -97,8 +128,8 @@ object ListingCache {
         w.endArray()
     }
 
-    /** Reads what [writeFiles] saved (and what earlier versions saved the same way). Visible for tests. */
-    internal fun readFiles(r: JsonReader): List<DriveFile> {
+    /** An array of files, as [writeFiles] saved them (and earlier versions did the same way). */
+    private fun readFiles(r: JsonReader): List<DriveFile> {
         val out = ArrayList<DriveFile>()
         r.beginArray()
         while (r.hasNext()) out += readFile(r)

@@ -276,6 +276,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                             )
                         },
                         status = headerStatus,
+                        cutAt = state.cutAt,
                     )
                 }
             } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
@@ -298,7 +299,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 StatusNote(headerStatus)
             }
             Text(
-                state.stack.joinToString("  ›  ") { it.title },
+                // Cut short by the listing limit: says so ("All videos · newest 2,000 shown").
+                state.stack.joinToString("  ›  ") { it.title } + (cutWords(state.place, state.cutAt)?.let { " · $it" } ?: ""),
                 color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp),
             )

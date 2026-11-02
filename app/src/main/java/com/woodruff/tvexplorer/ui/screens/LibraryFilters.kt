@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +41,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
@@ -49,6 +51,7 @@ import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.StatusNote
 import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.SearchBar
+import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.rememberRowTint
 import com.woodruff.tvexplorer.ui.motion.DialogWindowMotion
 import com.woodruff.tvexplorer.ui.motion.FocusPlatter
@@ -62,6 +65,8 @@ import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
+import java.text.NumberFormat
+import java.util.Locale
 
 /*
  * Movies / TV Shows browsing, Apple TV style:
@@ -86,19 +91,62 @@ fun LibraryHeader(
     switcher: (@Composable () -> Unit)? = null,
     /** Why the posters may be out of date ("Offline · Showing your saved library"); null when they're current. */
     status: HeaderStatus? = null,
+    /** Where the listing limit cut this library because Drive has more (0: it's all there): said under the row. */
+    cutAt: Int = 0,
 ) {
     var filtering by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        if (switcher != null) switcher()
-        else Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
-        // A field you can see and press OK on, not just a magnifier.
-        SearchBar("", "Search $title", onSearch, Modifier.weight(1f).padding(start = 24.dp))
-        // Between the field and Filter: the field gives up the room, Filter stays where it is.
-        StatusNote(status, Modifier.padding(start = 20.dp, end = 8.dp))
-        // Says what the posters are narrowed to ("Action · Newest"), so nothing's missing without a reason.
-        RoundButton(Sym.Tune, filterLabel(filter), { filtering = true }, active = !filter.overview)
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (switcher != null) switcher()
+            else Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            // A field you can see and press OK on, not just a magnifier.
+            SearchBar("", "Search $title", onSearch, Modifier.weight(1f).padding(start = 24.dp))
+            // Between the field and Filter: the field gives up the room, Filter stays where it is.
+            StatusNote(status, Modifier.padding(start = 20.dp, end = 8.dp))
+            // Says what the posters are narrowed to ("Action · Newest"), so nothing's missing without a reason.
+            RoundButton(Sym.Tune, filterLabel(filter), { filtering = true }, active = !filter.overview)
+        }
+        if (cutAt > 0) LimitNote(limitWords(title, cutAt))
     }
     if (filtering) FilterSheet(all, filter, onChange, more, onDismiss = { filtering = false })
+}
+
+/**
+ * A quiet line under the library's header when its listing stopped at the limit: what's missing
+ * and how to have it all show, instead of leaving the last titles out without a word. Information,
+ * not a control: no glass, can't take the focus, appears without motion. Lined up with the tabs.
+ */
+@Composable
+private fun LimitNote(words: String) {
+    // 10 dp above the Overview's banner (its rows start 8 dp down); the grid keeps its room for a lifted poster.
+    Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp, end = 24.dp), verticalAlignment = Alignment.Top) {
+        // On the first line's middle (bodyMedium's lines are 20 dp).
+        TvIcon(Sym.Info, size = 16.dp, tint = Palette.muted, modifier = Modifier.padding(top = 2.dp))
+        Text(
+            words, color = Palette.muted, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
+/**
+ * The line under a library cut at [limit]: "Movies has over 20,000 files, so only the first 20,000
+ * show. Keeping each film in its own folder lets every one show." Numbers as the TV's [locale] writes them.
+ */
+internal fun limitWords(title: String, limit: Int, locale: Locale = Locale.getDefault()): String {
+    val n = NumberFormat.getIntegerInstance(locale).format(limit)
+    val each = if (title == DrivePlace.TvShows.title) "show" else "film"
+    return "$title has over $n files, so only the first $n show. Keeping each $each in its own folder lets every one show."
+}
+
+/**
+ * What a Drive view's breadcrumb adds when its listing was cut at [limit] (0: nothing): All videos
+ * come newest first, so it's the newest that show; everything else is in name order.
+ */
+internal fun cutWords(place: DrivePlace, limit: Int, locale: Locale = Locale.getDefault()): String? {
+    if (limit <= 0) return null
+    val n = NumberFormat.getIntegerInstance(locale).format(limit)
+    return if (place is DrivePlace.Videos) "newest $n shown" else "first $n shown"
 }
 
 /** "Filter" on the Overview; otherwise what the grid shows: "All", "Action · 1990s", "Unwatched · Newest". */

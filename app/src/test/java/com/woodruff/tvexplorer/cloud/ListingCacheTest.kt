@@ -40,15 +40,31 @@ class ListingCacheTest {
 
     @After fun clean() = ListingCache.clear(context)
 
-    private fun roundTrip(list: List<DriveFile>): List<DriveFile> {
+    private fun roundTrip(list: List<DriveFile>, cutAt: Int = 0): Pair<List<DriveFile>, Int> {
         val out = StringWriter()
-        JsonWriter(out).use { ListingCache.writeFiles(it, list) }
-        return JsonReader(StringReader(out.toString())).use(ListingCache::readFiles)
+        JsonWriter(out).use { ListingCache.writeListing(it, list, cutAt) }
+        return JsonReader(StringReader(out.toString())).use(ListingCache::readListing)
     }
 
     @Test fun aListingReadsBackAsItWasSaved() {
-        assertEquals(files, roundTrip(files))
-        assertEquals(emptyList<DriveFile>(), roundTrip(emptyList()))
+        assertEquals(files to 0, roundTrip(files))
+        assertEquals(emptyList<DriveFile>() to 0, roundTrip(emptyList()))
+    }
+
+    @Test fun aListingCutByTheLimitRemembersWhere() {
+        assertEquals(files to 20_000, roundTrip(files, cutAt = 20_000))
+        ListingCache.write(context, DrivePlace.Movies, files, cutAt = 20_000)
+        assertEquals(20_000, ListingCache.read(context, DrivePlace.Movies)!!.cutAt)
+        // Listed again, all of it this time.
+        ListingCache.write(context, DrivePlace.Movies, files)
+        assertEquals(0, ListingCache.read(context, DrivePlace.Movies)!!.cutAt)
+    }
+
+    @Test fun aWholeListingIsSavedAsTheVersionBeforeSavedIt() {
+        // A plain array, so going back to the version before still reads it.
+        val out = StringWriter()
+        JsonWriter(out).use { ListingCache.writeListing(it, files, 0) }
+        assertEquals(files.size, JSONArray(out.toString()).length())
     }
 
     @Test fun aCopySavedByTheVersionBeforeStillReads() {
@@ -59,7 +75,9 @@ class ListingCacheTest {
                 .put("i", JSONObject().put("ti", "Midnight Harbor").put("y", 2024).put("g", JSONArray(listOf("Thriller")))
                     .put("r", 0.0).put("o", "").put("b", "").put("id", 0).put("tv", true)),
         ).toString()
-        val read = JsonReader(StringReader(old)).use(ListingCache::readFiles).single()
+        val (list, cut) = JsonReader(StringReader(old)).use(ListingCache::readListing)
+        assertEquals(0, cut)
+        val read = list.single()
         assertEquals("https://lh3.googleusercontent.com/abc=s220", read.thumbnailLink)
         assertNull(read.posterUrl)
         assertEquals(MediaInfo("Midnight Harbor", 2024, listOf("Thriller"), null, null, null, null, tv = true), read.info)
@@ -93,11 +111,11 @@ class ListingCacheTest {
     @Test fun aListingBegunBeforeASignOutIsNotSavedAfterIt() {
         val begun = ListingCache.generation()
         ListingCache.clear(context)
-        ListingCache.write(context, DrivePlace.Movies, files, begun)
+        ListingCache.write(context, DrivePlace.Movies, files, gen = begun)
         ListingCache.touch(context, DrivePlace.Movies, begun)
         assertNull(ListingCache.read(context, DrivePlace.Movies))
         // The next account's listing is saved as usual.
-        ListingCache.write(context, DrivePlace.Movies, files, ListingCache.generation())
+        ListingCache.write(context, DrivePlace.Movies, files, gen = ListingCache.generation())
         assertEquals(files, ListingCache.read(context, DrivePlace.Movies)!!.files)
     }
 

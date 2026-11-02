@@ -80,6 +80,32 @@ sealed interface DrivePlace {
 class DriveHttpException(val code: Int, message: String) : IOException(message)
 
 /**
+ * What a listing came to: its entries, and [cutAt], the limit it stopped at because Drive had more
+ * (0: this is all of it), so the screen can say so instead of quietly leaving the rest out.
+ */
+data class DriveListing(val files: List<DriveFile>, val cutAt: Int = 0)
+
+/** One page of a listing: its entries, and the token for the next page (null: that was the last). */
+internal class DrivePage(val files: List<DriveFile>, val next: String?)
+
+/**
+ * Reads pages from [fetch] (given null for the first, then each page's token) until the last one,
+ * or until [limit] entries are in: then exactly [limit] of them, and the listing says where it was
+ * cut. Visible for tests.
+ */
+internal inline fun pageAll(limit: Int, fetch: (pageToken: String?) -> DrivePage): DriveListing {
+    val out = ArrayList<DriveFile>()
+    var next: String? = null
+    do {
+        val page = fetch(next)
+        out += page.files
+        next = page.next
+    } while (next != null && out.size < limit)
+    val cut = next != null || out.size > limit
+    return DriveListing(if (out.size > limit) ArrayList(out.subList(0, limit)) else out, if (cut) limit else 0)
+}
+
+/**
  * Minimal Drive v3 REST client over HttpURLConnection; read-only, matching the drive.readonly
  * scope. Streaming playback doesn't go through here: the player fetches [mediaUrl] itself with
  * a bearer token, using HTTP range requests so seeking works.
@@ -99,7 +125,28 @@ object DriveApi {
     /** Signing out: another account's Movies / TV Shows folders are found afresh. */
     fun forgetFolders() = namedIds.clear()
 
-    suspend fun list(token: String, place: DrivePlace): List<DriveFile> = withContext(Dispatchers.IO) {
+    /**
+     * A library folder (Movies, TV Shows) lists this many entries at most: far more than a family's
+     * collection (a loose film is two or three entries with its poster and subtitles), yet a bound on
+     * the memory and time one listing takes on a TV with 1.5 GB. It used to stop at 2,000, silently,
+     * leaving out the titles last in the alphabet, newly added ones included.
+     */
+    const val LIBRARY_LIMIT = 20_000
+
+    /**
+     * Everywhere else: All videos (newest first, so a cut leaves out the oldest), Shared with me and
+     * plain folders.
+     */
+    const val LIST_LIMIT = 2_000
+
+    /** [place]'s entries (see [listing]), for callers that don't need to know where it was cut. */
+    suspend fun list(token: String, place: DrivePlace): List<DriveFile> = listing(token, place).files
+
+    /**
+     * Lists [place]: a library folder up to [LIBRARY_LIMIT] entries, anything else up to
+     * [LIST_LIMIT], and where it was cut when Drive had more.
+     */
+    suspend fun listing(token: String, place: DrivePlace): DriveListing = withContext(Dispatchers.IO) {
         val (q, order) = when (place) {
             is DrivePlace.Named -> {
                 val id = namedIds[place.title] ?: findFolder(token, place.names)?.also { namedIds[place.title] = it }
@@ -110,21 +157,20 @@ object DriveApi {
             DrivePlace.SharedWithMe -> "sharedWithMe = true and trashed = false" to "folder,name_natural"
             is DrivePlace.Videos -> "mimeType contains 'video/' and trashed = false" to "modifiedTime desc"
         }
-        val out = ArrayList<DriveFile>()
         // One for the whole listing: a new one for every date (two per file) was most of the time
         // spent reading a big library's answer.
         val times = Rfc3339()
-        var pageToken: String? = null
-        do {
+        pageAll(if (place is DrivePlace.Named) LIBRARY_LIMIT else LIST_LIMIT) { pageToken ->
             ensureActive()
             val url = "$BASE?q=${enc(q)}&orderBy=${enc(order)}&pageSize=$PAGE_SIZE&fields=${enc(FIELDS)}" +
                 "&includeItemsFromAllDrives=true&supportsAllDrives=true" +
                 (pageToken?.let { "&pageToken=${enc(it)}" } ?: "")
             val json = JSONObject(get(token, url))
             val files = json.optJSONArray("files")
+            val page = ArrayList<DriveFile>(files?.length() ?: 0)
             for (i in 0 until (files?.length() ?: 0)) {
                 val f = files!!.getJSONObject(i)
-                out += DriveFile(
+                page += DriveFile(
                     id = f.getString("id"),
                     name = f.optString("name"),
                     mimeType = f.optString("mimeType"),
@@ -134,9 +180,8 @@ object DriveApi {
                     created = times.parse(f.optString("createdTime")),
                 )
             }
-            pageToken = json.optString("nextPageToken").ifEmpty { null }
-        } while (pageToken != null && out.size < 2000)
-        out
+            DrivePage(page, json.optString("nextPageToken").ifEmpty { null })
+        }
     }
 
     /** The files in the same folder as file [id] (its first parent), in Drive's natural name order. */
