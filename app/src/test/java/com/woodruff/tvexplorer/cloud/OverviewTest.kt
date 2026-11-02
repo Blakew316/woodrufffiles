@@ -55,6 +55,20 @@ class OverviewTest {
         assertEquals("Recently added", Library.overview(films, emptyList()).first().first)
     }
 
+    @Test fun recentlyAddedPutsAShowWithNewEpisodesByItsNewestOne() {
+        val shows = (0 until 12).map { i -> DriveFile("t$i", "Show $i", DriveFile.FOLDER_MIME, 0, 0, null, null, MediaInfo("Show $i", null), created = 1_000L + i) }
+        // The oldest show had an episode added after everything else: it comes first.
+        val fresh = mapOf("t0" to 5_000L)
+        val rows = Library.overviewRows(shows, emptySet()) { fresh[it.id] ?: it.added }
+        assertEquals("Recently added", rows.first().first)
+        assertEquals(listOf("t0", "t11", "t10"), rows.first().second.take(3).map { it.id })
+        // Without new episodes, by when each was put in Drive.
+        assertEquals(listOf("t11", "t10", "t9"), Library.overviewRows(shows, emptySet()).first().second.take(3).map { it.id })
+        // The grid's "Recently added" sort agrees.
+        val sorted = Library.apply(shows, LibraryFilter(sort = LibrarySort.RECENT)) { fresh[it.id] ?: it.added }
+        assertEquals(listOf("t0", "t11", "t10"), sorted.take(3).map { it.id })
+    }
+
     @Test fun whatTheOverviewShowsFirstIsLoadedAhead() {
         val films = (0 until 30).map { i ->
             DriveFile(

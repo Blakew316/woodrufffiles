@@ -32,7 +32,8 @@ object NestApi {
     private const val LIVE = "sdm.devices.traits.CameraLiveStream"
 
     suspend fun cameras(c: Context): List<Camera> = withContext(Dispatchers.IO) {
-        val project = GoogleAuth.nestProject(c) ?: throw IOException("Enter your Device Access Project ID")
+        // Kept but unreadable just now (the Keystore waking after the TV turned on): offline, tried again soon.
+        val project = GoogleAuth.requireNestProject(c)
         val json = call(c, "GET", "enterprises/$project/devices", null)
         val devices = json.optJSONArray("devices") ?: return@withContext emptyList()
         (0 until devices.length()).mapNotNull { i ->

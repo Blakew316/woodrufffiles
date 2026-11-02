@@ -80,7 +80,7 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         .build()
         .also { com.woodruff.tvexplorer.util.LeanMemory.images = it }
 
-    private companion object {
+    internal companion object {
         /** Every settings file the app keeps (the names it passes to getSharedPreferences). */
         val SETTINGS_FILES = listOf(
             "settings", "appearance", "notices", "secrets", "secrets_meta", "recent", "episode_shows", "watched",
@@ -89,12 +89,17 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         )
 
         /**
-         * The secrets the first screen reads on the main thread: Drive's sign-in check as the app's
-         * screens are set up, and the Home dashboard's camera panel.
+         * The secrets read on the main thread as Woodruff's first screen is set up, decrypted first:
+         * - Drive's sign-in step, read as the Drive library's ViewModel is made (every start) and as
+         *   Streaming opens: the sign-in; when there's none, the keys and whether Google ended it (the
+         *   panel then asks to sign in *again*).
+         * - The cameras' step, read as the Command Center opens: the keys, the project and their sign-in.
+         * Home's camera panel, calendar and TVs read theirs off the main thread. Settings' rows (when
+         * Woodruff reopens on Settings after an update chosen there) come with all the rest, just after.
          */
         val FIRST_SCREEN_SECRETS = listOf(
             GoogleAuth.Grant.DRIVE.refreshKey, GoogleAuth.K_CLIENT_ID, GoogleAuth.K_CLIENT_SECRET,
-            GoogleAuth.K_NEST_PROJECT, GoogleAuth.Grant.NEST.refreshKey,
+            GoogleAuth.Grant.DRIVE.endedKey, GoogleAuth.K_NEST_PROJECT, GoogleAuth.Grant.NEST.refreshKey,
         )
     }
 }

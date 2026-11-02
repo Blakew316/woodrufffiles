@@ -99,7 +99,7 @@ class BrowsingMotionUiTest {
                 BackHandler { sideMenu++ }
                 LibraryRows(
                     files, null, placeKey = "rows-banner", isShows = false, canTakeFocus = { true },
-                    onChoose = {}, onPlay = {}, onMenu = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
+                    onChoose = {}, onPlay = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
                 )
             }
         }
@@ -129,7 +129,7 @@ class BrowsingMotionUiTest {
                 BackHandler { sideMenu++ }
                 LibraryRows(
                     files, null, placeKey = "rows-plain", isShows = false, canTakeFocus = { true },
-                    onChoose = {}, onPlay = {}, onMenu = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
+                    onChoose = {}, onPlay = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
                 )
             }
         }

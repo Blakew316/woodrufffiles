@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextRange
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.ColorProducer
@@ -63,10 +65,11 @@ import com.woodruff.tvexplorer.util.Format
 
 /**
  * Shared dialog frame: dark card, title, then content. Its window glides in and out (the app theme's
- * dialog animation, run by the system), so the card itself doesn't animate.
+ * dialog animation, run by the system), so the card itself doesn't animate. A title longer than
+ * [titleMaxLines] lines ends in an ellipsis.
  */
 @Composable
-fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content: @Composable () -> Unit) {
+fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, titleMaxLines: Int = 2, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         // Android glides the dialog's window in (the theme's window animation), unless the TV has window
         // animations turned off: then the frame glides in itself, the same way (it can't glide out, as
@@ -89,7 +92,7 @@ fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content:
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(28.dp)),
         ) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
+                Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = titleMaxLines, overflow = TextOverflow.Ellipsis)
                 content()
             }
         }
@@ -101,20 +104,30 @@ data class MenuAction(val label: String, val icon: ImageVector, val destructive:
 /**
  * The long-press / menu-key action list for a file or app. First entry gets focus. Its highlight
  * glides from action to action (a [FocusPlatter] in the list colours tv-material's ListItem had).
+ * [titleMaxLines]: a title menu keeps its title to one line, so six rows still fit the screen.
+ * [playsFirst]: Play/Pause runs the first row (a title menu's: it plays the title), as OK on it would.
  */
 @Composable
-fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDismiss: () -> Unit) {
+fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDismiss: () -> Unit, titleMaxLines: Int = 2, playsFirst: Boolean = false) {
     val first = remember { FocusRequester() }
     val platter = rememberFocusPlatter()
     val scheme = MaterialTheme.colorScheme
-    DialogFrame(title, onDismiss, width = 460) {
+    DialogFrame(title, onDismiss, width = 460, titleMaxLines = titleMaxLines) {
         if (subtitle != null) Text(subtitle, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
         // Settings → Smoothness counts its frames as the menu's. (It draws nothing.)
         PopUpName("Menu")
         // Room above the first row and below the last: a focused row grows past them, and the
         // list clips there.
         LazyColumn(
-            Modifier.focusPlatterHost(platter, ListRowShape, scheme.inverseSurface),
+            Modifier.focusPlatterHost(platter, ListRowShape, scheme.inverseSurface).then(
+                if (!playsFirst || actions.isEmpty()) Modifier
+                else Modifier.onKeyEvent { e ->
+                    val code = e.nativeKeyEvent.keyCode
+                    if (code != android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && code != android.view.KeyEvent.KEYCODE_MEDIA_PLAY) return@onKeyEvent false
+                    if (e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_UP) { onDismiss(); actions.first().run() }
+                    true
+                },
+            ),
             contentPadding = PaddingValues(vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {

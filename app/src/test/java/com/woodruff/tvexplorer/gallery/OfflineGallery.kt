@@ -194,7 +194,7 @@ class OfflineGallery {
                                         )
                                         s.overview -> LibraryRows(
                                             files, null, placeKey = s.name, isShows = s.shows, canTakeFocus = { false },
-                                            onChoose = {}, onPlay = {}, onMenu = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
+                                            onChoose = {}, onPlay = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
                                         )
                                         else -> LazyVerticalGrid(
                                             columns = GridCells.Adaptive(150.dp),
@@ -311,6 +311,7 @@ class OfflineGallery {
 
     /** Home and the Command Center as the gallery's other shots have them, with the cameras and calendar offline. */
     private fun seed() {
+        freshSamples(app)
         Notes.load(app)
         Notes.save(app, null, "Groceries", "Milk\nEggs\nCoffee beans\nBananas", pinned = true)
         seedNotices()

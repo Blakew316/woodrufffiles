@@ -8,7 +8,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.net.ConnectivityManager
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
@@ -20,6 +19,8 @@ import com.woodruff.tvexplorer.nest.Doorbell
 import com.woodruff.tvexplorer.settings.SharedKeys
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.update.Updater
+import com.woodruff.tvexplorer.util.NetworkWatch
+import com.woodruff.tvexplorer.util.backoffMs
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -301,13 +302,10 @@ class TransferService : Service() {
     private suspend fun awaitOnline() {
         while (true) {
             val mark = watch.changes.value
-            if (addressNow() != null || defaultNetwork()) return
+            if (addressNow() != null || NetworkWatch.hasNetworkNow(this)) return
             watch.awaitChange(mark, LOOK_AGAIN_WAITING_MS)
         }
     }
-
-    private fun defaultNetwork(): Boolean =
-        runCatching { getSystemService(ConnectivityManager::class.java)?.activeNetwork != null }.getOrDefault(false)
 
     private fun log(line: String) = publish { it.copy(log = (listOf(line) + it.log).take(50)) }
 
@@ -510,7 +508,7 @@ private val PORTS = listOf(8080, 8090, 8888, 9090, 0)
 internal fun portsToTry(last: Int?): List<Int> = (listOfNotNull(last?.takeIf { it > 0 }) + PORTS).distinct()
 
 /** The pause before open attempt number [n] + 1 after [n] that didn't work: 5 s, doubling, at most a minute. */
-internal fun retryAfterMs(n: Int): Long = (5_000L shl n.coerceIn(0, 4)).coerceAtMost(60_000L)
+internal fun retryAfterMs(n: Int): Long = backoffMs(n, 5_000L, 60_000L)
 
 /** The ongoing notification's words. */
 internal data class Look(val title: String, val text: String?)

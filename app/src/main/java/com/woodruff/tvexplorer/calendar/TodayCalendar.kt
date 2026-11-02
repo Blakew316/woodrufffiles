@@ -106,7 +106,7 @@ object TodayCalendar {
         }
         scope.launch {
             val (connected, ended) = withContext(Dispatchers.IO) {
-                GoogleAuth.isConnected(app, GoogleAuth.Grant.CALENDAR) to (GoogleAuth.endedAt(app, GoogleAuth.Grant.CALENDAR) != null)
+                GoogleAuth.isConnected(app, GoogleAuth.Grant.CALENDAR) to GoogleAuth.hasEnded(app, GoogleAuth.Grant.CALENDAR)
             }
             _state.update { it.copy(connected = connected, ended = ended && !connected) }
             if (connected) startLoop()
@@ -158,7 +158,7 @@ object TodayCalendar {
                 // Only a sign-in that's gone (Google ended it) counts as signed out; its words are
                 // Home's calendar row, not an error.
                 val (signedOut, ended) = withContext(Dispatchers.IO) {
-                    !GoogleAuth.isConnected(app, GoogleAuth.Grant.CALENDAR) to (GoogleAuth.endedAt(app, GoogleAuth.Grant.CALENDAR) != null)
+                    !GoogleAuth.isConnected(app, GoogleAuth.Grant.CALENDAR) to GoogleAuth.hasEnded(app, GoogleAuth.Grant.CALENDAR)
                 }
                 _state.update {
                     it.copy(

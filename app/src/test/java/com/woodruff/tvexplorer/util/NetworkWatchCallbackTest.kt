@@ -1,6 +1,8 @@
 package com.woodruff.tvexplorer.util
 
 import android.app.Application
+import android.content.ContextWrapper
+import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -61,5 +63,19 @@ class NetworkWatchCallbackTest {
         cb.onAvailable(vpn)
         cb.onCapabilitiesChanged(vpn, vpnCaps)
         assertTrue(NetworkWatch.online.value)
+    }
+
+    @Test fun anyNetworkRightNowAsAndroidSaysIt() {
+        // The phone connection's background checks and an update check that failed ask this, there and then.
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val cm = app.getSystemService(ConnectivityManager::class.java)
+        assertTrue("Wi-Fi up", NetworkWatch.hasNetworkNow(app))
+        org.robolectric.Shadows.shadowOf(cm).setDefaultNetworkActive(false)
+        assertFalse("no network at all (just after the TV turned on)", NetworkWatch.hasNetworkNow(app))
+        // A TV that can't say: worth a try.
+        val cantSay = object : ContextWrapper(app) {
+            override fun getSystemService(name: String): Any? = throw SecurityException("not on this TV")
+        }
+        assertTrue(NetworkWatch.hasNetworkNow(cantSay))
     }
 }

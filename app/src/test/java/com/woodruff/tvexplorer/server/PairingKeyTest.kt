@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.settings.SecretStore
+import com.woodruff.tvexplorer.settings.leaveNoSecrets
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
@@ -25,6 +27,8 @@ import javax.crypto.SecretKey
 @Config(sdk = [34])
 class PairingKeyTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @After fun leaveTheStoreEmpty() = leaveNoSecrets(context)
 
     private class Vault : SecretStore.KeyVault {
         var key: SecretKey? = null

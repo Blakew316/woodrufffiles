@@ -148,6 +148,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -216,6 +217,11 @@ fun SettingsScreen(vm: MainViewModel) {
     var left by remember { mutableStateOf<SettingsPage?>(null) }
     val open: (SettingsPage) -> Unit = { p -> left = null; path = path + p; moves++; smoothness = FrameStats.summary() }
     val back: () -> Unit = { left = path.last(); path = path.dropLast(1); moves++; smoothness = FrameStats.summary() }
+    // A page asked for while Settings is already on screen (Search's Open Keys, opened over it): there now,
+    // with the pages above it under it, rather than the next time Settings opens.
+    LaunchedEffect(Unit) {
+        SettingsRequests.asked.collect { if (it != null) SettingsRequests.take()?.let { at -> left = null; path = pathTo(at); moves++ } }
+    }
     BackHandler { if (path.isEmpty()) openSidebar() else back() }
     val here = path.lastOrNull() ?: SettingsPage.HOME
 
@@ -931,11 +937,17 @@ internal object SettingsSamples {
 /** Pages Settings can be opened at from elsewhere ([openSettingsAt]). */
 internal enum class SettingsAt { ACCOUNTS, KEYS }
 
-/** A page asked for before Settings opens, taken by it as it comes on screen. */
+/**
+ * A page asked for from elsewhere: taken by Settings as it comes on screen, or at once when it's on
+ * screen already (Search's Open Keys over Settings). Taken once: it never opens Settings at that page
+ * again later, by surprise.
+ */
 internal object SettingsRequests {
-    @Volatile private var at: SettingsAt? = null
-    fun ask(page: SettingsAt) { at = page }
-    fun take(): SettingsAt? = at.also { at = null }
+    private val _asked = kotlinx.coroutines.flow.MutableStateFlow<SettingsAt?>(null)
+    /** The page waiting to be opened; null when none is. */
+    val asked: kotlinx.coroutines.flow.StateFlow<SettingsAt?> = _asked
+    fun ask(page: SettingsAt) { _asked.value = page }
+    fun take(): SettingsAt? = _asked.getAndUpdate { null }
 }
 
 /** Opens Settings at [page] (Accounts, or Keys & sign-out under it), from another screen. */

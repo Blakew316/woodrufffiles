@@ -157,7 +157,7 @@ class BrowsingGallery {
                                 Box(Modifier.fillMaxSize()) {
                                     if (shot == "rows") LibraryRows(
                                         files, null, placeKey = "gallery-rows-${Palette.light}", isShows = false, canTakeFocus = { true },
-                                        onChoose = {}, onPlay = {}, onMenu = {}, onFocusArt = { a -> if (a != null) art.value = a },
+                                        onChoose = {}, onPlay = {}, onFocusArt = { a -> if (a != null) art.value = a },
                                         marks = remember { mutableIntStateOf(0) },
                                     ) else {
                                         // The All grid as DriveScreen draws it, with its Back to the top.

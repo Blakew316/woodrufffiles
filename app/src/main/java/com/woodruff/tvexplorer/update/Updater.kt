@@ -618,15 +618,10 @@ object Updater {
             // An update already downloaded and checked stays ready: a failed check (no network,
             // GitHub's hourly limit) mustn't take away its install.
             if (before.step == Step.READY && apkFile(c).exists()) _state.value = before
-            else _state.update { State(Step.ERROR, it.latest, message = plainCheckError(e), offline = !hasNetwork(c)) }
+            else _state.update { State(Step.ERROR, it.latest, message = plainCheckError(e), offline = !com.woodruff.tvexplorer.util.NetworkWatch.hasNetworkNow(c)) }
         }
         Unit
     } }
-
-    /** Whether this TV has a network at all (true when Android can't say). */
-    private fun hasNetwork(c: Context): Boolean = runCatching {
-        c.getSystemService(android.net.ConnectivityManager::class.java)?.activeNetwork != null
-    }.getOrDefault(true)
 
     /** Where the list of releases comes from; tests put in their own (no network in tests). */
     @Volatile internal var listReleases: () -> List<Release> = ::fetchReleases

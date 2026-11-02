@@ -125,6 +125,45 @@ class ListingCacheTest {
         assertNull(ListingCache.read(context, DrivePlace.Movies))
     }
 
+    @Test fun anEpisodesTmdbNameAndSynopsisAreSavedWithIt() {
+        val season = listOf(
+            DriveFile("e1", "Show.S02E05.mkv", "video/x-matroska", 1, 2, null, "https://image.tmdb.org/t/p/original/v.jpg",
+                episode = EpisodeMeta(2, 5, "The \"Volcano\"", "A line.\nAnother / line.", 42)),
+            DriveFile("e2", "Show.S02E06.mkv", "video/x-matroska", 1, 2, null, episode = EpisodeMeta(2, 6)),
+            DriveFile("e3", "Behind the scenes.mkv", "video/x-matroska", 1, 2, null),
+        )
+        assertEquals(season to 0, roundTrip(season))
+        ListingCache.write(context, DrivePlace.Folder("s2", "Season 2"), season)
+        assertEquals(season, ListingCache.read(context, DrivePlace.Folder("s2", "Season 2"))!!.files)
+    }
+
+    @Test fun theNewEpisodesFoundAreSavedUntilSignOut() {
+        val fresh = mapOf(
+            "show" to listOf(
+                FreshEpisode("e1", "Episode 4.mkv", "season2", "Season 2", 1_700_000_000_000, 2, 4),
+                FreshEpisode("e2", "Pilot.mkv", null, null, 1_700_000_000_001),
+            ),
+        )
+        assertNull(ListingCache.readFresh(context))
+        ListingCache.writeFresh(context, fresh)
+        assertEquals(fresh, ListingCache.readFresh(context))
+        // Saved apart from the listings: reading a library doesn't see it.
+        assertNull(ListingCache.read(context, DrivePlace.TvShows))
+        // A query begun before a sign-out isn't saved after it, and signing out forgets it.
+        val begun = ListingCache.generation()
+        ListingCache.clear(context)
+        assertNull(ListingCache.readFresh(context))
+        ListingCache.writeFresh(context, fresh, gen = begun)
+        assertNull(ListingCache.readFresh(context))
+    }
+
+    @Test fun newEpisodesReadBackAsSavedAndADamagedFileIsNone() {
+        val fresh = mapOf("a" to listOf(FreshEpisode("1", "S01E01 \"Pilot\".mkv", "s1", "Season 1", 5, 1, 1)), "b" to listOf(FreshEpisode("2", "x.mkv", null, null, 6)))
+        assertEquals(fresh, NewEpisodes.fromJson(NewEpisodes.toJson(fresh)))
+        assertEquals(emptyMap<String, List<FreshEpisode>>(), NewEpisodes.fromJson("{\"a\": [{\"n\": "))
+        assertEquals(emptyMap<String, List<FreshEpisode>>(), NewEpisodes.fromJson(NewEpisodes.toJson(emptyMap())))
+    }
+
     @Test fun onlyLibraryPlacesAreSaved() {
         ListingCache.write(context, DrivePlace.SharedWithMe, files)
         assertNull(ListingCache.read(context, DrivePlace.SharedWithMe))

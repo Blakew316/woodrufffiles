@@ -156,7 +156,7 @@ object Nest {
 
     private fun step(): NestStep = when {
         !GoogleAuth.isConfigured(app) -> NestStep.NEED_GOOGLE
-        GoogleAuth.nestProject(app) == null -> NestStep.NEED_PROJECT
+        !GoogleAuth.hasNestProject(app) -> NestStep.NEED_PROJECT
         GoogleAuth.isConnected(app, GoogleAuth.Grant.NEST) -> NestStep.CONNECTED
         else -> NestStep.SIGN_IN
     }

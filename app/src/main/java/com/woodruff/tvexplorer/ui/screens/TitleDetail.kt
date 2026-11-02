@@ -46,11 +46,15 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.graphics.painter.BrushPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -60,10 +64,18 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FolderCache
+import com.woodruff.tvexplorer.cloud.FreshEpisode
 import com.woodruff.tvexplorer.cloud.Library
+import com.woodruff.tvexplorer.cloud.NewEpisodes
+import com.woodruff.tvexplorer.cloud.episodeCodeOf
+import com.woodruff.tvexplorer.cloud.episodeEyebrow
+import com.woodruff.tvexplorer.cloud.episodeName
+import com.woodruff.tvexplorer.cloud.episodePlayTitle
 import com.woodruff.tvexplorer.cloud.matchKeyOf
+import com.woodruff.tvexplorer.cloud.retryPause
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.cloud.FamilySync
@@ -83,8 +95,13 @@ import com.woodruff.tvexplorer.ui.motion.DialogWindowMotion
 import com.woodruff.tvexplorer.ui.motion.WindowMotion
 import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.motion.posterRowState
+import com.woodruff.tvexplorer.ui.components.BadgeKind
+import com.woodruff.tvexplorer.ui.components.StatusBadge
+import com.woodruff.tvexplorer.ui.components.tryFocus
+import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.util.Format
+import com.woodruff.tvexplorer.util.NetworkWatch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -99,7 +116,8 @@ import java.util.Date
  * film (also one kept in its own folder), with when it would end. A show gets Resume (the episode
  * you were in) or Play for the episode up next, Play from its first episode, then season tabs over
  * a row of episode cards with progress bars and ✓s (a long press on a card or a tab marks it
- * watched). A film in a collection lists the collection's other films the family has; "More like
+ * watched). Each episode card has its real name and a few lines about it (TMDB's), and new episodes
+ * a NEW badge. A film in a collection lists the collection's other films the family has; "More like
  * this" lists titles from your own library that share its genres. Back returns to the grid.
  *
  * [artHeaders] adds the Google token for Drive-hosted art (never sent to TMDB).
@@ -122,6 +140,16 @@ fun TitleDetail(
     onOpen: () -> Unit,
     onChoose: (DriveFile) -> Unit,
     onDismiss: () -> Unit,
+    /** Open at this episode: its season chosen, its card second from the left (a poster with new episodes opens at the first). */
+    focusEpisodeId: String? = null,
+    /** The show's new episodes ([com.woodruff.tvexplorer.cloud.NewShow.episodes]): the first is what Play plays when nothing's in progress. */
+    fresh: List<FreshEpisode> = emptyList(),
+    /** For the title menu on the page's rows (its titles, downloads and new episodes); null in the gallery. */
+    drive: com.woodruff.tvexplorer.cloud.DriveViewModel? = null,
+    /** Where the title menu opens a page: in place of this one. */
+    openTitle: (com.woodruff.tvexplorer.cloud.DrivePlace, DriveFile, String?) -> Unit = { _, f, _ -> onChoose(f) },
+    /** Something on the page is about to play (from a menu): the page closes first. */
+    beforePlay: () -> Unit = {},
 ) {
     // Whether a title has been shown yet: the first comes with the window gliding in (below), so it
     // doesn't ease in as well; the ones picked after it do.
@@ -130,23 +158,25 @@ fun TitleDetail(
         // The page grows into place as it fades in, and back out, as the system moves its window
         // (smooth even while the page is still being built).
         DialogWindowMotion(WindowMotion.Page, label = "Title page")
-        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
-        Box(Modifier.fillMaxSize().dpadGate()) {
+        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here. The remote's search
+        // button opens Search over the page.
+        Box(Modifier.fillMaxSize().dpadGate().searchKeyOpensSearch()) {
             // One page per title: a title picked from "More like this" starts afresh, with nothing (cast,
             // seasons, the first episode, scroll, focus) carried over from the one before.
             key(f.id) {
                 // A title picked here eases in (fade and a gentle zoom) rather than popping up.
                 val ease = remember { shownOne[0].also { shownOne[0] = true } }
                 com.woodruff.tvexplorer.ui.ScreenEnter(animate = ease) {
-                    TitlePage(f, art, token, all, isShow, artHeaders, onPlay, onPlayEpisode, onPlayKey, openLabel, onOpen, onChoose)
+                    TitlePage(f, art, token, all, isShow, artHeaders, onPlay, onPlayEpisode, onPlayKey, openLabel, onOpen, onChoose, focusEpisodeId, fresh, drive, openTitle, beforePlay)
                 }
             }
         }
     }
 }
 
+/** A title's page itself, without its window (the gallery draws it as it is). */
 @Composable
-private fun TitlePage(
+internal fun TitlePage(
     f: DriveFile,
     art: String?,
     token: String?,
@@ -159,6 +189,11 @@ private fun TitlePage(
     openLabel: String,
     onOpen: () -> Unit,
     onChoose: (DriveFile) -> Unit,
+    focusEpisodeId: String? = null,
+    fresh: List<FreshEpisode> = emptyList(),
+    drive: com.woodruff.tvexplorer.cloud.DriveViewModel? = null,
+    openTitle: (com.woodruff.tvexplorer.cloud.DrivePlace, DriveFile, String?) -> Unit = { _, t, _ -> onChoose(t) },
+    beforePlay: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val info = remember { Library.info(f) }
@@ -173,13 +208,32 @@ private fun TitlePage(
     // progress comes in): the places to resume from and the lengths below all come from this one read.
     val recent = remember(marks, synced) { RecentStore(context).all() }
     val resumeMs = remember(recent) { if (f.isFolder) 0L else resumeAt(recent, MediaRef.Drive(f.id).key) }
+    // How far through each episode is, and how long each runs as the player measured it: by media key.
+    val progressOf = remember(recent) { recent.associate { it.key to it.progress } }
+    val measured = remember(recent) { recent.associate { it.key to it.durationMs } }
+    // Offline with nothing of the show's folder saved: its episodes will show once the TV is back online.
+    var insideOffline by remember { mutableStateOf(false) }
     // What's in the folder: a show's seasons (or its episodes), or the film kept in it. The last
     // listing shows at once (from memory, or from disk a moment later, even after a restart) while
-    // a fresh one loads behind it.
+    // a fresh one loads behind it. Offline, what was saved stays; with nothing saved, it's listed by
+    // itself the moment the network is back (or after a growing pause).
     val inside by produceState<List<DriveFile>?>(remember { if (f.isFolder) FolderCache.inMemory(f.id) else emptyList() }) {
         if (!f.isFolder) return@produceState
         if (value == null) value = withContext(Dispatchers.IO) { FolderCache.peek(context, f.id) }
-        value = FolderCache.list(context, token, f) ?: value ?: emptyList()
+        val saved = value != null
+        var tries = 0
+        while (true) {
+            val mark = NetworkWatch.comebacks.value
+            when (val listed = FolderCache.fetch(context, token, f)) {
+                is FolderCache.Listing.Listed -> { value = listed.files; insideOffline = false; return@produceState }
+                FolderCache.Listing.Failed -> { if (value == null) value = emptyList(); insideOffline = false; return@produceState }
+                FolderCache.Listing.Offline -> {
+                    // Nothing to show meanwhile: the page has its folder button, and says why there are no episodes.
+                    if (!saved) { if (value == null) value = emptyList(); insideOffline = true }
+                    NetworkWatch.awaitComeback(mark, retryPause(tries++))
+                }
+            }
+        }
     }
     // A show's episodes already listed (in memory), to know its own when their names don't say.
     val listedAtOpen = remember {
@@ -202,9 +256,9 @@ private fun TitlePage(
         }
     }
     // TMDB's details (length, age rating, collection, cast), from its disk cache after the first time.
-    val details by produceState<Tmdb.Details?>(null) {
+    val details by produceState<Tmdb.Details?>(TitleSamples.details) {
         val id = info.tmdbId ?: return@produceState
-        value = Tmdb.details(context, id, info.tv)
+        if (value == null) value = Tmdb.details(context, id, info.tv)
     }
     val cast = details?.cast.orEmpty()
     // Season folders, or one "Episodes" tab when the episodes sit in the show's folder itself.
@@ -221,15 +275,21 @@ private fun TitlePage(
             .filter { (_, s) -> (Tmdb.seasonNumber(s.first) ?: 1) >= 1 }
             .minByOrNull { (_, s) -> Tmdb.seasonNumber(s.first) ?: Int.MAX_VALUE }?.index ?: 0
     }
-    // The page opens on the season holding the episode to go on with (when that's known), else the
-    // first. Worked out once, when the seasons are first known, so a fresh listing never moves it.
+    // The page opens on the season holding the episode it was opened at (a new one, from a poster that
+    // says so), else the one holding the episode to go on with (when that's known), else the first.
+    // Worked out once, when the seasons are first known, so a fresh listing never moves it (a folder
+    // first known offline as empty counts once its seasons arrive).
     val resumeAtOpen = remember { resumeEpisode }
-    val (startSeason, resumeSeason) = remember(seasons != null) {
+    val focusAtOpen = remember { focusEpisodeId }
+    val (startSeason, resumeSeason) = remember(seasons.isNullOrEmpty()) {
         val list = seasons
         val r = resumeAtOpen
-        val held = if (list == null || r == null) null
-        else seasonHolding(list.map { it.first }, list.map { listedKeys(it.second, inside) }, r.key, r.title)
-        (held ?: firstSeason) to held
+        val listed = list?.map { listedKeys(it.second, inside) }
+        val held = if (list == null || listed == null || r == null) null
+        else seasonHolding(list.map { it.first }, listed, r.key, r.title)
+        val focused = if (list == null || listed == null || focusAtOpen == null) null
+        else seasonOfEpisode(list.map { it.second?.id }, list.map { it.first }, listed, focusAtOpen, fresh)
+        (focused ?: held ?: firstSeason) to held
     }
     // Only OK on a tab chooses a season: the focus crossing the tabs on its way to the episodes (or
     // back up to the buttons) mustn't swap the row out from under it.
@@ -240,6 +300,8 @@ private fun TitlePage(
     val seasonEps = remember { mutableStateMapOf<String, List<DriveFile>>() }
     // The seasons listed afresh during this visit.
     val refreshed = remember { HashSet<String>() }
+    // The seasons that couldn't be listed (offline) and were never listed on this TV: they say so.
+    val offlineSeasons = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     // The season on screen, and the first for "Play S1 E1": what was listed before at once, then a
     // fresh listing. Each tagged with its season, so switching seasons never shows (or plays) the
     // previous one's while the next loads.
@@ -261,14 +323,28 @@ private fun TitlePage(
                     val saved = FolderCache.inMemory(folder.id) ?: withContext(Dispatchers.IO) { FolderCache.peek(context, folder.id) }
                     if (saved != null) seasonEps[k] = stills(context, saved, f.name, folder.name)
                 }
-                if (k !in refreshed) {
-                    val listed = FolderCache.list(context, token, folder)
-                    if (listed != null) {
-                        refreshed += k
-                        val eps = stills(context, listed, f.name, folder.name)
-                        // Only when something changed: the cards (and the focus on one) stay put.
-                        if (seasonEps[k] != eps) seasonEps[k] = eps
-                    } else if (k !in seasonEps) seasonEps[k] = emptyList()
+                // Offline, what was listed before stays (the season says it will show when the TV is
+                // back online if it was never listed); listed again the moment the network's back.
+                var tries = 0
+                while (k !in refreshed) {
+                    val mark = NetworkWatch.comebacks.value
+                    when (val listed = FolderCache.fetch(context, token, folder)) {
+                        is FolderCache.Listing.Listed -> {
+                            refreshed += k
+                            offlineSeasons -= k
+                            val eps = stills(context, listed.files, f.name, folder.name)
+                            // Only when something changed: the cards (and the focus on one) stay put.
+                            if (seasonEps[k] != eps) seasonEps[k] = eps
+                        }
+                        FolderCache.Listing.Failed -> {
+                            if (k !in seasonEps) seasonEps[k] = emptyList()
+                            break
+                        }
+                        FolderCache.Listing.Offline -> {
+                            if (k !in seasonEps && k !in offlineSeasons) offlineSeasons += k
+                            NetworkWatch.awaitComeback(mark, retryPause(tries++))
+                        }
+                    }
                 }
             }
         }
@@ -306,23 +382,47 @@ private fun TitlePage(
         val inCollection = collection?.second.orEmpty().mapTo(HashSet()) { it.id }
         value = withContext(Dispatchers.Default) { moreLikeThis(f, info.genres, all, inCollection) }
     }
-    // The episode a show's main button plays, and its season folder, for its length.
+    // When "now" is for the NEW badges: read with what's been played (again when a ✓ changes here).
+    val now = remember(recent) { System.currentTimeMillis() }
+    // The first new episode to watch (put in Drive lately, not watched or started on any TV): what Play
+    // plays when nothing's in progress or up next, unless it's the first episode anyway (a show added
+    // whole lately starts at S1 E1, as any does).
+    val firstNew = remember(fresh, recent) {
+        fresh.filter { NewEpisodes.isNew(it.created, now, Watched.isWatched(context, it.key), progressOf[it.key]) }.minWithOrNull(NewEpisodes.watchingOrder)
+    }
+    val playsNew = isShow && f.isFolder && resumeEpisode == null && firstNew != null && firstNew.id != firstEpisode?.id
+    // The episode a show's main button plays, and its season folder: its name and length.
     val mainEpisode: Pair<String, String?>? = when {
         !isShow || !f.isFolder -> null
         resumeEpisode != null -> resumeEpisode.title to resumeSeason?.let { seasons?.getOrNull(it)?.second?.name }
+        playsNew && firstNew != null -> firstNew.name to firstNew.seasonName
         firstEpisode != null -> firstEpisode.name to seasons?.getOrNull(firstSeason)?.second?.name
         else -> null
     }
-    val episodeMinutes by produceState<Int?>(null, mainEpisode) {
+    // That episode as its season on the page has it (TMDB's name and length are on it then), else as
+    // TMDB's cache knows it.
+    val mainKey = when {
+        mainEpisode == null -> null
+        resumeEpisode != null -> resumeEpisode.key
+        playsNew -> firstNew?.key
+        else -> firstEpisode?.let { MediaRef.Drive(it.id).key }
+    }
+    val listedMain = mainKey?.let { k -> seasonEps.values.firstNotNullOfOrNull { eps -> eps.firstOrNull { MediaRef.Drive(it.id).key == k } } }?.episode
+    val lookedUp by produceState<EpisodeMeta?>(null, mainEpisode) {
         value = null
         val (name, folder) = mainEpisode ?: return@produceState
-        value = Tmdb.episodeRuntime(context, f.name, name, folder)
+        value = Tmdb.episodeMeta(context, f.name, name, folder)
     }
+    val mainMeta = listedMain ?: lookedUp
+    val episodeMinutes = mainMeta?.minutes
+    // The line under the buttons names it when TMDB knows its name: "S2 E4 · The Volcano".
+    val mainNamed = mainMeta?.name?.let { "S${mainMeta.season} E${mainMeta.number}" to it }
     // What the main button plays, for when it would end if started now: its length (exactly, once
     // it's been started; else TMDB's), and where it starts. The clock is added where it's shown.
     val (playMs, fromMs) = when {
         isShow && f.isFolder -> when {
             resumeEpisode != null -> playLength(resumeEpisode.durationMs, episodeMinutes) to (if (resumeEpisode.upNext) 0L else resumeEpisode.positionMs)
+            playsNew && firstNew != null -> playLength(measured[firstNew.key], episodeMinutes) to 0L
             firstEpisode != null -> playLength(durationOf(recent, firstEpisode), episodeMinutes) to 0L
             else -> null to 0L
         }
@@ -332,12 +432,20 @@ private fun TitlePage(
     }
     // Its line is kept while TMDB's lengths load (a title TMDB knows), so the rows below don't move.
     val holdEnds = info.tmdbId != null && when {
-        isShow && f.isFolder -> resumeEpisode != null || firstEpisode != null
+        isShow && f.isFolder -> resumeEpisode != null || playsNew || firstEpisode != null
         f.isFolder -> film != null
         else -> true
     }
-    // Long press (or Menu) on an episode or a season's tab: Mark as watched / unwatched.
+    // Long press (or Menu) on an episode or a season's tab: its menu (play, Watch together, Mark as watched).
     var episodeMenu by remember { mutableStateOf<DriveFile?>(null) }
+    // Long press (or Menu) on a title in the page's rows (its collection, More like this): the title menu.
+    var rowMenu by remember { mutableStateOf<MenuFor?>(null) }
+    // The library this page's rows come from: its titles' menus and pages are that library's.
+    val rowsPlace = if (isShow) com.woodruff.tvexplorer.cloud.DrivePlace.TvShows else com.woodruff.tvexplorer.cloud.DrivePlace.Movies
+    val run = rememberTitleRun(drive, openPage = openTitle, beforePlay = beforePlay, changed = { marks++ })
+    // Linked TVs (for Watch together), read off the main thread once.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { com.woodruff.tvexplorer.tvs.TvLinks.load(context) } }
+    val linked by com.woodruff.tvexplorer.tvs.TvLinks.linked.collectAsState()
     var seasonMenu by remember { mutableStateOf<Pair<String, List<DriveFile>>?>(null) }
     val primary = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
@@ -357,19 +465,25 @@ private fun TitlePage(
     // season's episodes arrive, a folder's Play once its film is found — then leave focus alone.
     val ready = when {
         !f.isFolder -> true
-        isShow -> resumeEpisode != null || firstEps != null || seasons?.isEmpty() == true
+        isShow -> resumeEpisode != null || playsNew || firstEps != null || seasons?.isEmpty() == true
         else -> inside != null
     }
     LaunchedEffect(ready) {
         if (focused || !ready) return@LaunchedEffect
         repeat(10) {
             withFrameNanos {}
-            if (runCatching { primary.requestFocus() }.isSuccess) { focused = true; return@LaunchedEffect }
+            // tryFocus: a request with nothing attached yet no longer throws, it does nothing (and the
+            // next frames would never have tried again).
+            if (primary.tryFocus()) { focused = true; return@LaunchedEffect }
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         val wide = info.backdrop ?: art
-        if (wide != null) {
+        val samplePainter = LocalPosterPainter.current
+        if (wide != null && samplePainter != null) {
+            // The gallery: its sample art, drawn at once.
+            samplePainter(wide)?.let { androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        } else if (wide != null) {
             val request = remember(wide) {
                 ImageRequest.Builder(context).data(wide)
                     .apply { artHeaders(wide).forEach { (k, v) -> addHeader(k, v) } }
@@ -428,10 +542,8 @@ private fun TitlePage(
                     val buttons: List<PageButton> = when {
                         isShow && f.isFolder -> buildList {
                             if (resumeEpisode != null) {
-                                val code = episodeCode(resumeEpisode.title)
                                 // Up next (the episode after one just finished) plays from its start.
-                                val label = if (resumeEpisode.upNext) code?.let { "Play $it" } ?: "Play next episode" else code?.let { "Resume $it" } ?: "Resume"
-                                add(PageButton(MAIN, Sym.PlayArrow, label) {
+                                add(PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.GoOn(resumeEpisode))) {
                                     resume {
                                         // Where the show is now, the other TVs' latest included: it may have gone on.
                                         EpisodeShows.load(context)
@@ -443,17 +555,26 @@ private fun TitlePage(
                                     }
                                 })
                                 if (firstEpisode != null) add(PageButton(RESTART, Sym.Replay, "Play from the start") { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
+                            } else if (playsNew && firstNew != null) {
+                                // New episodes, nothing in progress: the first of them, from its start.
+                                add(PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.New(firstNew))) {
+                                    // From its season when that's listed here, so the rest of the season follows it.
+                                    val found = seasonEps.values.firstNotNullOfOrNull { eps -> eps.firstOrNull { it.id == firstNew.id }?.let { it to eps } }
+                                    if (found != null) onPlayEpisode(found.first, found.second, true)
+                                    else onPlayKey(firstNew.key, episodePlayTitle(info.title, DriveFile(firstNew.id, firstNew.name, "", 0, 0, null, episode = mainMeta)))
+                                })
+                                if (firstEpisode != null) add(PageButton(RESTART, Sym.Replay, "Play from the start") { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
                             } else if (firstEpisode != null) {
-                                add(PageButton(MAIN, Sym.PlayArrow, "Play " + (episodeCode(firstEpisode.name) ?: "first episode")) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
+                                add(PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.First(firstEpisode, firstEps.orEmpty()))) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
                             }
                             // The folders only when no episode was found to play (never beside Play).
-                            if (resumeEpisode == null && firstEpisode == null && (firstEps != null || seasons?.isEmpty() == true)) {
+                            if (resumeEpisode == null && !playsNew && firstEpisode == null && (firstEps != null || seasons?.isEmpty() == true)) {
                                 add(PageButton(MAIN, Sym.FolderOpen, openLabel, onOpen))
                             }
                         }
                         film != null -> buildList {
-                            if (filmResumeMs > 60_000) {
-                                add(PageButton(MAIN, Sym.PlayArrow, "Resume from ${Format.duration(filmResumeMs)}") { resume { onPlayEpisode(film, listOf(film), false) } })
+                            if (filmResumeMs > RESUME_FROM_MS) {
+                                add(PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.Film(film, filmResumeMs, folder = f))) { resume { onPlayEpisode(film, listOf(film), false) } })
                                 add(PageButton(RESTART, Sym.Replay, "Start over") { onPlayEpisode(film, listOf(film), true) })
                             } else {
                                 add(PageButton(MAIN, Sym.PlayArrow, "Play") { resume { onPlayEpisode(film, listOf(film), false) } })
@@ -461,8 +582,8 @@ private fun TitlePage(
                             add(PageButton(OPEN, Sym.FolderOpen, openLabel, onOpen))
                         }
                         f.isFolder -> listOf(PageButton(MAIN, Sym.FolderOpen, openLabel, onOpen))
-                        resumeMs > 60_000 -> listOf(
-                            PageButton(MAIN, Sym.PlayArrow, "Resume from ${Format.duration(resumeMs)}") { resume { onPlay(false) } },
+                        resumeMs > RESUME_FROM_MS -> listOf(
+                            PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.Film(f, resumeMs))) { resume { onPlay(false) } },
                             PageButton(RESTART, Sym.Replay, "Start over") { onPlay(true) },
                         )
                         else -> listOf(PageButton(MAIN, Sym.PlayArrow, "Play") { resume { onPlay(false) } })
@@ -476,8 +597,8 @@ private fun TitlePage(
                         }
                     }
                 }
-                // When it would end, started now.
-                if (playMs != null || holdEnds) EndsAt(playMs, fromMs)
+                // When it would end, started now; for a show, first which episode that is (TMDB knowing its name).
+                if (playMs != null || holdEnds || mainNamed != null) EndsAt(playMs, fromMs, mainNamed)
                 // A show's seasons and episodes.
                 val seasonList = seasons
                 if (isShow && f.isFolder && seasonList != null && seasonList.isNotEmpty()) {
@@ -507,36 +628,57 @@ private fun TitlePage(
                         }
                     }
                     val eps = episodes
-                    // While a season loads, its row keeps its room (a card's 16:9 picture and a line of
-                    // its name), so the page below doesn't jump up and back down.
-                    if (eps == null) Box(Modifier.height(208.dp), contentAlignment = Alignment.CenterStart) {
-                        if (slow) Text("Loading episodes…", color = Color.White.copy(alpha = 0.6f))
+                    // The row is always this tall, its cards top-aligned in it: while a season loads (a
+                    // card's picture, its small line and name, and three lines about it for a show TMDB
+                    // knows), and whatever each card has to say, so nothing below moves when the cards
+                    // arrive or the row scrolls on to one with more words.
+                    // (Synopses found for a show TMDB matched only now, its listing older: room made for them.)
+                    val rowHeight = episodeRowHeight(synopses = info.tmdbId != null || eps.orEmpty().any { it.episode?.overview != null })
+                    if (eps.isNullOrEmpty()) Box(Modifier.height(rowHeight)) {
+                        val words = when {
+                            eps != null -> "No episodes in this folder"
+                            seasonKey(seasonList.getOrNull(season)?.second) in offlineSeasons -> EPISODES_OFFLINE
+                            slow -> "Loading episodes…"
+                            else -> null
+                        }
+                        // Where the first card will be (just under the tabs, in view as the page opens).
+                        if (words != null) EpisodesNote(words)
                     }
-                    else if (eps.isEmpty()) Text("No episodes in this folder", color = Color.White.copy(alpha = 0.6f))
-                    // Each season's row starts at its beginning, or at the episode to go on with.
+                    // Each season's row starts at its beginning, or at the episode the page was opened at, or
+                    // the one to go on with: that card second from the left.
                     else key(season) {
-                        val at = eps.indexOfFirst { MediaRef.Drive(it.id).key == resumeEpisode?.key }
+                        val at = eps.indexOfFirst { it.id == focusAtOpen }.takeIf { it >= 0 }
+                            ?: eps.indexOfFirst { MediaRef.Drive(it.id).key == resumeEpisode?.key }
                         val row = rememberLazyListState(initialFirstVisibleItemIndex = maxOf(0, at - 1))
                         PivotScroll(row, RowPivot) {
                             LazyRow(
                                 state = row,
+                                modifier = Modifier.height(rowHeight),
                                 horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 16.dp),
                             ) {
                                 items(eps, key = { it.id }) { ep ->
                                     val key = MediaRef.Drive(ep.id).key
-                                    // Read again when a ✓ is changed here.
-                                    val seen = remember(marks, key) { Watched.isWatched(context, key) }
+                                    // Read again when a ✓ is changed here, or another TV's are merged in
+                                    // (watched there, it isn't new here either).
+                                    val seen = remember(marks, synced, key) { Watched.isWatched(context, key) }
+                                    val progress = progressOf[key]
                                     EpisodeCard(
                                         ep, token,
-                                        progress = recent.firstOrNull { it.key == key }?.progress,
+                                        progress = progress,
                                         watched = seen,
-                                        fg = Color.White,
+                                        fg = Color.White, secondary = Color.White.copy(alpha = 0.6f), body = Color.White.copy(alpha = 0.7f),
+                                        isNew = NewEpisodes.isNew(ep.created, now, seen, progress),
+                                        measuredMs = measured[key],
+                                        modifier = Modifier.width(EpisodeCardWidth).playPauseKey { resume { onPlayEpisode(ep, eps, false) } },
                                         onLongClick = { episodeMenu = ep },
                                     ) { resume { onPlayEpisode(ep, eps, false) } }
                                 }
                             }
                         }
                     }
+                } else if (isShow && f.isFolder && insideOffline) {
+                    // Offline with nothing of the show saved: where its episodes will be.
+                    Box(Modifier.height(episodeRowHeight(synopses = info.tmdbId != null))) { EpisodesNote(EPISODES_OFFLINE) }
                 }
                 // A film's collection, with ✓s and progress like the library's posters.
                 collection?.let { (name, films) ->
@@ -547,7 +689,8 @@ private fun TitlePage(
                             items(films, key = { it.id }) { s ->
                                 val keys = remember(s.id) { EpisodeShows.load(context); keysOf(s, EpisodeShows.map.value) }
                                 PosterTile(
-                                    s, token, onClick = { onChoose(s) }, onLongClick = { onChoose(s) }, modifier = Modifier.width(130.dp), label = Library.label(s),
+                                    s, token, onClick = { onChoose(s) }, onLongClick = { rowMenu = MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE) },
+                                    modifier = Modifier.width(130.dp), label = Library.label(s), onPlay = { run.playNow(MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE)) },
                                     progress = recent.firstOrNull { it.key in keys }?.progress?.takeIf { it < 0.97f },
                                     watched = keys.any { Watched.isWatched(context, it) },
                                 )
@@ -562,7 +705,10 @@ private fun TitlePage(
                     PivotScroll(row, RowPivot) {
                         LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)) {
                             items(similar, key = { it.id }) { s ->
-                                PosterTile(s, token, onClick = { onChoose(s) }, onLongClick = { onChoose(s) }, modifier = Modifier.width(130.dp), label = Library.label(s))
+                                PosterTile(
+                                    s, token, onClick = { onChoose(s) }, onLongClick = { rowMenu = MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE) },
+                                    modifier = Modifier.width(130.dp), label = Library.label(s), onPlay = { run.playNow(MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE)) },
+                                )
                             }
                         }
                     }
@@ -574,14 +720,28 @@ private fun TitlePage(
     episodeMenu?.let { ep ->
         val key = MediaRef.Drive(ep.id).key
         val seen = remember(marks, key) { Watched.isWatched(context, key) }
+        // Its season as the page shows it, queued after it (as OK on its card does).
+        val season = seasonEps.values.firstOrNull { eps -> eps.any { it.id == ep.id } } ?: listOf(ep)
+        val at = resumeAt(recent, key)
         ActionMenu(
-            title = episodeCardLabel(ep.name), subtitle = null, onDismiss = { episodeMenu = null },
-            actions = listOf(
-                if (seen) MenuAction("Mark as unwatched", Sym.RadioButtonUnchecked) { setWatched(listOf(key), false) }
-                else MenuAction("Mark as watched", Sym.CheckCircle) { setWatched(listOf(key), true) },
-            ),
+            title = remember(ep) { com.woodruff.tvexplorer.cloud.episodeMenuTitle(ep.episode, ep.name) },
+            subtitle = episodeMenuSubtitle(seen, recent.firstOrNull { it.key == key }),
+            titleMaxLines = 1,
+            onDismiss = { episodeMenu = null },
+            actions = buildList {
+                add(MenuAction(if (at > RESUME_FROM_MS) "Resume from ${Format.duration(at)}" else "Play", Sym.PlayArrow) { resume { onPlayEpisode(ep, season, false) } })
+                if (at > RESUME_FROM_MS) add(MenuAction("Play from the start", Sym.Replay) { onPlayEpisode(ep, season, true) })
+                if (linked.isNotEmpty()) add(MenuAction("Watch together on all TVs", Sym.Groups) {
+                    run.together(TitleAction.Together(key, episodePlayTitle(info.title, ep), at))
+                })
+                add(
+                    if (seen) MenuAction("Mark as unwatched", Sym.RadioButtonUnchecked) { setWatched(listOf(key), false) }
+                    else MenuAction("Mark as watched", Sym.CheckCircle) { setWatched(listOf(key), true) },
+                )
+            },
         )
     }
+    TitleMenu(rowMenu, run) { rowMenu = null }
     seasonMenu?.let { (label, eps) ->
         val keys = remember(eps) { eps.map { MediaRef.Drive(it.id).key } }
         val seen = remember(marks, keys) { keys.count { Watched.isWatched(context, it) } }
@@ -595,6 +755,21 @@ private fun TitlePage(
     }
 }
 
+/**
+ * The line under an episode menu's title: "Watched" with its ✓ ([seen]), "45% watched" part-way ([played]:
+ * its Continue watching entry), else none.
+ */
+internal fun episodeMenuSubtitle(seen: Boolean, played: RecentItem?): String? = when {
+    seen -> "Watched"
+    played != null && played.positionMs > 10_000 && played.progress < 0.95f -> percentWatched(played)
+    else -> null
+}
+
+/** Sample TMDB details for the UI gallery, which has no TMDB key or network. Never set in the app. */
+internal object TitleSamples {
+    var details: Tmdb.Details? = null
+}
+
 /** A season's key in the page's lists: its folder's id, "" for episodes in the show's own folder. */
 private fun seasonKey(folder: DriveFile?): String = folder?.id ?: ""
 
@@ -603,11 +778,13 @@ private val RowPivot = Pivot(offset = 16.dp)
 
 /**
  * "Ends at 11:34 PM": when something [lengthMs] long would end if started now, from [startMs] into
- * it (a blank line while its length isn't known). The clock ticks in here, once a minute, so only
- * this line is composed again for it, not the whole page.
+ * it (a blank line while its length isn't known). For a show, the episode it is comes first when
+ * TMDB knows its name ([episode]: its code and name): "S2 E4 · The Volcano · Ends at 11:34 PM", one
+ * line, a long name giving way (an ellipsis inside it) before the time does. The clock ticks in here,
+ * once a minute, so only this line is composed again for it, not the whole page.
  */
 @Composable
-private fun EndsAt(lengthMs: Long?, startMs: Long) {
+private fun EndsAt(lengthMs: Long?, startMs: Long, episode: Pair<String, String>? = null) {
     val context = LocalContext.current
     // The clock, to the minute.
     val now by produceState(System.currentTimeMillis()) {
@@ -618,10 +795,48 @@ private fun EndsAt(lengthMs: Long?, startMs: Long) {
     }
     // The TV's own clock style: "11:34 PM", or "23:34".
     val clock = remember { android.text.format.DateFormat.getTimeFormat(context) }
+    val ends = endsAt(now, lengthMs, startMs)?.let { "Ends at " + clock.format(Date(it)) }
+    val color = Color.White.copy(alpha = 0.6f)
+    val style = MaterialTheme.typography.bodyMedium
+    // As wide as the words above it: past them the picture isn't shaded enough to read on.
+    Row(Modifier.fillMaxWidth(0.6f).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (episode == null) Text(ends ?: " ", color = color, style = style, maxLines = 1)
+        else {
+            Text("${episode.first} · ", color = color, style = style, maxLines = 1, softWrap = false)
+            Text(episode.second, color = color, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            if (ends != null) Text(" · $ends", color = color, style = style, maxLines = 1, softWrap = false)
+        }
+    }
+}
+
+/** What a season says in place of its episodes when it couldn't be listed and was never listed on this TV. */
+internal const val EPISODES_OFFLINE = "Episodes will show when the TV is back online."
+
+/** A season's words in place of its episodes ("Loading episodes…"): where its first card's picture will be. */
+@Composable
+private fun EpisodesNote(words: String) {
     Text(
-        endsAt(now, lengthMs, startMs)?.let { "Ends at " + clock.format(Date(it)) } ?: " ",
-        color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 4.dp),
+        words, color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(start = 20.dp, top = 10.dp),
     )
+}
+
+/** An episode card's width on the title page. */
+private val EpisodeCardWidth = 280.dp
+
+/**
+ * How tall a season's row is on the title page: a card's 16:9 picture, the small line and the name
+ * under it, and, for a show TMDB knows ([synopses]), three lines about it; plus the row's own room
+ * above and below for a focused card's growth (10 dp each). Text heights follow the TV's font size.
+ */
+@Composable
+private fun episodeRowHeight(synopses: Boolean): Dp {
+    val type = MaterialTheme.typography
+    return with(LocalDensity.current) {
+        val words = type.labelSmall.lineHeight.toDp() + 2.dp + type.titleSmall.lineHeight.toDp() +
+            if (synopses) 4.dp + type.bodySmall.lineHeight.toDp() * 3 else 0.dp
+        EpisodeCardWidth * (9f / 16f) + 10.dp + words + 20.dp
+    }
 }
 
 /** The media keys of a season's videos as listed in memory ([inside] for the show's own folder). */
@@ -712,6 +927,17 @@ internal fun seasonHolding(names: List<String>, listed: List<Set<String>>, key: 
     return names.indexOfFirst { Tmdb.seasonNumber(it) == number }.takeIf { it >= 0 }
 }
 
+/**
+ * Which of a show's seasons (their folders' ids, [folderIds], null for episodes in the show's own
+ * folder; [names]; the media keys [listed] in each) holds episode [id]: the folder its new-episode
+ * record ([fresh]) says, else as [seasonHolding] finds it. Null when nothing says.
+ */
+internal fun seasonOfEpisode(folderIds: List<String?>, names: List<String>, listed: List<Set<String>>, id: String, fresh: List<FreshEpisode>): Int? {
+    val e = fresh.firstOrNull { it.id == id }
+    if (e != null) folderIds.indexOf(e.seasonId).takeIf { it >= 0 }?.let { return it }
+    return seasonHolding(names, listed, MediaRef.Drive(id).key, e?.name.orEmpty())
+}
+
 /** A film's length as its page shows it: "2 h 32 min", "45 min", "2 h". */
 internal fun runtimeLabel(minutes: Int): String {
     val h = minutes / 60
@@ -754,24 +980,9 @@ internal fun episodeCode(name: String): String? {
     return null
 }
 
-/** An episode's card label from its file name: "S1 E3 · The Title" ("Show.S01E03.The.Title.1080p.mkv"). */
-internal fun episodeCardLabel(fileName: String): String {
-    val code = episodeCode(fileName)
-    val name = fileName.substringBeforeLast('.').let { n ->
-        // "Show.S01E03.The.Title.1080p" → "The Title" when there's a name after the code.
-        CODE_THEN_NAME.find(n)?.groupValues?.get(2)
-            ?.replace(DOTS, " ")?.replace(RELEASE_TAGS, "")?.trim()
-            ?.ifBlank { null } ?: n
-    }
-    return listOfNotNull(code, name.takeIf { it != code }).joinToString(" · ")
-}
-
-// Compiled once: every episode card and Continue watching caption works these out as it composes.
+// Compiled once: Continue watching captions and the title page's buttons work these out.
 private val CODE_SE = Regex("""(?i)s(\d{1,2})\s*e(\d{1,3})""")
 private val CODE_X = Regex("""(?i)(?<!\d)(\d{1,2})x(\d{2})(?!\d)""")
-private val CODE_THEN_NAME = Regex("""(?i)(s\d{1,2}\s*e\d{1,3}|\d{1,2}x\d{2})[\s._-]*(.*)""")
-private val DOTS = Regex("""[._]""")
-private val RELEASE_TAGS = Regex("""(?i)\b(\d{3,4}p|x26[45]|h\.?26[45]|web[- ]?dl|webrip|bluray|hdtv|aac|ddp?5\.1)\b.*""")
 
 /**
  * The film in a folder of its own: its one video, or one at least twice the size of any other (a
@@ -804,67 +1015,99 @@ private fun SeasonTab(label: String, selected: Boolean, onLongClick: () -> Unit,
 }
 
 /**
- * An episode: its picture (TMDB's, else Drive's frame from the video), the code and name, a
- * progress bar or a ✓. Used in a show's row of episodes and in a season's folder. [fg] colors its
- * name, focus outline and placeholder symbol: the theme's text color in a season's folder, white on
- * the always-dark title page. [onLongClick] (a long press or the Menu key) opens its menu, if any.
- * The picture is a [TvCard]: growing with the focus redraws it, without recomposing anything.
+ * An episode, as the Apple TV app shows one: its picture (TMDB's, else Drive's frame from the video,
+ * else a dark stand-in) with a ✓, a progress bar or NEW, and under it a small line ("EPISODE 3 · 42
+ * MIN"), its name, and up to three lines about it (see [episodeEyebrow], [episodeName]). Used in a
+ * show's row of episodes and in a season's folder; cards in a row top-align. [fg] colours its name,
+ * focus outline and placeholder symbol, [secondary] its small line and [body] what it's about: white,
+ * white 60 % and white 70 % on the always-dark title page; the theme's text, and that at 85 %, in a
+ * season's folder (Streaming's backdrop dims a picture only so far: muted words wouldn't read there).
+ * [isNew]: put in Drive lately and not watched or started on any TV ([NewEpisodes.isNew]). [measuredMs]:
+ * how long the player found it, for its length when TMDB doesn't say. [onLongClick] (a long press or
+ * the Menu key) opens its menu, if any. The picture is a [TvCard]: growing with the focus redraws it,
+ * without recomposing anything.
  */
 @Composable
 internal fun EpisodeCard(
     ep: DriveFile, token: String?, progress: Float?, watched: Boolean,
-    modifier: Modifier = Modifier.width(280.dp),
-    fg: Color = com.woodruff.tvexplorer.ui.theme.Palette.text,
+    modifier: Modifier = Modifier.width(EpisodeCardWidth),
+    fg: Color = Palette.text,
+    secondary: Color = fg.copy(alpha = 0.85f),
+    body: Color = secondary,
+    isNew: Boolean = false,
+    measuredMs: Long? = null,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
     // Drive's own images need the Google token (and only they ever get it); TMDB's don't.
     val picture = (ep.posterUrl ?: ep.thumbnailLink?.let(DriveApi::big))?.takeIf { !isGoogle(it) || token != null }
+    // Worked out once per episode (the file-name fallbacks run regexes), not on every redraw.
+    val eyebrow = remember(ep.name, ep.episode, measuredMs) { episodeEyebrow(ep.episode, ep.name, measuredMs) }
+    val name = remember(ep.name, ep.episode) { episodeName(ep.episode, ep.name) }
     Column(modifier) {
         TvCard(
             onClick = onClick,
             shape = EpisodeShape,
-            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+            // What a screen reader says for the card: its name (the words under it aren't part of it).
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).semantics { contentDescription = name },
             onLongClick = onLongClick,
             focusedScale = TvMotion.CardScale,
-            // The glass behind the play symbol. A picture covers the card, so nothing is painted under
-            // it: the glass shows only while it loads (or if it can't), as the picture's stand-in.
-            color = if (picture == null) EpisodeGlass else Color.Transparent,
-            focusedColor = if (picture == null) Color.White.copy(alpha = 0.2f) else Color.Transparent,
             borderWidth = 3.dp,
             focusedBorderColor = fg,
         ) {
-            if (picture != null) {
+            if (picture == null) {
+                // No picture: the stand-in every missing picture has, dark in both themes (it's artwork).
+                Box(Modifier.fillMaxSize().background(TitleCardBrush))
+                TvIcon(Sym.PlayArrow, size = 40.dp, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Center))
+            } else if (LocalPosterPainter.current != null) {
+                LocalPosterPainter.current!!(picture)?.let {
+                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+            } else {
                 val request = remember(picture, token) {
                     ImageRequest.Builder(context).data(picture)
                         .apply { if (isGoogle(picture) && token != null) addHeader("Authorization", "Bearer $token") }
                         .size(400, 225).crossfade(150).build()
                 }
-                val glass = remember { ColorPainter(EpisodeGlass) }
                 AsyncImage(
                     model = request, contentDescription = null, contentScale = ContentScale.Crop,
-                    placeholder = glass, error = glass,
+                    // The dark stand-in while it loads, and if it can't.
+                    placeholder = EpisodeStandIn, error = EpisodeStandIn,
                     // The card clips to its rounded shape already: no second clip (and layer) per card.
                     clipToBounds = false,
                     modifier = Modifier.fillMaxSize(),
                 )
-            } else TvIcon(Sym.PlayArrow, size = 40.dp, tint = fg.copy(alpha = 0.6f), modifier = Modifier.align(Alignment.Center))
+            }
+            // Part-watched: a bar along the bottom, in the blue of art (the same in both themes).
             if (progress != null && progress > 0.01f && !watched) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {
-                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(com.woodruff.tvexplorer.ui.theme.Palette.accent))
+                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(ArtAccent))
             }
             if (watched) Box(
                 Modifier.align(Alignment.TopEnd).padding(8.dp).size(26.dp).clip(CircleShape).background(Color.White),
                 contentAlignment = Alignment.Center,
             ) { TvIcon(Sym.Check, size = 18.dp, tint = Color(0xFF0B1220)) }
+            // New, and nobody's watched it: NEW, top left (never with a ✓).
+            else if (isNew) StatusBadge("NEW", BadgeKind.NEW, Modifier.align(Alignment.TopStart).padding(8.dp))
         }
-        val label = remember(ep.name) { episodeCardLabel(ep.name) }
-        Text(label, color = fg, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp, start = 4.dp))
+        Column(Modifier.padding(top = 10.dp, start = 4.dp)) {
+            // The small line always takes its room (" " when nothing's known), so names line up across a row.
+            Text(eyebrow, color = secondary, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                name, color = fg, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
+            )
+            ep.episode?.overview?.let {
+                Text(it, color = body, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
     }
 }
 
 private val EpisodeShape = RoundedCornerShape(18.dp)
-private val EpisodeGlass = Color.White.copy(alpha = 0.1f)
+
+/** The episode picture's stand-in while it loads or if it can't: [TitleCardBrush]. Made once. */
+private val EpisodeStandIn = BrushPainter(TitleCardBrush)
 
 /** One of a title page's buttons: which it is ([MAIN], [RESTART] or [OPEN]), its symbol, its words and what OK does. */
 private class PageButton(val id: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val onClick: () -> Unit)

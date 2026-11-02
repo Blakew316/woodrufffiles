@@ -73,7 +73,7 @@ import java.util.Locale
  *   - Filter opens a panel on the right with everything else as plain lists: Overview, All or
  *     Unwatched, Sort, Genre and Decade (applied instantly, so the posters behind change as you
  *     go), then the Drive actions (Refresh, My Drive, Sign out…);
- *   - OK on the search field opens its own full screen (see LibrarySearch in DriveScreen.kt).
+ *   - OK on the search field opens Search, for both libraries (see SearchPage.kt).
  */
 
 /** The library's one row: Movies / TV Shows (or the title), the search field, and Filter. */
@@ -88,8 +88,11 @@ fun LibraryHeader(
     more: List<MenuAction> = emptyList(),
     /** In place of the title: a switch between libraries (Streaming's Movies / TV Shows). */
     switcher: (@Composable () -> Unit)? = null,
-    /** The search field's hint ("Search your saved library" when the posters are the saved copy). */
-    hint: String = "Search $title",
+    /**
+     * The search field's hint: "Search Movies & TV Shows" (it opens Search, which looks in both libraries
+     * whichever one it's in), or "Search your saved library" when the posters are the saved copy.
+     */
+    hint: String = SEARCH_BOX,
     /** Why the posters may be out of date ("Offline", "Back online"), at the search field's end; null when they're current. */
     status: FieldStatus? = null,
     /** Where the listing limit cut this library because Drive has more (0: it's all there): said under the row. */
@@ -231,8 +234,9 @@ private fun FilterSheet(
         // the window (smooth even while the panel is still being built), so the panel doesn't move itself.
         DialogWindowMotion(WindowMotion.SideSheet)
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(first)
-        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
-        Box(Modifier.fillMaxSize().dpadGate(), contentAlignment = Alignment.CenterEnd) {
+        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here. The remote's search
+        // button opens Search over the sheet.
+        Box(Modifier.fillMaxSize().dpadGate().searchKeyOpensSearch(), contentAlignment = Alignment.CenterEnd) {
             LazyColumn(
                 state = list,
                 modifier = Modifier

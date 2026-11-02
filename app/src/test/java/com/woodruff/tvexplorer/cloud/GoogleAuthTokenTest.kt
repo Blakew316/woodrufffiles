@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -36,9 +37,15 @@ class GoogleAuthTokenTest {
     /** The tokens as GoogleAuth keeps them, in a map. */
     private class MapTokens(vararg entries: Pair<String, String>) : GoogleAuth.Tokens {
         val map = mutableMapOf(*entries)
-        override fun get(name: String) = map[name]
-        override fun put(name: String, value: String) { map[name] = value }
-        override fun remove(vararg names: String) { names.forEach { map.remove(it) } }
+        /** Kept, but read as unset just now: the TV's Keystore hasn't found its key yet (after a power cut). */
+        val unreadable = mutableSetOf<String>()
+        override fun get(name: String) = if (name in unreadable) null else map[name]
+        // As SecretStore does: a value put meanwhile is this run's to read.
+        override fun put(name: String, value: String) { map[name] = value; unreadable -= name }
+        override fun remove(vararg names: String) { names.forEach { map.remove(it); unreadable -= it } }
+        override fun unreadableNow(name: String) = name in unreadable && name in map
+        /** The Keystore still waking: nothing kept can be read. */
+        fun asleep() = apply { unreadable += map.keys }
     }
 
     /** Signed in to Drive (and the cameras), with an access token that ran out a minute ago. */
@@ -144,6 +151,60 @@ class GoogleAuthTokenTest {
         assertTrue(GoogleAuth.refresh(noClient, Grant.DRIVE, now, call) is TokenResult.Offline)
         assertEquals("refresh-1", noClient.get(Grant.DRIVE.refreshKey))
         assertFalse(asked)
+    }
+
+    @Test fun aSignInTheKeystoreCantReadYetIsOfflineNotSignedOut() = runBlocking {
+        // A power cut: the TV is back, its Keystore not yet. Every token reads as unset for now.
+        val store = signedIn().asleep()
+        val before = store.map.toMap()
+        val heard = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) { withTimeoutOrNull(300) { GoogleAuth.expirations.first() } }
+        var asked = false
+        val r = GoogleAuth.refresh(store, Grant.DRIVE, now) { asked = true; JSONObject() }
+        // Tried again later, like Google not answering: never the sign-in QR code, never Google asked.
+        assertTrue(r is TokenResult.Offline)
+        assertFalse(asked)
+        // Nothing ended, nothing removed, nobody told it ended.
+        assertEquals(before, store.map)
+        assertNull(heard.await())
+        // The key turns up: the very same sign-in renews.
+        store.unreadable.clear()
+        assertEquals(TokenResult.Ok("new"), GoogleAuth.refresh(store, Grant.DRIVE, now) { JSONObject().put("access_token", "new").put("expires_in", 3599) })
+    }
+
+    @Test fun aRefreshTokenReadByAnotherThreadMeanwhileIsUsed() {
+        // The key turned up between the first look and asking whether it's unreadable: another
+        // thread read it (so it isn't "unreadable" any more). Read again, it's there.
+        val values = signedIn().map
+        val store = object : GoogleAuth.Tokens {
+            var looks = 0
+            override fun get(name: String): String? = if (name == Grant.DRIVE.refreshKey && looks++ == 0) null else values[name]
+            override fun put(name: String, value: String) { values[name] = value }
+            override fun remove(vararg names: String) { names.forEach { values.remove(it) } }
+        }
+        val r = GoogleAuth.refresh(store, Grant.DRIVE, now) { JSONObject().put("access_token", "new").put("expires_in", 3599) }
+        assertEquals(TokenResult.Ok("new"), r)
+        assertEquals("refresh-1", values[Grant.DRIVE.refreshKey])
+    }
+
+    @Test fun whereASignInStandsWhileTheKeystoreWakes() {
+        // Read as Settings → Accounts (and Streaming, the cameras, the calendar) read it.
+        assertEquals(GoogleAuth.SignIn.SIGNED_IN, GoogleAuth.signIn(signedIn().asleep(), Grant.DRIVE))
+        assertEquals(GoogleAuth.SignIn.SIGNED_IN, GoogleAuth.signIn(signedIn().asleep(), Grant.NEST))
+        // The keys refused at the last renewal: still that.
+        val refused = signedIn().apply { put(Grant.DRIVE.refusedKey, now.toString()) }.asleep()
+        assertEquals(GoogleAuth.SignIn.KEYS_REFUSED, GoogleAuth.signIn(refused, Grant.DRIVE))
+        // Google ended it before the power cut: "Sign-in ended", so the panel asks to sign in *again*.
+        val ended = signedIn().apply { remove(*Grant.DRIVE.stored); put(Grant.DRIVE.endedKey, now.toString()) }.asleep()
+        assertEquals(GoogleAuth.SignIn.ENDED, GoogleAuth.signIn(ended, Grant.DRIVE))
+        // Keys, and never a sign-in: "Not signed in", not "Not set up".
+        assertEquals(GoogleAuth.SignIn.NOT_SIGNED_IN, GoogleAuth.signIn(signedIn().asleep(), Grant.CALENDAR))
+        // Nothing is made up for what was never kept.
+        assertEquals(GoogleAuth.SignIn.NOT_SET_UP, GoogleAuth.signIn(MapTokens().asleep(), Grant.DRIVE))
+        // Read as before once the Keystore has its key; a blank Client ID is still no keys.
+        assertEquals(GoogleAuth.SignIn.SIGNED_IN, GoogleAuth.signIn(signedIn(), Grant.DRIVE))
+        val blank = MapTokens(GoogleAuth.K_CLIENT_ID to " ", GoogleAuth.K_CLIENT_SECRET to "secret")
+        assertFalse(GoogleAuth.configured(blank))
+        assertEquals(GoogleAuth.SignIn.NOT_SET_UP, GoogleAuth.signIn(blank, Grant.DRIVE))
     }
 
     @Test fun whereASignInStands() {

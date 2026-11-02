@@ -19,6 +19,12 @@ internal const val FRESH_MS = 5 * 60_000L
 internal fun isFresh(listedAt: Long?, now: Long): Boolean = listedAt != null && now - listedAt in 0 until FRESH_MS
 
 /**
+ * Whether any of the libraries, listed in full at [listedAt] (null: not known), needs listing again at
+ * [now]: Home coming back after a while lists them behind the screen, so Recently added catches up.
+ */
+internal fun anyStale(listedAt: Iterable<Long?>, now: Long): Boolean = listedAt.any { !isFresh(it, now) }
+
+/**
  * Whether opening a library lists it from Drive: Refresh asked for it ([force]), it isn't fresh
  * (listed in full at [listedAt]), or the last try didn't get through or had its keys refused
  * ([status]): then it's tried again, so the offline words go as soon as Google answers rather than

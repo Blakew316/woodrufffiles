@@ -120,20 +120,39 @@ object GoogleAuth {
         old.edit().clear().apply()
     }
 
-    fun isConfigured(c: Context) = !clientId(c).isNullOrBlank() && !s(c).get(K_CLIENT_SECRET).isNullOrBlank()
-    fun isConnected(c: Context, grant: Grant = Grant.DRIVE) = s(c).get(grant.refreshKey) != null
+    // The checks below say whether something is set up or signed in. Each counts a value the Keystore
+    // can't read just now as there (see [has]): after a power cut a signed-in TV never reads as signed
+    // out, or as not set up, while its Keystore wakes.
+
+    /** Whether the Google keys (Client ID and secret) are on this TV. */
+    fun isConfigured(c: Context) = configured(Stored(s(c)))
+    /** Whether [grant] is signed in on this TV (its refresh token is kept). */
+    fun isConnected(c: Context, grant: Grant = Grant.DRIVE) = Stored(s(c)).has(grant.refreshKey)
+    /** The Client ID; null when there's none, and while it can't be read just now ([isConfigured] tells the two apart). */
     fun clientId(c: Context): String? = s(c).get(K_CLIENT_ID)
     fun clientSecret(c: Context): String? = s(c).get(K_CLIENT_SECRET)
 
     /**
      * Whether Google granted [scope] with [grant]'s sign-in. False when it isn't known: a sign-in
-     * from before the scopes were kept counts once its next token arrives (within the hour).
+     * from before the scopes were kept counts once its next token arrives (within the hour). Kept
+     * scopes that can't be read just now count as granted (the sign-in hasn't changed).
      */
     fun hasScope(c: Context, scope: String, grant: Grant = Grant.DRIVE): Boolean =
-        s(c).get(grant.scopesKey)?.split(' ')?.contains(scope) == true
+        Stored(s(c)).has(grant.scopesKey) { it.split(' ').contains(scope) }
 
-    /** Device Access project ID (a UUID from console.nest.google.com/device-access). */
+    /** Device Access project ID (a UUID from console.nest.google.com/device-access); null while it can't be read just now too. */
     fun nestProject(c: Context): String? = s(c).get(K_NEST_PROJECT)?.takeIf { it.isNotBlank() }
+
+    /** Whether a Device Access project ID is on this TV (the cameras' setup step). */
+    fun hasNestProject(c: Context): Boolean = Stored(s(c)).has(K_NEST_PROJECT) { it.isNotBlank() }
+
+    /**
+     * The Device Access project ID, for asking the cameras' API. While it's kept but can't be read
+     * just now this is [AuthException.Offline]: the cameras are tried again later, as for a network
+     * that's down, rather than asking for a project ID the TV has.
+     */
+    fun requireNestProject(c: Context): String = nestProject(c)
+        ?: if (hasNestProject(c)) throw AuthException.Offline(IOException(KEYS_UNREADABLE)) else throw IOException("Enter your Device Access Project ID")
 
     fun saveNestProject(c: Context, id: String?) {
         val clean = id?.trim()?.takeIf { it.isNotEmpty() }
@@ -369,14 +388,27 @@ object GoogleAuth {
     }
 
     /** [grant]'s [SignIn] on this TV. Reads the encrypted store: off the main thread. */
-    fun signIn(c: Context, grant: Grant = Grant.DRIVE): SignIn =
-        signInOf(isConfigured(c), isConnected(c, grant), endedAt(c, grant) != null, keysRefused(c, grant))
+    fun signIn(c: Context, grant: Grant = Grant.DRIVE): SignIn = signIn(Stored(s(c)), grant)
 
-    /** When Google ended [grant]'s sign-in (ms); null when it didn't, or it's been signed in (or out) since. */
+    /** [grant]'s [SignIn] as [store] has it (see [has]). Visible for tests. */
+    internal fun signIn(store: Tokens, grant: Grant): SignIn =
+        signInOf(configured(store), store.has(grant.refreshKey), store.has(grant.endedKey), store.has(grant.refusedKey))
+
+    /**
+     * When Google ended [grant]'s sign-in (ms); null when it didn't, or it's been signed in (or out)
+     * since, and while the time can't be read just now: [hasEnded] says whether it ended.
+     */
     fun endedAt(c: Context, grant: Grant): Long? = s(c).get(grant.endedKey)?.toLongOrNull()
 
+    /** Whether Google ended [grant]'s sign-in since it was last signed in (or out) on this TV: signing in is "again". */
+    fun hasEnded(c: Context, grant: Grant): Boolean = Stored(s(c)).has(grant.endedKey)
+
     /** Whether Google refused the keys the last time [grant]'s sign-in was renewed (see [TokenResult.Rejected]). */
-    fun keysRefused(c: Context, grant: Grant): Boolean = s(c).get(grant.refusedKey) != null
+    fun keysRefused(c: Context, grant: Grant): Boolean = Stored(s(c)).has(grant.refusedKey)
+
+    /** Whether [store] has the Google keys (see [has]). */
+    internal fun configured(store: Tokens): Boolean =
+        store.has(K_CLIENT_ID) { it.isNotBlank() } && store.has(K_CLIENT_SECRET) { it.isNotBlank() }
 
     /** [SignIn] from what's stored: keys there ([configured]), a sign-in ([connected]), and its marks. Visible for tests. */
     internal fun signInOf(configured: Boolean, connected: Boolean, ended: Boolean, refused: Boolean): SignIn = when {
@@ -396,13 +428,29 @@ object GoogleAuth {
         fun get(name: String): String?
         fun put(name: String, value: String)
         fun remove(vararg names: String)
+
+        /**
+         * Whether [name] has a value kept that can't be read just now: the TV's Keystore hasn't found
+         * its key yet (some TVs, for a while after they turn on: [SecretStore.isUnreadableNow]).
+         */
+        fun unreadableNow(name: String): Boolean = false
     }
 
     private class Stored(private val st: SecretStore) : Tokens {
         override fun get(name: String) = st.get(name)
         override fun put(name: String, value: String) = st.put(name, value)
         override fun remove(vararg names: String) = st.remove(*names)
+        override fun unreadableNow(name: String) = st.isUnreadableNow(name)
     }
+
+    /**
+     * Whether [name] has a value kept, [filled] saying whether a value read counts (not blank, say).
+     * One kept but unreadable just now ([Tokens.unreadableNow]) counts: the Keystore is slow, nothing
+     * was signed out. Read again when it isn't, as another thread may have read it meanwhile, the key
+     * turning up between the two looks.
+     */
+    private fun Tokens.has(name: String, filled: (String) -> Boolean = { true }): Boolean =
+        get(name)?.let(filled) ?: (unreadableNow(name) || get(name)?.let(filled) == true)
 
     /** The saved access token while it has more than a minute left; null when it needs renewing, or there's no sign-in. */
     private fun current(store: Tokens, grant: Grant, now: Long): String? {
@@ -420,7 +468,13 @@ object GoogleAuth {
      * be reached. Called under the grant's lock.
      */
     internal fun refresh(store: Tokens, grant: Grant, now: Long, call: (List<Pair<String, String>>) -> JSONObject): TokenResult {
-        val refresh = store.get(grant.refreshKey) ?: return TokenResult.SignedOut
+        val refresh = store.get(grant.refreshKey) ?: when {
+            // Kept, but the Keystore can't read it just now (still waking up after the TV turned on):
+            // the sign-in is there all the same, so it's tried again later, as when Google doesn't answer.
+            store.unreadableNow(grant.refreshKey) -> return TokenResult.Offline(IOException(KEYS_UNREADABLE))
+            // Read by another thread a moment ago, as the key turned up; else there's no sign-in.
+            else -> store.get(grant.refreshKey) ?: return TokenResult.SignedOut
+        }
         // Renewed by another thread while this one waited for the lock.
         current(store, grant, now)?.let { return TokenResult.Ok(it) }
         // A sign-in without a Client ID: it can't be read just now (the Keystore still waking up after
@@ -500,7 +554,7 @@ object GoogleAuth {
         json.optString("scope").takeIf { it.isNotBlank() }?.let { store.put(grant.scopesKey, it) }
     }
 
-    /** A sign-in whose Client ID can't be read just now (never shown: it reads as offline). */
+    /** A sign-in, or a key it needs, that can't be read just now (never shown: it reads as offline). */
     private const val KEYS_UNREADABLE = "The Google keys can't be read just now."
     private const val BAD_CLIENT = "Google doesn’t accept the Client ID or secret saved on this TV. Check them in Settings → Accounts → Keys & sign-out."
 

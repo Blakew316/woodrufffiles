@@ -218,6 +218,12 @@ object Sym {
     val Activity: ImageVector by lazy { line("M 22 12 h -4 l -3 9 L 9 3 l -3 9 H 2") }
     /** Lucide "circle-alert": something needs attention, a crash. */
     val AlertCircle: ImageVector by lazy { line("M 2 12 A 10 10 0 1 0 22 12 A 10 10 0 1 0 2 12 Z", "M 12 8 v 4", "M 12 16 h 0.01") }
+
+    // ---- Library & search (lane L1) ------------------------------------------------------------
+    /** Lucide "mic": Search's key that listens. */
+    val Mic: ImageVector by lazy { line("M 12 19 v 3", "M 19 10 v 2 a 7 7 0 0 1 -14 0 v -2", "M 12 2 A 3 3 0 0 1 15 5 V 12 A 3 3 0 0 1 9 12 V 5 A 3 3 0 0 1 12 2 Z") }
+    /** Lucide "delete": Search's key that takes back a letter. */
+    val Backspace: ImageVector by lazy { line("M 20 5 H 9 l -7 7 l 7 7 h 11 a 2 2 0 0 0 2 -2 V 7 a 2 2 0 0 0 -2 -2 Z", "M 18 9 L 12 15", "M 12 9 L 18 15") }
 }
 
 /** Stroke weight on the 24-unit grid: close to SF Symbols' regular weight at TV sizes. */
