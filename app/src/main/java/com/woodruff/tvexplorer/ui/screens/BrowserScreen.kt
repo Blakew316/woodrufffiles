@@ -100,8 +100,12 @@ fun BrowserScreen(vm: MainViewModel) {
     val listKey = if (dateFilterable) "${location.key}|$photoFilter|$query" else location.key
     LaunchedEffect(photos.step) { if (photos.step == GooglePhotos.Step.DONE) vm.reload() }
 
-    // Back goes up a folder; at the top of Family Memories it brings up the sidebar, as on Apple TV.
+    // Back goes up a folder; at the top of Family Memories it brings up the sidebar, as on Apple TV
+    // (from far down its photos, it goes to their top first: memoriesTop).
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
+    // The top of Family Memories' photos or videos, with no search or selection to clear first: Back
+    // from far down goes to the top before the side menu (browsing-motion §3.3). Never in a sub-folder.
+    val memoriesTop = photosFolder && !vm.canGoBack() && query.isEmpty()
     BackHandler {
         when {
             query.isNotEmpty() -> query = "" // first, Back clears a search
@@ -224,8 +228,8 @@ fun BrowserScreen(vm: MainViewModel) {
                 )
                 dateFilterable && dates == null -> EmptyState("Loading…")
                 shown.isEmpty() -> EmptyState(if (query.isNotBlank()) "Nothing called \u201c$query\u201d" else "Nothing from then")
-                settings.grid -> FileGrid(vm, listKey, shown, state.selected, onOpen, onMenu, canTakeFocus)
-                else -> FileList(vm, listKey, shown, state.selected, onOpen, onMenu, canTakeFocus)
+                settings.grid -> FileGrid(vm, listKey, shown, state.selected, onOpen, onMenu, canTakeFocus, toTop = memoriesTop)
+                else -> FileList(vm, listKey, shown, state.selected, onOpen, onMenu, canTakeFocus, toTop = memoriesTop)
             }
         }
     }
@@ -259,12 +263,18 @@ private val ListPivot = Pivot(offset = 8.dp)
 private fun FileList(
     vm: MainViewModel, key: String, items: List<FileItem>, selected: Set<String>,
     onOpen: (FileItem) -> Unit, onMenu: (FileItem) -> Unit, canTakeFocus: () -> Boolean,
+    /** Back from far down goes to the top first, its first item taking the focus (see [ListBackToTop]). */
+    toTop: Boolean = false,
 ) {
     val (target, requester) = rememberRestoredFocus(vm, key, items.size, canTakeFocus)
     val listState = remember(key) { LazyListState(firstVisibleItemIndex = target) }
+    val held = remember(key) { mutableStateOf(false) }
+    val top = remember(key) { FocusRequester() }
+    if (toTop) ListBackToTop(listState, top, held)
     PivotScroll(listState, ListPivot) {
         LazyColumn(
             state = listState,
+            modifier = Modifier.onFocusChanged { held.value = it.hasFocus },
             // Room above the first row: the list clips at its top, which cut off its focused outline.
             // As much as the pivot leaves, so a row restored at the top doesn't scroll when focused.
             contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
@@ -279,6 +289,7 @@ private fun FileList(
                     onLongClick = { onMenu(item) },
                     modifier = Modifier
                         .then(if (i == target) Modifier.focusRequester(requester) else Modifier)
+                        .then(if (i == 0) Modifier.focusRequester(top) else Modifier)
                         .onFocusChanged { if (it.isFocused) vm.rememberFocus(key, i) },
                 )
             }
@@ -290,12 +301,18 @@ private fun FileList(
 private fun FileGrid(
     vm: MainViewModel, key: String, items: List<FileItem>, selected: Set<String>,
     onOpen: (FileItem) -> Unit, onMenu: (FileItem) -> Unit, canTakeFocus: () -> Boolean,
+    /** Back from far down goes to the top first, its first item taking the focus (see [GridBackToTop]). */
+    toTop: Boolean = false,
 ) {
     val (target, requester) = rememberRestoredFocus(vm, key, items.size, canTakeFocus)
     val gridState = remember(key) { LazyGridState(firstVisibleItemIndex = target) }
+    val held = remember(key) { mutableStateOf(false) }
+    val top = remember(key) { FocusRequester() }
+    if (toTop) GridBackToTop(gridState, top, held)
     PivotScroll(gridState, ListPivot) {
         LazyVerticalGrid(
             state = gridState,
+            modifier = Modifier.onFocusChanged { held.value = it.hasFocus },
             columns = GridCells.Adaptive(220.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp, start = 8.dp, end = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
@@ -310,6 +327,7 @@ private fun FileGrid(
                     onLongClick = { onMenu(item) },
                     modifier = Modifier
                         .then(if (i == target) Modifier.focusRequester(requester) else Modifier)
+                        .then(if (i == 0) Modifier.focusRequester(top) else Modifier)
                         .onFocusChanged { if (it.isFocused) vm.rememberFocus(key, i) },
                 )
             }

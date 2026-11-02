@@ -100,6 +100,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        leftByChoice = savedInstanceState?.getBoolean(KEY_LEFT_BY_CHOICE) == true
         recent = RecentStore(this)
         com.woodruff.tvexplorer.cloud.EpisodeShows.load(this) // which show name-less episodes belong to
         val root = android.widget.FrameLayout(this)
@@ -799,8 +800,34 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         if (::doorbellCard.isInitialized) doorbellCard.hide(animate)
     }
 
+    /**
+     * Left by choice: the TV's Home, another app, or a screen opened over the film on purpose (OK on
+     * the doorbell's card). Back to it, the film is paused where it was, with the controls up (they
+     * stay up while it's paused), rather than playing on by itself (browsing-motion §3.4). Not the
+     * TV's screensaver or standby, which nobody chose: those come back as they were.
+     */
+    private var leftByChoice = false
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        leftByChoice = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Only covered for a moment by something see-through (a TV's settings panel): nothing to undo.
+        leftByChoice = false
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // So it still comes back paused if Android closed Woodruff meanwhile, to free memory.
+        outState.putBoolean(KEY_LEFT_BY_CHOICE, leftByChoice)
+    }
+
     override fun onStart() {
         super.onStart()
+        if (leftByChoice) savedPlayWhenReady = false
         // A press handled just before another screen covered this one (OK on the doorbell's card):
         // its release went there, so don't swallow the next one here.
         swallowUp = null
@@ -1246,6 +1273,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         private const val EXTRA_START = "start"
         private const val EXTRA_POSITION = "position"
         private const val EXTRA_TOGETHER = "together"
+        /** Saved state: the film was left by choice (see leftByChoice). */
+        private const val KEY_LEFT_BY_CHOICE = "leftByChoice"
         /** How near the end of a season's last episode the next season is looked for. */
         private const val NEXT_SEASON_LEAD_MS = 3 * 60_000L
         /** Media session ids must differ, and two players can overlap for a moment. */

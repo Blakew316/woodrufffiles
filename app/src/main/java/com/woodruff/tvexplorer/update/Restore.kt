@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.woodruff.tvexplorer.MainActivity
+import com.woodruff.tvexplorer.MainIntents
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveState
 import com.woodruff.tvexplorer.cloud.DriveViewModel
@@ -308,9 +309,14 @@ object Restore {
         }
     }
 
-    /** The main window, opening at [app]. */
+    /**
+     * The main window, opening at [app]. Built as every intent for the main window is
+     * ([MainIntents.open]): the task it starts answers to the TV's app row afterwards, so opening
+     * Woodruff from there brings back what was put back, and should Woodruff's task still be there,
+     * its main window takes the route instead of a second one stacking on top.
+     */
     fun mainIntent(c: Context, app: App): Intent =
-        Intent(c, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN, OPEN).putExtra(EXTRA_ROUTE, encode(app))
+        MainIntents.open(c, OPEN).putExtra(EXTRA_ROUTE, encode(app))
 
     /**
      * Opens [app] in the main window (MainActivity, before its first frame): the screen, Streaming's

@@ -186,20 +186,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val marked = remember { derivedStateOf { marks.intValue + synced.value } }
     // Reads [marked] as well: a tile asking while it composes is composed again when a ✓ changes.
     val seen: (DriveFile) -> Boolean = remember(films) { { f: DriveFile -> marked.value; posterWatched(context, f, films) } }
-    // Movies / TV Shows top level: filtered and sorted; everywhere else as Drive lists it.
-    val shown = remember(state.files, filterable, filter, films) {
-        when {
-            !filterable -> state.files
-            // The Overview shows rows, worked out on their own: no sorting the whole library for it.
-            filter.overview -> state.files
-            // As watched when it was chosen: a ✓ marked meanwhile doesn't pull a title (and the focus) away.
-            filter.unwatched -> Library.apply(state.files, filter, watchedFor(context, state.files, films))
-            else -> Library.apply(state.files, filter)
-        }
+    // Movies / TV Shows top level: filtered and sorted, on a background thread; everywhere else (and
+    // the Overview, whose rows are worked out on their own) as Drive lists it. Null only while a
+    // listing's first sort is worked out.
+    val shown = rememberShown(state.files, state.place.toString(), sorting = filterable && !filter.overview, inputs = filter to films, fresh = filter.unwatched) { files ->
+        // As watched when it was chosen: a ✓ marked meanwhile doesn't pull a title (and the focus) away.
+        if (filter.unwatched) Library.apply(files, filter, watchedFor(context, files, films)) else Library.apply(files, filter)
     }
     // For the handlers below, which read it when they run: they stay the same lambdas when it
     // changes, so the tiles holding them aren't recomposed for it.
-    val latestShown by rememberUpdatedState(shown)
+    val latestShown by rememberUpdatedState(shown.orEmpty())
     // A film in Movies / TV Shows plays on its own: no rolling on into the next title (and the
     // queue is never cut short of the one chosen). In a folder, the media around it queue up after it.
     val openNow: (DriveFile) -> Unit = { f ->
@@ -341,6 +337,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 state.busy -> EmptyState("Loading from Google Drive…")
                 state.error != null -> EmptyState(state.error!!)
                 state.files.isEmpty() -> EmptyState("Nothing here")
+                // A listing's first sort, a moment's work off the main thread: nothing rather than a flash of words.
+                shown == null -> Unit
                 shown.isEmpty() -> EmptyState("No matches")
                 // The Overview tab: a featured title and rows. ("All" is the whole library A–Z.)
                 filterable && filter.overview -> key(state.place) {
@@ -350,7 +348,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         isShows = state.stack.firstOrNull() == DrivePlace.TvShows,
                         canTakeFocus = { !headerFocused.value },
                         onChoose = choose, onPlay = onOpen, onMenu = { menuFor = it },
-                        onFocusArt = { focusedArt.value = it },
+                        // A title without art leaves the last picture behind (no fade to nothing).
+                        onFocusArt = { art -> if (art != null) focusedArt.value = art },
                         seen = seen, marks = marked, onRest = rest,
                     )
                 }
@@ -381,6 +380,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         }
                     }
                     val prefetch: (String) -> Unit = { id -> positions[id]?.let { prefetchFrom.intValue = it } }
+                    // A library's grid: Back from far down it goes to its top first, its first poster
+                    // taking the focus (browsing-motion §3.3). Not in a show's folders: Back goes up a folder there.
+                    val gridHeld = remember(state.place) { mutableStateOf(false) }
+                    val top = remember(state.place) { FocusRequester() }
+                    val firstId = shown.first().id
+                    if (filterable) GridBackToTop(grid, top, gridHeld)
                     // A season's episodes: wide picture cards (each episode's picture), as streaming
                     // apps show them, instead of tall poster tiles.
                     val episodeGrid = remember(shown, library, state.stack) {
@@ -392,6 +397,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     PivotScroll(grid, if (library) Pivot(offset = 30.dp) else Pivot(offset = 8.dp)) {
                         LazyVerticalGrid(
                             state = grid,
+                            modifier = Modifier.onFocusChanged { gridHeld.value = it.hasFocus },
                             // Movies / TV Shows: tall poster tiles, more per row.
                             columns = GridCells.Adaptive(if (episodeGrid) 260.dp else if (library) 150.dp else 230.dp),
                             // Posters lift and grow when focused (about 17 dp up for the first row): leave them
@@ -407,10 +413,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                                 // titles coming and going just appear and go.
                                 val mod = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
                                     .then(if (f.id == target) Modifier.focusRequester(first) else Modifier)
+                                    .then(if (f.id == firstId) Modifier.focusRequester(top) else Modifier)
                                     .onFocusChanged {
                                         if (it.hasFocus) {
                                             driveFocus[placeKey] = f.id
-                                            if (library) { focusedArt.value = posterArt(f); if (!episodeGrid) prefetch(f.id) }
+                                            // A title without art leaves the last picture behind (no fade to nothing).
+                                            if (library) { posterArt(f)?.let { focusedArt.value = it }; if (!episodeGrid) prefetch(f.id) }
                                         }
                                         if (filterable) rest(f, it.hasFocus)
                                     }
@@ -435,8 +443,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     }
                     LaunchedEffect(state.place) {
                         withFrameNanos {}
-                        // Not while choosing a category in the header: the focus stays on the tabs.
-                        if (!headerFocused.value) runCatching { first.requestFocus() }
+                        // Not while choosing a category in the header: the focus stays on the tabs. (The
+                        // header having it with no key pressed since the screen opened is only where the
+                        // screen put it while the list was being sorted: the poster takes it then.)
+                        if (!headerFocused.value || AppVisibility.lastInput < enteredAt) runCatching { first.requestFocus() }
                     }
                 }
             }
@@ -609,6 +619,44 @@ internal fun progressByKey(recent: List<RecentItem>): Map<String, Float> =
     recent.filter { it.progress < 0.97f }.associate { it.key to it.progress }
 
 /**
+ * What a list of Drive titles shows: when [sorting] (a library's grid: All, Unwatched, a genre, a
+ * decade), [files] as [sort] narrows and sorts them, worked out on a background thread — a big
+ * library's sort held the main thread, and the focus, for frames at every filter change and every
+ * refresh. Otherwise [files] as Drive listed them. [inputs] is everything [sort] goes by besides
+ * [files] (the filter): a change sorts again.
+ *
+ * While a new filter's list (or a refreshed listing's) is worked out, the last one for this [place]
+ * stays up, and the posters glide to their new places once it's in; another place's list is never
+ * shown, so it's null only until a place's first list is ready. The last list is kept
+ * ([lastSorted]), so coming back to it (from the side menu, say) shows at once, nothing worked out
+ * again, unless it must be worked out [fresh] each time the screen opens (Unwatched: as watched now).
+ */
+@Composable
+internal fun rememberShown(
+    files: List<DriveFile>, place: String, sorting: Boolean, inputs: Any, fresh: Boolean = false, sort: (List<DriveFile>) -> List<DriveFile>,
+): List<DriveFile>? {
+    if (!sorting) return files
+    val latestSort by rememberUpdatedState(sort)
+    val sorted by produceState(lastSorted?.takeIf { !fresh && it.isFor(place, files, inputs) }, files, inputs) {
+        if (value?.isFor(place, files, inputs) == true) return@produceState
+        val list = withContext(Dispatchers.Default) { latestSort(files) }
+        value = Sorted(place, files, inputs, list).also { lastSorted = it }
+    }
+    return sorted?.takeIf { it.place == place }?.list
+}
+
+/** A library grid's list ([list]) and what it was worked out from. */
+internal class Sorted(val place: String, val files: List<DriveFile>, val inputs: Any, val list: List<DriveFile>) {
+    fun isFor(place: String, files: List<DriveFile>, inputs: Any): Boolean = this.place == place && this.files === files && this.inputs == inputs
+}
+
+/**
+ * The last grid list worked out, for coming back to it at once (see [rememberShown]). Only the one: a
+ * library's whole listing is a lot to keep a second copy of.
+ */
+@Volatile internal var lastSorted: Sorted? = null
+
+/**
  * What the Unwatched filter leaves out. Movies: a film with its ✓ (a film in its own folder: that
  * film's, once known). TV Shows: a show already started — an episode known to sit under it has a ✓,
  * or something of it is in progress or up next.
@@ -739,22 +787,34 @@ private fun Modifier.fadeWithFocus(motion: FocusMotionState): Modifier = graphic
 /**
  * Behind Movies / TV Shows: the focused title's art, blown up and dimmed, so the posters float
  * over their own picture. The art is fetched tiny (48×72) and stretched, which makes it soft by
- * itself, without a full-screen blur effect that slow TV graphics chips stutter on. Changes
- * settle for a moment first, so fast scrolling doesn't keep swapping it.
+ * itself, without a full-screen blur effect that slow TV graphics chips stutter on. It changes only
+ * once browsing settles (BrowseSettle: no key for 750 ms), so moving across posters never starts its
+ * full-screen fade under the focus's own motion.
  */
 @Composable
 internal fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: String?) {
     val context = LocalContext.current
     var shown by remember { mutableStateOf<String?>(null) }
     // Keyed by the State: each place has its own (keyed on Unit, it kept watching the first one and
-    // the backdrop froze after the first folder). collectLatest: it changes once the focus rests,
-    // not every 350 ms while you scroll (each change decodes and cross-fades a full-screen image).
+    // the backdrop froze after the first folder). collectLatest: each new title starts the wait again.
     LaunchedEffect(art) {
-        androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { kotlinx.coroutines.delay(350); shown = it }
+        // When the fade under way ends: a change never cuts one short or starts it again.
+        var fadeEnds = 0L
+        androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { next ->
+            // No key for 750 ms, and the same title all that time (each decode and cross-fade is a
+            // full-screen repaint, on the screen the graphics chip already struggles with).
+            com.woodruff.tvexplorer.ui.motion.BrowseSettle.awaitSettled()
+            val running = fadeEnds - com.woodruff.tvexplorer.ui.motion.BrowseSettle.uptime()
+            if (running > 0) kotlinx.coroutines.delay(running)
+            if (next != shown) {
+                shown = next
+                fadeEnds = com.woodruff.tvexplorer.ui.motion.BrowseSettle.uptime() + BACKDROP_FADE_MS
+            }
+        }
     }
     // Faded as each picture draws (FadeBetween): Crossfade drew both full-screen pictures into
     // offscreen buffers on every frame of the fade.
-    FadeBetween(shown, remember { tween<Float>(520, easing = androidx.compose.animation.core.FastOutSlowInEasing) }, label = "backdrop") { url ->
+    FadeBetween(shown, remember { tween<Float>(BACKDROP_FADE_MS.toInt(), easing = androidx.compose.animation.core.FastOutSlowInEasing) }, label = "backdrop") { url ->
         if (url != null) {
             val painter = LocalPosterPainter.current
             if (painter != null) painter(url)?.let {
@@ -772,6 +832,9 @@ internal fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token:
     // so only the picture fades, not a second veil.
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.background.copy(alpha = 0.92f), Palette.background.copy(alpha = 0.66f), Palette.background.copy(alpha = 0.88f)))))
 }
+
+/** The backdrop's cross-fade, FastOutSlowIn (DESIGN.md §4.2). */
+private const val BACKDROP_FADE_MS = 520L
 
 /**
  * Compose's Crossfade, with each side faded as it draws (ModulateAlpha) instead of through an

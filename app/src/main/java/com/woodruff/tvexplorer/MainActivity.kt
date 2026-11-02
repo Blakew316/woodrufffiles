@@ -66,10 +66,21 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         // First, before anything that could fail as Woodruff starts: after two closes in a row, the
-        // recovery screen; otherwise a close in the next 45 s counts as one.
+        // recovery screen; otherwise a close in the next 45 s counts as one. A second main window the
+        // app row started on top of Woodruff's own (MainIntents) closes again straight away, below:
+        // that isn't Woodruff starting, so it neither counts as a start nor restarts the 45 s of a
+        // Woodruff that has been up all along. (Working that out only reads the intent and the task.)
         recovering = EarlyCrashes.needsRecovery(this)
-        if (!recovering) EarlyCrashes.opened(this)
+        val repeat = MainIntents.isRepeatLaunch(isTaskRoot, intent)
+        if (!recovering && !repeat) EarlyCrashes.opened(this)
         super.onCreate(savedInstanceState)
+        // The TV's app row opening Woodruff while it's already open, when Android started a second
+        // main window on top of it (MainIntents): close it, so what was there shows, as it was. Before
+        // the recovery screen too: one is already up underneath, so never a second.
+        if (repeat) {
+            finish()
+            return
+        }
         if (recovering) {
             RecoveryView.show(this)
             return
@@ -83,6 +94,11 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
         handleOpen(intent, fresh = savedInstanceState == null)
         // The app's motion plays at its own speed, even on a TV with Android's animations turned off.
         window.decorView.useAppMotion(lifecycle)
+        // Android 9–11: Back at Home's side menu (the last level) puts Woodruff in the background, as
+        // Android 12 and later do, instead of closing it: reopening it is then instant, every screen
+        // and both libraries as they were. Added before the screens' own Back handlers, so it's
+        // the last in line: only a Back nothing else wanted reaches it.
+        if (MainIntents.backKeepsTask(android.os.Build.VERSION.SDK_INT)) onBackPressedDispatcher.addCallback(MainIntents.keepTaskOnBack(this))
         setContent {
             TvExplorerTheme {
                 // No background here: AppRoot's backdrop and the permission screen paint the whole screen.
@@ -108,6 +124,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
         }
         // Media broadcasts come from the system, so the receiver doesn't need to be exported.
         ContextCompat.registerReceiver(this, mediaReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        listening = true
         watchBusy()
         // The in-app slideshow's timer, while Woodruff is up: set again whenever its setting changes.
         lifecycleScope.launch {
@@ -121,6 +138,12 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
             }
         }
     }
+
+    /**
+     * The media receiver is registered: not when a repeat launch closed this window in onCreate, nor
+     * under the recovery screen, which starts nothing of the app's.
+     */
+    private var listening = false
 
     override fun onStart() {
         super.onStart()
@@ -250,7 +273,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
     }
 
     override fun onDestroy() {
-        if (!recovering) unregisterReceiver(mediaReceiver)
+        if (listening) unregisterReceiver(mediaReceiver)
         busy?.stop()
         super.onDestroy()
     }
