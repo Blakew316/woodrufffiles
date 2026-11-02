@@ -47,6 +47,8 @@ import java.io.File
  */
 class CompanionRoutes(private val ctx: Context) {
     private val memories = MemoriesRoutes(ctx) { launch(it) }
+    /** The phone's Watch tab: its library, title pages, marks and Watch together (a start waits on the TV when it can't pop up). */
+    private val watching = WatchRoutes(ctx) { launch(it, hold = true) }
 
     /** The Google OAuth callback proves itself with the one-time `state`, not the pairing key. */
     fun public(s: IHTTPSession): Response? {
@@ -109,6 +111,9 @@ class CompanionRoutes(private val ctx: Context) {
     fun handle(s: IHTTPSession): Response? = when {
         // The phone's Family Memories tab.
         s.uri.startsWith("/api/memories") -> memories.handle(s) { body(s) }
+        // The phone's Watch tab.
+        s.uri == "/api/watch/home" || s.uri.startsWith("/api/library") || s.uri == "/api/poster" ||
+            s.uri == "/api/continue/remove" || s.uri == "/api/tvs/watch" -> watching.handle(s) { body(s) }
         s.uri == "/api/notify" && s.method == Method.POST -> {
             val b = body(s)
             val title = b.optString("title").ifBlank { b.optString("message") }.ifBlank { "Message from your phone" }
@@ -148,21 +153,32 @@ class CompanionRoutes(private val ctx: Context) {
             openUrl(url)
             ok()
         }
+        // Play on TV: a video on this TV's storage (Photos & Files), or something in Continue watching
+        // that isn't on Google Drive ("key": a path or a web address), from "position" when it's given.
         s.uri == "/api/play" && s.method == Method.POST -> {
-            val path = body(s).optString("path")
-            val f = File(path).canonicalFile
-            require(f.isFile) { "Not a file" }
-            launch(PlayerActivity.intent(ctx, listOf(f.path), listOf(f.name), f.path))
-            ok()
+            val b = body(s)
+            val key = b.optString("key").ifBlank { b.optString("path") }
+            val ref = com.woodruff.tvexplorer.player.MediaRef.parse(key)
+            val (item, name) = when (ref) {
+                is com.woodruff.tvexplorer.player.MediaRef.Local -> {
+                    val f = File(ref.path).canonicalFile
+                    require(f.isFile) { "That video isn’t on ${TvLinks.name(ctx)} any more." }
+                    f.path to f.name
+                }
+                else -> key to (Uri.parse(key).lastPathSegment ?: key)
+            }
+            val position = if (b.has("position")) b.optLong("position").coerceAtLeast(0) else null
+            started(launch(PlayerActivity.intent(ctx, listOf(item), listOf(b.optString("title").ifBlank { name }), item, position), hold = true))
         }
-        // Watch together: another TV (or a phone) starts the same Drive video here at a position.
+        // Watch together: another TV (or a phone) starts the same Drive video here at a position. The
+        // answer says whether it's on screen ("started") or waiting for Woodruff to be opened here.
         s.uri == "/api/watch" && s.method == Method.POST -> {
             val b = body(s)
             val key = b.optString("key")
             val ref = com.woodruff.tvexplorer.player.MediaRef.parse(key)
             require(ref is com.woodruff.tvexplorer.player.MediaRef.Drive) { "Only Google Drive videos can be watched together" }
-            launch(PlayerActivity.intent(ctx, listOf(key), listOf(b.optString("title").ifBlank { "Video" }), key, b.optLong("position").coerceAtLeast(0)))
-            ok()
+            WatchLibrary.changed()
+            started(launch(PlayerActivity.intent(ctx, listOf(key), listOf(b.optString("title").ifBlank { "Video" }), key, b.optLong("position").coerceAtLeast(0)), hold = true))
         }
         // A message the hub pinned: "at" is when it was pinned there (a hub from before sends none),
         // so a TV shows it once, also when the hub sends it again later for a TV that was off.
@@ -265,6 +281,20 @@ class CompanionRoutes(private val ctx: Context) {
             else NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "image/jpeg", jpeg.inputStream(), jpeg.size.toLong())
                 .apply { addHeader("Cache-Control", "no-store") }
         }
+        // ↺10, 30↻, Next (and Play/Pause) for a linked TV, from the phone's controls.
+        s.uri == "/api/tvs/media" && s.method == Method.POST -> {
+            val b = body(s)
+            val tv = TvLinks.find(b.optString("id")) ?: throw IllegalArgumentException("That TV isn’t linked any more.")
+            val action = com.woodruff.tvexplorer.nowplaying.MediaAction.of(b.optString("action")) ?: throw IllegalArgumentException("Unknown action")
+            val answer = try {
+                TvLinks.media(tv, action.wire)
+            } catch (e: TvLinks.Refused) {
+                throw IllegalArgumentException(e.message ?: "${tv.name} can’t do that now")
+            } catch (e: java.io.IOException) {
+                throw IllegalArgumentException("${tv.name} didn’t respond")
+            }
+            json(JSONObject().put("ok", true).put("playing", if (answer.has("playing")) answer.opt("playing") else JSONObject.NULL))
+        }
         s.uri == "/api/tvs/key" && s.method == Method.POST -> {
             val b = body(s)
             val tv = TvLinks.find(b.optString("id")) ?: throw IllegalArgumentException("Unknown TV")
@@ -317,6 +347,22 @@ class CompanionRoutes(private val ctx: Context) {
                 require(TvScreen.press(key, b.optInt("repeat"))) { "Woodruff Family isn't on the TV screen. Press Home first." }
             }
             ok()
+        }
+        // The phone's controls for what this TV plays (also from a linked hub, for its phone): ↺10, 30↻
+        // and Next where what's playing can (NowPlaying says which), Play/Pause as the remote's key.
+        s.uri == "/api/media" && s.method == Method.POST -> {
+            val action = com.woodruff.tvexplorer.nowplaying.MediaAction.of(body(s).optString("action")) ?: throw IllegalArgumentException("Unknown action")
+            val now = NowPlaying.current(ctx)
+            val cmd = com.woodruff.tvexplorer.nowplaying.PlayerCommand.of(action)
+            if (cmd == null) {
+                if (!TvScreen.onScreen || NowPlaying.ownPlayer == null) NowPlaying.playPause(ctx)
+                else require(TvScreen.press("playpause")) { "Nothing is playing on ${TvLinks.name(ctx)}" }
+                json(JSONObject().put("ok", true).put("playing", now?.let { !it.playing } ?: JSONObject.NULL))
+            } else when (val r = NowPlaying.command(ctx, cmd)) {
+                is com.woodruff.tvexplorer.nowplaying.CommandResult.Done -> json(JSONObject().put("ok", true).put("playing", r.playing ?: JSONObject.NULL))
+                com.woodruff.tvexplorer.nowplaying.CommandResult.NothingPlaying -> throw IllegalArgumentException("Nothing is playing on ${TvLinks.name(ctx)}")
+                com.woodruff.tvexplorer.nowplaying.CommandResult.CantDo -> throw IllegalArgumentException("That doesn’t work with what’s playing on ${TvLinks.name(ctx)}")
+            }
         }
 
         // ---- Phone keyboard -----------------------------------------------------------------
@@ -556,14 +602,28 @@ class CompanionRoutes(private val ctx: Context) {
         launch(intent)
     }
 
-    private fun launch(intent: Intent) {
+    /**
+     * Starts [intent] on this TV; true when it's on screen. Without the pop-up permission and with
+     * another app in front, it becomes a notice instead; with [hold], the video also waits to start
+     * the moment Woodruff is opened here ([PendingPlay]), which is what that notice and the phone say.
+     */
+    private fun launch(intent: Intent, hold: Boolean = false): Boolean {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (com.woodruff.tvexplorer.notify.AppVisibility.foreground || android.provider.Settings.canDrawOverlays(ctx)) {
+            PendingPlay.clear()
             ctx.startActivity(intent)
-        } else {
-            Notices.post(ctx, NoticeSource.PHONE, "Ready to play", "Open Woodruff Family to start it, or allow \"Display over other apps\" in Settings.")
+            return true
         }
+        if (hold) PendingPlay.hold(ctx, intent)
+        Notices.post(ctx, NoticeSource.PHONE, "Ready to play", "Open Woodruff Family to start it, or allow \"Display over other apps\" in Settings.")
+        return false
     }
+
+    /** "started": on screen now, or waiting on the TV ("message" says what to do there). */
+    private fun started(on: Boolean) = json(
+        JSONObject().put("ok", true).put("started", on)
+            .apply { if (!on) put("message", "It’s waiting on the TV: open Woodruff Family there.") },
+    )
 
     private fun body(s: IHTTPSession): JSONObject {
         val len = s.headers["content-length"]?.toIntOrNull() ?: 0
@@ -658,4 +718,54 @@ object CompanionHub {
     /** Emitted when keys or accounts are changed from the phone, so open screens refresh. */
     val settingsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
     val changes: SharedFlow<Unit> = settingsChanged.asSharedFlow()
+}
+
+/**
+ * A video the phone (or a linked TV) started while another app was in front and Woodruff isn't allowed
+ * to pop up over it: it waits, and starts the moment Woodruff is opened on this TV, within 10 minutes
+ * (later than that, nobody expects it any more). The phone says so ("Ready on Den… open Woodruff
+ * Family there"), and so does the TV's own notice. Only the newest one waits.
+ */
+internal object PendingPlay {
+    private const val KEEP_MS = 10 * 60_000L
+    private class Waiting(val intent: Intent, val at: Long)
+    @Volatile private var waiting: Waiting? = null
+    @Volatile private var watching = false
+
+    fun hold(c: Context, intent: Intent) {
+        waiting = Waiting(intent, android.os.SystemClock.elapsedRealtime())
+        watch(c)
+    }
+
+    fun clear() { waiting = null }
+
+    /** Whether something is waiting now (for tests and the log). */
+    val holding: Boolean get() = waiting?.let { fresh(it.at, android.os.SystemClock.elapsedRealtime()) } == true
+
+    /** Whether a start held at [at] still waits at [now]. Visible for tests. */
+    internal fun fresh(at: Long, now: Long): Boolean = now - at in 0..KEEP_MS
+
+    /** Watches for Woodruff's own screen coming to the front (once per run), without changing it. */
+    private fun watch(c: Context) {
+        if (watching) return
+        val app = c.applicationContext as? android.app.Application ?: return
+        synchronized(this) {
+            if (watching) return
+            watching = true
+        }
+        app.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: android.app.Activity) {
+                if (activity !is com.woodruff.tvexplorer.MainActivity) return
+                val w = waiting ?: return
+                waiting = null
+                if (fresh(w.at, android.os.SystemClock.elapsedRealtime())) runCatching { activity.startActivity(w.intent) }
+            }
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityStarted(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivityStopped(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
+    }
 }

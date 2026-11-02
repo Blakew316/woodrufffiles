@@ -10,9 +10,19 @@ import android.media.session.PlaybackState
 import android.service.notification.NotificationListenerService
 import android.os.SystemClock
 import android.view.KeyEvent
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import org.json.JSONArray
 import org.json.JSONObject
 
-/** What a TV is playing right now. */
+/**
+ * What a TV is playing right now. [can]: what the phone may do to it ([MediaAction.wire] names),
+ * worked out by [NowPlaying.current]; empty from a Woodruff that doesn't say, which the phone takes
+ * as Play/Pause only. [key]: the media key in Woodruff's own player ("drive:<id>"), so the phone can
+ * show its poster. [hasNext]: Woodruff's own player has another item queued after this one (it
+ * stays on this TV: it only decides whether Next is offered).
+ */
 data class Playing(
     val title: String,
     val subtitle: String?,
@@ -20,17 +30,68 @@ data class Playing(
     val playing: Boolean,
     val positionMs: Long,
     val durationMs: Long,
+    val can: List<String> = emptyList(),
+    val key: String? = null,
+    val hasNext: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("title", title).put("subtitle", subtitle ?: "").put("app", app)
         .put("playing", playing).put("position", positionMs).put("duration", durationMs)
+        .put("can", JSONArray(can))
+        .apply { if (key != null) put("key", key) }
 
     companion object {
         fun fromJson(o: JSONObject?): Playing? = o?.takeIf { it.optString("title").isNotBlank() }?.let {
+            val can = it.optJSONArray("can")
             Playing(it.optString("title"), it.optString("subtitle").ifBlank { null }, it.optString("app"),
-                it.optBoolean("playing"), it.optLong("position"), it.optLong("duration"))
+                it.optBoolean("playing"), it.optLong("position"), it.optLong("duration"),
+                can = can?.let { a -> (0 until a.length()).map { i -> a.optString(i) }.filter { w -> MediaAction.of(w) != null } }.orEmpty(),
+                key = it.optString("key").ifBlank { null })
         }
     }
+}
+
+/** What the phone can ask of what's playing: its words on the wire ("playpause", "back10", "fwd30", "next"). */
+enum class MediaAction(val wire: String) {
+    PLAY_PAUSE("playpause"), BACK_10("back10"), FORWARD_30("fwd30"), NEXT("next");
+
+    companion object {
+        fun of(wire: String?): MediaAction? = entries.firstOrNull { it.wire == wire }
+    }
+}
+
+/**
+ * ↺10, 30↻ and Next for Woodruff's own player, sent from the phone through [NowPlaying.commands].
+ * The player applies them itself: [target] gives where a skip lands; [NEXT] is its Next Episode.
+ */
+enum class PlayerCommand {
+    BACK_10, FORWARD_30, NEXT;
+
+    /** Where ↺10 / 30↻ lands from [positionMs]: never before the start, nor past the end ([durationMs], when known). Null for [NEXT]. */
+    fun target(positionMs: Long, durationMs: Long): Long? = when (this) {
+        BACK_10 -> (positionMs - 10_000).coerceAtLeast(0)
+        FORWARD_30 -> (positionMs + 30_000).let { if (durationMs > 0) it.coerceAtMost(durationMs) else it }
+        NEXT -> null
+    }
+
+    companion object {
+        fun of(action: MediaAction): PlayerCommand? = when (action) {
+            MediaAction.BACK_10 -> BACK_10
+            MediaAction.FORWARD_30 -> FORWARD_30
+            MediaAction.NEXT -> NEXT
+            MediaAction.PLAY_PAUSE -> null
+        }
+    }
+}
+
+/** How asking for ↺10, 30↻ or Next went. */
+sealed interface CommandResult {
+    /** Done; [playing]: whether it's playing now (null when not known). */
+    data class Done(val playing: Boolean?) : CommandResult
+    /** Nothing is playing that this TV can see. */
+    data object NothingPlaying : CommandResult
+    /** What's playing can't do that (an app without seeking, nothing queued after it). */
+    data object CantDo : CommandResult
 }
 
 /**
@@ -42,7 +103,21 @@ object NowPlaying {
     /** Updated by the built-in player every couple of seconds; null when it's closed. */
     @Volatile var ownPlayer: Playing? = null
 
-    fun current(c: Context): Playing? = ownPlayer ?: fromSessions(c)
+    private val _commands = MutableSharedFlow<PlayerCommand>(extraBufferCapacity = 8)
+
+    /**
+     * ↺10 / 30↻ / Next from the phone for Woodruff's own player. The player collects this while it
+     * plays (in PlayerActivity: seek to [PlayerCommand.target] of its position, or its own Next
+     * Episode for [PlayerCommand.NEXT]); until something collects it, the phone is offered
+     * Play/Pause only ([ownCan]), so it never shows a button that does nothing.
+     */
+    val commands: SharedFlow<PlayerCommand> = _commands.asSharedFlow()
+
+    /** Whether Woodruff's own player is listening for [commands] right now. */
+    val playerListens: Boolean get() = _commands.subscriptionCount.value > 0
+
+    /** What's playing, with what the phone can do to it ([Playing.can]). */
+    fun current(c: Context): Playing? = ownPlayer?.let { it.copy(can = ownCan(it, playerListens)) } ?: fromSessions(c)
 
     fun canSeeOtherApps(c: Context): Boolean = try {
         sessions(c); true
@@ -79,6 +154,41 @@ object NowPlaying {
         audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
     }
 
+    /**
+     * ↺10, 30↻ or Next from the phone: to Woodruff's own player through [commands]; to another app
+     * through its media session, only where that session says it can seek or skip (Netflix often
+     * can't, so the phone never promises it: [Playing.can]).
+     */
+    fun command(c: Context, cmd: PlayerCommand): CommandResult {
+        ownPlayer?.let { own ->
+            if (cmd.wire() !in ownCan(own, playerListens)) return CommandResult.CantDo
+            return if (_commands.tryEmit(cmd)) CommandResult.Done(own.playing) else CommandResult.CantDo
+        }
+        return try {
+            val ctl = pick(sessions(c.applicationContext)) ?: return CommandResult.NothingPlaying
+            val state = ctl.playbackState ?: return CommandResult.NothingPlaying
+            if (cmd.wire() !in sessionCan(state.actions)) return CommandResult.CantDo
+            val playing = state.state == PlaybackState.STATE_PLAYING
+            when (cmd) {
+                PlayerCommand.NEXT -> ctl.transportControls.skipToNext()
+                else -> {
+                    val duration = ctl.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0) ?: 0
+                    cmd.target(positionNow(state, playing), duration)?.let { ctl.transportControls.seekTo(it) }
+                }
+            }
+            CommandResult.Done(playing)
+        } catch (e: SecurityException) {
+            CommandResult.NothingPlaying // no Notification access: other apps can't be seen, let alone steered
+        } catch (e: Exception) {
+            CommandResult.CantDo // the app went away meanwhile
+        }
+    }
+
+    /** A session's position now: it reports the one at its last update, so move that on by the time since. */
+    private fun positionNow(s: PlaybackState, playing: Boolean): Long =
+        (if (playing && s.lastPositionUpdateTime > 0) s.position + ((SystemClock.elapsedRealtime() - s.lastPositionUpdateTime) * s.playbackSpeed).toLong()
+        else s.position).coerceAtLeast(0)
+
     private fun fromSessions(c: Context): Playing? = try {
         val all = sessions(c)
         val ctl = pick(all)
@@ -94,11 +204,7 @@ object NowPlaying {
             val state = m.playbackState
             val playing = state?.state == PlaybackState.STATE_PLAYING
             // Sessions report the position at their last update; move it forward to now.
-            val pos = state?.let { s ->
-                if (playing && s.lastPositionUpdateTime > 0) {
-                    s.position + ((SystemClock.elapsedRealtime() - s.lastPositionUpdateTime) * s.playbackSpeed).toLong()
-                } else s.position
-            } ?: 0L
+            val pos = state?.let { positionNow(it, playing) } ?: 0L
             Playing(
                 title = title?.takeIf { it.isNotBlank() } ?: app,
                 subtitle = subtitle?.takeIf { it.isNotBlank() },
@@ -106,6 +212,7 @@ object NowPlaying {
                 playing = playing,
                 positionMs = pos.coerceAtLeast(0),
                 durationMs = meta?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0) ?: 0,
+                can = sessionCan(state?.actions ?: 0L),
             )
         }
     } catch (e: SecurityException) {
@@ -113,6 +220,35 @@ object NowPlaying {
     } catch (e: Exception) {
         null
     }
+}
+
+private fun PlayerCommand.wire(): String = when (this) {
+    PlayerCommand.BACK_10 -> MediaAction.BACK_10.wire
+    PlayerCommand.FORWARD_30 -> MediaAction.FORWARD_30.wire
+    PlayerCommand.NEXT -> MediaAction.NEXT.wire
+}
+
+/**
+ * What the phone can do to Woodruff's own player [p]: Play/Pause always; ↺10 and 30↻ once the player
+ * [listens] for [NowPlaying.commands]; Next too when it has another item queued. Visible for tests.
+ */
+internal fun ownCan(p: Playing, listens: Boolean): List<String> = buildList {
+    add(MediaAction.PLAY_PAUSE.wire)
+    if (listens) {
+        add(MediaAction.BACK_10.wire); add(MediaAction.FORWARD_30.wire)
+        if (p.hasNext) add(MediaAction.NEXT.wire)
+    }
+}
+
+/**
+ * What the phone can do to another app's media session with these PlaybackState [actions]:
+ * Play/Pause always (the remote's key works anywhere), ↺10 and 30↻ only when it can seek, Next only
+ * when it can skip. Visible for tests.
+ */
+internal fun sessionCan(actions: Long): List<String> = buildList {
+    add(MediaAction.PLAY_PAUSE.wire)
+    if (actions and PlaybackState.ACTION_SEEK_TO != 0L) { add(MediaAction.BACK_10.wire); add(MediaAction.FORWARD_30.wire) }
+    if (actions and PlaybackState.ACTION_SKIP_TO_NEXT != 0L) add(MediaAction.NEXT.wire)
 }
 
 /** Exists only so Android can grant access to other apps' media sessions (Notification access). */

@@ -172,10 +172,12 @@ object TvLinks {
      * project). /api/tmdb: the TMDB key alone, for a hub on 2.0.157, the version before the others.
      * /api/health: this TV's health report (no secrets: keys present or not, never their values).
      * /api/update/check: check for an update now (harmless; it follows the test TV's day as always).
+     * /api/media: ↺10, 30↻, Next and Play/Pause for what this TV plays, from the phone through the hub
+     * (no more than its remote keys can already do).
      */
     val LINK_ROUTES = setOf(
         "/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/keys", "/api/tmdb",
-        "/api/health", "/api/update/check",
+        "/api/health", "/api/update/check", "/api/media",
     )
 
     fun isLinkKey(c: Context, k: String?): Boolean =
@@ -392,11 +394,39 @@ object TvLinks {
     // A message that fails because the TV moved goes again once it's found at its new address, a
     // few seconds late (a video started there catches up with the leader; a notice shows once per id).
 
-    /** Start [key] (a Drive video) on [tv] at [positionMs]: "watch together". */
-    fun watch(tv: LinkedTv, key: String, title: String, positionMs: Long) {
+    /**
+     * Start [key] (a Drive video) on [tv] at [positionMs]: "watch together", or a phone choosing that
+     * TV. Returns what it answered ("started": false when it couldn't come to the front and keeps the
+     * video waiting there; older versions don't say). [again]: if [tv] moved, it's sent again once
+     * it's found (Watch together: it catches up with the leader); a phone's own start isn't, since a
+     * film starting there seconds after the phone said "didn't respond" would be a surprise.
+     */
+    fun watch(tv: LinkedTv, key: String, title: String, positionMs: Long, again: Boolean = true): JSONObject {
         val body = JSONObject().put("key", key).put("title", title).put("position", positionMs).toString()
-        reach(tv, again = true) { t -> request("${t.base}/api/watch?k=${enc(t.key)}", "POST", body) }
+        var answer = JSONObject()
+        reach(tv, again) { t -> answer = answerOf(request("${t.base}/api/watch?k=${enc(t.key)}", "POST", body)) }
+        return answer
     }
+
+    /**
+     * ↺10, 30↻, Next or Play/Pause ([action], as the phone words it) for what [tv] plays. Returns its
+     * answer ("playing"); [Refused] carries its own words ("Nothing is playing on Den"). Never sent
+     * again: a skip arriving seconds late would land in the wrong place.
+     */
+    fun media(tv: LinkedTv, action: String): JSONObject {
+        val json = JSONObject().put("action", action).toString()
+        var answer = JSONObject()
+        reach(tv, again = false) { t -> answer = answerOf(request("${t.base}/api/media?k=${enc(t.key)}", "POST", json)) }
+        return answer
+    }
+
+    /**
+     * What a TV that did what it was asked said back: its JSON, or nothing to read from an older
+     * Woodruff that answers "ok" in plain words. Only the reading is forgiven here: a TV that didn't
+     * answer, or said no ([Refused]), still fails the request, so [reach] can look for it and the
+     * phone can say "Den didn't respond".
+     */
+    private fun answerOf(text: String): JSONObject = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
 
     /** Pin a family message on [tv]'s Home; [at]: when it was pinned here, so [tv] shows it once ([com.woodruff.tvexplorer.notify.Board.receive]). */
     fun board(tv: LinkedTv, title: String, body: String, from: String?, at: Long) {
