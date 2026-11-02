@@ -79,6 +79,15 @@ class DoorbellRingTest {
         assertEquals(true, runCatching { Doorbell.receivedAlerts(app, "loud") }.exceptionOrNull() is IllegalArgumentException)
     }
 
+    @Test fun aRelayFromAnOlderTvThatDoesntSayItsNameStillCounts() {
+        Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v10")
+        assertEquals("Through another TV", Doorbell.alerts(app).value)
+        // A later relay that says its name: named from then on; one that doesn't keeps the name.
+        Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v11", from = "Living Room")
+        Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v12")
+        assertEquals("Through Living Room", Doorbell.alerts(app).value)
+    }
+
     @Test fun aTvWithoutCamerasSaysItHearsTheDoorbellThroughTheTvThatPassedItOn() {
         Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v9", from = "  Living Room ")
         val alerts = Doorbell.alerts(app)

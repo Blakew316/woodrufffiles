@@ -147,6 +147,14 @@ class DoorbellRulesTest {
         assertEquals("Through another TV", alerts(cameras = false, listening = DoorbellListening.Idle).value)
     }
 
+    @Test fun aTvRelayingWithoutItsNameStillCountsAsTheOneItHearsThrough() {
+        // An older Woodruff passes alerts on without saying its name.
+        assertEquals("Through another TV", alerts(cameras = false, relaysOut = true, from = "", listening = DoorbellListening.Idle).value)
+        val a = alerts(subscription = false, from = "")
+        assertEquals("Through another TV", a.value)
+        assertEquals("This TV hears the doorbell from another TV while that TV is on.", a.about)
+    }
+
     @Test fun aHubWithoutCamerasHearsNothing() {
         val a = alerts(cameras = false, relaysOut = true, listening = DoorbellListening.Idle)
         assertEquals(DoorbellAlerts.State.OFF, a.state)

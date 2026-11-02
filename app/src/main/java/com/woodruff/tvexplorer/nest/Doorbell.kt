@@ -71,7 +71,7 @@ object Doorbell {
     /** Google wouldn't make this TV one of its own for that subscription, at that time. */
     private const val K_REFUSED_FOR = "refusedFor"
     private const val K_REFUSED_AT = "refusedAt"
-    /** The TV that last passed an alert on to this one ("Through Living Room"). */
+    /** The TV that last passed an alert on to this one ("Through Living Room"; blank: one too old to say). */
     private const val K_RELAY_FROM = "relayFrom"
 
     /** The pause after an empty pull (Google already held it open a while). */
@@ -288,7 +288,8 @@ object Doorbell {
     /** Something listening depends on changed (cameras connected or signed out, a new subscription): look again now. */
     internal fun nudge() = nudges.update { it + 1 }
 
-    private fun relayFrom(app: Context) = cleanTvName(prefs(app).getString(K_RELAY_FROM, null))
+    /** The TV that passes alerts on to this one: its name, "" when it doesn't say (an older Woodruff), null when none has. */
+    private fun relayFrom(app: Context): String? = prefs(app).getString(K_RELAY_FROM, null)?.let { cleanTvName(it).orEmpty() }
 
     /** How this TV hears the doorbell, in words (Settings → Advanced and the health report). Reads settings: not on the main thread. */
     fun alerts(c: Context): DoorbellAlerts {
@@ -321,7 +322,12 @@ object Doorbell {
     fun ring(c: Context, camera: String, label: String, relay: Boolean, kind: String = "doorbell", session: String? = null, from: String? = null) {
         if (kind !in KINDS) return
         val app = c.applicationContext
-        cleanTvName(from)?.let { name -> if (relayFrom(app) != name) prefs(app).edit().putString(K_RELAY_FROM, name).apply() }
+        // Passed on by another TV (it comes here through /api/doorbell, with relay off): remembered,
+        // with its name when it says it, for Settings ("Through Living Room").
+        if (!relay) {
+            val sender = cleanTvName(from).orEmpty()
+            if (relayFrom(app).let { it == null || (sender.isNotEmpty() && it != sender) }) prefs(app).edit().putString(K_RELAY_FROM, sender).apply()
+        }
         val now = System.currentTimeMillis()
         if (!isNews(camera, session, kind, now)) return
         // What happened, then which camera: "Person seen" / "Backyard" reads right for every name.

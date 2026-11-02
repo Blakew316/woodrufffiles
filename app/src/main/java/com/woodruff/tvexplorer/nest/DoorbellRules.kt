@@ -170,13 +170,14 @@ data class DoorbellAlerts(val state: State, val value: String, val about: String
 /**
  * [DoorbellAlerts] from what this TV knows: whether the family's [subscription] reached it, whether
  * its cameras are connected ([camerasHere]), whether it passes alerts on to TVs linked to it
- * ([relaysOut]), which TV last passed one on to it ([relayFrom]), and what its own listener is doing.
+ * ([relaysOut]), which TV last passed one on to it ([relayFrom]: its name, blank for a TV too old to
+ * say, null when none has), and what its own listener is doing.
  * Offline never changes it: the doorbell comes back by itself.
  */
 internal fun doorbellAlerts(
     subscription: Boolean, camerasHere: Boolean, relaysOut: Boolean, relayFrom: String?, listening: DoorbellListening,
 ): DoorbellAlerts {
-    val from = relayFrom ?: "another TV"
+    val from = relayFrom?.ifBlank { null } ?: "another TV"
     val off = DoorbellAlerts(DoorbellAlerts.State.OFF, "Off", "Set it up in the phone app.")
     return when {
         camerasHere && subscription -> when (listening) {
@@ -190,7 +191,7 @@ internal fun doorbellAlerts(
         // Cameras here, but the family's subscription hasn't reached this TV (a TV that relays to it
         // runs an older Woodruff): it hears the doorbell through that TV meanwhile.
         camerasHere -> if (relayFrom == null) off
-            else DoorbellAlerts(DoorbellAlerts.State.THROUGH, "Through $relayFrom", "This TV hears the doorbell from $relayFrom while that TV is on.")
+            else DoorbellAlerts(DoorbellAlerts.State.THROUGH, "Through $from", "This TV hears the doorbell from $from while that TV is on.")
         // No cameras here. A TV that passes alerts on to others, and hears from none, hears nothing.
         subscription || relayFrom != null -> if (relaysOut && relayFrom == null) {
             DoorbellAlerts(DoorbellAlerts.State.OFF, "Off", "Connect the cameras on this TV to hear the doorbell.")
