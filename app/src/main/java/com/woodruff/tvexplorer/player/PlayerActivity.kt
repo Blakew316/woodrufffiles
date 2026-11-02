@@ -198,6 +198,10 @@ class PlayerActivity : ComponentActivity() {
         }
         rootView = root
         setContentView(root)
+        // A scrub is aimed from where the film really is, and lands relative to it as the film plays
+        // on: one press back is 10 s behind the film, inside the seconds kept for an instant rewind.
+        timeBar.livePosition = { player?.contentPosition }
+        timeBar.onLanding = { target -> player?.let { aimAt(it, target) } }
         timeBar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
             override fun onScrubStart(timeBar: androidx.media3.ui.TimeBar, position: Long) {
                 // As on tvOS, the title and buttons make way for the preview while scrubbing.
@@ -283,7 +287,7 @@ class PlayerActivity : ComponentActivity() {
 
     // ---- Seeks ---------------------------------------------------------------------------------
 
-    /** How much film this player keeps behind the playhead, set as it's built. */
+    /** How much film this player keeps behind the playhead ([backBufferMs]), set as it's built. */
     private var keptBehindMs = 0
     /** The last seek aimed here and whether its spot was in memory, for the "picture after" log. */
     private var aimed: Pair<Long, Boolean>? = null
@@ -915,25 +919,14 @@ class PlayerActivity : ComponentActivity() {
                 .build()
         }
 
-        // The buffer is Java memory in Woodruff's own heap. Where that's small (192 MB or less), it
-        // and the video OkHttp has already fetched ahead get at most half of it (see bufferCapBytes):
-        // a Blu-ray remux would fill Media3's ~140 MB otherwise.
+        // The buffer is Java memory in Woodruff's own heap, so how much it holds (ahead of the film and
+        // behind it) depends on how big that is: see playerLoadControl.
         val heapMb = getSystemService(android.app.ActivityManager::class.java)?.memoryClass ?: 256
-        val smallHeap = heapMb <= SMALL_HEAP_MB
-        keptBehindMs = if (smallHeap) 5_000 else 10_000
+        keptBehindMs = backBufferMs(heapMb)
         // The TV's own decoders (and sound passed straight through to a soundbar) first; FFmpeg's
         // for the sound the TV can't play itself, so DTS and TrueHD films aren't silent.
         player = ExoPlayer.Builder(this, playerRenderers(this)).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()))
-            // Start as soon as 1 s is buffered (2 s after a stall) instead of the default 2.5 / 5 s,
-            // so Play feels immediate; it keeps filling up to 50 s ahead while it plays. The last 10 s
-            // (5 on a small heap) stay too, so a short rewind is instant instead of a new download.
-            .setLoadControl(
-                androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
-                    .setBackBuffer(keptBehindMs, /* retainBackBufferFromKeyframe = */ true)
-                    .apply { bufferCapBytes(heapMb)?.let { setTargetBufferBytes(it) } }
-                    .build(),
-            )
+            .setLoadControl(playerLoadControl(heapMb))
             // Seeks land on the first clean frame just after the spot (SeekAim); the viewer's are aimed
             // one by one (aimAt), and this covers the rest (a voice "rewind"). Watch together's leader
             // seeks exactly: the other TVs line up on the spot it asked for.
@@ -1064,6 +1057,9 @@ class PlayerActivity : ComponentActivity() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    // A spot being scrubbed to was chosen in the item that just ended: it would land
+                    // somewhere arbitrary in this one.
+                    timeBar.cancelScrub()
                     cancelUpNext()
                     // A look at the last item's sound that hadn't happened yet is for an item no longer playing.
                     countdown.removeCallbacks(checkSound)
@@ -1397,6 +1393,41 @@ internal fun playerRenderers(context: Context): androidx.media3.exoplayer.Defaul
 /** Heaps of this many MB or fewer get a smaller player buffer. */
 internal const val SMALL_HEAP_MB = 192
 private const val MB = 1024 * 1024
+
+/**
+ * How the player buffers. It starts as soon as 1 s is loaded (2 s after a stall) instead of Media3's
+ * 2.5 / 5 s, so Play feels immediate, and keeps filling up to 50 s ahead while it plays. It keeps
+ * [backBufferMs] behind the film too (from the keyframe before, so all of it can be played), so a
+ * short rewind needs nothing new from Drive. Ahead and behind share one byte cap: Media3's own
+ * (about 140 MB), or on a heap of 192 MB or less [bufferCapBytes], which keeps it and what OkHttp has
+ * fetched ahead to half the heap (a Blu-ray remux would fill Media3's otherwise).
+ */
+@OptIn(UnstableApi::class)
+internal fun playerLoadControl(heapMb: Int): androidx.media3.exoplayer.DefaultLoadControl =
+    androidx.media3.exoplayer.DefaultLoadControl.Builder()
+        .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
+        .setBackBuffer(backBufferMs(heapMb), /* retainBackBufferFromKeyframe = */ true)
+        .apply { bufferCapBytes(heapMb)?.let { setTargetBufferBytes(it) } }
+        .build()
+
+/**
+ * How much film the player keeps behind the playhead on a TV whose app heap is [heapMb] MB.
+ *
+ * 12 s where the heap is big: a press back is 10 s, aimed from where the film really is
+ * (TvTimeBar.landing), so it lands 2 s inside what's kept. Media3 lets go of everything older, and a
+ * rewind past that downloads it again and throws away what was loaded ahead too. It costs no extra
+ * memory: on films heavy enough to reach the byte cap, the 2 s more behind come out of what's loaded
+ * ahead (it used to keep 10 s, and one press back landed just outside them).
+ *
+ * 5 s on a small heap, as before: its cap is about half the size, and at a Blu-ray remux's 30 Mbps
+ * 12 s would take over half of it, leaving under 10 s loaded ahead to ride out a Wi-Fi drop. A 10 s
+ * rewind there still downloads again.
+ */
+internal fun backBufferMs(heapMb: Int): Int = if (heapMb > SMALL_HEAP_MB) BACK_BUFFER_MS else SMALL_HEAP_BACK_BUFFER_MS
+
+/** See [backBufferMs]. */
+internal const val BACK_BUFFER_MS = 12_000
+internal const val SMALL_HEAP_BACK_BUFFER_MS = 5_000
 
 /**
  * Video OkHttp holds beyond the player's buffer: its HTTP/2 window (16 MB in OkHttp 4.12), what
