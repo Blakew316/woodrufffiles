@@ -104,7 +104,8 @@ class UpdateGallery {
 
     /**
      * Settings → Updates, reached as on the TV: down to Updates ([home]: the first page then, with
-     * Updates focused), then into it ([page]: its first row is the version).
+     * Updates focused), then into it ([page]: its first row is the version). Updates is the first
+     * page's seventh row, under TV health, Accounts, Appearance, Screensaver, TVs & phones and Storage.
      */
     @OptIn(ExperimentalTestApi::class)
     private fun settings(vm: MainViewModel, out: File, home: String? = null, page: String) {
@@ -112,7 +113,7 @@ class UpdateGallery {
             val scheme = if (light) "light" else "dark"
             compose.runOnIdle { Palette.light = light; vm.show(Screen.SETTINGS) }
             settle()
-            repeat(5) { compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }; settle(4) }
+            repeat(6) { compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }; settle(4) }
             settle()
             home?.let { captureScreenRoboImage(File(out, "tv-$it-$scheme.png").path) }
             compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }

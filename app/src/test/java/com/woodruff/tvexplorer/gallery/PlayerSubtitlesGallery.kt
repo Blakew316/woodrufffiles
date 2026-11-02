@@ -190,9 +190,8 @@ class SubtitleSizeSettingsGallery {
             val scheme = if (light) "light" else "dark"
             compose.runOnIdle { Palette.light = light; vm.show(Screen.SETTINGS) }
             settle()
-            // Accounts, then Appearance; into it; Theme, Background photo, Cameras on Home, Match frame rate, Subtitle size.
-            compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }
-            settle(4)
+            // TV health, Accounts, then Appearance; into it; Theme, Background photo, Cameras on Home, Match frame rate, Subtitle size.
+            repeat(2) { compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }; settle(4) }
             compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
             settle()
             repeat(4) { compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }; settle(4) }

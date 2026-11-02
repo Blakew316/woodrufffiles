@@ -80,8 +80,8 @@ class PhoneGallery {
             settle()
         }
         // Settings → TVs & phones → Start when the TV turns on, and Advanced → Pop-ups over other apps,
-        // reached as on the TV: down the list, into the page, down to the row.
-        for ((shot, page, row) in listOf(Triple("settings-start", 3, 4), Triple("settings-popups", 6, 3))) {
+        // reached as on the TV: down the list (TV health is its first row), into the page, down to the row.
+        for ((shot, page, row) in listOf(Triple("settings-start", 4, 4), Triple("settings-popups", 7, 3))) {
             for (light in listOf(false, true)) {
                 val scheme = if (light) "light" else "dark"
                 compose.runOnIdle { Palette.light = light; vm.show(Screen.SETTINGS) }
