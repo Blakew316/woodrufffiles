@@ -342,13 +342,25 @@ fun AppRoot(vm: MainViewModel) {
         )
     }
     com.woodruff.tvexplorer.ui.screens.UpdatePrompt(vm)
-    // Doorbell: show it full screen when Woodruff is on screen (the notice covers other apps).
+    // Doorbell: a ring while Woodruff is on screen opens that camera full screen (no card over it).
+    // On the Command Center's cameras it shows in place (Back: the grid); over any other screen the
+    // doorbell's own view opens, and Back returns to that screen exactly as it was (its focus, scroll,
+    // folder and open pages untouched underneath).
     LaunchedEffect(Unit) {
-        com.woodruff.tvexplorer.nest.Doorbell.rings.collect { camera ->
-            if (!com.woodruff.tvexplorer.notify.AppVisibility.foreground) return@collect
-            val i = com.woodruff.tvexplorer.nest.Nest.state.value.cameras.indexOfFirst { it.name == camera }.coerceAtLeast(0)
-            if (vm.screen.value == Screen.CAMERAS) com.woodruff.tvexplorer.ui.screens.cameraRequests.tryEmit(i)
-            else { com.woodruff.tvexplorer.ui.screens.openCameraAt = i; vm.show(Screen.CAMERAS) }
+        val bell = com.woodruff.tvexplorer.nest.Doorbell
+        bell.opens.collect { ring ->
+            if (!bell.claim(ring, com.woodruff.tvexplorer.nest.Doorbell.Host.APP)) return@collect
+            val cams = com.woodruff.tvexplorer.nest.Nest.state.value.cameras
+            if (vm.screen.value == Screen.CAMERAS && cams.isNotEmpty()) {
+                val i = cams.indexOfFirst { it.name == ring.camera }.coerceAtLeast(0)
+                com.woodruff.tvexplorer.ui.screens.cameraRequests.tryEmit(com.woodruff.tvexplorer.ui.screens.CameraRequest(i, ring.at))
+            } else {
+                val inMemories = browserPath.let { p -> p != null && (p.startsWith(GooglePhotos.folder.path) || p.startsWith(GooglePhotos.videoFolder.path)) }
+                val name = com.woodruff.tvexplorer.ui.screens.screenName(vm.screen.value, driveTop?.title, inMemories)
+                searchContext.startActivity(
+                    com.woodruff.tvexplorer.player.DoorbellActivity.intent(searchContext, ring, com.woodruff.tvexplorer.player.DoorbellActivity.Origin.SCREEN, name),
+                )
+            }
         }
     }
     LaunchedEffect(railWanted) {

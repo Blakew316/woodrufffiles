@@ -121,8 +121,11 @@ internal val cameraFullScreen = androidx.compose.runtime.mutableStateOf(false)
 /** Set by Home's camera tiles before opening the Command center, to show that camera full screen. */
 internal var openCameraAt: Int? = null
 
+/** A doorbell ring while the Command Center is open: camera [index] full screen, which rang at [rangAt]. */
+internal data class CameraRequest(val index: Int, val rangAt: Long)
+
 /** Show this camera full screen while the Command center is already open (a doorbell ring). */
-internal val cameraRequests = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 1)
+internal val cameraRequests = kotlinx.coroutines.flow.MutableSharedFlow<CameraRequest>(extraBufferCapacity = 1)
 
 /**
  * Command center: live Google Home / Nest cameras, either on their own or next to the latest
@@ -137,12 +140,14 @@ fun CommandCenterScreen(vm: MainViewModel) {
     // The camera last shown full screen: back in the grid it takes the focus, not camera 1.
     var lastFull by remember { mutableIntStateOf(0) }
     var askProject by remember { mutableStateOf(false) }
+    // A doorbell ring showed the camera full screen: rings from then on show their time on it.
+    var ringsSince by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(Unit) { Nest.open() }
-    LaunchedEffect(Unit) { cameraRequests.collect { full = it } }
+    LaunchedEffect(Unit) { cameraRequests.collect { full = it.index; if (ringsSince == null) ringsSince = it.rangAt } }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
     BackHandler {
         val f = full
-        if (f != null) { lastFull = f; full = null } else openSidebar()
+        if (f != null) { lastFull = f; full = null; ringsSince = null } else openSidebar()
     }
 
     val cams = state.cameras
@@ -205,20 +210,20 @@ fun CommandCenterScreen(vm: MainViewModel) {
                     } else if (Appearance.allInOne) {
                         Row(Modifier.fillMaxSize().padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                             if (state.offline && cams.isEmpty()) offlinePage(Modifier.weight(2.2f))
-                            else CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull, covered = isFull) { full = it }
+                            else CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull, covered = isFull) { full = it; ringsSince = null }
                             SidePanel(Modifier.weight(1f).fillMaxHeight())
                         }
                     } else if (state.offline && cams.isEmpty()) {
                         offlinePage(Modifier)
                     } else {
-                        CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp), focusOn = lastFull, covered = isFull) { full = it }
+                        CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp), focusOn = lastFull, covered = isFull) { full = it; ringsSince = null }
                     }
                 }
             }
         }
         // The camera full screen, over the grid and the pills, while it shows or glides in or out.
         if (glide.shown && cams.isNotEmpty()) {
-            FullCamera(cams, (fullIndex ?: lastFull).coerceIn(0, cams.size - 1), glide, open = isFull, onChange = { full = it })
+            FullCamera(cams, (fullIndex ?: lastFull).coerceIn(0, cams.size - 1), glide, open = isFull, ringsSince = ringsSince, onChange = { full = it })
         }
     }
 
@@ -310,12 +315,18 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, foc
 
 /**
  * A camera full screen, over the whole window (the Command center's pills too). It comes and goes as
- * [glide] moves it; [open]: it's opening or open, not closing.
+ * [glide] moves it; [open]: it's opening or open, not closing. [ringsSince]: a doorbell ring showed
+ * it, and rings from then on show their time over the camera that rang ("RANG AT 7:42 PM").
  */
 @Composable
-private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, open: Boolean, onChange: (Int) -> Unit) {
+private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, open: Boolean, ringsSince: Long?, onChange: (Int) -> Unit) {
     val cam = cams[index]
     val focus = remember { FocusRequester() }
+    val times by com.woodruff.tvexplorer.nest.Doorbell.ringTimes.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val clock = remember { android.text.format.DateFormat.getTimeFormat(context) }
+    // The picture's frames are coming (the scrim behind the words is only over a picture).
+    var live by remember { mutableStateOf(false) }
     Box(
         Modifier
             .overWindow(LocalView.current)
@@ -345,7 +356,7 @@ private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, o
                 alpha = if (glide.live) 1f else 0f
                 compositingStrategy = CompositingStrategy.ModulateAlpha
             },
-        ) { LiveVideo(cam, audio = glide.live) }
+        ) { LiveVideo(cam, audio = glide.live, onLive = { live = it }) }
         // The page: black over the picture until it shows (then cleared), and the camera's name. It
         // grows into place as it fades in, as a screen does, and shrinks away going.
         Box(
@@ -365,13 +376,13 @@ private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, o
                     .graphicsLayer { alpha = glide.cover.value.coerceIn(0f, 1f); compositingStrategy = CompositingStrategy.ModulateAlpha }
                     .background(Color.Black),
             )
-            Column(Modifier.align(Alignment.TopStart).padding(28.dp)) {
-                Text(cam.label, style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                Text(
-                    if (cams.size > 1) "◀ ▶ switch camera  ·  Back for all cameras" else "Back for all cameras",
-                    style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f),
-                )
-            }
+            if (live) CameraScrim(Modifier.align(Alignment.TopStart))
+            CameraCaption(
+                eyebrow = ringsSince?.let { since -> times[cam.name]?.takeIf { it >= since } }?.let { rangAt(it, clock) },
+                title = cam.label,
+                hint = cameraHint("Back for all cameras", cams.size),
+                modifier = Modifier.align(Alignment.TopStart),
+            )
         }
     }
     // Into it as it opens (and again when it turns back while closing: the grid took the focus then).
@@ -462,10 +473,13 @@ private fun Modifier.overWindow(window: View): Modifier = layout { measurable, c
  * [focused]: a tile has the focus, read only by its video (the focused tile plays smoothest).
  */
 @Composable
-internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false, focused: () -> Boolean = { true }) {
+internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false, focused: () -> Boolean = { true }, onLive: (Boolean) -> Unit = {}) {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio, fill, focused)
-    else Placeholder("Paused")
+    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio, fill, focused, onLive)
+    else {
+        Placeholder("Paused")
+        LaunchedEffect(Unit) { onLive(false) }
+    }
 }
 
 /** A video view, what it renders into, and how to take a frame from it, clear it and let it go. */
@@ -526,7 +540,7 @@ private fun fullRenderer(context: Context): Renderer {
  * stays when [cam] changes (full screen's Left/Right): only the stream it shows is swapped.
  */
 @Composable
-private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -> Boolean) {
+private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -> Boolean, onLive: (Boolean) -> Unit) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val renderer = remember { if (fill) tileRenderer(context) else fullRenderer(context) }
@@ -570,6 +584,9 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -
     val stream = hold?.stream
     // Keyed by the stream: after a switch it's the new camera's state at once, not the last one's for a frame.
     val status = if (stream == null) CameraStream.Status.Connecting else key(stream) { stream.status.collectAsState().value }
+    // Whether frames are coming, for what's drawn over the picture (the doorbell's scrim).
+    val reportLive by rememberUpdatedState(onLive)
+    LaunchedEffect(status) { reportLive(status == CameraStream.Status.Live) }
     // Keep a small recent frame of this camera for tiles that aren't streaming.
     LaunchedEffect(status, cam.name) {
         val name = cam.name
