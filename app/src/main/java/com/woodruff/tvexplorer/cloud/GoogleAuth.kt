@@ -126,6 +126,10 @@ object GoogleAuth {
 
     /** Whether the Google keys (Client ID and secret) are on this TV. */
     fun isConfigured(c: Context) = configured(Stored(s(c)))
+    /** Whether the Client ID is on this TV (the health report's keys; [isConfigured] needs the secret too). */
+    fun hasClientId(c: Context) = Stored(s(c)).has(K_CLIENT_ID) { it.isNotBlank() }
+    /** Whether the Client secret is on this TV. */
+    fun hasClientSecret(c: Context) = Stored(s(c)).has(K_CLIENT_SECRET) { it.isNotBlank() }
     /** Whether [grant] is signed in on this TV (its refresh token is kept). */
     fun isConnected(c: Context, grant: Grant = Grant.DRIVE) = Stored(s(c)).has(grant.refreshKey)
     /** The Client ID; null when there's none, and while it can't be read just now ([isConfigured] tells the two apart). */
@@ -152,7 +156,7 @@ object GoogleAuth {
      * that's down, rather than asking for a project ID the TV has.
      */
     fun requireNestProject(c: Context): String = nestProject(c)
-        ?: if (hasNestProject(c)) throw AuthException.Offline(IOException(KEYS_UNREADABLE)) else throw IOException("Enter your Device Access Project ID")
+        ?: if (hasNestProject(c)) throw AuthException.Offline(KeysUnreadable()) else throw IOException("Enter your Device Access Project ID")
 
     fun saveNestProject(c: Context, id: String?) {
         val clean = id?.trim()?.takeIf { it.isNotEmpty() }
@@ -335,11 +339,17 @@ object GoogleAuth {
                 }
                 renewed
             }
-        // Every answer, a good token straight from the store included, for the health report ([lastAsk]).
-        lastAsks[grant] = LastAsk(result is TokenResult.Offline, result is TokenResult.Rejected, System.currentTimeMillis(),
-            com.woodruff.tvexplorer.util.NetworkWatch.online.value)
+        // Every answer, a good token straight from the store included, for the health report ([lastAsk]). Not a
+        // sign-in the Keystore can't read yet: Google wasn't asked, so it says nothing of Google being out of reach.
+        if (!keysUnreadable(result)) {
+            lastAsks[grant] = LastAsk(result is TokenResult.Offline, result is TokenResult.Rejected, System.currentTimeMillis(),
+                com.woodruff.tvexplorer.util.NetworkWatch.online.value)
+        }
         return result
     }
+
+    /** Whether [result] is offline only because the Keystore can't read the sign-in (or its keys) just now. Visible for tests. */
+    internal fun keysUnreadable(result: TokenResult): Boolean = (result as? TokenResult.Offline)?.cause is KeysUnreadable
 
     /**
      * How the last ask for a sign-in's token went: whether Google couldn't be reached ([offline],
@@ -471,7 +481,7 @@ object GoogleAuth {
         val refresh = store.get(grant.refreshKey) ?: when {
             // Kept, but the Keystore can't read it just now (still waking up after the TV turned on):
             // the sign-in is there all the same, so it's tried again later, as when Google doesn't answer.
-            store.unreadableNow(grant.refreshKey) -> return TokenResult.Offline(IOException(KEYS_UNREADABLE))
+            store.unreadableNow(grant.refreshKey) -> return TokenResult.Offline(KeysUnreadable())
             // Read by another thread a moment ago, as the key turned up; else there's no sign-in.
             else -> store.get(grant.refreshKey) ?: return TokenResult.SignedOut
         }
@@ -479,7 +489,7 @@ object GoogleAuth {
         current(store, grant, now)?.let { return TokenResult.Ok(it) }
         // A sign-in without a Client ID: it can't be read just now (the Keystore still waking up after
         // the TV turned on), since removing the keys removes the sign-ins with them. Tried again later.
-        val clientId = store.get(K_CLIENT_ID)?.takeIf { it.isNotBlank() } ?: return TokenResult.Offline(IOException(KEYS_UNREADABLE))
+        val clientId = store.get(K_CLIENT_ID)?.takeIf { it.isNotBlank() } ?: return TokenResult.Offline(KeysUnreadable())
         val json = try {
             call(listOf("client_id" to clientId, "client_secret" to (store.get(K_CLIENT_SECRET) ?: ""), "refresh_token" to refresh, "grant_type" to "refresh_token"))
         } catch (e: TokenError) {
@@ -554,8 +564,11 @@ object GoogleAuth {
         json.optString("scope").takeIf { it.isNotBlank() }?.let { store.put(grant.scopesKey, it) }
     }
 
-    /** A sign-in, or a key it needs, that can't be read just now (never shown: it reads as offline). */
-    private const val KEYS_UNREADABLE = "The Google keys can't be read just now."
+    /**
+     * A sign-in, or a key it needs, kept but unreadable just now: the TV's Keystore is still waking (never shown: it
+     * reads as offline). Its own kind, so the health report doesn't take it for Google being out of reach ([lastAsk]).
+     */
+    internal class KeysUnreadable : IOException("The Google keys can't be read just now.")
     private const val BAD_CLIENT = "Google doesn’t accept the Client ID or secret saved on this TV. Check them in Settings → Accounts → Keys & sign-out."
 
     /** A request to the token endpoint that didn't bring tokens, and which [kind] of failure it was. */

@@ -171,6 +171,19 @@ class GoogleAuthTokenTest {
         assertEquals(TokenResult.Ok("new"), GoogleAuth.refresh(store, Grant.DRIVE, now) { JSONObject().put("access_token", "new").put("expires_in", 3599) })
     }
 
+    @Test fun theKeystoreWakingIsNotGoogleOutOfReach() {
+        // Offline because the sign-in, or the Client ID it needs, can't be read yet: its own kind, which the health
+        // report doesn't take for "Can't reach Google" (Google was never asked).
+        assertTrue(GoogleAuth.keysUnreadable(GoogleAuth.refresh(signedIn().asleep(), Grant.DRIVE, now) { JSONObject() }))
+        val clientAsleep = signedIn().apply { unreadable += GoogleAuth.K_CLIENT_ID }
+        assertTrue(GoogleAuth.keysUnreadable(GoogleAuth.refresh(clientAsleep, Grant.DRIVE, now) { JSONObject() }))
+        // Google not answering is.
+        val noAnswer = GoogleAuth.refresh(signedIn(), Grant.DRIVE, now, failing(SocketTimeoutException("timeout")))
+        assertTrue(noAnswer is TokenResult.Offline)
+        assertFalse(GoogleAuth.keysUnreadable(noAnswer))
+        assertFalse(GoogleAuth.keysUnreadable(TokenResult.SignedOut))
+    }
+
     @Test fun aRefreshTokenReadByAnotherThreadMeanwhileIsUsed() {
         // The key turned up between the first look and asking whether it's unreadable: another
         // thread read it (so it isn't "unreadable" any more). Read again, it's there.

@@ -118,7 +118,8 @@ object SignIns {
     /** How [grant]'s sign-in is doing now. Cheap (the keys and tokens are read from memory); safe off the main thread. */
     fun state(c: Context, grant: HealthGrant): SignInFact {
         val g = grant.auth
-        if (!GoogleAuth.isConfigured(c) || (grant == HealthGrant.CAMERAS && GoogleAuth.nestProject(c) == null)) return SignInFact(SignInState.NOT_SET_UP)
+        // Keys and a project the Keystore can't read just now count as there (after a power cut it wakes slowly).
+        if (!GoogleAuth.isConfigured(c) || (grant == HealthGrant.CAMERAS && !GoogleAuth.hasNestProject(c))) return SignInFact(SignInState.NOT_SET_UP)
         if (!GoogleAuth.isConnected(c, g)) {
             val ended = endedAt(c, g)
             return if (ended != null) SignInFact(SignInState.EXPIRED, ended) else SignInFact(SignInState.NOT_SIGNED_IN)

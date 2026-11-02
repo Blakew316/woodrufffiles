@@ -137,11 +137,12 @@ object Health {
             crashesClearedAt = p.getLong(K_CRASH_CLEARED, 0L),
             exits = ExitReasons.recent(c),
             freeBytes = runCatching { StatFs(c.filesDir.path).availableBytes }.getOrNull(),
+            // Saved but unreadable just now (the Keystore still waking after a power cut) counts as saved.
             keys = KeysFact(
-                googleClientId = !GoogleAuth.clientId(c).isNullOrBlank(),
-                googleClientSecret = !GoogleAuth.clientSecret(c).isNullOrBlank(),
-                camerasProject = GoogleAuth.nestProject(c) != null,
-                tmdb = Tmdb.isConfigured(c),
+                googleClientId = GoogleAuth.hasClientId(c),
+                googleClientSecret = GoogleAuth.hasClientSecret(c),
+                camerasProject = GoogleAuth.hasNestProject(c),
+                tmdb = Tmdb.hasKey(c),
             ),
         )
     }

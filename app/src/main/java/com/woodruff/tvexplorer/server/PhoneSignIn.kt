@@ -58,9 +58,14 @@ object PhoneSignIn {
      */
     fun start(c: Context, grant: GoogleAuth.Grant, base: String?): Start {
         val app = c.applicationContext
+        // Keys and a project the Keystore can't read just now (still waking after a power cut) are there all the same.
         if (!GoogleAuth.isConfigured(app)) return Start.Needs("keys", "Add the Google Client ID and secret first")
-        if (grant == GoogleAuth.Grant.NEST && GoogleAuth.nestProject(app) == null) return Start.Needs("project", "Add the cameras project first")
+        if (grant == GoogleAuth.Grant.NEST && !GoogleAuth.hasNestProject(app)) return Start.Needs("project", "Add the cameras project first")
         val home = base ?: return Start.CantStart("Couldn’t start signing in. Check that ${TvLinks.name(app)} is on the home Wi-Fi.")
+        // But Google's page needs them read: in a moment they are.
+        if (GoogleAuth.clientId(app) == null || (grant == GoogleAuth.Grant.NEST && GoogleAuth.nestProject(app) == null)) {
+            return Start.CantStart("${TvLinks.name(app)} can’t read its Google keys just now. Try again in a moment.")
+        }
         return begin(app, grant, home)
     }
 
