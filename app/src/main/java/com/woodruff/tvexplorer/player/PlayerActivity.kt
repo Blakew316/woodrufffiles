@@ -1396,19 +1396,32 @@ private const val MB = 1024 * 1024
 
 /**
  * How the player buffers. It starts as soon as 1 s is loaded (2 s after a stall) instead of Media3's
- * 2.5 / 5 s, so Play feels immediate, and keeps filling up to 50 s ahead while it plays. It keeps
- * [backBufferMs] behind the film too (from the keyframe before, so all of it can be played), so a
- * short rewind needs nothing new from Drive. Ahead and behind share one byte cap: Media3's own
+ * 2.5 / 5 s, so Play feels immediate, and from then on keeps the film loaded [BUFFER_AHEAD_MS] ahead.
+ * It keeps [backBufferMs] behind the film too (from the keyframe before, so all of it can be played),
+ * so a short rewind needs nothing new from Drive. Ahead and behind share one byte cap: Media3's own
  * (about 140 MB), or on a heap of 192 MB or less [bufferCapBytes], which keeps it and what OkHttp has
  * fetched ahead to half the heap (a Blu-ray remux would fill Media3's otherwise).
+ *
+ * Ahead stays topped up: Media3 stops loading once it holds the most it may (50 s, or the byte cap)
+ * and only starts again once the buffer is down to its minimum. That minimum was 15 s, so between
+ * refills the film sank to 15 s ahead (a remux at the byte cap too), and whether a 20–40 s Wi-Fi
+ * drop stalled it came down to when it struck. With the minimum equal to the maximum, as in Media3's
+ * own defaults, it loads again as soon as it's below either, a little at a time, and rides out a drop
+ * with all it can hold. The most it holds, and so its memory, is unchanged.
  */
 @OptIn(UnstableApi::class)
 internal fun playerLoadControl(heapMb: Int): androidx.media3.exoplayer.DefaultLoadControl =
     androidx.media3.exoplayer.DefaultLoadControl.Builder()
-        .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
+        .setBufferDurationsMs(BUFFER_AHEAD_MS, BUFFER_AHEAD_MS, START_BUFFER_MS, RESTART_BUFFER_MS)
         .setBackBuffer(backBufferMs(heapMb), /* retainBackBufferFromKeyframe = */ true)
         .apply { bufferCapBytes(heapMb)?.let { setTargetBufferBytes(it) } }
         .build()
+
+/** How far ahead of the film the player keeps it loaded, at most and at least (see [playerLoadControl]). */
+internal const val BUFFER_AHEAD_MS = 50_000
+/** How much film has to be loaded before Play starts, and before it carries on after a stall. */
+internal const val START_BUFFER_MS = 1_000
+internal const val RESTART_BUFFER_MS = 2_000
 
 /**
  * How much film the player keeps behind the playhead on a TV whose app heap is [heapMb] MB.
