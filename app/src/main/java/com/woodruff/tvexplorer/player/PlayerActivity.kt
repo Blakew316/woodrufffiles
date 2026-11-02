@@ -281,6 +281,39 @@ class PlayerActivity : ComponentActivity() {
         previewCard.show()
     }
 
+    // ---- Seeks ---------------------------------------------------------------------------------
+
+    /** How much film this player keeps behind the playhead, set as it's built. */
+    private var keptBehindMs = 0
+    /** The last seek aimed here and whether its spot was in memory, for the "picture after" log. */
+    private var aimed: Pair<Long, Boolean>? = null
+
+    /**
+     * Gets the player ready for a seek to [targetMs] that the viewer asked for (a scrub, ⏪ / ⏩,
+     * Skip intro): to the first clean frame just after the spot, or exactly on it where that's
+     * needed (Watch together, [exact]); see [SeekAim]. Applies to the next seek the player is told
+     * to make, which follows straight after.
+     */
+    private fun aimAt(p: ExoPlayer, targetMs: Long, exact: Boolean = leader) {
+        val buffered = p.bufferedPosition
+        p.setSeekParameters(SeekAim.parametersFor(targetMs, buffered, exact))
+        aimed = targetMs to SeekAim.isKept(targetMs, p.currentPosition, buffered, keptBehindMs)
+    }
+
+    /**
+     * The remote's ⏪ / ⏩ (Media3's controller skips 5 s back or 15 s ahead from where the film is):
+     * aimed like a scrub before PlayerView makes the jump.
+     */
+    private fun aimSkip(keyCode: Int) {
+        val p = player ?: return
+        val jump = when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_REWIND -> -p.seekBackIncrement
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> p.seekForwardIncrement
+            else -> return
+        }
+        aimAt(p, (p.currentPosition + jump).coerceAtLeast(0))
+    }
+
     // ---- Sleep timer, skip intro, remembered tracks ----------------------------------------
 
     private lateinit var skip: android.widget.TextView
@@ -338,9 +371,12 @@ class PlayerActivity : ComponentActivity() {
             // The leader moved on to another episode: follow it there if it's in this queue.
             val i = (0 until p.mediaItemCount).firstOrNull { p.getMediaItemAt(it).mediaId == u.key } ?: return
             cancelUpNext()
+            aimAt(p, target, exact = true)
             p.seekTo(i, target)
         } else if (kotlin.math.abs(p.currentPosition - target) > if (u.playing) 2_000 else 300) {
-            // Playing: only correct real drift. Paused: line up exactly on the leader's frame.
+            // Playing: only correct real drift. Paused: line up exactly on the leader's frame (a seek
+            // to the next keyframe would leave this TV up to 1.5 s off, and never corrected).
+            aimAt(p, target, exact = true)
             p.seekTo(target)
         }
         if (u.playing && upNextPanel.shown) cancelUpNext()
@@ -884,6 +920,7 @@ class PlayerActivity : ComponentActivity() {
         // a Blu-ray remux would fill Media3's ~140 MB otherwise.
         val heapMb = getSystemService(android.app.ActivityManager::class.java)?.memoryClass ?: 256
         val smallHeap = heapMb <= SMALL_HEAP_MB
+        keptBehindMs = if (smallHeap) 5_000 else 10_000
         // The TV's own decoders (and sound passed straight through to a soundbar) first; FFmpeg's
         // for the sound the TV can't play itself, so DTS and TrueHD films aren't silent.
         player = ExoPlayer.Builder(this, playerRenderers(this)).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()))
@@ -893,10 +930,14 @@ class PlayerActivity : ComponentActivity() {
             .setLoadControl(
                 androidx.media3.exoplayer.DefaultLoadControl.Builder()
                     .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
-                    .setBackBuffer(if (smallHeap) 5_000 else 10_000, /* retainBackBufferFromKeyframe = */ true)
+                    .setBackBuffer(keptBehindMs, /* retainBackBufferFromKeyframe = */ true)
                     .apply { bufferCapBytes(heapMb)?.let { setTargetBufferBytes(it) } }
                     .build(),
             )
+            // Seeks land on the first clean frame just after the spot (SeekAim); the viewer's are aimed
+            // one by one (aimAt), and this covers the rest (a voice "rewind"). Watch together's leader
+            // seeks exactly: the other TVs line up on the spot it asked for.
+            .setSeekParameters(if (leader) androidx.media3.exoplayer.SeekParameters.EXACT else SeekAim.SNAP)
             // Other apps go quiet while it plays, a voice question pauses it for a moment, and it
             // pauses when headphones are unplugged.
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
@@ -958,7 +999,14 @@ class PlayerActivity : ComponentActivity() {
                 }
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                     if (reason != Player.DISCONTINUITY_REASON_SEEK) return
-                    waitingForPicture = "Seek" to android.os.SystemClock.elapsedRealtime()
+                    // "Seek back 10 s, kept: picture after 40 ms": the jump, and whether it was meant
+                    // to come from memory, for a seek aimed here (aimAt; ⏪ / ⏩ read the position
+                    // again a moment later, so it can differ by a few ms).
+                    val what = aimed?.takeIf {
+                        kotlin.math.abs(it.first - newPosition.positionMs) <= 250 && oldPosition.mediaItemIndex == newPosition.mediaItemIndex
+                    }?.let { "Seek " + SeekAim.describe(oldPosition.positionMs, newPosition.positionMs, it.second) } ?: "Seek"
+                    aimed = null
+                    waitingForPicture = what to android.os.SystemClock.elapsedRealtime()
                     if (leader) sendSync()
                 }
 
@@ -1204,6 +1252,7 @@ class PlayerActivity : ComponentActivity() {
         if (event.action == KeyEvent.ACTION_DOWN) {
             val handled = handleKey(event)
             if (handled) { swallowUp = event.keyCode; return true }
+            aimSkip(event.keyCode) // ⏪ / ⏩: PlayerView jumps next
         }
         return view.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
     }
@@ -1242,7 +1291,8 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         if (skipCard.shown && !view.isControllerFullyVisible && ok) {
-            show(); player?.seekTo(introEnd); skipCard.hide(); return true
+            // To the first clean frame at or just after the intro's end: never before it.
+            show(); player?.let { aimAt(it, introEnd); it.seekTo(introEnd) }; skipCard.hide(); return true
         }
         if (view.isControllerFullyVisible) {
             // Back while scrubbing: back to where it was. Otherwise Back puts the controls away
