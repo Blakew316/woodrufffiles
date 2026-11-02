@@ -311,7 +311,8 @@ def diagnostics():
     return SMOOTHNESS.replace('{recording}', rec), left
 
 
-KEYS = {'up', 'down', 'left', 'right', 'ok', 'back', 'menu', 'home', 'playpause', 'mute', 'volup', 'voldown', 'netflix', 'youtube'}
+KEYS = {'up', 'down', 'left', 'right', 'ok', 'back', 'home', 'playpause', 'mute', 'volup', 'voldown', 'netflix', 'youtube'}
+KEYS.add('menu')   # holding OK on the phone's remote: the TV's menu for what's focused
 TYPES = {'.png': 'image/png', '.webmanifest': 'application/manifest+json'}
 
 
