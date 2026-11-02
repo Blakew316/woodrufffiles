@@ -48,6 +48,14 @@ data class NestState(
 )
 
 /**
+ * This state once listing the cameras failed for want of a network: offline, keeping the cameras listed before. Unless
+ * Google was never asked, the TV's Keystore still waking after a power cut ([waitingForKeys]): then it goes on loading,
+ * saying nothing of Google, and lists them the moment the Keystore wakes.
+ */
+internal fun NestState.unreachable(waitingForKeys: Boolean): NestState =
+    if (waitingForKeys) copy(loading = !offline, error = null) else copy(loading = false, offline = true, error = null)
+
+/**
  * App-wide camera state. Lives outside any screen so the phone's sign-in callback is handled even
  * if the viewer has moved to another screen while signing in on the phone.
  *
@@ -232,7 +240,8 @@ object Nest {
                         _state.update { it.copy(loading = false, offline = false, error = e.message ?: "Couldn’t load cameras", step = step()) }
                         return@launch
                     }
-                    _state.update { it.copy(loading = false, offline = true, error = null) }
+                    val waiting = withContext(Dispatchers.IO) { GoogleAuth.waitingForKeys(app, GoogleAuth.Grant.NEST) }
+                    _state.update { it.unreachable(waitingForKeys = waiting) }
                 }
                 val cameBack = NetworkWatch.awaitComeback(mark, backoffMs(tries, 10_000, 5 * 60_000))
                 tries = if (cameBack) 0 else tries + 1

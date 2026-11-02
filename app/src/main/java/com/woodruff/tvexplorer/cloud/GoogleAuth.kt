@@ -161,12 +161,20 @@ object GoogleAuth {
     fun saveNestProject(c: Context, id: String?) {
         val clean = id?.trim()?.takeIf { it.isNotEmpty() }
         if (clean != null) require(Regex("[0-9a-fA-F-]{20,64}").matches(clean)) { "The Project ID looks like 1a2b3c4d-…, from the Device Access Console" }
+        requireReadable(c, K_NEST_PROJECT)
         if (clean != nestProject(c)) s(c).remove(*Grant.NEST.stored, *Grant.NEST.marks)
         s(c).put(K_NEST_PROJECT, clean)
     }
 
+    /**
+     * Saving the Google keys (on the TV, from the phone, or from another TV) compares them with the saved ones: a
+     * different client means signing in again. Not while a saved one can't be read just now (the Keystore still
+     * waking after a power cut): it would read as missing, so even the same keys would count as new and end every
+     * sign-in, and what was typed couldn't be kept either. Turned down instead ([KEYS_NOT_YET]).
+     */
     fun saveClient(c: Context, id: String, secret: String) {
         val st = s(c)
+        requireReadable(c, K_CLIENT_ID, K_CLIENT_SECRET)
         val changed = st.get(K_CLIENT_ID) != id.trim() || st.get(K_CLIENT_SECRET) != secret.trim()
         st.put(K_CLIENT_ID, id.trim())
         st.put(K_CLIENT_SECRET, secret.trim())
@@ -180,6 +188,36 @@ object GoogleAuth {
     /** Separate setters for editing one value at a time on the TV. */
     fun saveClientId(c: Context, id: String) = saveClient(c, id, s(c).get(K_CLIENT_SECRET).orEmpty())
     fun saveClientSecret(c: Context, secret: String) = saveClient(c, clientId(c).orEmpty(), secret)
+
+    /** What saving a key says while the saved keys can't be read just now (the Keystore still waking after a power cut). */
+    const val KEYS_NOT_YET = "This TV can’t read its keys just yet. Try again in a moment."
+
+    /**
+     * Whether a Google key or the cameras' project is kept on this TV but can't be read just now (the Keystore still
+     * waking after a power cut): Settings says it's saved, and waits rather than offer to type it again.
+     */
+    fun keysUnreadableNow(c: Context): Boolean = s(c).let { st -> SAVED_KEYS.any { unreadableNow(st, it) } }
+
+    private val SAVED_KEYS = listOf(K_CLIENT_ID, K_CLIENT_SECRET, K_NEST_PROJECT)
+
+    /**
+     * Whether [grant]'s sign-in, or a key it needs, is kept but can't be read just now: the TV's Keystore is still
+     * waking after a power cut. A token asked for then is [TokenResult.Offline], but Google was never asked: screens
+     * keep what they show ("Loading", with nothing saved) rather than say "Can't reach Google", and try again the
+     * moment the Keystore wakes (its key turning up wakes whatever waits for the network: [SecretStore.keyBack]).
+     */
+    fun waitingForKeys(c: Context, grant: Grant): Boolean = s(c).let { st ->
+        unreadableNow(st, grant.refreshKey) || unreadableNow(st, K_CLIENT_ID) || (grant == Grant.NEST && unreadableNow(st, K_NEST_PROJECT))
+    }
+
+    /** [IllegalArgumentException] ([KEYS_NOT_YET]), as for a key that won't do, while any of [names] can't be read just now. */
+    private fun requireReadable(c: Context, vararg names: String) {
+        val st = s(c)
+        require(names.none { unreadableNow(st, it) }) { KEYS_NOT_YET }
+    }
+
+    /** Whether [name] is kept but can't be read just now; read first, so a key found meanwhile is read and counts. */
+    private fun unreadableNow(st: SecretStore, name: String) = st.get(name) == null && st.isUnreadableNow(name)
 
     /**
      * A sign-in attempt: [state] ties the phone's callback to this TV; [verifier] is the PKCE secret (null = no PKCE).

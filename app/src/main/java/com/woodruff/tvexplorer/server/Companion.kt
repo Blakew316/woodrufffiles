@@ -465,7 +465,10 @@ class CompanionRoutes(private val ctx: Context) {
             json(JSONObject().put("phone", Phones.toJson(p, withTopic = true)).put("phones", phonesJson()))
         }
         s.uri == "/api/phones" && s.method == Method.GET -> json(JSONObject().put("phones", phonesJson()))
-        s.uri == "/api/phone/delete" && s.method == Method.POST -> { Phones.remove(ctx, body(s).optString("id")); json(JSONObject().put("phones", phonesJson())) }
+        s.uri == "/api/phone/delete" && s.method == Method.POST -> {
+            if (!Phones.remove(ctx, body(s).optString("id"))) throw java.io.IOException(Phones.LIST_NOT_YET)
+            json(JSONObject().put("phones", phonesJson()))
+        }
         // A phone's messages after the last one it has (?after=, with the inbox's ?epoch= it was numbered in), never
         // taken: one whose reply didn't reach the phone comes again (finding 43). Without ?after=, as before numbers.
         s.uri == "/api/inbox" && s.method == Method.GET -> json(com.woodruff.tvexplorer.phones.PhoneInbox.since(

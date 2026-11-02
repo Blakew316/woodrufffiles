@@ -92,6 +92,14 @@ object NetworkWatch {
     suspend fun awaitComeback(mark: Int, timeoutMs: Long): Boolean =
         withTimeoutOrNull(timeoutMs) { comebacks.first { it != mark } } != null
 
+    /**
+     * Something a failed try may have been waiting for is back, though the network never went: the TV's Keystore found
+     * its key after keeping the saved sign-ins unreadable for a while after the TV turned on
+     * ([com.woodruff.tvexplorer.settings.SecretStore]). A tick of [comebacks], so whatever waits to try again (the
+     * libraries, the calendar, the cameras, the doorbell) tries now, not after its pause.
+     */
+    fun tryAgainNow() = _comebacks.update { it + 1 }
+
     private fun note(change: NetworkTracker.Change) {
         _online.value = change.online
         if (change.cameBack) _comebacks.update { it + 1 }

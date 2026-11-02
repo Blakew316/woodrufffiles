@@ -65,6 +65,14 @@ internal fun CalendarState.offlineOn(today: Int, noNetwork: Boolean = false): Ca
     copy(loaded = true, offline = true, error = null, events = if (day == today) events else emptyList(), day = today, noNetwork = noNetwork)
 
 /**
+ * This state after a refresh that failed for want of a network on day [today] ([offlineOn]), unless Google was never
+ * asked: the TV's Keystore can't read the sign-in just yet ([waitingForKeys], just after a power cut). Then nothing
+ * changes and nothing is claimed ("Can't reach Google" would be wrong), and it's tried again the moment it wakes.
+ */
+internal fun CalendarState.afterNetworkFailure(today: Int, noNetwork: Boolean, waitingForKeys: Boolean): CalendarState =
+    if (waitingForKeys) this else offlineOn(today, noNetwork)
+
+/**
  * Today's Activities from Google Calendar (read-only). Lists every calendar the owner has turned
  * on in Google Calendar, fetches today's events from all of them in parallel, and refreshes every
  * 10 minutes, at midnight, and whenever the network comes back (a TV woken from standby). Sign-in
@@ -151,8 +159,10 @@ object TodayCalendar {
         } catch (e: Exception) {
             Log.w("TodayCalendar", "refresh failed: ${e.message}")
             if (isNetworkFailure(e)) {
-                // No network yet (a TV just woken), or Google unreachable: not "sign-in expired".
-                _state.update { it.offlineOn(dayKey(), noNetwork = !NetworkWatch.online.value) }
+                // No network yet (a TV just woken), or Google unreachable: not "sign-in expired". Or Google was never
+                // asked, the TV's Keystore still waking after a power cut: nothing claimed, tried again once it wakes.
+                val waiting = withContext(Dispatchers.IO) { GoogleAuth.waitingForKeys(app, GoogleAuth.Grant.CALENDAR) }
+                _state.update { it.afterNetworkFailure(dayKey(), noNetwork = !NetworkWatch.online.value, waitingForKeys = waiting) }
                 false
             } else {
                 // Only a sign-in that's gone (Google ended it) counts as signed out; its words are

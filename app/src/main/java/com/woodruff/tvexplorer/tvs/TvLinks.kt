@@ -100,6 +100,18 @@ object TvLinks {
     val linked: StateFlow<List<LinkedTv>> = _linked
     @Volatile private var loaded = false
 
+    /**
+     * Whether this run has read its list of linked TVs ([load]). Not while the Keystore is still waking after a power
+     * cut: the list is empty then only for now, which the doorbell mustn't take for "no TVs to pass rings on to".
+     */
+    val listRead: Boolean get() = loaded
+
+    init {
+        // A list read as "not yet" while the Keystore was still waking is read again the moment it finds its key, for
+        // the screens showing it (Settings, the Announce dialog) and the doorbell's relay, not whenever something next asks.
+        SecretStore.whenKeyBack { c -> load(c) }
+    }
+
     // ---- This TV ---------------------------------------------------------------------------
 
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -326,7 +338,7 @@ object TvLinks {
         val r = try {
             request("$base/api/link", "POST", body.toString())
         } catch (e: IOException) {
-            throw IOException(if (e.message?.contains("403") == true) "That code didn’t work. Check the code on the other TV." else COULD_NOT_REACH)
+            throw IOException(if (e.message?.contains("403") == true) WRONG_CODE else COULD_NOT_REACH)
         }
         val o = JSONObject(r)
         val tv = LinkedTv(o.getString("id"), o.getString("name"), base, o.getString("key"))
@@ -348,7 +360,9 @@ object TvLinks {
     /**
      * Links again a TV whose link stopped working ([id]) with the code it shows: at its saved
      * address, else wherever the network says it is now (by its id, or its name for a reset TV), for
-     * up to 5 s. The old entry gives way to the new one, so there's one, not two (finding 55).
+     * up to 5 s. The old entry gives way to the new one, so there's one, not two (finding 55). A code
+     * turned down at the saved address is tried where the TV is now too ([relinkAt]): after a power
+     * cut the router may have given that address to another TV, which turns down a code it never showed.
      */
     suspend fun relink(c: Context, id: String, code: String): LinkedTv = withContext(Dispatchers.IO) {
         load(c)
@@ -356,13 +370,14 @@ object TvLinks {
         try {
             link(c, old.base, code, replacing = id)
         } catch (e: IOException) {
-            if (e.message != COULD_NOT_REACH) throw e
-            val at = findOnNetwork(c, old) ?: throw e
+            if (e.message != COULD_NOT_REACH && e.message != WRONG_CODE) throw e
+            val at = relinkAt(codeTurnedDown = e.message == WRONG_CODE, saved = old.base, found = findOnNetwork(c, old)) ?: throw e
             link(c, at, code, replacing = id)
         }
     }
 
     private const val COULD_NOT_REACH = "Couldn’t reach that TV."
+    private const val WRONG_CODE = "That code didn’t work. Check the code on the other TV."
 
     /** Where [tv] (by its id, else its name) is on the network now, looking for up to 5 s; null when it isn't found. */
     private suspend fun findOnNetwork(c: Context, tv: LinkedTv): String? {
@@ -750,28 +765,27 @@ object TvLinks {
      * that TV, and saved there when its address changed.
      */
     private suspend fun search(c: Context, ids: Set<String>) {
-        val left = ids.filterTo(HashSet()) { find(it) != null }
-        if (left.isEmpty()) return
+        val search = LinkSearch(ids.filterTo(HashSet()) { find(it) != null }, suspects) { _linked.value }
+        if (search.done) return
         val found = Channel<Found>(Channel.UNLIMITED)
         val stop = discover(c) { found.trySend(it) }
         try {
             withTimeoutOrNull(REFIND_SEARCH_MS) {
                 for (f in found) {
-                    // A Woodruff TV advertised where a TV turned down its link key: that link stopped working.
-                    for (id in refusedHere(f, left, suspects)) {
-                        left.remove(id)
-                        markRefused(c, id)
-                        Log.i("TvLinks", "A linked TV turns down its link")
-                    }
-                    if (left.isEmpty()) break
-                    val tv = candidatesFor(f, _linked.value.filter { it.id in left }).firstOrNull { isTv(it, f.base) } ?: continue
-                    left.remove(tv.id)
+                    val tv = search.seen(f, ::isTv) ?: continue
+                    // It answers with its key: whatever turned the key down at its old address wasn't it.
+                    suspects.remove(tv.id)
                     if (f.base != tv.base) moved(c, tv.id, f.base)?.let { now ->
                         Log.i("TvLinks", "Found ${tv.name} at a new address")
                         refinds.found(tv.id).forEach { send -> scope.launch { runCatching { send(now) } } }
                     }
-                    if (left.isEmpty()) break
+                    if (search.done) break
                 }
+            }
+            // A Woodruff TV advertised where a TV turned down its link key, and that TV nowhere else: that link stopped working.
+            for (id in search.refused()) {
+                markRefused(c, id)
+                Log.i("TvLinks", "A linked TV turns down its link")
             }
         } finally {
             stop()
@@ -1041,10 +1055,62 @@ internal fun linkedAfter(list: List<LinkedTv>, tv: LinkedTv, replacing: String?,
  * Which of the linked TVs [left] (by id) a TV [found] on the network shows turning down its link:
  * the ones a 401 came from at the very address it's advertised at ([suspects]: id to address). It's
  * a Woodruff TV there that won't take the key (reset, reinstalled, or told to stop other TVs seeing
- * it), not some other device that took the address.
+ * it), not some other device that took the address. Nor another of the [linked] TVs: after a power
+ * cut the router may give one TV's old address to another, which turns down a key that isn't its own
+ * while the TV looked for is fine somewhere else ([isAnotherLinkedTv]).
  */
-internal fun refusedHere(found: TvLinks.Found, left: Set<String>, suspects: Map<String, String>): List<String> =
-    left.filter { suspects[it] == found.base }
+internal fun refusedHere(found: TvLinks.Found, left: Set<String>, suspects: Map<String, String>, linked: List<LinkedTv> = emptyList()): List<String> =
+    left.filter { suspects[it] == found.base && !isAnotherLinkedTv(found, it, linked) }
+
+/**
+ * Whether the TV [found] on the network is one of the [linked] TVs other than [id]: by the id it
+ * advertises, or, from an older Woodruff that advertises none, by its name (when that isn't [id]'s
+ * name too). A TV advertising an id this TV doesn't know is a TV reset since: it may be [id].
+ */
+internal fun isAnotherLinkedTv(found: TvLinks.Found, id: String, linked: List<LinkedTv>): Boolean {
+    val others = linked.filter { it.id != id }
+    val foundId = found.id
+        ?: return others.any { sameTvName(found.name, it.name) } && linked.none { it.id == id && sameTvName(found.name, it.name) }
+    return others.any { it.id == foundId }
+}
+
+/**
+ * One look on the network for the linked TVs [ids] that stopped answering, as TVs turn up there
+ * ([seen]): which of them is where, and which turn their link down. One that turned its key down at
+ * its old address ([suspects]: id to address) and is seen advertised there counts as refusing only
+ * once the look is over ([refused]) without it turning up anywhere else by its own key: what's
+ * advertised there may be an old record of it, and it may answer at its new address a moment later.
+ */
+internal class LinkSearch(ids: Set<String>, private val suspects: Map<String, String>, private val linked: () -> List<LinkedTv>) {
+    /** The TVs not found yet. */
+    private val left = HashSet(ids)
+    private val refusing = HashSet<String>()
+
+    /** Whether every TV has been found. */
+    val done: Boolean get() = left.isEmpty()
+
+    /** [f] turned up: the linked TV it is, checked with [isTv] (that TV's link key at [f]'s address), or null. */
+    fun seen(f: TvLinks.Found, isTv: (LinkedTv, String) -> Boolean): LinkedTv? {
+        val list = linked()
+        refusing += refusedHere(f, left, suspects, list)
+        val tv = candidatesFor(f, list.filter { it.id in left }).firstOrNull { isTv(it, f.base) } ?: return null
+        left.remove(tv.id)
+        return tv
+    }
+
+    /** Once the look is over: the TVs that turn their link down where a Woodruff TV is advertised, and turned up nowhere else. */
+    fun refused(): Set<String> = refusing.filterTo(HashSet()) { it in left }
+}
+
+/**
+ * Where to link a TV again once linking it at its [saved] address failed, given where the network
+ * says it is now ([found]; null: nowhere). Not reached there: wherever it is now. Its code turned
+ * down there ([codeTurnedDown]): only somewhere else, since another TV may have taken its address
+ * (and turns down a code it never showed), while the TV itself there means the code was wrong.
+ * Null: nothing more to try.
+ */
+internal fun relinkAt(codeTurnedDown: Boolean, saved: String, found: String?): String? =
+    if (codeTurnedDown) found?.takeIf { it != saved } else found
 
 // ---- Finding a linked TV again (plain logic, unit-tested) -------------------------------------
 

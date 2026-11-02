@@ -150,17 +150,26 @@ internal sealed interface Fetch {
     data object SignedOut : Fetch
     /** Couldn't get through to Google: keep what's shown and try again (see [DriveStatus.Offline]). */
     data object Offline : Fetch
+    /**
+     * The TV can't read its sign-in just yet (its Keystore still waking after a power cut: [GoogleAuth.waitingForKeys]).
+     * Not Google's doing, so no offline words: what's shown stays ("Loading", with nothing saved), and it's tried again
+     * the moment the Keystore wakes.
+     */
+    data object Waiting : Fetch
     /** Google refused this TV's keys (see [DriveStatus.Refused]). */
     data class Refused(val message: String) : Fetch
     /** Anything else (no Movies folder, a 404…): [message] in place of a list when nothing's shown. */
     data class Failed(val message: String) : Fetch
 }
 
-/** [token]'s answer as a [Fetch], when there's no token to list with. Null for a token. */
-internal fun fetchFor(token: GoogleAuth.TokenResult): Fetch? = when (token) {
+/**
+ * [token]'s answer as a [Fetch], when there's no token to list with. Null for a token. [waitingForKeys]: whether an
+ * offline answer is only the TV's Keystore still waking ([Fetch.Waiting]).
+ */
+internal fun fetchFor(token: GoogleAuth.TokenResult, waitingForKeys: Boolean = false): Fetch? = when (token) {
     is GoogleAuth.TokenResult.Ok -> null
     GoogleAuth.TokenResult.SignedOut -> Fetch.SignedOut
-    is GoogleAuth.TokenResult.Offline -> Fetch.Offline
+    is GoogleAuth.TokenResult.Offline -> if (waitingForKeys) Fetch.Waiting else Fetch.Offline
     is GoogleAuth.TokenResult.Rejected -> Fetch.Refused(token.message)
 }
 
@@ -198,6 +207,8 @@ internal fun DriveState.after(outcome: Fetch, here: Boolean, now: Long = System.
         copy(status = st, busy = if (here) files.isEmpty() && !st.said else busy, error = if (here) null else error)
     }
     is Fetch.Refused -> copy(status = DriveStatus.Refused(outcome.message), busy = if (here) false else busy, error = if (here) null else error)
+    // Google wasn't asked (the TV's Keystore still waking): nothing changes, and nothing is said.
+    Fetch.Waiting -> this
     // Google answered, with something else (no Movies folder, a 404): not offline any more. With a
     // list on screen, keep showing it rather than an error.
     is Fetch.Failed -> {
@@ -460,7 +471,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 val outcomes = LIBRARIES.filter { !isFresh(lastTriedAt(it), now) }.map { refreshLibrary(it) }.awaitAll()
                 // Signed out, or the keys refused: the Drive screen says so, nothing to warm. Listed,
                 // or Drive answered something else (no TV Shows folder): done until the next visit.
-                if (outcomes.none { it == Fetch.Offline } || outcomes.any { it == Fetch.SignedOut || it is Fetch.Refused }) return@launch
+                if (outcomes.none { it == Fetch.Offline || it == Fetch.Waiting } || outcomes.any { it == Fetch.SignedOut || it is Fetch.Refused }) return@launch
                 // Woodruff not on screen (the TV in standby, a film or another app in front): only the
                 // network coming back is worth a try, not a timer all night. Home coming back starts it
                 // afresh (homeShown).
@@ -957,7 +968,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 _state.update { it.after(outcome, here = it.place == place, now = clock(), google = NetworkWatch.online.value) }
                 afterStatusChange()
-                if (outcome != Fetch.Offline) return@launch
+                if (outcome != Fetch.Offline && outcome != Fetch.Waiting) return@launch
                 val cameBack = withTimeoutOrNull(retryPause(tries)) {
                     combine(NetworkWatch.comebacks, reachedTicks) { c, r -> c != mark || r != tick }.first { it }
                 } != null
@@ -1042,6 +1053,10 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Whether [token] is offline only because the Drive sign-in can't be read just yet ([GoogleAuth.waitingForKeys]). */
+    private suspend fun waitingForKeys(token: GoogleAuth.TokenResult): Boolean =
+        token is GoogleAuth.TokenResult.Offline && withContext(Dispatchers.IO) { GoogleAuth.waitingForKeys(ctx, GoogleAuth.Grant.DRIVE) }
+
     /**
      * Lists a library (Movies or TV Shows) from Drive in full: its entries, the owner's posters, then
      * TMDB's details, each put on screen as it arrives (if the viewer is there). Only a listing that
@@ -1055,7 +1070,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         val gen = synchronized(libraryLock) { generation }
         val disk = ListingCache.generation()
         val result = GoogleAuth.tokenResult(ctx)
-        fetchFor(result)?.let { return it }
+        fetchFor(result, waitingForKeys(result))?.let { return it }
         val token = (result as GoogleAuth.TokenResult.Ok).token
         // Home's Google-hosted posters need it too, before Streaming is ever opened.
         _state.update { if (it.connected && it.token != token) it.copy(token = token) else it }
@@ -1129,7 +1144,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun fetch(place: DrivePlace, stack: List<DrivePlace>, library: Boolean, renewed: Boolean = false): Fetch {
         val disk = ListingCache.generation()
         val result = GoogleAuth.tokenResult(ctx)
-        fetchFor(result)?.let { return it }
+        fetchFor(result, waitingForKeys(result))?.let { return it }
         val token = (result as GoogleAuth.TokenResult.Ok).token
         return try {
             // Show the listing (with the owner's own art) right away; TMDB posters follow.

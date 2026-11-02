@@ -230,9 +230,11 @@ fun SettingsScreen(vm: MainViewModel) {
     // first frame, so nothing flashes, then off the main thread each time something changes or the
     // TV comes back from Android's settings. Google Photos connects in its own dialog: read again
     // when it closes.
-    // (Read again when the doorbell's listener changes what it's doing.)
+    // (Read again when the doorbell's listener changes what it's doing, and when the TV's Keystore wakes after a power
+    // cut: the keys it couldn't read are read then.)
     val doorbellListening by Doorbell.listening.collectAsStateWithLifecycle()
-    val facts by produceState(remember { readFacts(context) }, v, showPhotos, showCalendar, doorbellListening) {
+    val keysBack by com.woodruff.tvexplorer.settings.SecretStore.keyBacks.collectAsStateWithLifecycle()
+    val facts by produceState(remember { readFacts(context) }, v, showPhotos, showCalendar, doorbellListening, keysBack) {
         value = withContext(Dispatchers.IO) { readFacts(context) }
     }
     val update by Updater.state.collectAsStateWithLifecycle()
@@ -261,7 +263,7 @@ fun SettingsScreen(vm: MainViewModel) {
         }
     }
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
-    LaunchedEffect(Unit) { Phones.load(context) }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Phones.load(context) } } // the encrypted store: off the main thread
     val phones by Phones.items.collectAsStateWithLifecycle()
     val roots by vm.roots.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshRoots() }
@@ -410,9 +412,12 @@ fun SettingsScreen(vm: MainViewModel) {
             about = "iCloud, Gmail, Outlook and others. You’ll need an app-specific password, not your usual one.",
         ) { dialog = SettingsDialog.PickProvider }
         SettingsPage.KEYS -> buildList {
-            add(SettingItem(Sym.Key, "Google Client ID", facts.clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it. Copied to every linked TV.") { dialog = SettingsDialog.ClientId })
-            add(SettingItem(Sym.Lock, "Google Client secret", if (facts.configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted, and copied to every linked TV.") { dialog = SettingsDialog.ClientSecret })
-            add(SettingItem(Sym.Key, "Cameras project ID", facts.nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it. Copied to every linked TV.") { dialog = SettingsDialog.NestProject })
+            // While the TV's Keystore is still waking (just after a power cut), a saved key says "Saved" and isn't
+            // offered for typing again: saving over one that can't be read yet would end every sign-in.
+            val edit = { d: SettingsDialog -> if (facts.keysLater) vm.say(GoogleAuth.KEYS_NOT_YET) else dialog = d }
+            add(SettingItem(Sym.Key, "Google Client ID", facts.clientId?.let { mask(it, 18) } ?: savedOr(facts.clientIdSaved), about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it. Copied to every linked TV.") { edit(SettingsDialog.ClientId) })
+            add(SettingItem(Sym.Lock, "Google Client secret", if (facts.configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted, and copied to every linked TV.") { edit(SettingsDialog.ClientSecret) })
+            add(SettingItem(Sym.Key, "Cameras project ID", facts.nestProject?.let { mask(it, 13) } ?: savedOr(facts.nestProjectSaved), about = "From Google Device Access. The cameras need it. Copied to every linked TV.") { edit(SettingsDialog.NestProject) })
             // A key saved while TMDB couldn't be reached is checked as posters load: one TMDB turns down says so.
             add(
                 SettingItem(
@@ -682,14 +687,16 @@ fun SettingsScreen(vm: MainViewModel) {
             "Google Client ID", facts.clientId.orEmpty(), "Save",
             onConfirm = { id ->
                 if (!id.endsWith(".apps.googleusercontent.com")) vm.say("A Client ID ends in .apps.googleusercontent.com")
-                else { SharedKeys.set(context, SharedKey.GOOGLE) { GoogleAuth.saveClientId(context, id) }; changed() }
+                else try { SharedKeys.set(context, SharedKey.GOOGLE) { GoogleAuth.saveClientId(context, id) }; changed() } catch (e: IllegalArgumentException) { vm.say(e.message ?: GoogleAuth.KEYS_NOT_YET) }
             },
             onDismiss = { dialog = null },
             hint = "From Google Cloud → Credentials → your Web application client.",
         )
         SettingsDialog.ClientSecret -> TextInputDialog(
             "Google Client secret", "", "Save",
-            onConfirm = { secret -> SharedKeys.set(context, SharedKey.GOOGLE) { GoogleAuth.saveClientSecret(context, secret) }; changed() },
+            onConfirm = { secret ->
+                try { SharedKeys.set(context, SharedKey.GOOGLE) { GoogleAuth.saveClientSecret(context, secret) }; changed() } catch (e: IllegalArgumentException) { vm.say(e.message ?: GoogleAuth.KEYS_NOT_YET) }
+            },
             onDismiss = { dialog = null }, secret = true, hint = "Usually starts with GOCSPX-",
         )
         SettingsDialog.RemoveGoogle -> ConfirmDialog(
@@ -1065,6 +1072,11 @@ private fun onOff(on: Boolean) = if (on) "On" else "Off"
 private data class SettingsFacts(
     val clientId: String?, val configured: Boolean, val connected: Boolean,
     val nestProject: String?, val nestConnected: Boolean, val photosConnected: Boolean, val tmdbSet: Boolean,
+    /**
+     * Whether the Client ID and the cameras' project are saved, read or not ([clientId] and [nestProject] are null
+     * while they can't be read just now), and whether any Google key can't be ([keysLater]: the Keystore still waking).
+     */
+    val clientIdSaved: Boolean, val nestProjectSaved: Boolean, val keysLater: Boolean,
     /** Each sign-in as Accounts says it (ended, keys refused…). */
     val drive: GoogleAuth.SignIn, val photos: GoogleAuth.SignIn, val calendar: GoogleAuth.SignIn, val cameras: GoogleAuth.SignIn,
     /** TMDB turned the saved key down (as posters loaded). */
@@ -1084,9 +1096,12 @@ private fun readFacts(context: android.content.Context): SettingsFacts {
         configured = GoogleAuth.isConfigured(context),
         connected = GoogleAuth.isConnected(context),
         nestProject = GoogleAuth.nestProject(context),
+        clientIdSaved = GoogleAuth.hasClientId(context),
+        nestProjectSaved = GoogleAuth.hasNestProject(context),
+        keysLater = GoogleAuth.keysUnreadableNow(context),
         nestConnected = GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST),
         photosConnected = GoogleAuth.isConnected(context, GoogleAuth.Grant.PHOTOS),
-        tmdbSet = Tmdb.isConfigured(context),
+        tmdbSet = Tmdb.hasKey(context),
         drive = SettingsSamples.signIns?.get(GoogleAuth.Grant.DRIVE) ?: GoogleAuth.signIn(context, GoogleAuth.Grant.DRIVE),
         photos = SettingsSamples.signIns?.get(GoogleAuth.Grant.PHOTOS) ?: GoogleAuth.signIn(context, GoogleAuth.Grant.PHOTOS),
         calendar = SettingsSamples.signIns?.get(GoogleAuth.Grant.CALENDAR) ?: GoogleAuth.signIn(context, GoogleAuth.Grant.CALENDAR),
@@ -1131,6 +1146,9 @@ private fun count(n: Int, one: String, none: String) = when (n) {
 }
 
 private fun mask(s: String, keep: Int) = if (s.length <= keep) s else s.take(keep) + "…"
+
+/** A key's row while its value isn't shown: "Saved" ([saved]: kept, if not readable just now) or "Not set". */
+private fun savedOr(saved: Boolean) = if (saved) "Saved" else "Not set"
 
 /** One page's rows. [focusOn]: the row that takes the focus as the page appears after a move. */
 @Composable

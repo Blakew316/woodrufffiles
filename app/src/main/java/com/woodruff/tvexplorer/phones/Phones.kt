@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -29,45 +30,85 @@ object Phones {
     private const val KEY = "phones"
     private const val NTFY = "https://ntfy.sh/"
     private val ID = Regex("[A-Za-z0-9-]{8,64}")
+
+    init {
+        // A list read as "not yet" while the Keystore was still waking is read again the moment it finds its key, for
+        // the screens showing it (Settings, the Announce dialog) and announcements, not whenever something next asks.
+        SecretStore.whenKeyBack { c -> load(c) }
+    }
+
     private val _items = MutableStateFlow<List<Phone>>(emptyList())
     val items: StateFlow<List<Phone>> = _items
     @Volatile private var loaded = false
 
-    @Synchronized
+    /** What a phone checking in (or a change asked for) hears while this run can't read the saved list yet ([load]). */
+    internal const val LIST_NOT_YET = "This TV can’t read its list of phones just now. Try again in a moment."
+
+    /**
+     * The paired phones, read from the encrypted store once per run. While the Keystore can't read the
+     * saved list yet (some TVs, for a while after they turn on: [SecretStore.isUnreadableNow]) there are
+     * none for now, and the next call reads it again. Taken as none for the whole run, announcements would
+     * reach no phone, and the next phone to check in would save a list of only itself over the real one:
+     * every other phone's name and lock-screen alerts gone for good.
+     */
     fun load(c: Context) {
         if (loaded) return
-        loaded = true
-        _items.value = runCatching {
-            val arr = JSONArray(SecretStore.get(c).get(KEY) ?: "[]")
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                Phone(o.getString("id"), o.getString("name"), o.optString("topic").ifBlank { null }, o.optLong("seen"))
-            }
-        }.getOrDefault(emptyList())
+        // Read outside the lock: a Keystore still waking can take a moment, and nobody waits behind it.
+        val store = SecretStore.get(c)
+        // Asked again when it isn't unreadable: another thread may have read it as the key turned up.
+        val saved = store.get(KEY) ?: if (store.isUnreadableNow(KEY)) return else store.get(KEY)
+        synchronized(this) {
+            if (loaded) return
+            loaded = true
+            _items.value = runCatching {
+                val arr = JSONArray(saved ?: "[]")
+                (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    Phone(o.getString("id"), o.getString("name"), o.optString("topic").ifBlank { null }, o.optLong("seen"))
+                }
+            }.getOrDefault(emptyList())
+        }
     }
 
-    /** Registers or renames a phone. [alerts] true creates its ntfy topic, false removes it. */
-    @Synchronized
+    /**
+     * Registers or renames a phone. [alerts] true creates its ntfy topic, false removes it. Never over a list
+     * this run couldn't read yet ([load]): that says to try again in a moment instead ([LIST_NOT_YET]; the
+     * phone app's own check-in as it opens just tries again the next time).
+     */
     fun hello(c: Context, id: String, name: String, alerts: Boolean?): Phone {
         load(c)
         require(ID.matches(id)) { "Bad phone id" }
-        val old = _items.value.firstOrNull { it.id == id }
-        val topic = when (alerts) {
-            true -> old?.topic ?: ("woodruff-" + TransferServer.randomToken() + TransferServer.randomToken())
-            false -> null
-            null -> old?.topic
+        synchronized(this) {
+            if (!loaded) throw IOException(LIST_NOT_YET)
+            val old = _items.value.firstOrNull { it.id == id }
+            val topic = when (alerts) {
+                true -> old?.topic ?: ("woodruff-" + TransferServer.randomToken() + TransferServer.randomToken())
+                false -> null
+                null -> old?.topic
+            }
+            val label = name.trim().take(40).ifBlank { old?.name ?: "iPhone" }
+            val p = Phone(id, label, topic, System.currentTimeMillis())
+            write(c, (_items.value.filter { it.id != id } + p).sortedBy { it.name.lowercase() })
+            return p
         }
-        val label = name.trim().take(40).ifBlank { old?.name ?: "iPhone" }
-        val p = Phone(id, label, topic, System.currentTimeMillis())
-        write(c, (_items.value.filter { it.id != id } + p).sortedBy { it.name.lowercase() })
-        return p
     }
 
-    @Synchronized
-    fun remove(c: Context, id: String) {
+    /** Forgets a phone and its waiting messages. False, and nothing changes, while the saved list can't be read yet ([load]). */
+    fun remove(c: Context, id: String): Boolean {
         load(c)
-        PhoneInbox.remove(c, id)
-        write(c, _items.value.filter { it.id != id })
+        synchronized(this) {
+            if (!loaded) return false
+            PhoneInbox.remove(c, id)
+            write(c, _items.value.filter { it.id != id })
+            return true
+        }
+    }
+
+    /** Tests: forgets what this run of the app read, as the next run would. */
+    @androidx.annotation.VisibleForTesting
+    internal fun forgetForTest() = synchronized(this) {
+        loaded = false
+        _items.value = emptyList()
     }
 
     /**
