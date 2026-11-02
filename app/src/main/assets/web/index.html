@@ -2809,11 +2809,11 @@
       var picked = d.tvs.filter(function (t) { return t.id === tvId; })[0];
       reached(true, tvId === 'this' || !picked ? null : !!picked.online);
       calm('tvs', function () { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); });
-    }, function () {
+    }, function (e) {
       // Settings › TVs keeps its last rows; it says so once.
       if (!tvsFailed && tvsShowing() && tvs.length) toast('Can’t reach ' + hubName(), true);
       tvsFailed = true;
-      reached(false, null);
+      reached(!e.unreachable, null);   // (an answer, even a refusal, means this TV can be reached)
     }).then(function () { if (seq && seq === tvSeq) tvTimer = setTimeout(loadTvs, 5000); });
   }
   // ---- Can’t reach the TV (finding 45) -----------------------------------------------------------------
@@ -3663,7 +3663,8 @@
     clearTimeout(pollTimer);
     if (document.hidden || (current !== 'remote' && !kbOpen)) return;
     var id = tvId, seq = ++fieldSeq, linked = id !== 'this';
-    api(linked ? '/api/tvs/type?id=' + q(id) : '/api/type').then(function (d) {
+    // (this TV answers at once, so 4 s is plenty and tells soon when it can't be reached; through it, 10 s)
+    api(linked ? '/api/tvs/type?id=' + q(id) : '/api/type', null, linked ? 10000 : 4000).then(function (d) {
       if (seq !== fieldSeq) return;
       reached(true, linked ? true : null);
       calm('field', function () { if (id === tvId) showField(d.field, d.note); });
