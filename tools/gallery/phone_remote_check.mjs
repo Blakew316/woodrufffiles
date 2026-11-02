@@ -13,7 +13,7 @@ const browser = await chromium.launch();
 const iphone = devices['iPhone 13'];
 const context = await browser.newContext({ ...iphone });
 await context.addInitScript(() => {
-  localStorage.setItem('woodruff.device', JSON.stringify({ id: 'p-blake', name: "Blake's iPhone", alerts: true, topic: 'woodruff-example' }));
+  localStorage.setItem('woodruff.device', JSON.stringify({ id: 'p-check', name: 'iPhone', alerts: true, topic: 'woodruff-example' }));
   localStorage.setItem('woodruff.installHint', '1');
 });
 const page = await context.newPage();
