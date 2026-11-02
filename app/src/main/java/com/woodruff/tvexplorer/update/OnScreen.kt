@@ -149,10 +149,16 @@ object OnScreen : Application.ActivityLifecycleCallbacks {
     /**
      * An activity's window callback that tells [Presence] about each key press (and tap) before
      * handing it to the activity, about other input (a pointer moving), and about the window getting
-     * the focus back.
+     * the focus back. Woodruff's pop-ups (title pages, menus, the filters) get one too, which also
+     * does for them what MainActivity does with the keys of its own window
+     * ([com.woodruff.tvexplorer.ui.motion.DialogWindows]).
      */
-    internal class KeyCounter(private val activity: Window.Callback) : Window.Callback by activity {
-        override fun dispatchKeyEvent(event: KeyEvent): Boolean { Presence.pressed(); return activity.dispatchKeyEvent(event) }
+    internal open class KeyCounter(private val activity: Window.Callback) : Window.Callback by activity {
+        override fun dispatchKeyEvent(event: KeyEvent): Boolean { Presence.pressed(); return handOn(event) }
+
+        /** Hands a key on to the window's own callback (the activity, or the dialog). */
+        protected open fun handOn(event: KeyEvent): Boolean = activity.dispatchKeyEvent(event)
+
         override fun dispatchKeyShortcutEvent(event: KeyEvent): Boolean { Presence.pressed(); return activity.dispatchKeyShortcutEvent(event) }
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) Presence.pressed() else Presence.used()

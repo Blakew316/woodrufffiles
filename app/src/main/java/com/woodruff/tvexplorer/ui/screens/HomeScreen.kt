@@ -1,6 +1,5 @@
 package com.woodruff.tvexplorer.ui.screens
 
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -572,6 +571,9 @@ private fun ResumeArt(r: RecentItem, poster: String?, token: String?) {
 
 // ---- TVs ------------------------------------------------------------------------------------
 
+/** How wide another TV's picture is asked for: the TVs panel shows it 112 dp wide (224 px on a 1080p TV). */
+private const val THUMB_PX = 240
+
 /** Every TV in the family: switch between them to see what's on and a live picture. */
 @Composable
 private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
@@ -604,9 +606,8 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
             while (true) {
                 if (AppVisibility.foreground) {
                     shot = withContext(Dispatchers.IO) {
-                        // A 112dp thumbnail: decode at a quarter size, not the full 960px frame.
-                        val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-                        runCatching { TvLinks.screen(linked)?.let { BitmapFactory.decodeByteArray(it, 0, it.size, opts)?.asImageBitmap() } }.getOrNull()
+                        // A 112dp thumbnail: the other TV copies and sends one this size, not its 960px picture.
+                        runCatching { TvLinks.screen(linked, THUMB_PX)?.let { com.woodruff.tvexplorer.remote.TvScreen.thumbnail(it, THUMB_PX)?.asImageBitmap() } }.getOrNull()
                     }
                 }
                 // Each picture makes the other TV capture its screen, so not too often.

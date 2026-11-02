@@ -17,6 +17,8 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         // Every Woodruff screen from its first one: key presses anywhere count as use, and what's up
         // can be put back after an update (OnScreen).
         com.woodruff.tvexplorer.update.OnScreen.install(this)
+        // Memory back for the TV's other apps once Woodruff has been off screen a while.
+        com.woodruff.tvexplorer.util.LeanMemory.install(this)
         // Read in the background, before any screen asks (a screen's first read otherwise waits on
         // the disk or the Keystore on the main thread, in the middle of drawing).
         Thread({
@@ -48,10 +50,22 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         // At most two decodes at once: a folder of videos otherwise opens a decoder per tile and
         // the TV's few hardware decoders (and the CPU) choke while scrolling.
         .decoderDispatcher(kotlinx.coroutines.Dispatchers.IO.limitedParallelism(2))
-        // Posters and thumbnails are opaque: half the memory per image, so more of them stay cached
-        // and scrolling back is instant. Keep them on disk even when Google's servers say "no-cache"
-        // (the same poster URL never changes), so revisits don't refetch every tile.
+        // From Android 8 on, pictures decode as HARDWARE bitmaps (4 bytes a pixel, in the graphics
+        // memory) and allowRgb565 changes nothing: it only applies to software bitmaps (Android 7, and
+        // the few Android 8 TVs Coil keeps off hardware bitmaps). Posters, banners and backdrops stay
+        // HARDWARE: as RGB_565 their gradients band on a big screen, and each would be uploaded to the
+        // graphics chip as it's first drawn, in the middle of a row's glide.
         .allowRgb565(true)
+        // Those bitmaps aren't on the Java heap the cache is sized from, so it can hold a quarter of it
+        // (Coil's default is a fifth; low-RAM TVs keep its 15 %): a few more rows of posters stay
+        // decoded and scrolling back finds them at once. Given back once Woodruff has been off screen
+        // a while (LeanMemory).
+        .memoryCache {
+            val lowRam = getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true
+            coil.memory.MemoryCache.Builder(this).maxSizePercent(if (lowRam) 0.15 else 0.25).build()
+        }
+        // Keep them on disk even when Google's servers say "no-cache" (the same poster URL never
+        // changes), so revisits don't refetch every tile.
         .respectCacheHeaders(false)
         // Pictures of files (USB and folders on the TV, video frames, the background photo) are
         // remembered by path alone. With the file's date in the key, every one asked for while
@@ -60,6 +74,7 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         .addLastModifiedToFileCacheKey(false)
         .crossfade(150)
         .build()
+        .also { com.woodruff.tvexplorer.util.LeanMemory.images = it }
 
     private companion object {
         /** Every settings file the app keeps (the names it passes to getSharedPreferences). */

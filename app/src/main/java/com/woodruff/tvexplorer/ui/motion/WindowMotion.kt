@@ -12,13 +12,13 @@ import com.woodruff.tvexplorer.R
  * [TvMotion]'s. Every dialog gets [Dialog] from the app's theme (android:dialogTheme), so only the
  * others are asked for, with [DialogWindowMotion].
  */
-enum class WindowMotion(internal val style: Int) {
+enum class WindowMotion(internal val style: Int, internal val label: String?) {
     /** A dialog or pop-up: in from just larger than itself as it fades in, over the dimming screen. */
-    Dialog(R.style.Animation_TVExplorer_Dialog),
+    Dialog(R.style.Animation_TVExplorer_Dialog, null),
     /** A full-screen page (a title's page, search): grows in from just smaller as it fades in. */
-    Page(R.style.Animation_TVExplorer_Page),
+    Page(R.style.Animation_TVExplorer_Page, "Page"),
     /** A panel at the right edge (the filters): slides in from that edge as it fades in, and back out. */
-    SideSheet(R.style.Animation_TVExplorer_SideSheet),
+    SideSheet(R.style.Animation_TVExplorer_SideSheet, "Filters"),
 }
 
 /**
@@ -27,12 +27,17 @@ enum class WindowMotion(internal val style: Int) {
  * first layout pass and before the window's attributes go to the system with that pass's layout (and
  * before its first frame, which is what starts the entrance), so the entrance already uses [motion].
  * Its exit uses it too. Don't animate the content's own entrance as well: the window does.
+ *
+ * [label] names the window's frames in Settings → Smoothness ("Title page", "Search"); a page is
+ * otherwise "Page", a side sheet "Filters" ([DialogWindows.name]).
  */
 @Composable
-fun DialogWindowMotion(motion: WindowMotion) {
+fun DialogWindowMotion(motion: WindowMotion, label: String? = null) {
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-    DisposableEffect(window, motion) {
+    DisposableEffect(window, motion, label) {
         window?.setWindowAnimations(motion.style)
+        val name = label ?: motion.label
+        if (window != null && name != null) DialogWindows.name(window, name)
         onDispose {}
     }
 }

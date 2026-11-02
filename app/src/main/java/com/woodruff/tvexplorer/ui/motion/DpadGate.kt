@@ -3,8 +3,15 @@ package com.woodruff.tvexplorer.ui.motion
 import android.os.SystemClock
 import android.view.Choreographer
 import android.view.KeyEvent
+import android.view.Window
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.KeyInputModifierNode
+import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.currentValueOf
+import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import com.woodruff.tvexplorer.util.Presence
 
 /**
@@ -56,15 +63,45 @@ object DpadGate {
 }
 
 private val dropRepeat: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = {
-    // A dialog window's keys reach no activity: this is where they count as someone using Woodruff
-    // (an update waits, the in-app slideshow waits), as an activity's keys do through its window.
+    // Its window's keys already count as use there (DialogWindows); this is for a dialog whose window
+    // couldn't be followed, so its keys still hold an update back and the in-app slideshow off.
     Presence.pressed()
     DpadGate.shouldDrop(it.nativeKeyEvent)
 }
 
 /**
- * The same for a dialog window, whose keys never pass through the activity's dispatchKeyEvent. Every
- * Dialog root has it (title pages, menus, filters, search, every DialogFrame): it's also where their
- * key presses count as use ([Presence]).
+ * The same gate for a dialog window, whose keys never pass through the activity's dispatchKeyEvent.
+ * Every Dialog root has it (title pages, menus, filters, search, every DialogFrame), and it's also
+ * what makes the dialog one of Woodruff's windows ([DialogWindows]): its keys count as use, the
+ * phone's remote and its TV Screen reach it, the remote's Search button works in it, and Settings →
+ * Smoothness counts its frames. (A key passing both this and its window's gate gets the same answer
+ * from each.)
  */
-fun Modifier.dpadGate(): Modifier = onPreviewKeyEvent(dropRepeat)
+fun Modifier.dpadGate(): Modifier = this then DpadGateElement
+
+private object DpadGateElement : ModifierNodeElement<DpadGateNode>() {
+    override fun create() = DpadGateNode()
+    override fun update(node: DpadGateNode) = Unit
+    override fun hashCode(): Int = 0x6470_6164
+    override fun equals(other: Any?): Boolean = other === this
+    override fun InspectorInfo.inspectableProperties() { name = "dpadGate" }
+}
+
+/** Gates held arrows in a dialog, and registers the dialog's window while it's in the dialog. */
+private class DpadGateNode : Modifier.Node(), KeyInputModifierNode, CompositionLocalConsumerModifierNode {
+    private var window: Window? = null
+
+    override fun onAttach() {
+        // Inside a Compose Dialog, the view composing this sits in the dialog's own window.
+        window = (currentValueOf(LocalView).parent as? DialogWindowProvider)?.window?.also(DialogWindows::register)
+    }
+
+    override fun onDetach() {
+        window?.let(DialogWindows::unregister)
+        window = null
+    }
+
+    override fun onPreKeyEvent(event: androidx.compose.ui.input.key.KeyEvent): Boolean = dropRepeat(event)
+
+    override fun onKeyEvent(event: androidx.compose.ui.input.key.KeyEvent): Boolean = false
+}
