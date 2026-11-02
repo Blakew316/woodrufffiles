@@ -119,7 +119,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   linked TV. A TV that's off is skipped without holding anyone up.
 - **Screensaver and background**: any photo can be the app background, and a photo slideshow (with a clock) can run
   from Home, after a few minutes without a key pressed anywhere in Woodruff (it waits while a Google Photos pick or a
-  copy is under way), or as the TV's own screensaver (Settings → Screensaver & background). Coming back from it,
+  copy is under way), or as the TV's own screensaver (Settings → Screensaver). Coming back from it,
   posters show at once.
 - **Light on the TV**: ten minutes after Woodruff leaves the screen (another app, the TV's home or screensaver,
   standby), or at once if Android says memory is short, it gives back the memory it kept for scrolling back and the
@@ -130,8 +130,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   Left/Right flips between cameras. Setup is [below](#connect-google-home-cameras).
 - **Home dashboard**: one screen that shows everything at a glance. *Continue watching* shows the latest video
   large and the rest as square tiles, each with a play button, one click to resume; *TVs* switches between the family's linked TVs to show what's on each, with a live picture; *Cameras*
-  plays the first four cameras live on their own (only while Woodruff is on screen; Settings → *Live cameras on Home*
-  turns this off per TV), and opens one full screen; *At a glance* has the next calendar
+  plays the first four cameras live on their own (only while Woodruff is on screen; Settings → Appearance →
+  *Cameras on Home* turns this off per TV), and opens one full screen; *At a glance* has the next calendar
   event, the latest notifications and a pinned note. Setup (iCloud, storage, apps, browse by type) lives in Settings.
 
   An iPhone **Shortcut** can POST to `/api/notify?k=…&tvs=all` (the URL is shown on that tab) for automations like "when
@@ -243,7 +243,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   *Start over*, *Episodes* / *Details* (Home's resume tiles), *Watch together* (linked TVs), *Mark as watched* (or
   unwatched), *Download* and *Remove from Continue watching*. Episodes on a show's page have the same kind of menu
   (*Resume from 40m*, *Play from the start*, *Watch together*, *Mark as watched*), and holding OK on a season's tab
-  marks the whole season. Play/Pause on a focused title plays it straight away.
+  offers *Mark season as watched* (or unwatched). Play/Pause on a focused title plays it straight away.
 - **Watch together**: *Watch together* in the title menu (with TVs linked) starts that Google Drive video on every
   linked TV from the same spot. The TV that started it leads: pausing, seeking and
   its position keep the others in step (re-synced when more than 2 seconds apart).
@@ -255,24 +255,24 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   Results are posters that open the title page; Back returns to the result, and Back again returns to the keys.
   Offline, it searches the saved library. If Google Drive isn't set up, its sign-in has ended or the Google keys are
   refused, Search says so and offers the one button that fixes it.
-- **Cameras on Home** (Settings → Command center): *All live*, *One at a time (lighter)* (one tile streams and
+- **Cameras on Home** (Settings → Appearance): *All live*, *One at a time (lighter)* (one tile streams and
   moves on every minute, the tile you're on always plays) or *Off*. Tiles that aren't streaming show the last
   frame seen from that camera. TVs Android marks as low-memory (usually 1 GB) use one at a time automatically.
   Each camera has one live stream shared by Home, the grid, full screen and the doorbell, so moving between them (or a
   ring) shows the picture at once; a stream no screen shows closes after about 10 s, and at once when Woodruff leaves
   the screen or a video starts. A camera counts as live, and Home's tile says LIVE, only while its picture is moving.
-  Until its first picture comes it says *Connecting…*, and a tile that joins a camera already streaming keeps its last
-  picture until the live one is drawn. After 3 s without a frame the picture holds under a calm *Reconnecting…*, and
-  after 30 s it says *Can't reach this camera right now*. The camera reconnects by itself: after 15 s without a frame
-  (20 s before the first), when WebRTC gives the connection up, or at once if the TV's network came back after the
-  picture stopped. It waits 5 s longer after each failure, up to 2 minutes, until its picture has run for a minute, so
-  a camera that's off never floods Google with requests. WebRTC is loaded only once cameras are about to play: Home's
-  live tiles, the Command center or a doorbell ring.
+  Until its first picture comes it says *Connecting…* (so do full screen and the doorbell's camera), and a tile that
+  joins a camera already streaming keeps its last picture until the live one is drawn. After 3 s without a frame the
+  picture holds under a calm *Reconnecting…*, and after 30 s it says *Can't reach this camera right now*. The camera
+  reconnects by itself: after 15 s without a frame (20 s before the first), when WebRTC gives the connection up, or at
+  once if the TV's network came back after the picture stopped. It waits 5 s longer after each failure, up to 2
+  minutes, until its picture has run for a minute, so a camera that's off never floods Google with requests. WebRTC is
+  loaded only once cameras are about to play: Home's live tiles, the Command center or a doorbell ring.
 - **Person and motion alerts**: with doorbell alerts set up, a person (on by default) or motion (off by default)
   seen by any camera pops up on every TV (*Person seen* · the camera's name), at most once per camera every 2 minutes,
-  and never after the doorbell rang for the same visit. Toggles are in the phone app under Settings → Cameras, and the
-  choice is the same on every TV. Each TV keeps its camera list, so alerts name the right camera even right after a TV
-  started by itself, and Home shows the cameras straight away at start-up.
+  and never after the doorbell rang for the same visit. Toggles are in the phone app under Settings → Connections →
+  Cameras, and the choice is the same on every TV. Each TV keeps its camera list, so alerts name the right camera even
+  right after a TV started by itself, and Home shows the cameras straight away at start-up.
 - **Doorbell alerts**: when the Nest doorbell rings, every TV that's on shows it. Over Woodruff's own screens, its
   photo slideshow and (with *Pop-ups over other apps* allowed) Woodruff's screensaver, the doorbell's camera opens
   full screen with its sound and says when it rang (*RANG AT 7:42 PM*). Back returns to what was showing, exactly as
@@ -313,8 +313,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   ✓s and each show's Skip intro and languages, through one small hidden file per TV in Drive (Settings → Accounts →
   *Share progress with other TVs*, on by default; it needs the `drive.appdata` permission, see the Drive setup below).
   Moving to another TV, Resume starts where you stopped: Home, Movies, TV Shows and a title's page fetch the other TVs'
-  progress as they open, and again when the network comes back, and starting something waits at most half a second
-  for it. A show another TV went on with plays its next episode.
+  progress as they open, and again when the network comes back. Starting something waits at most half a second for
+  it, and a show another TV went on with plays its next episode.
   Videos from the TV's own storage show a still from the video, made once and kept on the TV.
 - **iCloud**: iCloud Mail works through Mail (Apple supports IMAP with an app-specific password).
   iCloud Drive has no supported sign-in for Android apps, so files come from the iPhone through **Phone → Files → Upload → Browse**.
@@ -328,7 +328,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   play are decoded with FFmpeg (Jellyfin's media3-ffmpeg-decoder, GPLv3); third-party licences ship in
   `app/src/main/assets/licenses/`.
 - **APK sideloading**: open an `.apk` to install it. If needed, the app walks you through the "install unknown apps" setting.
-- **App manager**: launch apps, back up an APK to `Download/TVExplorer/Apps`, open App info, or uninstall.
+- **App manager**: launch apps, back up an APK to `Download/Woodruff Family/Apps`, open App info, or uninstall.
 - **Send files**: start a small web server on the TV, then scan the QR code with your phone or open the URL on a computer.
   You can drag and drop uploads (streamed straight to disk, so they can go to a USB drive), download, create folders and delete.
 - **Light or dark mode**: switch it at the bottom of the side menu (Display → Light mode); the choice is remembered.
@@ -369,8 +369,9 @@ finds nothing new costs almost nothing: Woodruff asks GitHub whether the list of
   (with the same camera full screen), the same photo in the photo viewer, the film paused at its spot with the
   controls up (Back goes to the screen it was started from), or the screen that was up (Streaming in the same library
   with the same filter). Title pages and menus aren't put back; the screen under them is. A film paused under the TV's
-  screensaver is there when the TV wakes. If what was showing has gone meanwhile (a deleted film, an unplugged USB
-  drive), the screen it was started from opens and says so. No notice appears: Settings → Updates says "Updated today
+  screensaver is there when the TV wakes. A Woodruff left for another app never pops up over it (a film left that way
+  stays in Continue watching). If what was showing has gone meanwhile (a deleted film, an unplugged USB drive), the
+  screen it was started from opens and says so. No notice appears: Settings → Updates says "Updated today
   at 3:12 AM" for a day. On Android 10 and newer, opening again by itself needs *Pop-ups over other apps* (Settings →
   Advanced); without it the TV stays on its launcher after an update. The phone connection comes back on its own.
 - **TVs that ask first**: on Android 12 and newer the first update after installing from Downloader asks once, and
@@ -397,7 +398,7 @@ finds nothing new costs almost nothing: Woodruff asks GitHub whether the list of
   them. They go by release times, so this works best with the test TV in use. *Check for updates* skips the wait.
 - **Undo a bad update**: Android won't install an older version over a newer one, so an earlier version is
   re-released with a new, higher number: GitHub → Actions → Build APK → *Run workflow*, with the commit to go
-  back to. It's marked "rollback" and every TV installs it right away.
+  back to. It's marked "rollback", so no TV waits a day for it.
 - **A bad update repairs itself**: if a new version closes within 45 seconds of Woodruff opening (on any Android
   version; on Android 11 and newer also a crash in native code or a freeze, when the TV reports it), every start of
   Woodruff looks for a fixed version at once, then every few minutes. A start means the TV turning on, the phone
@@ -482,12 +483,12 @@ To find out why moving around isn't smooth on a particular TV:
 
 1. Download **WoodruffFamily.apk** from the latest release:
    https://github.com/Blakew316/woodrufffiles/releases/latest/download/WoodruffFamily.apk
-   (The older WoodruffFilms.apk / WoodruffPictures.apk / WoodruffShows.apk links still work.)
-   (The older `WoodruffShows.apk` link still works and always gets the same latest build.)
+   (The older `WoodruffFilms.apk`, `WoodruffPictures.apk` and `WoodruffShows.apk` links still work and get the same
+   latest build.)
    It's signed with a debug key so it can be sideloaded.
 2. Get it onto the TV with any of these:
    - type the link above into the **Downloader** app on the TV (easiest, no computer needed)
-   - `adb connect <tv-ip>` then `adb install TVExplorer-release.apk`
+   - `adb connect <tv-ip>` then `adb install WoodruffFamily.apk`
    - copy it to a USB drive and open it with the TV's file app
    - use an app like "Send files to TV" or "Downloader"
 3. On first launch, grant **All files access**. Some TV builds hide this settings screen. If yours does, the app shows the adb command that grants it:
@@ -643,7 +644,8 @@ Google only lets apps reach Nest cameras through its Device Access program (one-
 1. In Google Cloud, in the project you use for Drive, open **APIs & Services → Library** and enable **Smart Device Management API**.
 2. Open [console.nest.google.com/device-access](https://console.nest.google.com/device-access), accept the terms and pay the fee.
 3. **Create project**: any name. For the OAuth client ID, paste the same Web client ID you use for Drive. Skip events.
-4. Copy the **Project ID** into the TV (Command center → Enter Project ID) or the phone (Settings tab → Cameras).
+4. Copy the **Project ID** into the TV (Command center → Enter Project ID) or the phone (Settings → Connections →
+   Cameras).
 5. On the TV, open **Command center** and scan the QR code (or, in the phone app that TV serves, Settings →
    Connections → Cameras → *Connect Your Cameras*). On Google's page, pick your home and switch on every camera and doorbell.
 
@@ -684,8 +686,10 @@ The other `tools/gallery/phone_*_check.mjs` scripts run the same way. `phone.mjs
   The phone sign-in uses PKCE and a one-time `state`, and the relay page only forwards to private network addresses.
   The TV takes an approval only for a sign-in it started itself, from its own connect screen or from its phone app.
 
-- The wireless transfer server is **off by default** and only runs while you have it on (a notification shows while it's running).
-- Every request needs a random 12-character key. The key is in the QR code and URL shown on the TV, and stopping the server invalidates it.
+- The phone connection (the TV's small web server) starts by itself when the TV turns on, unless Settings → TVs &
+  phones → *Start when the TV turns on* is off; a notification shows while it's running.
+- Every request needs a random 12-character key. The key is in the QR code and URL shown on the TV, and it's kept, so
+  phones stay paired; Settings → Advanced → *Reset phone pairing* replaces it, and every phone scans the new code.
 - The server can only reach the shared storage volumes, never the app's private data.
   Paths are canonicalised, so `..` and symlink tricks are rejected.
 - Traffic is plain HTTP on your local network, so anyone on the network who can see the URL can use it.
