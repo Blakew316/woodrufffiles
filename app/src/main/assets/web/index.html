@@ -2557,7 +2557,7 @@
       // file fades out and the rows below move up; a new folder fades in where it goes), another storage cross-fades.
       morph(p.scroller, function () {
         var same = p.path === d.path;
-        p.path = d.path; p.parent = d.parent; p.files = d.files;
+        p.path = d.path; p.parent = d.parent; p.files = d.files; p.free = typeof d.free === 'number' ? d.free : null;
         if (p === filesRoot) { setHidden($('storage'), roots.length < 2); setText($('storage-name'), rootOf(p.path).name); }
         render(p, same);
       });
@@ -2629,31 +2629,52 @@
       } }
     ]);
   }
+  // One at a time, each in its row with its progress. One that won't fit in the room the folder's storage has (the
+  // listing says, less what the TV keeps for itself on its own storage) says so in its row and isn't sent (finding 44).
   function upload(list) {
     var queue = Array.prototype.slice.call(list), p = topFiles(), target = p.path, box = p.uploads;
+    var left = typeof p.free === 'number' ? p.free : null, root = rootOf(target), where = root && root.removable ? root.name : hubName();
     (function next() {
       var f = queue.shift();
       if (!f) {
         stacks.send.forEach(function (x) { if (x.isFiles && x.path === target) loadInto(x, target); });
-        setTimeout(function () { if (!box.querySelector('.busy')) morph(p.scroller, function () { box.hidden = true; box.textContent = ''; }); }, 2500);
+        // (one that didn't go stays long enough to read why)
+        setTimeout(function () { if (!box.querySelector('.busy')) morph(p.scroller, function () { box.hidden = true; box.textContent = ''; }); }, box.querySelector('.s.warn, .s.err') ? 8000 : 2500);
         return;
       }
       var row = el('div', 'row fi busy'); row.appendChild(icon({ name: f.name, dir: false }));
       var text = el('span', 'txt'); text.appendChild(el('span', 't', f.name)); var pct = el('span', 's', 'Waiting…'); text.appendChild(pct);
       var bar = el('div', 'prog'); var fill = el('i'); bar.appendChild(fill); text.appendChild(bar); row.appendChild(text);
+      var full = noRoom(f.name, f.size, left, where);
+      if (full) { row.classList.remove('busy'); pct.textContent = full; pct.className = 's two warn'; bar.hidden = true; }
       morph(p.scroller, function () { box.hidden = false; box.appendChild(row); });   // it fades in; the list below makes room
+      if (full) return next();
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload?path=' + q(target) + '&name=' + q(f.name));
       xhr.upload.onprogress = function (e) { if (e.lengthComputable) { fill.style.transform = barTf(e.loaded / e.total); pct.textContent = fmt(e.loaded) + ' of ' + fmt(e.total); } };
-      xhr.onload = function () { row.classList.remove('busy'); if (xhr.status === 200) { pct.textContent = 'Uploaded'; pct.className = 's ok'; fill.style.transform = barTf(1); } else { pct.textContent = 'Failed'; pct.className = 's err'; } next(); };
+      xhr.onload = function () {
+        row.classList.remove('busy');
+        if (xhr.status === 200) { pct.textContent = 'Uploaded'; pct.className = 's ok'; fill.style.transform = barTf(1); if (left != null) left -= f.size; }
+        else { pct.textContent = xhr.responseText || 'Couldn’t upload it'; pct.className = 's two ' + (xhr.status === 507 ? 'warn' : 'err'); }   // (the TV's own words)
+        next();
+      };
       xhr.onerror = function () { row.classList.remove('busy'); pct.textContent = 'Connection lost'; pct.className = 's err'; next(); };
       xhr.send(f);
     })();
   }
+  // Whether a file of [size] bytes fits in the room [free] [where] has (null: the TV didn't say); the plain words
+  // when it doesn't: "This video is 2.1 GB; Living Room has 800 MB free." (or "Living Room is full."), as the TV says it.
+  function noRoom(name, size0, free, where) {
+    if (free == null || size0 <= free) return null;
+    if (free <= 0) return where.charAt(0).toUpperCase() + where.slice(1) + ' is full.';
+    var kind = /\.(mov|mp4|m4v|3gp|mkv|webm|avi|ts)$/i.test(name) ? 'video' : IMG.test(name) ? 'photo' : 'file';
+    function size(b) { return fmt(b).replace(' ', '\u00a0'); }   // (a number never parts from its unit at a line end)
+    return 'This ' + kind + ' is ' + size(size0) + '; ' + where + ' has ' + size(free) + ' free.';
+  }
   $('file').onchange = function () { if (this.files.length) upload(this.files); this.value = ''; };
   $('storage').onclick = function () {
     var now = rootOf(filesRoot.path).path;
-    menu($('storage'), roots.map(function (r) { return { label: r.name, checked: r.path === now, fn: function () { loadInto(filesRoot, r.path); } }; }));
+    menu($('storage'), roots.map(function (r) { return { label: r.name, sub: typeof r.free === 'number' ? fmt(r.free) + ' free' : null, checked: r.path === now, fn: function () { loadInto(filesRoot, r.path); } }; }));
   };
   document.addEventListener('dragover', function (e) { e.preventDefault(); });
   document.addEventListener('drop', function (e) { e.preventDefault(); if (current === 'send' && topOf().isFiles && e.dataTransfer.files.length) upload(e.dataTransfer.files); });
@@ -2935,7 +2956,9 @@
   var ANDROID = { 26: '8', 27: '8.1', 28: '9', 29: '10', 30: '11', 31: '12', 32: '12L', 33: '13', 34: '14', 35: '15', 36: '16' };
   function tvPageShowing() { return current === 'settings' && topOf('settings') === PG['set-tv']; }
   function tvOf(id) { return tvs.filter(function (t) { return t.id === id; })[0]; }
-  function hubName() { var me = tvOf('this'); return me ? me.name : (W.home && W.home.tv) || 'the TV'; }
+  // This TV's name: as the TV list says it, else the name it was given (the page's Home Screen label, there from the start).
+  var HOME_NAME = (function () { var m = doc.querySelector('meta[name=apple-mobile-web-app-title]'), n = (m && m.content) || ''; return /^__|^Woodruff Family$/.test(n) ? '' : n; })();
+  function hubName() { var me = tvOf('this'); return me ? me.name : (W.home && W.home.tv) || HOME_NAME || 'the TV'; }
   function tvName(id) { var t = tvOf(id); return t ? t.name : id === 'this' ? hubName() : 'TV'; }
   // Words as the TV writes them, lower case first unless a name ("signed in", "can’t reach Google").
   function lower(s) { s = s || ''; return /^(Google|Woodruff|Android|TMDB)\b/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1); }
@@ -3714,7 +3737,8 @@
   // photos and videos from this phone: a photo is shrunk to the size the TV keeps photos at (upright, as a JPEG) and
   // keeps when it was taken (read from it first: shrinking drops that); they go one at a time, each tile filling its
   // ring, then glide to their places by date. A tap opens one full screen (see the viewer below).
-  var mem = { items: [], fit: [1920, 1080], folder: null, loaded: false, failed: false, seq: 0, ups: [], batch: null, previews: {} };
+  // free: the room a photo or video from this phone has on the TV (as the listing said), less what's been sent since.
+  var mem = { items: [], fit: [1920, 1080], folder: null, loaded: false, failed: false, seq: 0, ups: [], batch: null, previews: {}, free: null, sent: 0 };
   var memRoot = null, upN = 0, upBusy = false, wakeLock = null;
   var VIDEO_NAME = /\.(mov|mp4|m4v|3gp|mkv|webm|avi)$/i, MEDIA_NAME = /\.(jpe?g|png|heic|heif|webp|gif|avif|mov|mp4|m4v|3gp|mkv|webm|avi)$/i;
   var RING = '<svg class="ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="rf" cx="18" cy="18" r="15" pathLength="100" transform="rotate(-90 18 18)"/></svg>';
@@ -3734,6 +3758,7 @@
   // A listing in: the grid changes only when something did, and glides (what stayed moves to its new place).
   function gotMemories(d) {
     mem.fit = d.fit || mem.fit; mem.folder = d.folder;
+    mem.free = typeof d.free === 'number' ? d.free : null; mem.sent = 0;
     var k = JSON.stringify(d.items);
     if (mem.loaded && !mem.failed && k === gotMemories.k) return;
     gotMemories.k = k; mem.items = d.items; mem.loaded = true; mem.failed = false;
@@ -3842,12 +3867,15 @@
     upBusy = true;
     prepare(u).then(function (p) {
       if (u.canvas && !u.tile.contains(u.canvas)) { u.tile.insertBefore(u.canvas, u.tile.firstChild); appear(u.canvas); }
-      return sendUpload(u, p);
+      // One that won't fit on the TV says so before it's sent, rather than failing late (finding 44).
+      var full = noRoom(p.name, p.blob.size, mem.free == null ? null : mem.free - mem.sent, hubName());
+      if (full) { var e = new Error(full); e.room = true; throw e; }
+      return sendUpload(u, p).then(function (item) { mem.sent += p.blob.size; return item; });
     }).then(function (item) {
       u.done = true; u.tile.classList.add('ok'); setRing(u, 1); mem.batch.done++;
       u.tile.dataset.k = mkey(item);   // so the grid's tile for it, once listed, glides from here
     }, function (e) {
-      u.failed = true; u.error = (e && e.message) || String(e); mem.batch.failed++;
+      u.failed = true; u.error = (e && e.message) || String(e); mem.batch.failed++; mem.batch.why = u.error; mem.batch.room = !!(e && e.room);
       u.tile.classList.add('fail');
     }).then(function () { upBusy = false; memCount(); nextUpload(); });
   }
@@ -3855,7 +3883,10 @@
     awake(false);
     var b = mem.batch; if (!b) return;
     mem.batch = null;   // (the ones that failed stay, to try again; the rest until the TV lists them)
-    if (b.failed) toast(b.done ? 'Added ' + b.done + ', ' + b.failed + " couldn't be added" : (b.failed === 1 ? "Couldn't add it" : "Couldn't add them"), true);
+    // One alone that didn't fit says so in an alert, as iOS does for storage ("This video is 2.1 GB; Living Room has
+    // 800 MB free."); one alone that couldn't go for another reason says why.
+    if (b.failed === 1 && !b.done && b.room) alertBox({ title: 'Not Enough Room', message: b.why, actions: [{ label: 'OK', pref: true }] });
+    else if (b.failed) toast(b.done ? 'Added ' + b.done + ', ' + b.failed + " couldn't be added" : (b.failed === 1 ? b.why || "Couldn't add it" : "Couldn't add them"), true);
     else if (b.done) toast(b.done === 1 ? 'Added to Family Memories' : 'Added ' + b.done + ' to Family Memories');
     gotMemories.k = null;
     loadMemories();
@@ -3973,7 +4004,7 @@
       x.open('POST', '/api/memories/add?name=' + q(p.name) + (p.taken ? '&taken=' + p.taken : ''));
       x.upload.onprogress = function (e) { if (e.lengthComputable) setRing(u, e.loaded / e.total * 0.96); };
       x.onload = function () {
-        if (x.status !== 200) return no(new Error(x.responseText || "The TV didn't take it"));
+        if (x.status !== 200) { var e = new Error(x.responseText || "The TV didn't take it"); e.room = x.status === 507; return no(e); }
         try { ok(JSON.parse(x.responseText).item); } catch (e) { no(e); }
       };
       x.onerror = function () { no(new Error('The connection to the TV was lost')); };

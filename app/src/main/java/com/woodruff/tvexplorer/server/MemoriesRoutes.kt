@@ -66,6 +66,9 @@ internal class MemoriesRoutes(private val ctx: Context, private val launch: (Int
             .put("folder", FamilyMemories.photos.path)
             // The size photos are kept at: the phone shrinks what it sends to fit it.
             .put("fit", JSONArray().put(w).put(h))
+            // The room a photo or video from the phone has (both folders are on the TV's own storage): the phone checks
+            // each one against it before sending, and says so in plain words when it won't fit (finding 44).
+            .apply { UploadRoom.of(FamilyMemories.videos, onTv = true)?.let { put("free", it) } }
             .put("slideshow", Appearance.slideshowFolder == FamilyMemories.photos.path)
     }
 
@@ -83,7 +86,12 @@ internal class MemoriesRoutes(private val ctx: Context, private val launch: (Int
 
     /** ?name= and, when the phone could read it, ?taken= (ms); the body is the photo or video. */
     private fun add(s: IHTTPSession): Response {
-        val target = FamilyMemories.target(s.parameters["name"]?.firstOrNull() ?: throw IllegalArgumentException("Missing name"))
+        val name = s.parameters["name"]?.firstOrNull() ?: throw IllegalArgumentException("Missing name")
+        // One that won't fit is turned down before anything is written (the phone checks first; this is the backstop).
+        val video = FamilyMemories.kindOf(name.substringAfterLast('/')) == FileKind.VIDEO
+        UploadRoom.check(name, s.headers["content-length"]?.toLongOrNull(),
+            UploadRoom.of(if (video) FamilyMemories.videos else FamilyMemories.photos, onTv = true), com.woodruff.tvexplorer.tvs.TvLinks.name(ctx))
+        val target = FamilyMemories.target(name)
         try {
             receiveFile(s, target)
         } catch (e: Exception) {
