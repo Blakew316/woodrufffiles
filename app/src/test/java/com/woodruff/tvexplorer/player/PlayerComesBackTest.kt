@@ -33,7 +33,9 @@ class PlayerComesBackTest {
     private val opened = ArrayList<ActivityController<PlayerActivity>>()
 
     @After fun closeThePlayers() {
-        opened.asReversed().forEach { it.close() }
+        opened.asReversed().forEach { if (!it.get().isDestroyed) it.close() }
+        opened.clear()
+        shadowOf(Looper.getMainLooper()).idle()
     }
 
     /** The player opened on a film (a stand-in file: nothing plays on the JVM, the queue is what counts). */

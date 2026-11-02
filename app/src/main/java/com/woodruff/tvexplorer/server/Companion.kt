@@ -690,12 +690,12 @@ class CompanionRoutes(private val ctx: Context) {
 
     /**
      * Starts [intent] on this TV; true when it's on screen. Without the pop-up permission and with
-     * another app in front, it becomes a notice instead; with [hold], the video also waits to start
-     * the moment Woodruff is opened here ([PendingPlay]), which is what that notice and the phone say.
+     * none of Woodruff's screens up, it becomes a notice instead; with [hold], the video also waits to
+     * start the moment Woodruff is opened here ([PendingPlay]), which is what that notice and the phone say.
      */
     private fun launch(intent: Intent, hold: Boolean = false): Boolean {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (com.woodruff.tvexplorer.notify.AppVisibility.foreground || android.provider.Settings.canDrawOverlays(ctx)) {
+        if (PendingPlay.mayStartNow(ctx)) {
             PendingPlay.clear()
             ctx.startActivity(intent)
             return true
@@ -832,16 +832,39 @@ object CompanionHub {
 }
 
 /**
- * A video the phone (or a linked TV) started while another app was in front and Woodruff isn't allowed
- * to pop up over it: it waits, and starts the moment Woodruff is opened on this TV, within 10 minutes
- * (later than that, nobody expects it any more). The phone says so ("Ready on Den… open Woodruff
- * Family there"), and so does the TV's own notice. Only the newest one waits.
+ * A video the phone (or a linked TV) started while none of Woodruff's screens was up and Woodruff isn't
+ * allowed to pop up over other apps: it waits, and starts the moment Woodruff is opened on this TV,
+ * within 10 minutes (later than that, nobody expects it any more). The phone says so ("Ready on Den…
+ * open Woodruff Family there"), and so does the TV's own notice. Only the newest one waits.
+ *
+ * Opened is whichever of Woodruff's screens comes back to the front: the TV's app row brings Woodruff
+ * back as it was (MainIntents), so that may be a paused film or the photo viewer rather than the main
+ * window, and a notice's tap brings the main window. The video starts over that screen, in Woodruff's
+ * own task, so Back returns to it; once. Woodruff's screens put back after an update come back first
+ * ([com.woodruff.tvexplorer.update.Restore], the video over them). The doorbell's camera, which pops up
+ * by itself on a ring, and the recovery screen don't count as opening Woodruff.
  */
 internal object PendingPlay {
     private const val KEEP_MS = 10 * 60_000L
     private class Waiting(val intent: Intent, val at: Long)
     @Volatile private var waiting: Waiting? = null
-    @Volatile private var watching = false
+    /** The app whose screens are watched: once per run (each test has an app of its own). */
+    @Volatile private var watched: java.lang.ref.WeakReference<android.app.Application>? = null
+
+    /**
+     * Whether Woodruff may bring a screen up now: one of its own screens is up ([onScreenNow]: an app on
+     * screen may open its screens), or it may pop up over other apps. Otherwise a start waits ([hold]).
+     */
+    fun mayStartNow(c: Context): Boolean = onScreenNow() || runCatching { android.provider.Settings.canDrawOverlays(c) }.getOrDefault(false)
+
+    /**
+     * One of Woodruff's screens is up: the main window, or the player, the photo viewer, the slideshow or
+     * the doorbell's camera (not only the main window: a video started from the phone during a film used
+     * to wait for the film to end). Never the recovery screen, over which nothing of the app starts.
+     */
+    internal fun onScreenNow(): Boolean =
+        (com.woodruff.tvexplorer.notify.AppVisibility.foreground || com.woodruff.tvexplorer.remote.TvScreen.onScreen) &&
+            !com.woodruff.tvexplorer.update.RecoveryView.inFront
 
     fun hold(c: Context, intent: Intent) {
         waiting = Waiting(intent, android.os.SystemClock.elapsedRealtime())
@@ -856,21 +879,42 @@ internal object PendingPlay {
     /** Whether a start held at [at] still waits at [now]. Visible for tests. */
     internal fun fresh(at: Long, now: Long): Boolean = now - at in 0..KEEP_MS
 
-    /** Watches for Woodruff's own screen coming to the front (once per run), without changing it. */
+    /**
+     * Whether [activity] coming to the front is Woodruff being opened: one of the screens a person opens or
+     * comes back to (the main window, a film, the photo viewer, Woodruff's slideshow). Not the doorbell's
+     * camera, which opens by itself on a ring; not the recovery screen; not a window on its way out (the
+     * second main window the app row may start, which closes at once). Visible for tests.
+     */
+    internal fun opensWoodruff(activity: android.app.Activity): Boolean =
+        !activity.isFinishing && !com.woodruff.tvexplorer.update.RecoveryView.inFront && (
+            activity is com.woodruff.tvexplorer.MainActivity ||
+                activity is com.woodruff.tvexplorer.player.PlayerActivity ||
+                activity is com.woodruff.tvexplorer.player.ImageViewerActivity ||
+                activity is com.woodruff.tvexplorer.screensaver.SlideshowActivity
+            )
+
+    /**
+     * [activity] came to the front: if that's Woodruff being opened ([opensWoodruff]) and a video waits (for
+     * 10 minutes at most), it starts now, over [activity] in its task. Main thread. Visible for tests.
+     */
+    internal fun cameUp(activity: android.app.Activity) {
+        if (!opensWoodruff(activity)) return
+        val w = waiting ?: return
+        waiting = null
+        if (!fresh(w.at, android.os.SystemClock.elapsedRealtime())) return
+        // Started from the screen on top, in its task (not as a task of its own): Back returns to that screen.
+        runCatching { activity.startActivity(Intent(w.intent).setFlags(w.intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK.inv())) }
+    }
+
+    /** Watches for Woodruff's screens coming to the front (once per run), without changing them. */
     private fun watch(c: Context) {
-        if (watching) return
         val app = c.applicationContext as? android.app.Application ?: return
         synchronized(this) {
-            if (watching) return
-            watching = true
+            if (watched?.get() === app) return
+            watched = java.lang.ref.WeakReference(app)
         }
         app.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
-            override fun onActivityResumed(activity: android.app.Activity) {
-                if (activity !is com.woodruff.tvexplorer.MainActivity) return
-                val w = waiting ?: return
-                waiting = null
-                if (fresh(w.at, android.os.SystemClock.elapsedRealtime())) runCatching { activity.startActivity(w.intent) }
-            }
+            override fun onActivityResumed(activity: android.app.Activity) = cameUp(activity)
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
             override fun onActivityStarted(activity: android.app.Activity) {}
             override fun onActivityPaused(activity: android.app.Activity) {}

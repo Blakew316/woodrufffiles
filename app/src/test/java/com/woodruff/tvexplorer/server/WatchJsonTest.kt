@@ -2,9 +2,14 @@ package com.woodruff.tvexplorer.server
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.DrivePlace
+import com.woodruff.tvexplorer.cloud.EpisodeMeta
+import com.woodruff.tvexplorer.cloud.FreshEpisode
 import com.woodruff.tvexplorer.cloud.MediaInfo
+import com.woodruff.tvexplorer.cloud.TitleSearch
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.tvs.SignInState
+import com.woodruff.tvexplorer.ui.screens.MainPlay
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -61,11 +66,41 @@ class WatchJsonTest {
         val next = RecentItem("drive:e5", "Backyard Science S02E05 Rain.mkv", 0, 0, 2, upNext = true)
         assertEquals("Play S2 E5", WatchJson.episodePlay(next).getString("label"))
         assertEquals(0, WatchJson.episodePlay(next).getLong("position"))
+        val backyard = show("bs", "Backyard Science (2023)", "Backyard Science")
         val first = DriveFile("e1", "Backyard Science S01E01 Tide Pools.mkv", "video/mp4", 1, 1, null)
-        assertEquals("Play S1 E1", WatchJson.firstEpisodePlay(first, emptyList()).getString("label"))
-        assertEquals("Play First Episode", WatchJson.firstEpisodePlay(first.copy(name = "Pilot.mkv"), emptyList()).getString("label"))
+        assertEquals("Play S1 E1", WatchJson.firstEpisodePlay(backyard, first, emptyList()).getString("label"))
+        assertEquals("Play First Episode", WatchJson.firstEpisodePlay(backyard, first.copy(name = "Pilot.mkv"), emptyList()).getString("label"))
         assertEquals("Resume", WatchJson.episodePlay(inProgress.copy(title = "Pilot.mkv")).getString("label"))
         assertEquals("Play Next Episode", WatchJson.episodePlay(next.copy(title = "Pilot.mkv")).getString("label"))
+        // From the start beside a button that goes on with the show.
+        val again = WatchJson.restartPlay(backyard, first, emptyList())
+        assertEquals("Play from the Start", again.getString("label"))
+        assertEquals(0, again.getLong("position"))
+        assertEquals("drive:e1", again.getString("key"))
+    }
+
+    @Test fun thePlayerIsGivenEachEpisodesRealNameAsTheTvsTitlePageGivesIt() {
+        val backyard = show("bs", "Backyard Science (2023)", "Backyard Science")
+        val volcano = DriveFile("e5", "Backyard.Science.2023.S02E05.1080p.mkv", "video/mp4", 1, 1, null)
+        // TMDB doesn't know it: the file's name, as before.
+        assertEquals(volcano.name, WatchJson.episodeTitle(backyard, volcano))
+        // TMDB knows it: "{Show} S02E05 {name}", which the player splits into "Backyard Science · S2, E5" over "The Volcano".
+        val known = volcano.copy(episode = EpisodeMeta(2, 5, "The Volcano", "A trip to the island.", 24))
+        assertEquals("Backyard Science S02E05 The Volcano", WatchJson.episodeTitle(backyard, known))
+        assertEquals("Backyard Science S02E05 The Volcano", WatchJson.firstEpisodePlay(backyard, known, emptyList()).getString("title"))
+        assertEquals("Play S2 E5", WatchJson.firstEpisodePlay(backyard, known, emptyList()).getString("label"))
+        // Going on with an episode played before: the title it was played with, unless its real name is known now.
+        val inProgress = RecentItem("drive:e5", volcano.name, 731_000, 1_440_000, 1)
+        val goOn = MainPlay.GoOn(inProgress)
+        assertEquals(volcano.name, WatchJson.mainPlay(backyard, goOn, emptyList())!!.getString("title"))
+        val named = WatchJson.mainPlay(backyard, goOn, emptyList(), known.episode)!!
+        assertEquals("Backyard Science S02E05 The Volcano", named.getString("title"))
+        assertEquals("Resume S2 E5", named.getString("label"))
+        assertEquals(731_000, named.getLong("position"))
+        // The line under the buttons names it only when TMDB knows its name.
+        assertEquals("S2 E5 · The Volcano", WatchJson.playName(known.episode))
+        assertNull(WatchJson.playName(EpisodeMeta(2, 5, null, null, 24)))
+        assertNull(WatchJson.playName(null))
     }
 
     @Test fun aShowsEpisodeIsFoundByItsShowWhateverTheFileIsCalled() {
@@ -114,35 +149,142 @@ class WatchJsonTest {
         assertEquals("Play S3 E1", loose.getJSONObject("play").getString("label"))
     }
 
-    @Test fun episodeNamesComeFromTheFileUntilTmdbsAreKept() {
-        assertEquals("The Volcano", WatchJson.episodeName("Backyard Science S02E04 The Volcano.mkv", 4))
-        assertEquals("The Title", WatchJson.episodeName("Show.S01E03.The.Title.1080p.mkv", 3))
-        assertEquals("Episode 4", WatchJson.episodeName("Show S02E04.mkv", 4))
-        assertEquals("Episode 4", WatchJson.episodeName("Episode 4.mkv", 4))
-        assertEquals("Behind the scenes", WatchJson.episodeName("Behind the scenes.mkv", null))
-        assertEquals("S2 E4 · The Volcano", WatchJson.episodeLabel("Backyard Science S02E04 The Volcano.mkv"))
-        assertEquals("S2 E4", WatchJson.episodeLabel("Show S02E04.mkv"))
-        assertNull(WatchJson.episodeLabel("Midnight Harbor (2024).mkv"))
+    @Test fun episodesSayWhatTheTvsEpisodeCardsSay() {
+        val now = 1_800_000_000_000
+        val day = 24 * 60 * 60_000L
+        val backyard = show("bs", "Backyard Science (2023)", "Backyard Science")
+        fun ep(id: String, name: String, created: Long = now - 400 * day, meta: EpisodeMeta? = null, still: String? = null) =
+            DriveFile(id, name, "video/mp4", 100, 7, "https://lh3.googleusercontent.com/$id=s220", still, created = created, episode = meta)
+        val recent = listOf(RecentItem("drive:e3", "Backyard Science S02E03.mkv", 20_000, 1_440_000, 1)) // under 2 %
+        val f = WatchFacts(emptyList(), listOf(backyard), recent, recent, emptyMap(), { it == "drive:e1" }, { null }, now = now)
+
+        // TMDB knows it: its number, name, synopsis and length, its picture, and the player's title with its name.
+        val known = WatchJson.episode(
+            ep("e4", "Backyard.Science.S02E04.1080p.mkv", meta = EpisodeMeta(2, 4, "The Volcano", "A trip to the island.", 24), still = "https://image.tmdb.org/t/p/original/v.jpg"),
+            backyard, f, "s2",
+        )
+        assertEquals("The Volcano", known.getString("name"))
+        assertEquals("A trip to the island.", known.getString("overview"))
+        assertEquals(4, known.getInt("number"))
+        assertEquals("S2 E4", known.getString("code"))
+        assertEquals(24, known.getInt("runtime"))
+        assertFalse(known.getBoolean("special"))
+        assertEquals("https://image.tmdb.org/t/p/original/v.jpg", known.getString("still"))
+        assertEquals("Backyard Science S02E04 The Volcano", known.getString("playTitle"))
+        assertFalse(known.getBoolean("new")) // put in Drive long ago
+
+        // TMDB doesn't: what its file's name says, no synopsis, Drive's own frame through the TV.
+        val plain = WatchJson.episode(ep("e5", "Show.S02E05.The.Title.1080p.mkv"), backyard, f, "s2")
+        assertEquals("The Title", plain.getString("name"))
+        assertTrue(plain.isNull("overview"))
+        assertEquals(5, plain.getInt("number"))
+        assertTrue(plain.isNull("runtime"))
+        assertEquals("/api/poster?id=e5&kind=still&in=s2&v=7", plain.getString("still"))
+        assertEquals("Show.S02E05.The.Title.1080p.mkv", plain.getString("playTitle"))
+        assertEquals("Episode 4", WatchJson.episode(ep("e6", "Episode 4.mkv"), backyard, f, "s2").getString("name"))
+        assertEquals(4, WatchJson.episode(ep("e6", "Episode 4.mkv"), backyard, f, "s2").getInt("number"))
+        assertTrue(WatchJson.episode(ep("e7", "Show S00E01.mkv"), backyard, f, "s2").getBoolean("special"))
+        assertTrue(WatchJson.episode(ep("e8", "x.mkv", meta = EpisodeMeta(0, 2, "Behind the Scenes")), backyard, f, "s2").getBoolean("special"))
+
+        // New: put in Drive in the last 30 days, with no ✓ and not started anywhere (the card's NEW badge).
+        assertTrue(WatchJson.episode(ep("e2", "Show S02E02.mkv", created = now - 2 * day), backyard, f, "s2").getBoolean("new"))
+        assertFalse("watched", WatchJson.episode(ep("e1", "Show S02E01.mkv", created = now - 2 * day), backyard, f, "s2").getBoolean("new"))
+        assertTrue("barely started", WatchJson.episode(ep("e3", "Show S02E03.mkv", created = now - 2 * day), backyard, f, "s2").getBoolean("new"))
+        val started = listOf(RecentItem("drive:e3", "Show S02E03.mkv", 400_000, 1_440_000, 1))
+        val f2 = WatchFacts(emptyList(), listOf(backyard), started, started, emptyMap(), { false }, { null }, now = now)
+        assertFalse("started", WatchJson.episode(ep("e3", "Show S02E03.mkv", created = now - 2 * day), backyard, f2, "s2").getBoolean("new"))
+
+        // A collection's film: its title as the library writes it, played by its file's name, never "new".
+        val film = WatchJson.episode(DriveFile("c1", "Orbit (2021).mkv", "video/mp4", 1, 1, null, created = now - day), backyard, f, "col", collection = true)
+        assertEquals("Orbit (2021)", film.getString("name"))
+        assertEquals("Orbit (2021).mkv", film.getString("playTitle"))
+        assertTrue(film.isNull("number"))
+        assertFalse(film.getBoolean("new"))
+    }
+
+    @Test fun continueWatchingNamesTheEpisodeAsItsTitleDoes() {
+        val f = facts()
+        // Started from the TV's title page with its real name, or from a file named after it.
+        assertEquals("The Volcano", WatchJson.continueItem(RecentItem("drive:a", "Backyard Science S02E04 The Volcano", 1, 2, 1), f).getString("episode"))
+        assertEquals("The Title", WatchJson.continueItem(RecentItem("drive:b", "Show.S01E03.The.Title.1080p.mkv", 1, 2, 1), f).getString("episode"))
+        assertEquals("Episode 4", WatchJson.continueItem(RecentItem("drive:c", "Show S02E04.mkv", 1, 2, 1), f).getString("episode"))
         assertEquals("Backyard Science", WatchJson.showName("Backyard.Science.S02E04.mkv"))
         assertEquals("S01E01 - Pilot", WatchJson.showName("S01E01 - Pilot.mkv"))
     }
 
-    @Test fun searchRanksLikeTheTv() {
+    @Test fun newEpisodesAreSaidOnTheirShowsAsOnTheTv() {
+        val now = 1_800_000_000_000
+        val day = 24 * 60 * 60_000L
+        val old = DriveFile("bs", "Backyard Science", FOLDER, 0, now - 400 * day, null, null, MediaInfo("Backyard Science", null))
+        val brandNew = DriveFile("kr", "Kitchen Rules", FOLDER, 0, now - 3 * day, null, null, MediaInfo("Kitchen Rules", null))
+        fun fresh(id: String, name: String, season: Int, number: Int, created: Long) = FreshEpisode(id, name, "season", "Season $season", created, season, number)
+        val found = mapOf(
+            "bs" to listOf(fresh("n2", "Backyard Science S03E02.mkv", 3, 2, now - 2 * day)),
+            "kr" to listOf(fresh("k1", "Kitchen Rules S01E01.mkv", 1, 1, now - 3 * day)),
+            "gone" to listOf(fresh("g1", "Gone S01E05.mkv", 1, 5, now - day)), // a show TV Shows doesn't list (any more)
+        )
+        fun factsWith(watched: Set<String> = emptySet(), recent: List<RecentItem> = emptyList(), folders: Map<String, List<DriveFile>> = emptyMap()): WatchFacts {
+            val news = WatchJson.newShows(found, listOf(old, brandNew), now, { it in watched }, recent)
+            return WatchFacts(emptyList(), listOf(old, brandNew), recent, recent, emptyMap(), { it in watched }, { folders[it] }, news, now)
+        }
+        val f = factsWith()
+        assertEquals(setOf("bs", "kr"), f.news.keys)
+        // A show the family already had: its poster says what's new, it counts as added when that came, and its main
+        // play is the first new episode, from its start.
+        val t = WatchJson.title(old, f)
+        assertEquals("New · S3 E2", t.getString("caption"))
+        assertEquals(now - 2 * day, t.getLong("added"))
+        val p = t.getJSONObject("play")
+        assertEquals("Play S3 E2", p.getString("label"))
+        assertEquals("drive:n2", p.getString("key"))
+        assertEquals(0, p.getLong("position"))
+        assertEquals("Backyard Science S03E02.mkv", p.getString("title"))
+        // A show added whole lately is simply new: no caption (its first episode plays as any show's would).
+        val k = WatchJson.title(brandNew, f)
+        assertTrue(k.isNull("caption"))
+        assertEquals("Play S1 E1", k.getJSONObject("play").getString("label"))
+        // Watched on any TV: nothing new any more.
+        val seen = WatchJson.title(old, factsWith(watched = setOf("drive:n2")))
+        assertTrue(seen.isNull("caption"))
+        assertTrue(seen.isNull("play"))
+        assertEquals(old.added, seen.getLong("added"))
+        // Started: it's the episode to go on with, no longer new.
+        val going = WatchJson.title(old, factsWith(recent = listOf(RecentItem("drive:n2", "Backyard Science S03E02.mkv", 400_000, 1_440_000, 1))))
+        assertTrue(going.isNull("caption"))
+        assertEquals("Resume S3 E2", going.getJSONObject("play").getString("label"))
+        // A new episode that's the show's first anyway plays as its first (known from its listing): "Play S1 E1".
+        val s1 = DriveFile("ks1", "Season 1", FOLDER, 0, 1, null)
+        val k1 = DriveFile("k1", "Kitchen Rules S01E01.mkv", "video/mp4", 1, 1, null)
+        val listed = factsWith(folders = mapOf("kr" to listOf(s1), "ks1" to listOf(k1)))
+        assertEquals("drive:k1", WatchJson.title(brandNew, listed).getJSONObject("play").getString("key"))
+        assertEquals("Play S1 E1", WatchJson.title(brandNew, listed).getJSONObject("play").getString("label"))
+        // Several new episodes: "New season" from its episode 1, else how many.
+        val more = mapOf("bs" to listOf(fresh("a", "x S04E01.mkv", 4, 1, now - day), fresh("b", "x S04E02.mkv", 4, 2, now - day)))
+        assertEquals("New season", WatchJson.caption(old, WatchFacts(emptyList(), listOf(old), emptyList(), emptyList(), emptyMap(), { false }, { null }, WatchJson.newShows(more, listOf(old), now, { false }, emptyList()), now)))
+    }
+
+    @Test fun searchGroupsTheTvsOneRankedListIntoItsTwoLibraries() {
         val harbor = film("1", "a", "Midnight Harbor", 2024, rating = 7.8)
         val office = show("2", "The Office")
         val coast = film("3", "b", "Harbor Lights", 2019, rating = 6.0)
         val dark = film("4", "c", "The Dark Harbor", 2024, rating = 8.5)
-        val ranked = WatchJson.search(listOf(harbor, office, coast, dark), "harbor").map { it.first.id }
-        // The title starting with it first; then a word starting with it (higher rated first).
-        assertEquals(listOf("3", "4", "1"), ranked)
+        val patrol = show("5", "Harbor Patrol")
+        fun find(q: String) = WatchJson.sections(TitleSearch.find(q, mapOf(DrivePlace.Movies to listOf(harbor, coast, dark), DrivePlace.TvShows to listOf(office, patrol))))
+        // The TV's order in each: titles starting with it first (the better rated first), then a word starting with it.
+        val h = find("harbor")
+        assertEquals(listOf("3", "4", "1"), h.movies.map { it.id })
+        assertEquals(listOf("5"), h.shows.map { it.id })
+        assertFalse("the best match is a film", h.showsFirst)
+        assertTrue(find("patrol").showsFirst)
         // A leading "the" is left out on both sides; accents and case are ignored.
-        assertEquals(listOf("2"), WatchJson.search(listOf(harbor, office), "the off").map { it.first.id })
-        assertEquals(listOf("2"), WatchJson.search(listOf(office), "OFFICE").map { it.first.id })
-        // Four digits also match the year.
-        assertEquals(setOf("1", "4"), WatchJson.search(listOf(harbor, coast, dark), "2024").map { it.first.id }.toSet())
-        assertEquals(listOf("4"), WatchJson.search(listOf(harbor, coast, dark), "dark 2024").map { it.first.id })
-        assertTrue(WatchJson.search(listOf(harbor), "  ").isEmpty())
-        assertTrue(WatchJson.search(listOf(harbor), "zebra").isEmpty())
+        assertEquals(listOf("2"), find("the off").shows.map { it.id })
+        assertEquals(listOf("2"), find("OFFICE").shows.map { it.id })
+        // Four digits also match the year (and rank every title alike: the better rated first).
+        assertEquals(listOf("4", "1"), find("2024").movies.map { it.id })
+        assertEquals(listOf("4"), find("dark 2024").movies.map { it.id })
+        val none = find("  ")
+        assertTrue(none.movies.isEmpty() && none.shows.isEmpty())
+        assertTrue(find("zebra").movies.isEmpty())
     }
 
     @Test fun artIsTmdbsOrComesThroughTheTv() {
@@ -186,6 +328,14 @@ class WatchJsonTest {
         assertTrue(t2.getBoolean("watched"))
         assertEquals("drive:iw", t2.getJSONObject("play").getString("key"))
         assertTrue(WatchJson.title(inFolder, facts(movies = listOf(inFolder))).isNull("play"))
+    }
+
+    @Test fun onlyAShowsOwnSeasonFoldersAreItsSeasons() {
+        val top = listOf(DriveFile("f1", "Season 1", FOLDER, 0, 1, null), DriveFile("t1", "Trailer.mkv", "video/mp4", 1, 1, null))
+        assertEquals("f1", WatchJson.seasonOf(top, "f1")?.id)
+        assertNull("a file of the show's folder isn't a season", WatchJson.seasonOf(top, "t1"))
+        assertNull("any other folder of the Drive", WatchJson.seasonOf(top, "f9"))
+        assertNull(WatchJson.seasonOf(emptyList(), "f1"))
     }
 
     @Test fun theFirstSeasonIsSeasonOneNotSpecials() {

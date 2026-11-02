@@ -6,11 +6,16 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
+import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import com.woodruff.tvexplorer.cloud.FolderCache
+import com.woodruff.tvexplorer.cloud.FreshEpisode
+import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.ListingCache
 import com.woodruff.tvexplorer.cloud.MediaInfo
+import com.woodruff.tvexplorer.cloud.TitleSearch
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.Watched
+import com.woodruff.tvexplorer.tmdb.Tmdb
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONObject
 import org.junit.After
@@ -48,9 +53,11 @@ class WatchRoutesTest {
     private val backyard = DriveFile("s1", "Backyard Science", DriveFile.FOLDER_MIME, 0, 60, null, null, MediaInfo("Backyard Science", 2023, listOf("Family"), 8.1))
     private val lighthouse = DriveFile("s2", "The Lighthouse", DriveFile.FOLDER_MIME, 0, 10, null, null, MediaInfo("The Lighthouse", null))
     private fun ep(id: String, name: String) = DriveFile(id, name, "video/mp4", 100, 1, "https://lh3.googleusercontent.com/$id=s220")
+    private val DAY = 24 * 60 * 60_000L
 
     @Before fun setUp() {
         WatchHome.forget()
+        WatchTmdb.reset()
         routes = WatchRoutes(c) { started += it; true }
         ListingCache.write(c, DrivePlace.Movies, movies)
         ListingCache.write(c, DrivePlace.TvShows, listOf(backyard, lighthouse))
@@ -68,12 +75,13 @@ class WatchRoutesTest {
         ListingCache.clear(c)
         FolderCache.clear(c)
         c.getSharedPreferences("recent", Context.MODE_PRIVATE).edit().clear().commit()
-        Watched.unmarkAll(c, listOf("drive:m3", "drive:m1", "drive:e24"))
+        Watched.unmarkAll(c, listOf("drive:m3", "drive:m1", "drive:e24", "drive:l3"))
         WatchHome.forget()
+        WatchTmdb.reset()
     }
 
     /** A library's saved listing, as [ListingCache] names its file. */
-    private fun saved(place: DrivePlace.Named) = File(File(c.cacheDir, "listings"), "named-${place.title}.json")
+    private fun saved(place: DrivePlace.Named) = File(File(c.cacheDir, "listings"), "named-${place.title}".replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json")
 
     /** A folder's listing as the TV saves it after listing it once. */
     private fun folder(id: String, files: List<DriveFile>) {
@@ -106,6 +114,26 @@ class WatchRoutesTest {
         // The same home again costs nothing: 304 for the tag the phone holds.
         val tag = r.getHeader("ETag")
         assertEquals(NanoHTTPD.Response.Status.NOT_MODIFIED, get("/api/watch/home", headers = mapOf("if-none-match" to tag)).status)
+    }
+
+    @Test fun aFileKeptInBothLibrariesIsShownOnce() {
+        // Drive's older files can sit in two folders: the same film listed in Movies and in TV Shows.
+        val both = movie("m9", "Harbor Lights", 2019, 7.0, listOf("Drama"), added = 99, backdrop = true)
+        val m = ListingCache.savedAt(c, DrivePlace.Movies)
+        val s = ListingCache.savedAt(c, DrivePlace.TvShows)
+        ListingCache.write(c, DrivePlace.Movies, movies + both)
+        ListingCache.write(c, DrivePlace.TvShows, listOf(backyard, lighthouse, both))
+        saved(DrivePlace.Movies).setLastModified(m + 1_000) // new saved copies, even within the same millisecond
+        saved(DrivePlace.TvShows).setLastModified(s + 1_000)
+        val h = json(get("/api/watch/home"))
+        fun ids(a: org.json.JSONArray) = (0 until a.length()).map { a.getJSONObject(it).getString("id") }
+        // Recently Added (newest first: it came last) and the billboard each have it once, as the TV's Home does.
+        val recent = ids(h.getJSONArray("recent"))
+        assertEquals("m9", recent.first())
+        assertEquals(recent.distinct(), recent)
+        val featured = ids(h.getJSONArray("featured"))
+        assertTrue("m9" in featured)
+        assertEquals(featured.distinct(), featured)
     }
 
     @Test fun gridsPageSortFilterAndSearchAsTheTvsGrid() {
@@ -151,6 +179,22 @@ class WatchRoutesTest {
         assertFalse(s.getJSONObject("capped").getBoolean("movies"))
     }
 
+    @Test fun thePhonesSearchFindsWhatTheTvsSearchFindsInTheSameOrder() {
+        val shows = listOf(backyard, lighthouse)
+        for (q in listOf("o", "e", "the", "harbor", "2024", "light", "an", "science 2023", "zebra")) {
+            val r = json(get("/api/library/search", "q" to q))
+            // The TV's Search over the same libraries: one list, which the phone shows in two sections in its order.
+            val tv = TitleSearch.find(q, mapOf(DrivePlace.Movies to movies, DrivePlace.TvShows to shows)).hits
+            assertEquals(q, tv.filter { it.place == DrivePlace.Movies }.map { Library.info(it.file).title }, titles(r, "movies"))
+            assertEquals(q, tv.filter { it.place == DrivePlace.TvShows }.map { Library.info(it.file).title }, titles(r, "shows"))
+            assertEquals(q, if (tv.firstOrNull()?.place == DrivePlace.TvShows) "shows" else "movies", r.getString("first"))
+        }
+        // A grid's own search field: the same match (a four-digit word is also the year), in the grid's own order.
+        assertEquals(listOf("Ironwood"), titles(json(get("/api/library", "place" to "movies", "q" to "2025"))))
+        // (A–Z there, where Search would put "Orbit" first.)
+        assertEquals(listOf("Ironwood", "Midnight Harbor", "Orbit"), titles(json(get("/api/library", "place" to "movies", "q" to "o"))))
+    }
+
     @Test fun aFilmsTitleSheetResumesAndStartsOver() {
         val t = json(get("/api/library/title", "id" to "m1"))
         assertEquals("movie", t.getString("kind"))
@@ -169,7 +213,9 @@ class WatchRoutesTest {
         assertEquals("Resume S2 E4", t.getJSONObject("play").getString("label"))
         assertEquals("Play from the Start", t.getJSONObject("restart").getString("label"))
         assertEquals("drive:e11", t.getJSONObject("restart").getString("key"))
-        assertEquals("S2 E4 · The Volcano", t.getString("playName"))
+        // The line under the buttons names the episode only when TMDB knows its name (as on the TV): here it doesn't.
+        assertTrue(t.isNull("playName"))
+        assertEquals("Backyard Science S02E04 The Volcano.mkv", t.getJSONObject("play").getString("title"))
         // A show with nothing started: Play S1 E1, its episodes in its own folder ("Episodes").
         val l = json(get("/api/library/title", "id" to "s2"))
         assertEquals("Episodes", l.getJSONArray("seasons").getJSONObject(0).getString("name"))
@@ -198,6 +244,113 @@ class WatchRoutesTest {
         val inside = json(get("/api/library/episodes", "show" to "s2", "season" to WatchRoutes.INSIDE)).getJSONArray("episodes")
         assertEquals("Arrival", inside.getJSONObject(0).getString("name"))
         Watched.unmark(c, "drive:e21")
+    }
+
+    @Test fun newEpisodesReachThePhoneAsTheTvSaysThem() {
+        val now = System.currentTimeMillis()
+        // A third episode put in The Lighthouse's folder yesterday (the show itself came long ago), as the TV's last TV
+        // Shows listing found it and saved it.
+        val gale = DriveFile("l3", "The Lighthouse 1x03 Gale.mkv", "video/mp4", 100, 1, null, created = now - DAY)
+        folder("s2", listOf(ep("l1", "The Lighthouse 1x01 Arrival.mkv"), ep("l2", "The Lighthouse 1x02 Fog.mkv"), gale))
+        ListingCache.writeFresh(c, mapOf("s2" to listOf(FreshEpisode("l3", gale.name, null, null, now - DAY, 1, 3))))
+
+        // First in Recently Added (when its new episode came), saying what's new, its main play that episode.
+        val first = json(get("/api/watch/home")).getJSONArray("recent").getJSONObject(0)
+        assertEquals("s2", first.getString("id"))
+        assertEquals("New · S1 E3", first.getString("caption"))
+        assertEquals(now - DAY, first.getLong("added"))
+        assertEquals("Play S1 E3", first.getJSONObject("play").getString("label"))
+        assertEquals("drive:l3", first.getJSONObject("play").getString("key"))
+        // The TV Shows grid's "Recently Added" sort agrees.
+        assertEquals("The Lighthouse", titles(json(get("/api/library", "place" to "shows", "sort" to "recent"))).first())
+
+        // Its sheet: Play S1 E3 from its start, Play from the Start beside it; the new episode is marked new.
+        val t = json(get("/api/library/title", "id" to "s2"))
+        assertEquals("Play S1 E3", t.getJSONObject("play").getString("label"))
+        assertEquals(0, t.getJSONObject("play").getLong("position"))
+        assertEquals("Play from the Start", t.getJSONObject("restart").getString("label"))
+        assertEquals("drive:l1", t.getJSONObject("restart").getString("key"))
+        val eps = json(get("/api/library/episodes", "show" to "s2", "season" to WatchRoutes.INSIDE)).getJSONArray("episodes")
+        assertEquals(listOf(false, false, true), (0 until eps.length()).map { eps.getJSONObject(it).getBoolean("new") })
+
+        // Watched (here from the phone, or on any TV): nothing new any more.
+        post("/api/library/watched", JSONObject().put("key", "drive:l3").put("watched", true))
+        val after = json(get("/api/watch/home")).getJSONArray("recent")
+        val lighthouse = (0 until after.length()).map { after.getJSONObject(it) }.single { it.getString("id") == "s2" }
+        assertTrue(lighthouse.isNull("caption"))
+    }
+
+    @Test fun newEpisodesAreReadAgainOnlyWhenTheTvSavesThemAgain() {
+        assertTrue(WatchLibrary.freshEpisodes(c).isEmpty()) // none saved
+        ListingCache.writeFresh(c, mapOf("s2" to listOf(FreshEpisode("l3", "The Lighthouse 1x03 Gale.mkv", null, null, 5, 1, 3))))
+        val read = WatchLibrary.freshEpisodes(c)
+        assertEquals(setOf("s2"), read.keys)
+        assertTrue("unchanged: not read again", read === WatchLibrary.freshEpisodes(c))
+        // Saved again (the TV's next TV Shows listing found more): read again.
+        val file = File(File(c.cacheDir, "listings"), "new-episodes.json")
+        val before = file.lastModified()
+        ListingCache.writeFresh(c, mapOf("s1" to listOf(FreshEpisode("e31", "Backyard Science S03E01.mkv", "f3", "Season 3", 5, 3, 1))))
+        file.setLastModified(before + 1_000) // a new saved copy, even within the same millisecond
+        assertEquals(setOf("s1"), WatchLibrary.freshEpisodes(c).keys)
+        // Signed out (the listings cleared): nothing.
+        ListingCache.clear(c)
+        assertTrue(WatchLibrary.freshEpisodes(c).isEmpty())
+    }
+
+    @Test fun tmdbsEpisodeNamesAndSynopsesReachThePhone() {
+        // What TMDB knows of Backyard Science's episodes: asked once per season, ever, and kept (here it answers at once).
+        WatchTmdb.episodes = { _, files, _, _ ->
+            files.map { f ->
+                val (s, e) = Tmdb.episodeNumber(f.name, null) ?: return@map f
+                f.copy(posterUrl = "https://image.tmdb.org/t/p/original/s${s}e$e.jpg", episode = EpisodeMeta(s, e, "Name $e", "About episode $e.", 25))
+            }
+        }
+        WatchTmdb.meta = { _, _, name, _ -> Tmdb.episodeNumber(name, null)?.let { (s, e) -> EpisodeMeta(s, e, if (e == 4) "The Volcano" else "Name $e", null, 24) } }
+        // A season of it not looked at before.
+        folder("s1", listOf(DriveFile("f1", "Season 1", DriveFile.FOLDER_MIME, 0, 1, null), DriveFile("f2", "Season 2", DriveFile.FOLDER_MIME, 0, 1, null), DriveFile("f3-tmdb", "Season 3", DriveFile.FOLDER_MIME, 0, 1, null)))
+        folder("f3-tmdb", listOf(ep("e31", "Backyard Science S03E01.mkv"), ep("e32", "Backyard.Science.S03E02.1080p.mkv")))
+
+        val e = json(get("/api/library/episodes", "show" to "s1", "season" to "f3-tmdb")).getJSONArray("episodes").getJSONObject(1)
+        assertEquals("Name 2", e.getString("name"))
+        assertEquals("About episode 2.", e.getString("overview"))
+        assertEquals(25, e.getInt("runtime"))
+        assertEquals(2, e.getInt("number"))
+        assertEquals("https://image.tmdb.org/t/p/original/s3e2.jpg", e.getString("still"))
+        // The player gets its real name, as when the TV's title page starts it.
+        assertEquals("Backyard Science S03E02 Name 2", e.getString("playTitle"))
+
+        // The sheet: the main button goes on with S2 E4 under its real name, and the line under the buttons names it.
+        val t = json(get("/api/library/title", "id" to "s1"))
+        assertEquals("Resume S2 E4", t.getJSONObject("play").getString("label"))
+        assertEquals("Backyard Science S02E04 The Volcano", t.getJSONObject("play").getString("title"))
+        assertEquals("S2 E4 · The Volcano", t.getString("playName"))
+        assertEquals(24, t.getInt("playMinutes"))
+        assertEquals("Backyard Science S01E01 Name 1", t.getJSONObject("restart").getString("title"))
+    }
+
+    @Test fun aSeasonsEpisodesAreListedOnlyForASeasonOfTheShowAskedFor() {
+        // Folders this TV holds listings of that aren't seasons of Backyard Science: The Lighthouse's own folder, and
+        // a folder outside any show (whatever it is, the phone may never list it through Watch).
+        folder("elsewhere", listOf(ep("x1", "Somebody's private video.mkv")))
+        fun refused(show: String, season: String) = serve("/api/library/episodes", mapOf("show" to show, "season" to season))
+            .also { assertEquals("$show/$season", NanoHTTPD.Response.Status.BAD_REQUEST, it.status) }
+        // Another show's folder, a folder in no show, a file, or a show that isn't in TV Shows: turned down, unlisted.
+        assertEquals("That season isn’t in Backyard Science any more.", refused("s1", "s2").data.bufferedReader().readText())
+        assertFalse(refused("s1", "elsewhere").data.bufferedReader().readText().contains("private"))
+        refused("s1", "e11")
+        refused("s2", "f1")
+        assertEquals("That show isn’t in TV Shows any more.", refused("m1", WatchRoutes.INSIDE).data.bufferedReader().readText())
+        refused("elsewhere", WatchRoutes.INSIDE)
+        assertEquals(null, FolderCache.inMemory("elsewhere")) // never even read
+        // Its own seasons, and the episodes kept in its own folder, as before.
+        assertEquals(2, json(get("/api/library/episodes", "show" to "s1", "season" to "f2")).getJSONArray("episodes").length())
+        assertEquals(2, json(get("/api/library/episodes", "show" to "s2", "season" to WatchRoutes.INSIDE)).getJSONArray("episodes").length())
+        // The show's own listing gone from this TV (and not to be had just now): the season waits for it, unlisted.
+        FolderCache.clear(c)
+        folder("f1", listOf(ep("e11", "Backyard Science S01E01 Tide Pools.mkv")))
+        val waits = json(get("/api/library/episodes", "show" to "s1", "season" to "f1"))
+        assertEquals("loading", waits.getString("state"))
+        assertEquals(0, waits.getJSONArray("episodes").length())
     }
 
     @Test fun marksAndRemovalsChangeTheStoresTheTvUses() {

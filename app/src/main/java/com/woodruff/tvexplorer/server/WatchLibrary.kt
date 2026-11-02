@@ -6,18 +6,29 @@ import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DriveHttpException
 import com.woodruff.tvexplorer.cloud.DriveListing
 import com.woodruff.tvexplorer.cloud.DrivePlace
+import com.woodruff.tvexplorer.cloud.EpisodeMeta
+import com.woodruff.tvexplorer.cloud.FreshEpisode
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
 import com.woodruff.tvexplorer.cloud.ListingCache
+import com.woodruff.tvexplorer.cloud.NewEpisodes
+import com.woodruff.tvexplorer.cloud.NewShow
+import com.woodruff.tvexplorer.cloud.TitleSearch
+import com.woodruff.tvexplorer.cloud.episodeCodeOf
+import com.woodruff.tvexplorer.cloud.episodeName
+import com.woodruff.tvexplorer.cloud.episodePlayTitle
+import com.woodruff.tvexplorer.cloud.fileEpisode
 import com.woodruff.tvexplorer.cloud.isGoogleUrl
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.tmdb.Tmdb
+import com.woodruff.tvexplorer.ui.screens.MainPlay
 import com.woodruff.tvexplorer.ui.screens.episodeCode
 import com.woodruff.tvexplorer.ui.screens.folderFilm
+import com.woodruff.tvexplorer.ui.screens.showMainPlay
 import com.woodruff.tvexplorer.ui.screens.showResume
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.isNetworkFailure
@@ -71,6 +82,21 @@ object WatchLibrary {
     /** The saved listing of [place] and where the listing limit cut it (0: it wasn't). The one place that reads [ListingCache] here. */
     private fun savedListing(c: Context, place: DrivePlace): Pair<List<DriveFile>, Int>? =
         ListingCache.read(c, place)?.let { it.files to it.cutAt }
+
+    /** The new episodes as last read, and when that copy was saved. */
+    @Volatile private var fresh: Pair<Long, Map<String, List<FreshEpisode>>>? = null
+
+    /**
+     * The TV shows' videos put in Drive lately, as the TV's last TV Shows listing found and saved them
+     * ([ListingCache.readFresh]): read again only when that copy changes, as the listings are.
+     * Blocking: off the main thread.
+     */
+    internal fun freshEpisodes(c: Context): Map<String, List<FreshEpisode>> {
+        val at = ListingCache.freshSavedAt(c)
+        if (at == 0L) return emptyMap()
+        fresh?.let { (was, kept) -> if (was == at) return kept }
+        return ListingCache.readFresh(c).orEmpty().also { fresh = at to it }
+    }
 
     /** Whether Drive is being listed here because nothing was saved. */
     val listing: Boolean get() = lister?.isActive == true
@@ -135,6 +161,10 @@ internal class WatchFacts(
     val watched: (String) -> Boolean,
     /** A folder's listing if it's in memory (never read from disk while building a list). */
     val folder: (String) -> List<DriveFile>?,
+    /** The TV shows with new episodes, by show id, as the TV's own screens work them out ([WatchJson.newShows]). */
+    val news: Map<String, NewShow> = emptyMap(),
+    /** Now, for whether an episode still counts as new ([NewEpisodes.isNew]). */
+    val now: Long = System.currentTimeMillis(),
 ) {
     private val showIds: Set<String> by lazy { shows.mapTo(HashSet()) { it.id } }
     fun isShow(f: DriveFile): Boolean = f.id in showIds
@@ -191,16 +221,131 @@ internal object WatchJson {
         return showResume(facts.recent) { r -> facts.showOf[r.key] == show.id || r.key in listed || matchKeyOf(r.title) == key }
     }
 
-    /** "Resume S2 E4" (in progress) / "Play S2 E5" (up next), the TV's words; without a code "Resume" / "Play Next Episode". */
-    fun episodePlay(r: RecentItem): JSONObject {
+    /**
+     * "Resume S2 E4" (in progress) / "Play S2 E5" (up next), the TV's words; without a code "Resume" / "Play Next Episode".
+     * [title]: what the player is given; the title it was last played with unless the episode's real name is known.
+     */
+    fun episodePlay(r: RecentItem, title: String = r.title): JSONObject {
         val code = episodeCode(r.title)
         val label = if (r.upNext) code?.let { "Play $it" } ?: "Play Next Episode" else code?.let { "Resume $it" } ?: "Resume"
-        return play(r.key, r.title, if (r.upNext) 0 else r.positionMs, label, r.durationMs)
+        return play(r.key, title, if (r.upNext) 0 else r.positionMs, label, r.durationMs)
     }
 
-    /** "Play S1 E1" for a show's first episode ("Play First Episode" when its name has no code). */
-    fun firstEpisodePlay(ep: DriveFile, recent: List<RecentItem>): JSONObject =
-        play(driveKey(ep.id), ep.name, 0, "Play " + (episodeCode(ep.name) ?: "First Episode"), durationOf(recent, driveKey(ep.id)))
+    /**
+     * What the player is given as [ep]'s title, as the TV's title page gives it ([episodePlayTitle], one helper for both):
+     * "Backyard Science S02E05 The Volcano" when TMDB's name for it is known ([DriveFile.episode]), else its file's name.
+     */
+    fun episodeTitle(show: DriveFile, ep: DriveFile): String = episodePlayTitle(Library.info(show).title, ep)
+
+    /** "Play S1 E1" for [show]'s first episode [ep] ("Play First Episode" when nothing says its number), from its start. */
+    fun firstEpisodePlay(show: DriveFile, ep: DriveFile, recent: List<RecentItem>): JSONObject =
+        play(driveKey(ep.id), episodeTitle(show, ep), 0, "Play " + (episodeCodeOf(ep.episode, ep.name) ?: "First Episode"), durationOf(recent, driveKey(ep.id)))
+
+    /**
+     * "Play S3 E2" for [show]'s first new episode [e] (episodes spec §3.5; "Play New Episode" when its name doesn't say), from
+     * its start; [meta] is TMDB's word on it, when known, for the player's title.
+     */
+    fun newEpisodePlay(show: DriveFile, e: FreshEpisode, meta: EpisodeMeta?, recent: List<RecentItem>): JSONObject =
+        play(e.key, episodeTitle(show, standIn(e.id, e.name, meta)), 0, "Play " + (e.code ?: "New Episode"), durationOf(recent, e.key))
+
+    /** "Play from the Start": [show]'s first episode [first], beside a button that goes on with the show. */
+    fun restartPlay(show: DriveFile, first: DriveFile, recent: List<RecentItem>): JSONObject =
+        play(driveKey(first.id), episodeTitle(show, first), 0, "Play from the Start", durationOf(recent, driveKey(first.id)))
+
+    /**
+     * A show's main play, decided as its TV title page and title menu decide it ([showMainPlay], episodes spec §3.5): the
+     * episode to go on with; else its first new episode ([WatchFacts.news]), unless that's its first episode anyway; else
+     * its first episode ([first], when it's known). Null when none is known.
+     */
+    fun showMain(show: DriveFile, facts: WatchFacts, listed: Set<String> = emptySet(), first: DriveFile? = null): MainPlay? =
+        showMainPlay(
+            showResumeItem(show, facts, listed)?.let { MainPlay.GoOn(it) },
+            facts.news[show.id]?.first?.let { MainPlay.New(it) },
+            first, emptyList(),
+        )
+
+    /**
+     * [main] (a show's, see [showMain]) as the phone starts it, titled for the player as the TV's title page titles it;
+     * [meta]: TMDB's word on its episode, when it's known (an episode played before keeps the title it had otherwise).
+     */
+    fun mainPlay(show: DriveFile, main: MainPlay, recent: List<RecentItem>, meta: EpisodeMeta? = null): JSONObject? = when (main) {
+        is MainPlay.GoOn -> episodePlay(main.item, episodeTitle(show, standIn(main.item.key.removePrefix(DRIVE), main.item.title, meta)))
+        is MainPlay.New -> newEpisodePlay(show, main.episode, meta, recent)
+        is MainPlay.First -> firstEpisodePlay(show, if (meta != null) main.episode.copy(episode = meta) else main.episode, recent)
+        is MainPlay.Film -> null
+    }
+
+    /** An episode known only by its id and name (and maybe what TMDB knows of it), for its title. */
+    private fun standIn(id: String, name: String, meta: EpisodeMeta?) = DriveFile(id, name, "", 0, 0, null, episode = meta)
+
+    /**
+     * A show's first episode as its title page finds it, from the listings already known ([folder]: a folder's listing,
+     * when it's known): the first video of its first season (Season 1, not Specials), or of its own folder when it keeps
+     * its episodes there. Null when those aren't known.
+     */
+    fun firstEpisode(show: DriveFile, folder: (String) -> List<DriveFile>?): DriveFile? {
+        val top = folder(show.id) ?: return null
+        val seasons = top.filter { it.isFolder }
+        if (seasons.isEmpty()) return top.firstOrNull { it.kind == FileKind.VIDEO }
+        return folder(seasons[firstSeason(seasons.map { it.name })].id)?.firstOrNull { it.kind == FileKind.VIDEO }
+    }
+
+    /**
+     * The TV shows with new episodes now, by show id, worked out as the TV's own screens work them out: of the videos
+     * last found put in Drive lately under each show ([fresh], as saved by the TV's TV Shows listing), those of the
+     * shows [shows] lists that no TV has watched ([watched]) or started ([recent]) ([NewEpisodes.shows]).
+     */
+    fun newShows(
+        fresh: Map<String, List<FreshEpisode>>, shows: List<DriveFile>, now: Long, watched: (String) -> Boolean, recent: List<RecentItem>,
+    ): Map<String, NewShow> {
+        if (fresh.isEmpty() || shows.isEmpty()) return emptyMap()
+        val progress = recent.associate { it.key to it.progress }
+        return NewEpisodes.shows(fresh, shows.associate { it.id to it.added }, now, watched) { progress[it] }
+    }
+
+    /**
+     * What [f]'s poster says about its new episodes: "New · S3 E2", "New season", "3 new episodes" ([NewShow.caption]),
+     * only once the show itself is older than the new-episode window (a show added whole lately is simply new), as on
+     * the TV's posters. Null for anything else.
+     */
+    fun caption(f: DriveFile, facts: WatchFacts): String? = facts.news[f.id]?.takeIf { it.announced }?.caption
+
+    /**
+     * "S2 E4 · The Volcano": the episode a show's main button plays, as the line under the TV title page's buttons names
+     * it, only when TMDB knows its name ([meta]); null otherwise (the line then says only when it would end).
+     */
+    fun playName(meta: EpisodeMeta?): String? = meta?.name?.takeIf { it.isNotBlank() }?.let { "S${meta.season} E${meta.number} · $it" }
+
+    /**
+     * One of a season's episodes for the phone's list ([collection]: a film of a collection), as the TV's episode card
+     * says it: TMDB's number, name, synopsis and length when [v] carries them ([DriveFile.episode]), else what its file's
+     * name says; whether it's watched or how far it got, whether it's new (put in Drive lately, not watched or started on
+     * any TV: the card's NEW badge), and what to start, titled for the player as the TV's title page titles it. [artFolder]:
+     * the folder it's listed in, through which the TV fetches Drive's own frame of it.
+     */
+    fun episode(v: DriveFile, show: DriveFile, facts: WatchFacts, artFolder: String, collection: Boolean = false): JSONObject {
+        val key = driveKey(v.id)
+        val seen = facts.recent.firstOrNull { it.key == key }
+        val watched = facts.watched(key)
+        val meta = v.episode.takeIf { !collection }
+        val file = if (collection || meta != null) null else fileEpisode(v.name)
+        val number = meta?.number ?: file?.second
+        val measured = seen?.durationMs?.takeIf { it >= 60_000 }?.let { ((it + 30_000) / 60_000).toInt() }
+        return JSONObject()
+            .put("key", key).put("playTitle", if (collection) v.name else episodeTitle(show, v))
+            .put("code", (if (collection) null else episodeCodeOf(meta, v.name)) ?: JSONObject.NULL)
+            .put("number", number ?: JSONObject.NULL)
+            .put("special", (meta?.season ?: file?.first) == 0)
+            .put("name", if (collection) Library.label(v) else episodeName(meta, v.name))
+            .put("overview", meta?.overview ?: JSONObject.NULL)
+            .put("still", v.posterUrl?.takeIf(::isTmdbUrl) ?: v.thumbnailLink?.takeIf { isGoogleUrl(it) }?.let { artRoute(v.id, "still", v.modified, artFolder) } ?: JSONObject.NULL)
+            .put("runtime", meta?.minutes?.takeIf { it > 0 } ?: measured ?: JSONObject.NULL)
+            .put("position", resumeAt(facts.recent, key).takeIf { seen?.upNext != true } ?: 0L)
+            .put("duration", seen?.durationMs ?: 0L)
+            .put("watched", watched)
+            .put("upNext", seen?.upNext == true)
+            .put("new", !collection && NewEpisodes.isNew(v.created, facts.now, watched, seen?.progress))
+    }
 
     /** The art a tile shows: its poster (TMDB's, or the owner's own through the TV), else a video's own frame; null for the dark title card. */
     fun posterUrl(f: DriveFile): String? {
@@ -227,7 +372,9 @@ internal object WatchJson {
 
     /**
      * A title for the phone: [kind] "movie" or "show"; its ✓ (films only, as on the TV's posters: a
-     * show is never "watched"); [play] when it's cheap to know (a film; a show with an episode to go on with).
+     * show is never "watched"); its new episodes' caption ([caption]); when it counts as added (a show by
+     * its newest new episode, as in the TV's Recently added); [play] when it's cheap to know (a film; a
+     * show's main play from what's known without listing anything, as the TV's title menu has it).
      */
     fun title(f: DriveFile, facts: WatchFacts, withPlay: Boolean = true): JSONObject {
         val i = Library.info(f)
@@ -235,7 +382,7 @@ internal object WatchJson {
         val film = if (show) null else filmOf(f, facts.folder(f.id))
         val play = when {
             !withPlay -> null
-            show -> showResumeItem(f, facts)?.let(::episodePlay)
+            show -> showMain(f, facts, first = firstEpisode(f, facts.folder))?.let { mainPlay(f, it, facts.recent) }
             film != null -> filmPlay(film, facts.recent)
             else -> null
         }
@@ -245,8 +392,8 @@ internal object WatchJson {
             .put("poster", posterUrl(f) ?: JSONObject.NULL).put("backdrop", backdropUrl(f) ?: JSONObject.NULL)
             .put("genres", JSONArray(i.genres)).put("rating", i.rating ?: JSONObject.NULL)
             .put("watched", film != null && facts.watched(driveKey(film.id)))
-            .put("caption", JSONObject.NULL) // "New · S3 E2", once this TV tracks new episodes
-            .put("added", f.added)
+            .put("caption", caption(f, facts) ?: JSONObject.NULL)
+            .put("added", NewEpisodes.addedAt(f, facts.news))
             .put("play", play ?: JSONObject.NULL)
     }
 
@@ -260,9 +407,9 @@ internal object WatchJson {
     }
 
     /**
-     * A Continue watching tile: what to start ([key], [playTitle], the position), the show's or film's
-     * name, the episode's code and name, and its poster. Episode names come from the file until this
-     * TV keeps TMDB's.
+     * A Continue watching tile: what to start ([key], [playTitle], the position, as the TV's own tile
+     * starts it), the show's or film's name, the episode's code and name (as its title names it: the
+     * real name once it was started by it, as the TV's title page starts it), and its poster.
      */
     fun continueItem(r: RecentItem, facts: WatchFacts, restart: JSONObject? = null): JSONObject {
         val entry = entryOf(r, facts)
@@ -275,7 +422,7 @@ internal object WatchJson {
         val name = entry?.let { Library.info(it).title } ?: if (code != null) showName(r.title) else Library.parsed(r.title, folder = false).title
         return JSONObject()
             .put("key", r.key).put("playTitle", r.title).put("titleId", entry?.id ?: JSONObject.NULL).put("kind", kind)
-            .put("name", name).put("code", code ?: JSONObject.NULL).put("episode", code?.let { episodeName(r.title, null) } ?: JSONObject.NULL)
+            .put("name", name).put("code", code ?: JSONObject.NULL).put("episode", code?.let { episodeName(null, r.title) } ?: JSONObject.NULL)
             .put("position", r.positionMs).put("duration", r.durationMs).put("upNext", r.upNext)
             .put("poster", entry?.let(::posterUrl) ?: JSONObject.NULL)
             .put("drive", r.key.startsWith(DRIVE))
@@ -292,29 +439,11 @@ internal object WatchJson {
     }
 
     /**
-     * An episode's name as its card shows it without TMDB's: the file's words after its code
-     * ("Show.S01E03.The.Title.1080p.mkv" → "The Title"); "Episode 4" when nothing follows the code;
-     * the file's name when there's no number either.
+     * The season folder [id] names, if it's one of a show's own: a folder in the show folder's listing ([top]).
+     * Null for anything else (another show's season, any other folder of the Drive, a file), which the phone's
+     * episode list never lists.
      */
-    fun episodeName(fileName: String, number: Int?): String {
-        nameAfterCode(fileName)?.let { return it }
-        val n = number ?: Tmdb.episodeNumber(fileName, null)?.second
-        return if (n != null) "Episode $n" else Format.title(fileName)
-    }
-
-    /** "S2 E4 · The Volcano" (or "S2 E4") for the episode in [fileName]; null when its name has no code. */
-    fun episodeLabel(fileName: String): String? {
-        val code = episodeCode(fileName) ?: return null
-        return nameAfterCode(fileName)?.let { "$code · $it" } ?: code
-    }
-
-    /** The words after an episode's code in its file name, without release tags; null when there are none (or no code). */
-    private fun nameAfterCode(fileName: String): String? {
-        val t = Format.title(fileName)
-        val m = EPISODE_CODE.find(t) ?: return null
-        return t.substring(m.range.last + 1).replace(TIDY, " ").replace(RELEASE_TAGS, "")
-            .replace(SPACES, " ").trim(' ', '-', '·', ':').ifBlank { null }
-    }
+    fun seasonOf(top: List<DriveFile>, id: String): DriveFile? = top.firstOrNull { it.isFolder && it.id == id }
 
     /** The first numbered season (Specials and Extras come first in a listing, but a show starts at Season 1). */
     fun firstSeason(names: List<String>): Int =
@@ -323,48 +452,26 @@ internal object WatchJson {
     /** The A–Z first page of a library for Watch's rows. */
     fun firstOf(files: List<DriveFile>, n: Int = 20): List<DriveFile> = Library.apply(files, LibraryFilter(sort = LibrarySort.TITLE)).take(n)
 
-    // ---- Search: the TV's matching and ranking ------------------------------------------------------
+    // ---- Search: the TV's one ranked list, in the phone's two sections ----------------------------------
 
     /**
-     * Whether [f] matches [words] (normalized): every word in its title, or a four-digit word as its
-     * release year. The one rule the TV's Search, Streaming's grid and the phone share.
+     * A search's titles as the phone shows them: Movies and TV Shows, each in the order the TV's Search ranks
+     * them; [showsFirst]: TV Shows holds the best match, so its section comes first.
      */
-    fun matches(f: DriveFile, words: List<String>): Boolean {
-        val i = Library.info(f)
-        val text = Library.normalize(i.title)
-        return words.all { w -> w in text || (w.length == 4 && w.all(Char::isDigit) && i.year?.toString() == w) }
-    }
-
-    /** The query's words as matched: accents and case ignored, punctuation as spaces. */
-    fun words(query: String): List<String> = Library.normalize(query).split(' ').filter { it.isNotEmpty() }
+    class Sections(val movies: List<DriveFile>, val shows: List<DriveFile>, val showsFirst: Boolean)
 
     /**
-     * How well [f] answers [query]: 0 when its title starts with it (a leading "the", "a", "an" left
-     * out on both sides), 1 when a word in its title does, 2 when the words are only somewhere in it.
+     * [found] (the TV's Search over both libraries, [TitleSearch.find]: the same letters find the same titles in
+     * the same order on both) grouped as the phone shows it (search spec §3.3).
      */
-    fun rank(f: DriveFile, query: String): Int {
-        val q = Library.sortKey(query)
-        val title = Library.normalize(Library.info(f).title)
-        return when {
-            q.isEmpty() -> 2
-            Library.sortKey(title).startsWith(q) -> 0
-            " $title".contains(" $q") -> 1
-            else -> 2
-        }
-    }
-
-    /** [files] matching [query], best first: by [rank], then the higher TMDB rating, then A–Z. */
-    fun search(files: List<DriveFile>, query: String): List<Pair<DriveFile, Int>> {
-        val w = words(query)
-        if (w.isEmpty()) return emptyList()
-        return files.asSequence().filter { matches(it, w) }.map { it to rank(it, query) }
-            .sortedWith(compareBy<Pair<DriveFile, Int>> { it.second }.thenByDescending { Library.info(it.first).rating ?: -1.0 }.thenBy { Library.sortKey(Library.info(it.first).title) })
-            .toList()
-    }
+    fun sections(found: TitleSearch.Found): Sections = Sections(
+        found.hits.filter { it.place == DrivePlace.Movies }.map { it.file },
+        found.hits.filter { it.place == DrivePlace.TvShows }.map { it.file },
+        found.hits.firstOrNull()?.place == DrivePlace.TvShows,
+    )
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
     private val EPISODE_CODE = Regex("""(?i)(?<![a-z0-9])(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2})(?![0-9])""")
     private val TIDY = Regex("""[._]+""")
-    private val RELEASE_TAGS = Regex("""(?i)\b(\d{3,4}p|x26[45]|h\.? ?26[45]|hevc|web[- ]?dl|webrip|bluray|hdtv|aac|ddp?5[ .]1)\b.*""")
     private val SPACES = Regex("""\s+""")
 }

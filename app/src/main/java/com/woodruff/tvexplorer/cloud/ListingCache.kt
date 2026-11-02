@@ -87,6 +87,12 @@ object ListingCache {
     private fun freshFile(c: Context) = File(dir(c), "new-episodes.json")
 
     /**
+     * When the new episodes were last saved ([writeFresh]; 0 when none are), without reading them or
+     * waiting on a listing being saved: the phone's Watch tab reads them again only when this changes.
+     */
+    fun freshSavedAt(c: Context): Long = runCatching { freshFile(c).lastModified() }.getOrDefault(0L)
+
+    /**
      * The TV shows' new episodes as last found ([NewEpisodes.placeVideos]: show id to its videos put in
      * Drive lately), so Home says what's new from the start, offline too; null when none were saved.
      */

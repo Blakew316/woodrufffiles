@@ -104,7 +104,10 @@ class DoorbellActivityTest {
         val c = open(DoorbellActivity.Origin.SCREENSAVER)
         c.pause().stop()
         wait(Duration.ofMillis(500))
-        c.start().resume()
+        // Back as Android brings a stopped screen back (onRestart, then onStart). A bare start() leaves it
+        // marked stopped, so closing it after the test would never stop it again: it would stay up as one
+        // of Woodruff's screens for every later test (the phone's films would start "over" it).
+        c.restart().resume()
         wait(Duration.ofSeconds(10))
         assertFalse(c.get().isFinishing)
     }
