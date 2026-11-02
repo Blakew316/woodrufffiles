@@ -193,6 +193,16 @@ class OfflineWordsTest {
         assertNull(SettingsRequests.take())
     }
 
+    @Test fun aPageAskedForWhileSettingsIsOnScreenIsTakenThereNotLater() {
+        // Search's Open Keys over Settings: Settings, already on screen, sees the ask and takes it…
+        SettingsRequests.ask(SettingsAt.KEYS)
+        assertEquals(SettingsAt.KEYS, SettingsRequests.asked.value)
+        assertEquals(SettingsAt.KEYS, SettingsRequests.take())
+        // …so nothing is left to open Settings at Keys the next time someone opens it from the side menu.
+        assertNull(SettingsRequests.asked.value)
+        assertNull(SettingsRequests.take())
+    }
+
     @Test fun noOfflineWordIsAlarming() {
         // None of the words the TV shows for these states uses what the copy voice bans.
         val banned = listOf("error", "failed", "invalid", "unavailable", "retry", "please", "expired")
