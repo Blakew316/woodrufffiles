@@ -54,7 +54,7 @@ object SignInAlerts {
         }
     }
 
-    /** Google ended this TV's [grant] sign-in at [at] ([SignIns] saw its answer). Any thread. */
+    /** Google ended this TV's [grant] sign-in at [at] (GoogleAuth's record of it; [SignIns.ended] passes it on). Any thread. */
     fun ended(c: Context, grant: GoogleAuth.Grant, at: Long) {
         val app = c.applicationContext
         offer(app, Ending(TvLinks.id(app), TvLinks.name(app), here = true, grant = SignIns.healthGrant(grant), since = at))
@@ -72,13 +72,16 @@ object SignInAlerts {
         linkedEndings(TvLinks.statuses(app), System.currentTimeMillis(), FRESH_MS).forEach { offer(app, it) }
     }
 
-    /** This TV's endings it hasn't told of: still ended (not signed in again since) and fresh enough. */
+    /**
+     * This TV's endings it hasn't told of: still ended (not signed in again since) and fresh enough. Each goes the way
+     * one heard as it happened does ([SignIns.ended]), by GoogleAuth's record of it, so it's told once either way.
+     */
     private fun catchUp(c: Context) {
         val now = System.currentTimeMillis()
         for (g in GoogleAuth.Grant.entries) {
             val since = SignIns.endedAt(c, g) ?: continue
             if (now - since > FRESH_MS || GoogleAuth.isConnected(c, g)) continue
-            offer(c, Ending(TvLinks.id(c), TvLinks.name(c), here = true, grant = SignIns.healthGrant(g), since = since))
+            SignIns.ended(c, g)
         }
     }
 

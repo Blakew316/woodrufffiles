@@ -330,7 +330,7 @@ object GoogleAuth {
         val result = current(store, grant, System.currentTimeMillis())?.let { TokenResult.Ok(it) }
             ?: synchronized(lock(grant)) {
                 val endedBefore = store.get(grant.endedKey)
-                val renewed = refresh(store, grant, System.currentTimeMillis(), ::post)
+                val renewed = refresh(store, grant, System.currentTimeMillis(), tokenEndpoint)
                 // This renewal is what found out Google ended it: tell the family, once.
                 if (renewed == TokenResult.SignedOut) {
                     store.get(grant.endedKey)?.takeIf { it != endedBefore }?.toLongOrNull()?.let { at ->
@@ -342,21 +342,24 @@ object GoogleAuth {
         // Every answer, a good token straight from the store included, for the health report ([lastAsk]). Not a
         // sign-in the Keystore can't read yet: Google wasn't asked, so it says nothing of Google being out of reach.
         if (!keysUnreadable(result)) {
-            lastAsks[grant] = LastAsk(result is TokenResult.Offline, result is TokenResult.Rejected, System.currentTimeMillis(),
-                com.woodruff.tvexplorer.util.NetworkWatch.online.value)
+            lastAsks[grant] = LastAsk(result is TokenResult.Offline, System.currentTimeMillis(), com.woodruff.tvexplorer.util.NetworkWatch.online.value)
         }
         return result
     }
+
+    /** Google's token endpoint ([post]); replaced in tests, which never reach Google. */
+    @androidx.annotation.VisibleForTesting
+    internal var tokenEndpoint: (List<Pair<String, String>>) -> JSONObject = ::post
 
     /** Whether [result] is offline only because the Keystore can't read the sign-in (or its keys) just now. Visible for tests. */
     internal fun keysUnreadable(result: TokenResult): Boolean = (result as? TokenResult.Offline)?.cause is KeysUnreadable
 
     /**
-     * How the last ask for a sign-in's token went: whether Google couldn't be reached ([offline],
-     * with whether the TV had a network then: [networkUp]) or turned down the keys ([rejected]),
-     * and when. The TV health report tells "Can't reach Google" and "Keys not accepted" by it.
+     * How the last ask for a sign-in's token went: whether Google couldn't be reached ([offline], with whether the TV
+     * had a network then: [networkUp]), and when. The TV health report tells "Can't reach Google" by it, for a while;
+     * keys Google turned down are kept with the sign-in itself ([keysRefused]), so they outlast a restart.
      */
-    data class LastAsk(val offline: Boolean, val rejected: Boolean, val at: Long, val networkUp: Boolean)
+    data class LastAsk(val offline: Boolean, val at: Long, val networkUp: Boolean)
 
     private val lastAsks = java.util.concurrent.ConcurrentHashMap<Grant, LastAsk>()
 
@@ -383,7 +386,11 @@ object GoogleAuth {
         synchronized(lock(grant)) { s(c).remove(grant.accessKey, grant.expiresKey) }
     }
 
-    /** Where a sign-in stands, as Settings → Accounts (and the health report) say it. Never "offline": a TV that's offline is still signed in. */
+    /**
+     * Where a sign-in stands, as Settings → Accounts, the phone's Connections and the health report say it
+     * ([signInWords]). [signIn] reads what's kept, which offline never changes: a TV that's offline is still signed
+     * in. Only the health report adds how a signed-in TV is doing just now ([OFFLINE], [UNREACHABLE]).
+     */
     enum class SignIn {
         /** Signed in (Drive) / connected (Photos, Calendar, cameras). */
         SIGNED_IN,
@@ -395,6 +402,10 @@ object GoogleAuth {
         NOT_SIGNED_IN,
         /** No Google keys on this TV yet. */
         NOT_SET_UP,
+        /** Signed in, and the TV has no network just now: the health report's "Offline" ([signIn] never says it). */
+        OFFLINE,
+        /** Signed in, the network up, but Google didn't answer the last renewal: the health report's "Can’t reach Google". */
+        UNREACHABLE,
     }
 
     /** [grant]'s [SignIn] on this TV. Reads the encrypted store: off the main thread. */
@@ -656,18 +667,23 @@ object GoogleAuth {
 }
 
 /**
- * [signIn] in words, as Settings → Accounts (and the phone's Connections, and the health report) say
- * it for [grant]: Drive is "Signed in"; Photos, Calendar and the cameras are "Connected". "Sign-in
- * ended" and "Keys not accepted" need someone to act ([needsAttention]); offline never changes these.
+ * [signIn] in words: the one place a sign-in is worded, so Settings → Accounts, the phone's Connections and the TV
+ * health report (on the TV and the phone) all say it alike for [grant]. Drive is "Signed in"; Photos, Calendar and
+ * the cameras are "Connected". "Sign-in ended" and "Keys not accepted" need someone to act ([needsAttention]).
+ * Not connected yet, Photos and Calendar read "Connect" on Accounts, where OK connects them; in a [report] (which may
+ * be another TV's) they read "Not connected", as the cameras always do. Only a report says "Offline" or "Can’t reach
+ * Google": offline never changes a sign-in.
  */
-fun signInWords(grant: GoogleAuth.Grant, signIn: GoogleAuth.SignIn): String = when (signIn) {
+fun signInWords(grant: GoogleAuth.Grant, signIn: GoogleAuth.SignIn, report: Boolean = false): String = when (signIn) {
     GoogleAuth.SignIn.SIGNED_IN -> if (grant == GoogleAuth.Grant.DRIVE) "Signed in" else "Connected"
+    GoogleAuth.SignIn.OFFLINE -> "Offline"
+    GoogleAuth.SignIn.UNREACHABLE -> "Can’t reach Google"
     GoogleAuth.SignIn.ENDED -> "Sign-in ended"
     GoogleAuth.SignIn.KEYS_REFUSED -> "Keys not accepted"
     GoogleAuth.SignIn.NOT_SIGNED_IN, GoogleAuth.SignIn.NOT_SET_UP -> when (grant) {
         GoogleAuth.Grant.DRIVE -> if (signIn == GoogleAuth.SignIn.NOT_SET_UP) "Not set up" else "Not signed in"
         GoogleAuth.Grant.NEST -> "Not connected"
-        GoogleAuth.Grant.PHOTOS, GoogleAuth.Grant.CALENDAR -> "Connect"
+        GoogleAuth.Grant.PHOTOS, GoogleAuth.Grant.CALENDAR -> if (report) "Not connected" else "Connect"
     }
 }
 

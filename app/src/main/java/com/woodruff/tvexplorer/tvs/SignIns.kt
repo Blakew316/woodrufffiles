@@ -2,7 +2,6 @@ package com.woodruff.tvexplorer.tvs
 
 import android.content.Context
 import com.woodruff.tvexplorer.cloud.GoogleAuth
-import com.woodruff.tvexplorer.server.CompanionHub
 import com.woodruff.tvexplorer.util.NetworkWatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -12,15 +11,14 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * How each Google sign-in on this TV is doing, for the health report: signed in, ended (and since
- * when), Google turning down the keys, or Google out of reach. A sign-in Google ended is already
- * gone from [GoogleAuth] by the time anyone looks, so the moment it ends
- * ([GoogleAuth.expirations]) is kept here, in plain settings (a time is no secret), until that
- * sign-in is made again or the keys change.
+ * How each Google sign-in on this TV is doing, for the health report and the phone. What happened to each sign-in
+ * has one record, GoogleAuth's own ([GoogleAuth.signIn]: signed in, ended and since when, keys refused), kept
+ * encrypted with its tokens, read alike by Settings → Accounts, and cleared by a new sign-in (from the TV or the
+ * phone), a sign-out or new keys; the report adds only whether a signed-in TV can reach Google just now. When Google
+ * ends a sign-in the phones are told, once ([SignInAlerts]), and the ending is noted for "every week" ([endsWeekly]).
  */
 object SignIns {
     private const val PREFS = "health"
-    private const val ENDED = "ended."
     /** The last two times Google ended each sign-in ("t1,t2"), kept across new sign-ins: "every week" ([endsWeekly]). */
     private const val ENDINGS = "endings."
     /** Two endings this close together: the consent screen's 7-day limit in Testing, not a one-off. */
@@ -35,44 +33,46 @@ object SignIns {
     @Volatile private var started = false
 
     /**
-     * Starts listening (once per process), from the app's start so no ending is missed: Google
-     * ending a sign-in marks it; a new sign-in for it, or new keys, clears the mark.
+     * Starts listening (once per process), from the app's start so no ending is missed: Google ending a sign-in is
+     * told to the phones and noted for "every week"; signing out of Drive on the TV, or new keys, starts that over.
      */
     fun init(c: Context) {
         synchronized(this) { if (started) return; started = true }
         val app = c.applicationContext
         // Undispatched: listening before anything can ask for a token.
-        scope.launch(start = CoroutineStart.UNDISPATCHED) { GoogleAuth.expirations.collect { grant -> markEnded(app, grant) } }
-        scope.launch(start = CoroutineStart.UNDISPATCHED) { GoogleAuth.driveSignOuts.collect { clearAll(app) } }
-        scope.launch(start = CoroutineStart.UNDISPATCHED) { CompanionHub.googleCodes.collect { (_, attempt) -> clear(app, attempt.grant) } }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { GoogleAuth.expirations.collect { grant -> ended(app, grant) } }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { GoogleAuth.driveSignOuts.collect { forgetEndings(app) } }
     }
 
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** When Google ended [grant]'s sign-in on this TV; null when it hasn't (or it was made again since). */
-    fun endedAt(c: Context, grant: GoogleAuth.Grant): Long? = prefs(c).getLong(ENDED + grant.name, 0L).takeIf { it > 0 }
+    /**
+     * When Google ended [grant]'s sign-in on this TV, as GoogleAuth keeps it; null when it hasn't since the last
+     * sign-in (or sign-out), and while the Keystore can't read the time just now.
+     */
+    fun endedAt(c: Context, grant: GoogleAuth.Grant): Long? = GoogleAuth.endedAt(c, grant)
 
     /**
-     * Google ended [grant]'s sign-in at [at] (just now): kept (with the one before, for [endsWeekly]) and told to the
-     * phones ([SignInAlerts]: this TV's own phones, once per ending). Visible for tests.
+     * Google ended [grant]'s sign-in (heard as it happened, or found later by [SignInAlerts]' look for endings it
+     * missed): noted for [endsWeekly] and told to the phones, each once per ending, by the time GoogleAuth kept for
+     * it, which the TV's notice, Accounts and the report go by too. Visible for tests.
      */
-    internal fun markEnded(c: Context, grant: GoogleAuth.Grant, at: Long = System.currentTimeMillis()) {
+    internal fun ended(c: Context, grant: GoogleAuth.Grant) {
+        val at = GoogleAuth.endedAt(c, grant) ?: return
         val p = prefs(c)
-        p.edit().putLong(ENDED + grant.name, at).putString(ENDINGS + grant.name, withEnding(p.getString(ENDINGS + grant.name, null), at)).apply()
+        synchronized(this) {
+            val history = p.getString(ENDINGS + grant.name, null)
+            val noted = withEnding(history, at)
+            if (noted != history) p.edit().putString(ENDINGS + grant.name, noted).apply()
+        }
         runCatching { SignInAlerts.ended(c, grant, at) }
     }
-    private fun clear(c: Context, grant: GoogleAuth.Grant) { if (endedAt(c, grant) != null) prefs(c).edit().remove(ENDED + grant.name).apply() }
-    private fun clearAll(c: Context) {
+
+    private fun forgetEndings(c: Context) {
         val e = prefs(c).edit()
-        GoogleAuth.Grant.entries.forEach { e.remove(ENDED + it.name); e.remove(ENDINGS + it.name) }
+        GoogleAuth.Grant.entries.forEach { e.remove(ENDINGS + it.name) }
         e.apply()
     }
-
-    /**
-     * [grant] was signed in again from the phone app (its code never reaches the TV's own sign-in screens, which
-     * clear the mark themselves through [CompanionHub.googleCodes]): it hasn't ended any more.
-     */
-    fun signedIn(c: Context, grant: GoogleAuth.Grant) = clear(c.applicationContext, grant)
 
     /**
      * Whether Google ended [grant]'s sign-in twice within 8 days: the consent screen's 7-day limit while it's in
@@ -81,18 +81,19 @@ object SignIns {
     fun endsWeekly(c: Context, grant: GoogleAuth.Grant): Boolean = endedTwiceWithin(prefs(c).getString(ENDINGS + grant.name, null), WEEKLY_MS)
 
     /**
-     * [grant]'s sign-in as Settings → Accounts and the phone's Connections say it: being offline (or Google out of
-     * reach) never changes it there, since a TV that's offline is still signed in (offline-states.md §3.7).
+     * [grant]'s sign-in as Settings → Accounts and the phone's Connections say it: GoogleAuth's record, which being
+     * offline (or Google out of reach) never changes, since a TV that's offline is still signed in (offline-states.md
+     * §3.7). The cameras need their project too (the phone offers "Connect Your Cameras" once it's saved). A sign-in
+     * or key the Keystore can't read just now counts as there. Off the main thread.
      */
-    fun account(c: Context, grant: HealthGrant): SignInFact = state(c, grant).let { it.copy(state = accountState(it.state)) }
+    fun account(c: Context, grant: HealthGrant): SignInFact {
+        val signIn = if (grant == HealthGrant.CAMERAS && !GoogleAuth.hasNestProject(c)) GoogleAuth.SignIn.NOT_SET_UP else GoogleAuth.signIn(c, grant.auth)
+        return SignInFact(SignInState.of(signIn), if (signIn == GoogleAuth.SignIn.ENDED) GoogleAuth.endedAt(c, grant.auth) else null)
+    }
 
-    /** [state] without the two connectivity states, which only the health report shows. Visible for tests. */
-    internal fun accountState(state: SignInState): SignInState =
-        if (state == SignInState.OFFLINE || state == SignInState.UNREACHABLE) SignInState.SIGNED_IN else state
-
-    /** [history] ("t1,t2": the last endings, oldest first) with one more at [at], keeping the last two. Visible for tests. */
+    /** [history] ("t1,t2": the last endings, oldest first) with one more at [at], keeping the last two; an ending noted already counts once. Visible for tests. */
     internal fun withEnding(history: String?, at: Long): String =
-        (history.orEmpty().split(',').mapNotNull { it.trim().toLongOrNull() } + at).takeLast(2).joinToString(",")
+        (history.orEmpty().split(',').mapNotNull { it.trim().toLongOrNull() } + at).distinct().sorted().takeLast(2).joinToString(",")
 
     /** Whether the last two endings in [history] came at most [windowMs] apart. Visible for tests. */
     internal fun endedTwiceWithin(history: String?, windowMs: Long): Boolean {
@@ -106,27 +107,15 @@ object SignIns {
     /** The report's grant for Google's [grant]. */
     fun healthGrant(grant: GoogleAuth.Grant): HealthGrant = HealthGrant.entries.first { it.auth == grant }
 
-    /** The report's grant for Google's. */
-    val HealthGrant.auth: GoogleAuth.Grant
-        get() = when (this) {
-            HealthGrant.DRIVE -> GoogleAuth.Grant.DRIVE
-            HealthGrant.PHOTOS -> GoogleAuth.Grant.PHOTOS
-            HealthGrant.CALENDAR -> GoogleAuth.Grant.CALENDAR
-            HealthGrant.CAMERAS -> GoogleAuth.Grant.NEST
-        }
-
-    /** How [grant]'s sign-in is doing now. Cheap (the keys and tokens are read from memory); safe off the main thread. */
+    /**
+     * How [grant]'s sign-in is doing now, for the health report: [account], and for one that's signed in, whether the
+     * TV can reach Google just now ("Offline", "Can't reach Google"). Cheap (the keys and tokens are read from memory);
+     * safe off the main thread.
+     */
     fun state(c: Context, grant: HealthGrant): SignInFact {
-        val g = grant.auth
-        // Keys and a project the Keystore can't read just now count as there (after a power cut it wakes slowly).
-        if (!GoogleAuth.isConfigured(c) || (grant == HealthGrant.CAMERAS && !GoogleAuth.hasNestProject(c))) return SignInFact(SignInState.NOT_SET_UP)
-        if (!GoogleAuth.isConnected(c, g)) {
-            val ended = endedAt(c, g)
-            return if (ended != null) SignInFact(SignInState.EXPIRED, ended) else SignInFact(SignInState.NOT_SIGNED_IN)
-        }
-        // Signed in: an ending marked before this sign-in is stale.
-        clear(c, g)
-        return SignInFact(connectedState(GoogleAuth.lastAsk(g), NetworkWatch.online.value, System.currentTimeMillis()))
+        val kept = account(c, grant)
+        if (kept.state != SignInState.SIGNED_IN) return kept
+        return SignInFact(connectedState(GoogleAuth.lastAsk(grant.auth), NetworkWatch.online.value, System.currentTimeMillis()))
     }
 
     /**
@@ -149,12 +138,11 @@ object SignIns {
     }
 
     /**
-     * A signed-in grant's state from how asking for its token last went ([ask]): keys Google turned
-     * down stay that way until it accepts them (that never clears by itself); no network is Offline;
-     * a recent renewal that got no answer while the network was up is Can't reach Google. Visible for tests.
+     * A signed-in grant's state from how asking for its token last went ([ask]): no network is Offline; a recent
+     * renewal that got no answer while the network was up is Can't reach Google. (Keys Google turned down are kept
+     * with the sign-in, [account], and outlast a restart.) Visible for tests.
      */
     internal fun connectedState(ask: GoogleAuth.LastAsk?, networkUp: Boolean, now: Long): SignInState = when {
-        ask?.rejected == true -> SignInState.KEYS_REJECTED
         !networkUp -> SignInState.OFFLINE
         ask != null && ask.offline && ask.networkUp && now - ask.at < UNREACHABLE_FOR_MS -> SignInState.UNREACHABLE
         else -> SignInState.SIGNED_IN

@@ -74,7 +74,8 @@ object PhoneSignIn {
         val a = GoogleAuth.newAttempt(c, base, grant, fromPhone = true)
         attempts.started(a.state, grant)
         CompanionHub.expect(a)
-        val again = !GoogleAuth.isConnected(c, grant) && SignIns.endedAt(c, grant) != null
+        // "Again" when Google ended it: the same record Accounts and the health report read.
+        val again = GoogleAuth.signIn(c, grant) == GoogleAuth.SignIn.ENDED
         return Start.Ready(a.state, a.authUrl, System.currentTimeMillis() + WAIT_MS, again, TvLinks.name(c))
     }
 
@@ -140,7 +141,7 @@ object PhoneSignIn {
      * calendar starts refreshing, the cameras load. None of this can undo the sign-in.
      */
     private suspend fun after(c: Context, grant: GoogleAuth.Grant) {
-        runCatching { SignIns.signedIn(c, grant) }
+        // The sign-in's record (ended, keys refused) was cleared as its tokens were kept (GoogleAuth.exchange).
         Health.forget()
         CompanionHub.settingsChanged.tryEmit(Unit)
         runCatching {
