@@ -44,6 +44,8 @@
     --dim:rgba(0,0,0,.22); --recede-dim:rgba(0,0,0,.1); --shade:rgba(0,0,0,.08); --cm-dim:rgba(0,0,0,.08);
     --key:#fff; --key-shadow:0 0 0 .5px rgba(0,0,0,.05), 0 2px 10px rgba(0,0,0,.07);
     --clr-c:#c4c4c6; --clr-x:#fff;
+    /* Amber = "needs attention" (the TV's Palette.attention): words and warning glyphs, never a fill behind white text. */
+    --attention:#8a4f00; --success:var(--green);
     --safe-t:env(safe-area-inset-top, 0px); --safe-b:env(safe-area-inset-bottom, 0px);
     --safe-l:env(safe-area-inset-left, 0px); --safe-r:env(safe-area-inset-right, 0px);
     --ml:calc(16px + var(--safe-l)); --mr:calc(16px + var(--safe-r));
@@ -68,6 +70,7 @@
       --dim:rgba(0,0,0,.48); --recede-dim:rgba(0,0,0,.3); --shade:rgba(0,0,0,.35); --cm-dim:rgba(0,0,0,.3);
       --key:#2c2c2e; --key-shadow:none;
       --clr-c:#7c7c80; --clr-x:#1c1c1e;
+      --attention:#ffb547;
     }
   }
   /* Reduce Transparency: the glass becomes frosted (opaque), it isn't removed. */
@@ -192,6 +195,10 @@
   .foot code, .mono { font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:0; word-break:break-all; }
   .group { position:relative; margin:32px var(--mr) 0 var(--ml); background:var(--cell); border-radius:var(--r); overflow:hidden; }
   .head + .group, .group.flush { margin-top:0; }
+  /* A heading over several sections (a TV's last report), like iOS's prominent headers: its words, then when. */
+  .head.prom { display:flex; flex-direction:column; margin-top:32px; margin-bottom:0; font-size:20px; line-height:25px; font-weight:600; letter-spacing:-.45px; text-transform:none; color:var(--label); }
+  .head.prom .ps { font-size:15px; line-height:20px; font-weight:400; letter-spacing:-.23px; color:var(--label2); }
+  .head.prom + .head { margin-top:14px; }
   .large + .group, .searchbar + .group, .subtitle + .group, .large + [hidden] + .group, .searchbar + [hidden] + .group { margin-top:12px; }
   .scroller > .group:first-child { margin-top:20px; }
   .group.is-empty { background:transparent; }
@@ -219,6 +226,18 @@
   .prog { height:4px; margin-top:6px; border-radius:2px; background:var(--fill2); overflow:hidden; }   /* upload progress, like UIProgressView */
   .prog i { display:block; width:100%; height:100%; border-radius:2px; background:var(--tint); transform:translateX(-100%); transition:transform .2s; }
   .detail { flex:none; max-width:55%; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* In a row with a value, the value yields first: the title keeps its words ("Smoothness Report" next to "Living Room"),
+     while a subtitle under it wraps in whatever room the value leaves. */
+  .row:has(> .detail) > .txt { flex:1 1 0; min-width:min-content; }
+  .row:has(> .detail) > .detail { flex:0 1 auto; min-width:0; }
+  .s.warn, .detail.warn { color:var(--attention); }
+  /* A value that doesn't fit beside its title goes under it, as on iOS ("Doorbell Alerts" over "Through Living Room");
+     with a subtitle, the title and value share the first line and the subtitle has the row's width under them. */
+  .pair { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; column-gap:12px; }
+  .pair > .txt { flex:0 1 auto; }
+  .pair > .detail, .grid > .detail { max-width:100%; min-width:0; }
+  .txt.grid { display:grid; grid-template-columns:minmax(0, 1fr) auto; column-gap:12px; align-items:baseline; }
+  .txt.grid > .s { grid-column:1 / -1; }
   .chev { width:9px; height:15px; color:var(--label3); }
   .row.act, .link { color:var(--tint); } .row.danger { color:var(--red); }
   .ck { width:18px; height:18px; color:var(--tint); }
@@ -283,6 +302,38 @@
   .tvbar { display:block; height:3px; margin:7px 0 2px; border-radius:1.5px; background:var(--fill2); overflow:hidden; }
   .tvbar i { display:block; height:100%; width:100%; border-radius:1.5px; background:var(--label3); transform:translateX(-100%); transition:transform .9s linear; }
   .tvbar.on i { background:var(--tint); }
+  /* Settings › TVs: a TV that needs attention gets a fourth line, in amber, saying what. */
+  .att-l { font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--attention); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* ---- A TV's page (Settings › TVs › a TV): its screen, controls and health ------------------------------ */
+  #tvp-now { padding:12px; }
+  #tvp-now .nowcard { padding:0; }
+  #tvp-now + .group, #tvp-now + .ctl + .group { margin-top:24px; }
+  .scroller > #tvp-now:first-child + [hidden] + .group { margin-top:24px; }
+  /* The health summary: a big symbol (no square) and the TV's one line ("All Good", "2 Things Need Attention"). */
+  .row.verdict { min-height:72px; padding:14px 16px; gap:14px; }
+  .row.verdict .vs { width:40px; height:40px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .row.verdict .vs svg { width:40px; height:40px; }
+  .row.verdict .vs.sm svg { width:36px; height:36px; }
+  .row.verdict .vs.spin svg { width:22px; height:22px; }
+  .row.verdict .vs.ok { color:var(--success); } .row.verdict .vs.warn { color:var(--attention); } .row.verdict .vs.mute { color:var(--label3); }
+  .row.verdict .t { font-size:20px; line-height:25px; font-weight:600; letter-spacing:-.45px; }
+  .row.verdict .s { font-size:15px; line-height:20px; letter-spacing:-.23px; }
+  /* What needs attention, one row each, in the TV's own words (two lines at most). */
+  .row.att { --sep-l:50px; }
+  .row.att > svg:first-child { width:22px; height:22px; color:var(--attention); }
+  .row.att .t, .row .t.wrap { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .row .s.two { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  /* Transport (−10 s, Play/Pause, +30 s): made like the remote's keys. */
+  .ctl { display:flex; justify-content:center; align-items:center; gap:32px; margin:16px auto 0; }
+  .ctl button { position:relative; isolation:isolate; border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--key);
+    box-shadow:var(--key-shadow), inset 0 0 0 .5px var(--sep); color:var(--label); width:52px; height:52px; transition:transform var(--press-ms, .45s) var(--press, var(--spring)); }
+  .ctl button svg { width:26px; height:26px; }
+  .ctl button.big { width:64px; height:64px; }
+  .ctl button.big svg { width:28px; height:28px; }
+  .ctl button::after { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:var(--cell-hi); opacity:0; pointer-events:none; transition:opacity .4s ease-out; }
+  .ctl button.pressed { transform:scale(.94); transition:transform var(--pin-ms, .12s) var(--pin, ease-out); }
+  .ctl button.pressed::after { opacity:1; transition:opacity 40ms; }
   /* Send: one message box; the To row under it says who gets it. */
   #n-text { min-height:118px; }
   #n-to-d { max-width:78%; }
@@ -637,7 +688,7 @@
   <div class="page" id="send-to" data-title="Send To" data-hash="to"><div class="scroller">
     <div class="group" id="n-targets"></div>
     <div class="group"><div class="row"><span class="txt t">Keep on Every TV's Home</span><input type="checkbox" class="switch" switch id="n-pin" aria-label="Keep on every TV's Home"></div></div>
-    <p class="foot">It stays on Home until someone dismisses it there.</p>
+    <p class="foot">It stays on every TV’s Home until someone dismisses it there, also on TVs that are off right now.</p>
   </div></div>
 
   <div class="page" id="send-link" data-title="Open a Link" data-hash="link"><div class="scroller">
@@ -677,9 +728,28 @@
 
   <div class="page" id="set-tvs" data-title="TVs" data-hash="tvs"><div class="scroller">
     <div class="group" id="tv-list"></div>
-    <p class="foot">Tap a TV to see its screen.</p>
-    <div class="group"><button class="row i tap" data-page="set-smooth"><span class="ico" style="--c:var(--teal)"><i data-ic="gGauge"></i></span><span class="txt t">Smoothness Report</span><span class="detail" id="sm-tv"></span><i data-ic="chev"></i></button></div>
-    <p class="foot">How smoothly this TV moves, screen by screen, and where the time goes when it doesn't.</p>
+    <p class="foot">Tap a TV for its screen, controls and health.</p>
+  </div></div>
+
+  <!-- One TV's page (whichever is open): its screen, controls, health report and what can be done. -->
+  <div class="page" id="set-tv" data-title="TV" data-hash="tv"><div class="scroller">
+    <div class="group" id="tvp-now" hidden>
+      <div class="nowcard">
+        <button class="screen" id="tvp-screen" aria-label="Show this TV's screen"><img id="tvp-img" alt="What's on the TV" draggable="false"><p id="tvp-msg"></p></button>
+        <div class="now">
+          <span class="np" id="tvp-title"></span>
+          <span class="np-s" id="tvp-sub"></span>
+          <div class="np-bar" id="tvp-bar" hidden><div class="np-track"><i id="tvp-fill"></i></div><div class="np-times"><span id="tvp-pos"></span><span id="tvp-left"></span></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="ctl noswipe" id="tvp-ctl" hidden>
+      <button id="tvp-back10" data-mk="back10" aria-label="Back 10 seconds"><i data-ic="back10"></i></button>
+      <button class="big" id="tvp-play" data-mk="playpause" aria-label="Play or pause"><i data-ic="pause"></i></button>
+      <button id="tvp-fwd30" data-mk="fwd30" aria-label="Forward 30 seconds"><i data-ic="fwd30"></i></button>
+    </div>
+    <div class="group" id="tvp-sum"></div>
+    <div id="tvp-body"></div>
   </div></div>
 
   <div class="page" id="set-smooth" data-title="Smoothness Report" data-hash="smoothness"><div class="scroller">
@@ -787,7 +857,7 @@
   <div class="page" id="set-away" data-title="Away From Home" data-hash="away"><div class="scroller">
     <div class="group" id="away" hidden><button class="row i tap" id="away-copy"><span class="ico" style="--c:var(--green)"><i data-ic="gGlobe"></i></span><span class="txt"><span class="t">Copy Link</span><span class="s" id="away-url"></span></span></button></div>
     <p class="foot" id="away-foot" hidden>With Tailscale on, it works from anywhere. Open it on this phone, then add it to the Home Screen.</p>
-    <div class="group" id="away-off"><div class="row"><span class="txt t">Status</span><span class="detail">Not Set Up</span></div></div>
+    <div class="group" id="away-off"><div class="row"><span class="txt t">Status</span><span class="detail">Not set up</span></div></div>
     <p class="foot" id="away-off-foot">Install Tailscale on the TV and on this phone, signed in to the same account. The link then shows up here.</p>
   </div></div>
 
@@ -848,7 +918,7 @@
     <div class="nowcard big" id="live">
       <button class="screen" id="screen" aria-label="Make the TV picture bigger or smaller"><img id="tv-img" alt="What's on the TV" draggable="false"><p id="tv-msg">Connecting…</p></button>
       <div class="now">
-        <span class="np" id="scr-title">Nothing Playing</span>
+        <span class="np" id="scr-title">Nothing playing</span>
         <span class="np-s" id="scr-sub"></span>
         <div class="np-bar" id="scr-bar" hidden><div class="np-track"><i id="scr-fill"></i></div><div class="np-times"><span id="scr-pos"></span><span id="scr-left"></span></div></div>
       </div>
@@ -971,6 +1041,17 @@
     gGauge: sv('<path d="M4.6 17.5a8.4 8.4 0 1 1 14.8 0"/><path d="m12 13.6 3.8-4.4"/><circle cx="12" cy="13.6" r="1.7" fill="currentColor" stroke="none"/>', false, 2.2),
     gPhone: sv('<rect x="7" y="2.8" width="10" height="18.4" rx="2.6"/><path d="M10.6 5.6h2.8"/>', false, 2),
     gPhoneBig: sv('<rect x="7" y="2.5" width="10" height="19" rx="2.8"/><path d="M10.5 5.3h3"/>', false, 1.7),
+    gCal: sv('<path fill-rule="evenodd" d="M7.2 3.6a1 1 0 0 1 2 0V5h5.6V3.6a1 1 0 1 1 2 0V5h1.7A2.5 2.5 0 0 1 21 7.5v11a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 18.5v-11A2.5 2.5 0 0 1 5.5 5h1.7zM5 10v8.5a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5V10z"/>', true),
+    gPhotos: sv('<path fill-rule="evenodd" d="M5 4.5h14A2.5 2.5 0 0 1 21.5 7v10a2.5 2.5 0 0 1-2.5 2.5H5A2.5 2.5 0 0 1 2.5 17V7A2.5 2.5 0 0 1 5 4.5zm3.4 2.9a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6zM4.6 16.9h14.8l-4.5-5.5-3.4 4.1-2.4-2.4z"/>', true),
+    gBell: sv('<path d="M12 2.8a1.2 1.2 0 0 1 1.2 1.2v.66A5.9 5.9 0 0 1 17.9 10.5v3.8l1.75 2.55a.9.9 0 0 1-.74 1.4H5.09a.9.9 0 0 1-.74-1.4L6.1 14.3v-3.8a5.9 5.9 0 0 1 4.7-5.84V4A1.2 1.2 0 0 1 12 2.8zM9.55 19.4h4.9a2.45 2.45 0 0 1-4.9 0z"/>', true),
+    gUpdate: sv('<circle cx="12" cy="12" r="9"/><path d="M12 7.4v8.8M8.2 12.5 12 16.3l3.8-3.8"/>', false, 1.9),
+    // A TV's health: attention rows (coloured, no square), the verdict symbols, transport
+    warn: sv('<path fill-rule="evenodd" d="M10.27 3.9a2 2 0 0 1 3.46 0l8.06 13.95a2 2 0 0 1-1.73 3H3.94a2 2 0 0 1-1.73-3zM11 8.6h2v5.6h-2zm1 6.9a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5z"/>', true),
+    linkWarn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.4 13.1a3.6 3.6 0 0 0 5.1 0l2.8-2.8a3.6 3.6 0 0 0-5.1-5.1l-.9.9M12.2 9.3a3.6 3.6 0 0 0-5.1 0l-2.8 2.8a3.6 3.6 0 0 0 5.1 5.1l.9-.9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17.7" cy="17.7" r="5" fill="currentColor"/><path d="M17.7 15.1v3.2" style="stroke:var(--cell)" stroke-width="1.8" stroke-linecap="round"/><circle cx="17.7" cy="20.4" r="1" style="fill:var(--cell)"/></svg>',
+    power: sv('<path d="M12 3.4v8.2"/><path d="M17.7 6.4a8 8 0 1 1-11.4 0"/>', false, 2),
+    pause: sv('<rect x="6.3" y="5" width="3.8" height="14" rx="1.3"/><rect x="13.9" y="5" width="3.8" height="14" rx="1.3"/>', true),
+    back10: sv('<path d="M4.9 12.2A7.6 7.6 0 1 0 7.2 6.6"/><path d="M7.6 2.9 7.1 6.7l3.8.6"/><text x="12.6" y="15.7" text-anchor="middle" font-size="7.4" font-weight="700" fill="currentColor" stroke="none" font-family="-apple-system,system-ui,sans-serif">10</text>'),
+    fwd30: sv('<path d="M19.1 12.2A7.6 7.6 0 1 1 16.8 6.6"/><path d="M16.4 2.9l.5 3.8-3.8.6"/><text x="11.4" y="15.7" text-anchor="middle" font-size="7.4" font-weight="700" fill="currentColor" stroke="none" font-family="-apple-system,system-ui,sans-serif">30</text>'),
     // Remote
     padUp: CHEVRON('M2 9.5 7 4.5l5 5'), padDown: CHEVRON('M2 4.5 7 9.5l5-5'), padLeft: CHEVRON('M9.5 2 4.5 7l5 5'), padRight: CHEVRON('M4.5 2l5 5-5 5'),
     kBack: sv('<path d="M14.5 5.5 8 12l6.5 6.5"/>', false, 2.4),
@@ -1641,21 +1722,26 @@
     if (tab === 'remote') { loadTvs(); pollField(); }
     if (tab === 'memories') loadMemories();
     if (tab === 'send') { loadPhones(); if (!tvs.length) loadTvs(true); }
-    if (tab === 'settings') { loadSettings(); loadTvs(!tvsShowing()); loadSmooth(); }
+    if (tab === 'settings') { loadSettings(); loadTvs(!tvsShowing()); loadSmooth(); loadTvHealth(); tvpFrame(); }
   }
   // Addresses, old and new: #remote, #keyboard, #send, #send/to, #send/link, #send/files (and #files), #memories (and #notes),
   // #settings and #settings/<page>: tvs (and #tv), smoothness, phone, connections, drive, posters, cameras, mail,
   // weather, away, shortcuts (and share), crash. A page further in opens with the pages above it, so Back goes to them.
   var ALIAS = { tv: 'settings/tvs', files: 'send/files', notes: 'memories', photos: 'memories' };
+  // #settings/tvs/<id> (id: "this" or a linked TV's) opens that TV's page, with TVs and Settings under it.
   function route(hash) {
     var h = hash.replace(/^#/, ''), parts = (ALIAS[h] || h).split('/'), tab = parts[0], sub = parts[1] === 'share' ? 'shortcuts' : parts[1];
     selectTab(tab);
     if (!sub || current !== tab) return;
     var p = Object.keys(PG).map(function (id) { return PG[id]; }).filter(function (x) { return x.tab === tab && x.o.hash === sub; })[0];
-    if (!p || stacks[tab].indexOf(p) >= 0) return;
-    popTo(0, { animate: false });
-    chain(p).forEach(function (x) { push(x, { animate: false }); });
-    if (p.o.onShow) p.o.onShow(p);
+    if (!p) return;
+    var tvPage = tab === 'settings' && sub === 'tvs' && parts[2] ? decodeURIComponent(parts[2]) : null;
+    if (stacks[tab].indexOf(p) < 0 || tvPage) {
+      popTo(0, { animate: false });
+      chain(p).forEach(function (x) { push(x, { animate: false }); });
+      if (p.o.onShow) p.o.onShow(p);
+    }
+    if (tvPage) { showTvPage(tvPage); push(PG['set-tv'], { animate: false }); loadTvHealth(); tvpFrame(); }
   }
   // Tapping the current tab again goes back to its first page, or scrolls it to the top, like iOS.
   function tapTab(tab) {
@@ -1806,6 +1892,9 @@
     $('d-title').textContent = o.title || ''; $('d-title').hidden = !o.title;
     $('d-msg').textContent = o.message || ''; $('d-msg').hidden = !o.message;
     i.hidden = !o.input; i.value = ''; i.placeholder = (o.input && o.input.placeholder) || '';
+    i.inputMode = (o.input && o.input.inputmode) || 'text';
+    i.setAttribute('autocomplete', (o.input && o.input.autocomplete) || 'off');
+    if (o.input && o.input.maxlength) i.maxLength = o.input.maxlength; else i.removeAttribute('maxlength');
     var btns = $('d-btns'), pref = null; btns.textContent = ''; btns.className = 'btns' + (o.actions.length > 2 ? ' v' : '');
     o.actions.forEach(function (a) {
       var b = el('button', (a.pref ? 'pref' : '') + (a.danger ? ' danger' : ''), a.label);
@@ -2289,17 +2378,21 @@
 
   // Several TVs: this TV is the hub and relays the others. The title picks one once another TV is linked.
   function fmtTime(ms) { var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + ('0' + m).slice(-2) : m) + ':' + ('0' + (s % 60)).slice(-2); }
-  function tvStatus(t) { var p = t.playing; return !t.online ? 'Off' : !p ? 'Nothing Playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title; }
+  function tvStatus(t) { var p = t.playing; return t.link === 'refused' ? 'Link again' : !t.online ? 'Off' : !p ? 'Nothing playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title; }
   function chosenTv() { return tvs.filter(function (t) { return t.id === tvId; })[0]; }
   function chooseTv(id) { tvId = id; renderTvs(); loadTvs(); }
   // Every 5 s while the Remote or Settings › TVs is on screen; once, without polling, for the words
   // elsewhere (Send's To row, the TVs row in Settings).
-  function tvsShowing() { return current === 'settings' && topOf('settings') === PG['set-tvs']; }
+  function tvsShowing() { return current === 'settings' && (topOf('settings') === PG['set-tvs'] || topOf('settings') === PG['set-tv']); }
+  var tvsFailed = false;
   function loadTvs(once) {
     var seq = once ? 0 : ++tvSeq;
     if (!once) { clearTimeout(tvTimer); if ((current !== 'remote' && !tvsShowing()) || document.hidden) return; }
-    api('/api/tvs').then(function (d) { calm('tvs', function () { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }); }, function () {})
-      .then(function () { if (seq && seq === tvSeq) tvTimer = setTimeout(loadTvs, 5000); });
+    api('/api/tvs').then(function (d) { tvsFailed = false; calm('tvs', function () { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }); }, function () {
+      // Settings › TVs keeps its last rows; it says so once.
+      if (!tvsFailed && tvsShowing() && tvs.length) toast('Can’t reach ' + hubName(), true);
+      tvsFailed = true;
+    }).then(function () { if (seq && seq === tvSeq) tvTimer = setTimeout(loadTvs, 5000); });
   }
   function renderTvs() {
     var many = tvs.length > 1, t = chosenTv();
@@ -2314,45 +2407,459 @@
   }
 
   // ---- Settings › TVs -----------------------------------------------------------------------------
-  // Every TV with what it's playing; tap one for its TV Screen. Between polls the time moves on by itself.
+  // Every TV with what it's playing and how it's doing: one that's off says when it was last seen, one whose link
+  // stopped working says Link again, one that needs attention says what in a fourth line, in amber. Tap one for its
+  // page (its screen, controls and health). Between polls the time moves on by itself.
   function playing(t) { return !!(t.online && t.playing && t.playing.playing); }
-  function statusLine(t) { var p = t.playing; return !t.online ? 'Off' : !p ? 'Nothing Playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title + (p.app ? ' · ' + p.app : ''); }
+  function statusLine(t) { var p = t.playing; return !t.online ? 'Off' : !p ? 'Nothing playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title + (p.app ? ' · ' + p.app : ''); }
   function position(p) { return Math.min(p.duration, p.position + (p.playing ? Date.now() - tvsAt : 0)); }
+  function refused(t) { return t.link === 'refused'; }
+  // What the TV decided (its health report's seven rules), never worked out here; a TV that's off doesn't count.
+  function attention(t) { return !refused(t) && t.online && !!t.health && t.health.status === 'attention'; }
+  function needsAttention(t) { return refused(t) || attention(t); }
+  // "Den needs attention", "2 TVs need attention", this TV alone "Needs attention"; never a sentence cut short.
+  function attentionWords(list) {
+    if (tvs.length === 1) return 'Needs attention';
+    if (list.length > 1) return list.length + ' TVs need attention';
+    var one = list[0].name + ' needs attention';
+    return one.length <= 26 ? one : '1 TV needs attention';
+  }
   var tvRows = {};
   function renderTvList() {
-    var ids = tvs.map(function (t) { return t.id; }).join();
-    if (ids === renderTvList.ids) fillTvList(); else { renderTvList.ids = ids; glideTop(fillTvList); }   // a TV linked or unlinked: rows glide
+    // A TV linked or unlinked, or a line coming or going: the rows glide.
+    var shape = tvs.map(function (t) { return t.id + (attention(t) ? '!' : '') + (refused(t) ? '?' : '') + (t.online && t.playing && t.playing.duration > 0 && !refused(t) ? '-' : ''); }).join();
+    if (shape === renderTvList.shape) fillTvList(); else { renderTvList.shape = shape; glideTop(fillTvList); }
   }
   function fillTvList() {
-    var box = $('tv-list'), on = tvs.filter(playing), seen = {};
-    // The TVs row in Settings: "Living Room · Playing", "2 Playing", or the TV (or how many there are)
-    swapText($('tvs-status'), on.length === 1 ? on[0].name + ' · Playing' : on.length ? on.length + ' Playing' : tvs.length === 1 ? tvs[0].name : tvs.length ? tvs.length + ' TVs' : '');
-    // The Smoothness Report row: it's this TV's (the one this phone talks to), named when there are several.
-    var me = tvs.filter(function (t) { return t.id === 'this'; })[0];
-    swapText($('sm-tv'), me && tvs.length > 1 ? me.name : '');
+    var box = $('tv-list'), on = tvs.filter(playing), seen = {}, needing = tvs.filter(needsAttention);
+    // The TVs row in Settings: which TVs need attention (amber), else "Living Room · Playing", "2 Playing", or the TV (or how many)
+    swapText($('tvs-status'), needing.length ? attentionWords(needing) : on.length === 1 ? on[0].name + ' · Playing' : on.length ? on.length + ' Playing' : tvs.length === 1 ? tvs[0].name : tvs.length ? tvs.length + ' TVs' : '');
+    setClass($('tvs-status'), 'detail' + (needing.length ? ' warn' : ''));
     tvs.forEach(function (t, i) {
       var r = tvRows[t.id], id = t.id;
       if (!r) {   // rows are kept and updated, so a tap or the bar's movement isn't interrupted every second
         r = tvRows[id] = { row: el('button', 'row i tap') };
+        r.row.dataset.k = 'tv-' + id;
         r.ico = r.row.appendChild(el('span', 'ico')); r.ico.innerHTML = I.gTv;
         var tx = r.row.appendChild(el('span', 'txt'));
         r.name = tx.appendChild(el('span', 't')); r.st = tx.appendChild(el('span', 's'));
         r.bar = tx.appendChild(el('span', 'tvbar')); r.fill = r.bar.appendChild(el('i'));
-        r.row.setAttribute('aria-haspopup', 'dialog');
-        r.row.onclick = function () { openScreen(id); };
+        r.att = tx.appendChild(el('span', 'att-l')); r.att.hidden = true;
+        r.row.insertAdjacentHTML('beforeend', I.chev);
+        r.row.onclick = function () { openTvPage(id, r.row); };
       }
       seen[id] = true;
-      var p = t.playing, bar = !!(t.online && p && p.duration > 0);
-      var c = t.online ? 'var(--tint-fill)' : 'var(--gray)'; if (r.c !== c) { r.c = c; r.ico.style.setProperty('--c', c); }
-      swapText(r.name, t.name); swapText(r.st, statusLine(t));
+      var ref = refused(t), p = t.playing, bar = !!(t.online && !ref && p && p.duration > 0), att = attention(t);
+      var c = t.online && !ref ? 'var(--tint-fill)' : 'var(--gray)'; if (r.c !== c) { r.c = c; r.ico.style.setProperty('--c', c); }
+      swapText(r.name, t.name);
+      swapText(r.st, ref ? 'Link again' : !t.online ? (t.seen ? 'Off · seen ' + ago(t.seen) : 'Off') : statusLine(t));
+      setClass(r.st, 's' + (ref ? ' warn' : ''));
+      setHidden(r.att, !att);
+      if (att) swapText(r.att, 'Needs attention · ' + (t.health.first || ''));
       setHidden(r.bar, !bar); r.bar.classList.toggle('on', bar && !!p.playing);
       if (bar) setTf(r.fill, barTf(position(p) / p.duration));
       if (box.children[i] !== r.row) box.insertBefore(r.row, box.children[i] || null);
     });
     Object.keys(tvRows).forEach(function (id) { if (!seen[id]) { tvRows[id].row.remove(); delete tvRows[id]; } });
     if (screenOpen) renderScreenNow();
+    // A TV page opened from a link before the list was in (or a TV renamed since): its name everywhere on the page.
+    if (tvPageShowing()) { if (PG['set-tv'].title !== tvName(tvp.id)) showTvPage(tvp.id); else renderTvNow(); }
   }
   setInterval(function () { if (!document.hidden && tvs.length && (tvsShowing() || screenOpen) && settled()) renderTvList(); }, 1000);
+  // "just now", "3 min ago", "2 h ago", "yesterday", then the date ("Oct 30"): how long ago, as the TV writes it.
+  function ago(ms) {
+    var d = Date.now() - ms, then = new Date(ms), now = new Date();
+    var days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 864e5);
+    if (d < 6e4) return 'just now';
+    if (d < 36e5) return Math.floor(d / 6e4) + ' min ago';
+    if (d < 432e5 || days === 0) return Math.floor(d / 36e5) + ' h ago';
+    if (days === 1) return 'yesterday';
+    return then.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+  function clockTime(ms) { return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+  function shortDate(ms) { return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' }); }
+  // ---- Settings › TVs › a TV ------------------------------------------------------------------------
+  // One page for whichever TV is open: its screen (a still frame every few seconds), Play/Pause, and its health
+  // report in that TV's own words (built on the TV: health-tv.md): a summary line, what needs attention (each opens
+  // its fix), then sign-ins, updates, stability, space and keys, and what can be done from here. A linked TV's report
+  // comes through this TV with its link key; one that's off, turns down its link or doesn't answer shows its last one.
+  // Rows are kept by key across reports, so a value that changes cross-dissolves and the rest glides (morph).
+  var tvp = { id: null, data: null, seq: 0, timer: null, frameTimer: null, frameSeq: 0, url: null, checking: 0, linking: false, failed: false };
+  var healthKept = {};   // by TV id: { data, at }: a report under 10 minutes old shows at once while a fresh one comes
+  var ANDROID = { 26: '8', 27: '8.1', 28: '9', 29: '10', 30: '11', 31: '12', 32: '12L', 33: '13', 34: '14', 35: '15', 36: '16' };
+  function tvPageShowing() { return current === 'settings' && topOf('settings') === PG['set-tv']; }
+  function tvOf(id) { return tvs.filter(function (t) { return t.id === id; })[0]; }
+  function hubName() { var me = tvOf('this'); return me ? me.name : 'the TV'; }
+  function tvName(id) { var t = tvOf(id); return t ? t.name : id === 'this' ? hubName() : 'TV'; }
+  // Words as the TV writes them, lower case first unless a name ("signed in", "can’t reach Google").
+  function lower(s) { s = s || ''; return /^(Google|Woodruff|Android|TMDB)\b/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1); }
+
+  function openTvPage(id, row) {
+    var p = PG['set-tv'];
+    if (pushing() || (current === 'settings' && topOf('settings') === p)) return;
+    showTvPage(id);
+    if (current === 'settings') { select(topOf(), row); push(p); }
+    loadTvHealth(); tvpFrame();
+  }
+  // The page becomes [id]'s: its name in the bar (and on the next page's back button), its last report at once.
+  function showTvPage(id) {
+    var p = PG['set-tv'], name = tvName(id), kept = healthKept[id];
+    if (tvp.id !== id) {
+      tvp.seq++; tvp.frameSeq++;
+      tvp.id = id; tvp.data = kept && Date.now() - kept.at < 6e5 ? kept.data : null; tvp.checking = 0; tvp.linking = false; tvp.failed = false;
+      $('tvp-img').removeAttribute('src'); $('tvp-img').style.opacity = 0; $('tvp-msg').textContent = '';
+    }
+    p.title = name; setText(p.tt, name); p.o.hash = 'tvs/' + encodeURIComponent(id);
+    applyTvPage();
+  }
+  // Its report now (and every 15 s while the page is on screen); [soon]: sooner, after something done from here.
+  function loadTvHealth() {
+    clearTimeout(tvp.timer);
+    if (!tvPageShowing() || document.hidden || !tvp.id) return;
+    var seq = ++tvp.seq, id = tvp.id, asked = Date.now();
+    fetch('/api/tvs/health?id=' + q(id), { cache: 'no-store' }).then(function (r) {
+      return r.json().then(function (d) { return { r: r, d: d }; }, function () { return { r: r, d: null }; });
+    }).then(function (x) {
+      if (seq !== tvp.seq) return;
+      var d = x.d, data = x.r.ok && d ? { kind: d.status, report: d }
+        : x.r.status === 409 && d ? { kind: d.status, report: d.last, version: d.version, seen: d.seen } : null;
+      if (!data) throw new Error();
+      tvp.failed = false; tvp.data = data; healthKept[id] = { data: data, at: Date.now() };
+      // Check for Updates reads "Checking…" until a report asked for after it.
+      if (tvp.checking && asked - tvp.checking > 2500) tvp.checking = 0;
+      calm('tvp', renderTvPage);
+    }).catch(function () {
+      if (seq !== tvp.seq) return;
+      tvp.failed = true; calm('tvp', renderTvPage);
+    }).then(function () { if (seq === tvp.seq) tvp.timer = setTimeout(loadTvHealth, 15000); });
+  }
+  // After a fix done from here (a check, a link): asked again shortly, then once more.
+  function refreshSoon() { [3000, 10000].forEach(function (ms) { setTimeout(function () { if (tvPageShowing()) loadTvHealth(); }, ms); }); }
+  function renderTvPage() { if (tvPageShowing()) glideTop(applyTvPage); else applyTvPage(); }
+
+  // Where this TV stands, from its report (or why there's none): "good", "attention", "off", "refused", "noAnswer",
+  // "old", "checking" (asked, nothing yet) or "hub" (this phone can't reach the TV it talks to).
+  function tvKind() { var d = tvp.data; return d ? d.kind : tvp.failed ? 'hub' : 'checking'; }
+
+  function applyTvPage() {
+    var id = tvp.id; if (!id) return;
+    var d = tvp.data, r = d && d.report, kind = tvKind(), name = tvName(id), live = kind === 'good' || kind === 'attention';
+    renderTvNow(kind);
+    // The summary: a symbol, the TV's one line and a second.
+    var att = live && r ? r.attention || [] : [], n = att.length;
+    var V = {
+      checking: ['spin', 'spin', 'Checking ' + name + '…', ''],
+      good: ['okFill', 'ok', 'All Good', r && 'Checked ' + ago(r.at)],
+      attention: ['warn', 'warn', (n === 1 ? '1 Thing Needs' : n + ' Things Need') + ' Attention', r && 'Checked ' + ago(r.at)],
+      off: ['power', 'mute sm', 'Off', d && d.seen ? 'Last seen ' + ago(d.seen) : ''],
+      refused: ['linkWarn', 'warn sm', 'Its Link Stopped Working', 'Link again'],
+      noAnswer: ['gTv', 'mute sm', 'Didn’t Answer', name + ' is on the network but didn’t reply.'],
+      old: ['gUpdate', 'mute sm', 'Needs a Newer Woodruff', d && d.version || ''],
+      hub: ['gTv', 'mute sm', 'Can’t Reach ' + hubName(), 'Check that it’s on and this phone is on the same Wi-Fi.']
+    }[kind] || ['gTv', 'mute sm', name, ''];
+    var sum = [{ k: 'verdict', verdict: V, warnSub: kind === 'refused' }];
+    att.forEach(function (it) {
+      sum.push({ k: 'att-' + it.id, lead: I.warn, cls: 'att', t: it.words, tap: true, chev: true, data: { att: it.id }, fn: function () { attSheet(it); } });
+    });
+    if (kind === 'noAnswer' || kind === 'hub') sum.push({ k: 'again', act: true, tap: true, t: 'Try Again', fn: function () { tvp.failed = false; loadTvHealth(); } });
+    fillRows($('tvp-sum'), sum);
+    // Below it.
+    var B = [];
+    if (kind === 'refused') {
+      B.push({ k: 'g-steps', group: [
+        { k: 'steps', html: esc(name) + ' answered but turned down ' + esc(hubName()) + '’s link. That happens after ' + esc(name) + ' is reset or reinstalled, or after “<b>Stop other TVs seeing this one</b>” on ' + esc(name) +
+          '. To link it again: on ' + esc(name) + ', open <b>Settings → TVs &amp; phones → Other TVs → Link this TV to another</b>, then tap <b>Link Again</b> here and type the code it shows.' },
+        { k: 'link', id: 'tvp-link', act: true, tap: !tvp.linking, disabled: tvp.linking, t: tvp.linking ? 'Linking…' : 'Link Again', fn: relink }
+      ] });
+      if (r) B.push({ k: 'h-last', title: 'Last Report', sub: whenSaid(r.at) });
+    }
+    if (kind === 'off') B.push({ k: 'f-off', foot: r ? 'Off or asleep. These are the last things it reported.' : name + ' hasn’t reported yet. Turn it on to see how it’s doing.' });
+    if (kind === 'noAnswer' && r) B.push({ k: 'h-last', title: 'Last Report', sub: whenSaid(r.at) });
+    if (kind === 'old') B.push({ k: 'f-old', foot: 'Health reports start with the next version. ' + name + ' updates by itself when nobody’s using it.' });
+    if (r && kind !== 'old' && kind !== 'checking' && kind !== 'hub') B = B.concat(reportBlocks(r, live, id === 'this'));
+    // What can be done from here.
+    var acts = [];
+    if (live) {
+      acts.push({ k: 'a-check', act: true, tap: !tvp.checking, disabled: !!tvp.checking, t: tvp.checking ? 'Checking…' : 'Check for Updates', fn: checkUpdates });
+      if (id === 'this') acts.push({ k: 'a-smooth', tap: true, chev: true, t: 'Smoothness Report', fn: function () { openPage('set-smooth', this); } });
+    }
+    if (r && (live || kind === 'off')) acts.push({ k: 'a-copy', act: true, tap: true, t: 'Copy Health Report', fn: copyHealth });
+    if (acts.length) B.push({ k: 'g-acts', group: acts });
+    fillBlocks($('tvp-body'), B);
+  }
+
+  // The report's sections, in the TV's words; [live]: its values may show amber and its rows act.
+  function reportBlocks(r, live, mine) {
+    var si = r.signIns || {}, keys = r.keys || {}, haveKeys = keys.googleClientId && keys.googleClientSecret;
+    function signIn(g) {   // what tapping a sign-in row does, when the phone can do something
+      var s = si[g] || {};
+      if (!live) return null;
+      if (s.state === 'expired') return function () { signInHelp(g); };
+      if (s.state === 'keysRejected') return function () { openPage('set-drive', this); };
+      if (mine && (s.state === 'notSetUp' || s.state === 'notSignedIn') && !(haveKeys && (g !== 'cameras' || keys.camerasProject))) {
+        return function () { openPage(g === 'cameras' && haveKeys ? 'set-cams' : 'set-drive', this); };
+      }
+      return null;
+    }
+    var rows = [['drive', 'Google Drive', '#1a73e8', 'gDrive'], ['photos', 'Google Photos', '#1a73e8', 'gPhotos'], ['calendar', 'Google Calendar', '#1a73e8', 'gCal'], ['cameras', 'Cameras', 'var(--green)', 'gVideo']].map(function (g) {
+      var s = si[g[0]] || {}, act = signIn(g[0]);
+      return { k: 'si-' + g[0], ico: g[3], c: g[2], t: g[1], d: s.text || '', warn: live && s.attention, tap: !!act, chev: !!act, fn: act, data: { grant: g[0] } };
+    });
+    var bell = si.doorbell || {};
+    rows.push({ k: 'si-doorbell', ico: 'gBell', c: 'var(--red)', t: 'Doorbell Alerts', d: bell.text || 'Off', warn: live && bell.attention, data: { grant: 'doorbell' } });
+    var u = r.updates || {}, up = [{ k: 'u-ver', t: 'Version ' + (r.version || ''), d: u.text || '', warn: live && u.attention, s: r.installedBy && r.installedBy.summary, two: true }];
+    if (r.lastUpdateTry) up.push({ k: 'u-try', t: 'Last Update Try', d: r.lastUpdateTry.text, warn: live, s: r.lastUpdateTry.reason, two: true });
+    if (r.installPermission) up.push({ k: 'u-perm', t: 'Installing Updates', d: r.installPermission.text, warn: live && r.installPermission.attention });
+    var c = r.lastCrash, cb = r.closedByAndroid;
+    var st = [{ k: 'st-crash', t: 'Last Crash', d: c ? c.text : 'None', warn: live && c && c.attention, s: c ? c.summary : null, tap: !!(c && c.report), chev: !!(c && c.report), fn: c && c.report ? openCrash : null }];
+    if (cb) st.push({ k: 'st-closed', t: 'Closed by Android', d: cb.text, warn: live && cb.attention, s: cb.detail && /camera or video code/.test(cb.detail) ? 'It crashed inside the camera or video code.' : null });
+    var sk = [];
+    if (r.freeSpace) sk.push({ k: 'sk-space', t: 'Free Space', d: r.freeSpace.text, warn: live && r.freeSpace.attention });
+    sk.push({ k: 'sk-keys', t: 'Keys', d: keys.text || '' });
+    var B = [
+      { k: 'h-si', head: 'Sign-Ins' }, { k: 'g-si', group: rows },
+      { k: 'f-si', foot: 'Sign-ins aren’t shared between TVs. Offline and “Can’t reach Google” clear up by themselves.' },
+      { k: 'h-up', head: 'Updates' }, { k: 'g-up', group: up },
+      { k: 'h-st', head: 'Stability' }, { k: 'g-st', group: st }
+    ];
+    if (cb) B.push({ k: 'f-st', foot: 'Android 11 and newer say why Woodruff stopped. Low memory now and then is normal on small TVs.' });
+    return B.concat([
+      { k: 'h-sk', head: 'Space and Keys' }, { k: 'g-sk', group: sk },
+      { k: 'f-sk', foot: 'Keys entered on one TV are copied to every linked TV. Their values are never shown here.' }
+    ]);
+  }
+  // "Today at 9:12 PM", "Yesterday at 9:12 PM", "Nov 1 at 9:12 PM": when a last report was made.
+  function whenSaid(ms) { var a = ago(ms); return (/ago|now/.test(a) ? 'Today' : a === 'yesterday' ? 'Yesterday' : shortDate(ms)) + ' at ' + clockTime(ms); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  // Blocks (section heads, groups of rows, footers) and rows are kept by key, so a refresh changes only what changed.
+  function fillBlocks(box, list) {
+    var old = {}; [].forEach.call(box.children, function (n) { if (n.dataset.k) old[n.dataset.k] = n; });
+    list.forEach(function (b, i) {
+      var tag = b.group || b.head || b.title ? 'div' : 'p', cls = b.group ? 'group' : b.title ? 'head prom' : b.head ? 'head' : 'foot', n = old[b.k];
+      if (!n || n.className !== cls) { n = el(tag, cls); n.dataset.k = b.k; }
+      delete old[b.k];
+      if (b.group) fillRows(n, b.group);
+      else if (b.title) {
+        if (!n._pt) { n._pt = n.appendChild(el('span', 'pt')); n._ps = n.appendChild(el('span', 'ps')); }
+        swapText(n._pt, b.title); swapText(n._ps, b.sub || '');
+      } else swapText(n, b.head || b.foot);
+      if (box.children[i] !== n) box.insertBefore(n, box.children[i] || null);
+    });
+    Object.keys(old).forEach(function (k) { old[k].remove(); });
+  }
+  function fillRows(box, list) {
+    var old = {}; [].forEach.call(box.children, function (n) { if (n.dataset.k) old[n.dataset.k] = n; });
+    list.forEach(function (o, i) {
+      var n = rowNode(o, old[o.k]);
+      delete old[o.k];
+      if (box.children[i] !== n) box.insertBefore(n, box.children[i] || null);
+    });
+    Object.keys(old).forEach(function (k) { old[k].remove(); });
+  }
+  // One row from its description: built once for its shape, its words updated in place (cross-dissolving).
+  function rowNode(o, n) {
+    // A title and a value side by side, the value under the title when they don't fit ("pair"); a title and a value
+    // over a subtitle as wide as the row ("grid").
+    var lay = o.html || o.verdict || o.d == null ? '' : o.s == null ? 'pair' : 'grid';
+    var sig = [o.tap || o.disabled ? 'b' : 'd', o.ico || '', o.lead ? 'l' : '', o.s != null ? 's' : '', o.d != null ? 'v' : '', o.chev ? 'c' : '', o.verdict ? 'V' : '', o.html ? 'h' : '', o.cls || '', lay].join('|');
+    if (!n || n._sig !== sig) {
+      n = el(o.tap || o.disabled ? 'button' : 'div'); n._sig = sig; n.dataset.k = o.k;
+      if (o.verdict) { n._vs = n.appendChild(el('span', 'vs')); }
+      if (o.ico) { n._ico = n.appendChild(el('span', 'ico')); n._ico.innerHTML = I[o.ico]; }
+      if (o.lead) n.insertAdjacentHTML('beforeend', o.lead);
+      if (o.html) { n._t = n.appendChild(el('span', 'steps selectable')); }
+      else if (lay === 'pair') {
+        var pr = n.appendChild(el('span', 'pair'));
+        n._t = pr.appendChild(el('span', 'txt')).appendChild(el('span', 't'));
+        n._d = pr.appendChild(el('span', 'detail'));
+      } else if (lay === 'grid') {
+        var gr = n.appendChild(el('span', 'txt grid'));
+        n._t = gr.appendChild(el('span', 't'));
+        n._d = gr.appendChild(el('span', 'detail'));
+        n._s = gr.appendChild(el('span', 's'));
+      } else {
+        var tx = n.appendChild(el('span', 'txt'));
+        n._t = tx.appendChild(el('span', 't'));
+        if (o.s != null || o.verdict) n._s = tx.appendChild(el('span', 's'));
+      }
+      if (o.chev) n.insertAdjacentHTML('beforeend', I.chev);
+    }
+    setClass(n, 'row' + (o.ico ? ' i' : '') + (o.verdict ? ' verdict' : '') + (o.tap || o.disabled ? ' tap' : '') + (o.act ? ' act' : '') + (o.html ? ' steps-row' : '') + (o.cls ? ' ' + o.cls : ''));
+    if (o.id) n.id = o.id;
+    if (o.ico && n._ico.style.getPropertyValue('--c') !== o.c) n._ico.style.setProperty('--c', o.c);
+    if (o.verdict) {
+      var v = o.verdict, vk = v[0] + v[1];
+      if (n._vk !== vk) {
+        var set = function () { n._vs.innerHTML = I[v[0]]; setClass(n._vs, 'vs ' + v[1]); n._vk = vk; };
+        if (n._vk) dissolve(n._vs, set); else set();
+      }
+      swapText(n._t, v[2]); swapText(n._s, v[3] || ''); setClass(n._s, 's' + (o.warnSub ? ' warn' : '')); setHidden(n._s, !v[3]);
+    } else if (o.html) {
+      if (n._t.innerHTML !== o.html) n._t.innerHTML = o.html;
+    } else {
+      swapText(n._t, o.t || '');
+      if (n._s) { swapText(n._s, o.s || ''); setClass(n._s, 's' + (o.two ? ' two' : '')); setHidden(n._s, !o.s); }
+    }
+    if (n._d) { swapText(n._d, o.d); setClass(n._d, 'detail' + (o.warn ? ' warn' : '')); }
+    if (n.tagName === 'BUTTON') n.disabled = !!o.disabled;
+    n.onclick = o.fn ? function () { o.fn.call(n); } : null;
+    if (o.data) Object.keys(o.data).forEach(function (k) { if (n.dataset[k] !== o.data[k]) n.dataset[k] = o.data[k]; });
+    return n;
+  }
+
+  // The now card and the controls: what the TV plays (from the TV list, which polls every 5 s while this page shows).
+  function renderTvNow(kind) {
+    var id = tvp.id, t = tvOf(id); kind = kind || tvKind();
+    var on = !!t && (id === 'this' || (t.online && !refused(t))) && kind !== 'refused', p = on && t.playing, bar = !!(p && p.duration > 0);
+    var can = (p && p.can) || [], shape = [on, !!p, can.indexOf('back10') >= 0, can.indexOf('fwd30') >= 0].join();
+    if (shape !== renderTvNow.shape && renderTvNow.shape != null && tvPageShowing() && !renderTvNow.busy) {
+      renderTvNow.shape = shape; renderTvNow.busy = true;
+      glideTop(function () { setTvNow(on, p, bar, can); }); renderTvNow.busy = false;
+    } else { renderTvNow.shape = shape; setTvNow(on, p, bar, can); }
+  }
+  function setTvNow(on, p, bar, can) {
+    setHidden($('tvp-now'), !on);
+    setHidden($('tvp-ctl'), !p);
+    setHidden($('tvp-back10'), can.indexOf('back10') < 0); setHidden($('tvp-fwd30'), can.indexOf('fwd30') < 0);
+    if (!on) return;
+    swapText($('tvp-title'), p ? p.title : 'Nothing playing');
+    swapText($('tvp-sub'), p ? (p.playing ? '' : 'Paused · ') + (p.app || '') : '');
+    var play = $('tvp-play'), glyph = p && p.playing ? 'pause' : 'play';
+    if (play._g !== glyph) { play._g = glyph; play.innerHTML = p && p.playing ? I.pause : I.playBig; play.setAttribute('aria-label', p && p.playing ? 'Pause' : 'Play'); }
+    setHidden($('tvp-bar'), !bar);
+    if (!bar) return;
+    var pos = position(p);
+    setTf($('tvp-fill'), barTf(pos / p.duration)); $('tvp-bar').classList.toggle('on', !!p.playing);
+    setText($('tvp-pos'), fmtTime(pos)); setText($('tvp-left'), '-' + fmtTime(p.duration - pos));
+  }
+  // The TV's picture: one still frame every 3 s while the page is on screen and nothing moves, never while the TV
+  // Screen sheet runs its own; a TV not showing Woodruff says so (409), as the sheet does.
+  function tvpFrame() {
+    clearTimeout(tvp.frameTimer);
+    if (!tvPageShowing() || document.hidden || !tvp.id) return;
+    var t = tvOf(tvp.id), mine = tvp.id === 'this', img = $('tvp-img'), msg = $('tvp-msg'), first = !img.getAttribute('src');
+    // The first picture is asked for at once (and shows once the page is in place); later ones wait while anything
+    // moves. Until the TV list is in, a moment; while the sheet has the picture, or the TV is off, a while.
+    if ((!first && !settled()) || (!mine && !t)) { tvp.frameTimer = setTimeout(tvpFrame, first ? 100 : 300); return; }
+    if (screenOpen || (!mine && (!t.online || refused(t)))) { tvp.frameTimer = setTimeout(tvpFrame, 3000); return; }
+    var seq = ++tvp.frameSeq, id = tvp.id;
+    fetch((id === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(id) + '&t=') + Date.now(), { cache: 'no-store' }).then(function (r) {
+      if (seq !== tvp.frameSeq) return;
+      if (r.status === 409) return r.json().then(function (d) { if (seq !== tvp.frameSeq) return; setText(msg, d.message); img.style.opacity = .25; });
+      if (!r.ok) throw new Error();
+      return r.blob().then(function (b) {
+        if (seq !== tvp.frameSeq) return;
+        // Decoded off the main thread first, so the picture changing never costs a frame of anything moving.
+        var url = URL.createObjectURL(b), pic = new Image();
+        pic.src = url;
+        return (pic.decode ? pic.decode() : Promise.resolve()).catch(function () {}).then(placed).then(function () {
+          if (seq !== tvp.frameSeq) { URL.revokeObjectURL(url); return; }
+          img.onload = img.onerror = function () { if (tvp.url && tvp.url !== url) URL.revokeObjectURL(tvp.url); tvp.url = url; };
+          img.src = url; img.style.opacity = 1; setText(msg, '');
+        });
+      });
+    }).catch(function () { if (seq === tvp.frameSeq) setText(msg, 'Can’t reach the TV.'); })
+      .then(function () { if (seq === tvp.frameSeq) tvp.frameTimer = setTimeout(tvpFrame, 3000); });
+  }
+  // Once Settings' pages have stopped sliding.
+  function placed() { return new Promise(function (done) { (function wait() { if (pushing('settings')) setTimeout(wait, 50); else done(); })(); }); }
+  $('tvp-screen').onclick = function () { if (tvp.id) openScreen(tvp.id); };
+  [].forEach.call($('tvp-ctl').querySelectorAll('button'), function (b) { b.onclick = function () { tvMedia(b.dataset.mk, b); }; });
+  // Play/Pause through the remote's own key; −10 s and +30 s through /api/media (shown only when the TV says it can).
+  function tvMedia(action, b) {
+    var id = tvp.id, t = tvOf(id); haptic();
+    if (action === 'playpause' && t && t.playing) { t.playing.playing = !t.playing.playing; renderTvNow(); }   // at once; the next poll confirms
+    var sent = action === 'playpause'
+      ? (id === 'this' ? post('/api/key', { key: 'playpause' }) : post('/api/tvs/key', { id: id, key: 'playpause' }))
+      : (id === 'this' ? post('/api/media', { action: action }) : post('/api/tvs/media', { id: id, action: action }));
+    sent.then(function () { setTimeout(function () { loadTvs(true); }, 700); }, function (e) { err(e); loadTvs(true); });
+  }
+
+  // ---- Fixes, from an attention row (its `fix`, as the TV decided) --------------------------------------
+  function attSheet(it) {
+    var name = tvName(tvp.id), acts = [];
+    if (it.fix === 'signin') acts.push({ label: 'How to Sign In', fn: function () { signInHelp(it.grant); } });
+    else if (it.fix === 'keys') acts.push({ label: 'Check the Google Keys', fn: function () { openPage('set-drive'); } });
+    else if (it.fix === 'update') acts.push({ label: 'Check for Updates', fn: checkUpdates });
+    else if (it.fix === 'install') acts.push({ label: 'Open Woodruff on ' + name, fn: openWoodruff });
+    else if (it.fix === 'crash') acts.push({ label: 'Copy Crash Report', fn: copyCrash });
+    else return alertBox({ title: it.words, message: it.detail, actions: [{ label: 'OK', pref: true }] });
+    sheet(it.words, it.detail, acts);
+  }
+  // Sign-ins aren't shared between TVs and never travel over a link: the phone says where to do it.
+  function signInHelp(grant) {
+    var id = tvp.id, name = tvName(id), where = {
+      drive: 'open Streaming and scan the code with your phone',
+      photos: 'open Settings → Accounts → Google Photos',
+      calendar: 'open Settings → Accounts → Google Calendar',
+      cameras: 'open the Command Center and scan the code with your phone'
+    }[grant] || 'open Settings → Accounts';
+    alertBox({ title: 'Sign In on ' + name, message: id === 'this' ? 'On ' + name + ', ' + where + '.'
+      : 'Sign-ins aren’t shared between TVs. Use ' + name + '’s own app on this phone, or on ' + name + ' ' + where + '. No ' + name + ' app yet? On ' + name + ', open Settings → TVs & phones → Connect a phone.',
+      actions: [{ label: 'OK', pref: true }] });
+  }
+  function openWoodruff() {
+    var id = tvp.id, name = tvName(id);
+    (id === 'this' ? post('/api/key', { key: 'home' }) : post('/api/tvs/key', { id: id, key: 'home' }))
+      .then(function () { toast('Woodruff is opening on ' + name + '. Press Install there.'); }, err);
+  }
+  function checkUpdates() {
+    var id = tvp.id, name = tvName(id);
+    if (tvp.checking) return;
+    tvp.checking = Date.now(); renderTvPage();
+    post('/api/tvs/update/check', { id: id }).then(function () { toast('Checking for updates on ' + name); refreshSoon(); },
+      function (e) { tvp.checking = 0; renderTvPage(); err(e); });
+  }
+  // Link Again: the code the TV shows, typed here; the hub links it again in place of the old entry (one TV, not two).
+  function relink() {
+    var id = tvp.id, name = tvName(id);
+    alertBox({ title: 'Code Shown on ' + name, message: 'On ' + name + ': Settings → TVs & phones → Other TVs → Link this TV to another.',
+      input: { placeholder: '6-digit code', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 7 },
+      actions: [{ label: 'Cancel' }, { label: 'Link', pref: true, fn: function (v) {
+        var code = (v || '').replace(/\D/g, ''); if (!code) return;
+        tvp.linking = true; renderTvPage();
+        post('/api/tvs/relink', { id: id, code: code }).then(function (r) {
+          toast((r.name || name) + ' is linked again');
+          tvp.linking = false;
+          api('/api/tvs').then(function (d) { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }, function () {}).then(function () {
+            delete healthKept[id];
+            if (tvPageShowing() && tvp.id === id) { showTvPage(r.id || id); loadTvHealth(); tvpFrame(); }
+          });
+        }, function (e) { tvp.linking = false; renderTvPage(); toast(e.message || 'Couldn’t reach that TV.', true); });
+      } }] });
+  }
+  // A TV's crash page (the one Settings has for this TV, reused): its report, Copy, and Clear only for this TV.
+  var crashFor = null;
+  function openCrash() {
+    var r = tvp.data && tvp.data.report, c = r && r.lastCrash; if (!c || !c.report) return;
+    crashFor = { id: tvp.id, text: c.report };
+    setText($('crash-text'), c.report.split('\n').slice(0, 14).join('\n'));
+    setHidden($('crash-clear'), tvp.id !== 'this');
+    openPage('set-crash', this);
+  }
+  function copyCrash() { var r = tvp.data && tvp.data.report, c = r && r.lastCrash; if (c && c.report) copy(c.report, 'Crash report copied'); }
+  function copyHealth() { var t = healthText(); if (t) copy(t, 'Health report copied'); }
+  // The report as text to send (no secrets: the TV's own words, keys only as saved or not).
+  function healthText() {
+    var r = tvp.data && tvp.data.report; if (!r) return '';
+    var id = tvp.id, a = r.attention || [], si = r.signIns || {}, L = [tvName(id) + ' · Version ' + r.version];
+    L.push('Checked ' + shortDate(r.at) + ', ' + clockTime(r.at) + (id !== 'this' ? ', through ' + hubName() : ''));
+    L.push(a.length ? (a.length === 1 ? '1 thing needs' : a.length + ' things need') + ' attention: ' + a.map(function (x) { return x.words + '.'; }).join(' ') : 'All good.');
+    var names = { drive: 'Google Drive', photos: 'Google Photos', calendar: 'Google Calendar', cameras: 'Cameras', doorbell: 'Doorbell alerts' };
+    L.push('Sign-ins: ' + Object.keys(names).filter(function (g) { return si[g]; }).map(function (g) { return names[g] + ' ' + lower(si[g].text); }).join(' · '));
+    var u = r.updates || {};
+    L.push('Updates: ' + u.text + (r.installedBy && r.installedBy.summary ? ' · ' + r.installedBy.summary : ''));
+    if (r.lastUpdateTry) L.push('Last update try: ' + lower(r.lastUpdateTry.text) + (r.lastUpdateTry.reason ? ' (' + lower(r.lastUpdateTry.reason).replace(/\.$/, '') + ')' : ''));
+    if (r.installPermission) L.push('Installing updates: ' + lower(r.installPermission.text));
+    L.push('Last crash: ' + (r.lastCrash ? r.lastCrash.text + (r.lastCrash.summary ? ' · ' + r.lastCrash.summary : '') : 'none'));
+    if (r.closedByAndroid) L.push('Closed by Android: ' + lower(r.closedByAndroid.text));
+    if (r.freeSpace) L.push('Free space: ' + r.freeSpace.text);
+    if (r.keys) L.push('Keys: ' + lower(r.keys.text));
+    var up = r.uptime || 0, run = up >= 864e5 ? Math.floor(up / 864e5) + (up >= 1728e5 ? ' days' : ' day') : up >= 36e5 ? Math.floor(up / 36e5) + ' h' : Math.max(1, Math.floor(up / 6e4)) + ' min';
+    L.push([ANDROID[r.android] ? 'Android ' + ANDROID[r.android] : '', up ? 'running ' + run : ''].filter(Boolean).join(' · '));
+    return L.filter(Boolean).join('\n');
+  }
 
   // ---- Settings › TVs › Smoothness Report ---------------------------------------------------------
   // This TV's report, as plain text: how smoothly each screen moves and where the time goes. Fetched as the
@@ -2448,7 +2955,7 @@
   function renderScreenNow() {
     var t = tvs.filter(function (x) { return x.id === screenTv; })[0], p = t && t.playing, on = !!(t && t.online), bar = !!(on && p && p.duration > 0);
     swapText($('scr-tv'), t ? t.name : '');
-    swapText($('scr-title'), !t ? '' : !on ? t.name + ' is off' : p ? p.title : 'Nothing Playing');
+    swapText($('scr-title'), !t ? '' : !on ? t.name + ' is off' : p ? p.title : 'Nothing playing');
     swapText($('scr-sub'), !t || (on && !p) ? '' : !on ? 'Or not reachable' : (p.playing ? '' : 'Paused · ') + (p.app || ''));
     if ($('scr-bar').hidden === bar) resizeSheet($('scr'), function () { setHidden($('scr-bar'), !bar); }, [], [$('scr-bar')]);   // the sheet grows or shrinks to it
     if (!bar) return;
@@ -3227,7 +3734,7 @@
     api('/api/inbox?id=' + q(device.id)).then(function (d) { d.messages.forEach(showAlert); }, function () {});
   }
   setInterval(checkInbox, 5000);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); loadSmooth(); } });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); loadSmooth(); loadTvHealth(); tvpFrame(); } });
 
   // ---- Settings -----------------------------------------------------------------------------------
   var settings = null, PG = {};
@@ -3276,8 +3783,8 @@
     status(['w-status'], s.weather || 'Off', false);
     swapText($('version'), s.version ? 'Woodruff Family ' + s.version : '');
     setHidden($('crash-group'), !s.crash);
-    setText($('crash-text'), (s.crash || '').split('\n').slice(0, 14).join('\n'));
-    if (!s.crash && current === 'settings' && topOf('settings') === PG['set-crash']) goBack();
+    if (!crashFor) setText($('crash-text'), (s.crash || '').split('\n').slice(0, 14).join('\n'));
+    if (!s.crash && !crashFor && current === 'settings' && topOf('settings') === PG['set-crash']) goBack();
     var ml = $('m-list'), mk = JSON.stringify(s.mail); if (mk === ml.k) return finishSettings(s); ml.k = mk; ml.textContent = '';   // the list is rebuilt only when it changes
     if (!s.mail.length) { var none = ml.appendChild(el('div', 'row', 'No accounts yet')); none.style.color = 'var(--label2)'; none.dataset.k = 'none'; }
     s.mail.forEach(function (m) {
@@ -3307,8 +3814,15 @@
   $('share-copy').onclick = function () { if (settings && settings.shareUrl) copy(settings.shareUrl, 'Share link copied'); };
   $('shortcut').onclick = function () { if (settings) copy(settings.notifyUrl, 'Link copied'); };
   $('g-copy').onclick = function () { if (settings) copy(settings.google.redirectUri, 'Redirect URI copied'); };
-  $('crash-copy').onclick = function () { if (settings && settings.crash) copy(settings.crash, 'Crash report copied'); };
-  $('crash-clear').onclick = function () { post('/api/crash/clear', {}).then(renderSettings, err); };
+  $('crash-copy').onclick = function () { var t = crashFor ? crashFor.text : settings && settings.crash; if (t) copy(t, 'Crash report copied'); };
+  // Clear (this TV only): the report goes, and with it that crash's "needs attention".
+  $('crash-clear').onclick = function () {
+    var fromTv = !!crashFor;
+    post('/api/crash/clear', {}).then(function (s) {
+      renderSettings(s);
+      if (fromTv && current === 'settings' && topOf('settings') === PG['set-crash']) { goBack(); delete healthKept.this; setTimeout(loadTvHealth, 300); }
+    }, err);
+  };
 
   // ---- Pages: every tab's first page and the pages further in ---------------------------------------
   function adopt(tab, id, o) {
@@ -3340,6 +3854,8 @@
   // Settings pages: [page, bar buttons, the page it opens from when that isn't Settings itself]
   var SAVE = function (id) { return [{ text: 'Save', prom: true, id: id }]; };
   adopt('settings', 'set-tvs', { onShow: function () { loadTvs(); } });   // polls while it's showing
+  // A TV's page: its report and picture are asked for only while it's on screen; leaving it stops both.
+  adopt('settings', 'set-tv', { parent: 'set-tvs', onPop: function () { tvp.seq++; tvp.frameSeq++; clearTimeout(tvp.timer); clearTimeout(tvp.frameTimer); } });
   adopt('settings', 'set-smooth', { parent: 'set-tvs', onShow: function () { loadSmooth(); } });
   [['set-phone'], ['set-ntfy', null, 'set-phone'], ['set-conn'],
     ['set-drive', SAVE('g-save'), 'set-conn'], ['set-drive-help', null, 'set-drive'], ['set-tmdb', SAVE('t-save'), 'set-conn'],
@@ -3349,6 +3865,12 @@
     adopt('settings', x[0], { actions: x[1], parent: x[2] });
   });
   doc.querySelectorAll('[data-page]').forEach(function (b) { b.onclick = function () { openPage(b.dataset.page, b); }; });
+  // Settings' own crash row is this TV's.
+  doc.querySelector('#crash-group button').onclick = function () {
+    crashFor = null; setHidden($('crash-clear'), false);
+    if (settings) setText($('crash-text'), (settings.crash || '').split('\n').slice(0, 14).join('\n'));
+    openPage('set-crash', this);
+  };
 
   $('w-save').onclick = function () {
     post('/api/settings/weather', { place: $('w-place').value.trim() }).then(function (s) { renderSettings(s); toast(s.weather ? 'Weather for ' + s.weather : 'Weather off'); }, err);
