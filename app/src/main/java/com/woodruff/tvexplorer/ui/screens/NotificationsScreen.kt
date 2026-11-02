@@ -59,6 +59,8 @@ import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
 import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.util.Format
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** History of everything sent from the phone and every new-mail alert. */
 @Composable
@@ -138,13 +140,17 @@ fun NotificationsScreen(vm: MainViewModel) {
 @Composable
 private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    remember { Phones.load(context); TvLinks.load(context) } // before reading, so every phone and TV starts ticked
+    // Read off the main thread (the encrypted store). What's kept is what was unticked, so every phone and TV starts
+    // ticked, also one read a moment after the dialog opened (a TV whose Keystore is still waking after a power cut).
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Phones.load(context); TvLinks.load(context) } }
     val phones by Phones.items.collectAsStateWithLifecycle()
     val tvs by TvLinks.linked.collectAsStateWithLifecycle()
     var text by remember { mutableStateOf(TextFieldValue("")) }
-    var chosen by remember { mutableStateOf(phones.map { it.id }.toSet()) }
+    var unticked by remember { mutableStateOf(emptySet<String>()) }
+    val chosen = phones.map { it.id }.toSet() - unticked
     // The other TVs start ticked, like the phones: you're at this one.
-    var chosenTvs by remember { mutableStateOf(tvs.map { it.id }.toSet()) }
+    var untickedTvs by remember { mutableStateOf(emptySet<String>()) }
+    val chosenTvs = tvs.map { it.id }.toSet() - untickedTvs
     var onTv by remember { mutableStateOf(false) }
     val field = remember { FocusRequester() }
     val send: () -> Unit = {
@@ -177,13 +183,13 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
         ) {
             items(phones, key = { it.id }) { p ->
                 val on = p.id in chosen
-                CheckRow(p.name, on, platter) { chosen = if (on) chosen - p.id else chosen + p.id }
+                CheckRow(p.name, on, platter) { unticked = if (on) unticked + p.id else unticked - p.id }
             }
             // Keys apart from the phones' ids (which have no spaces or colons).
             item(key = "this tv") { CheckRow("This TV", onTv, platter) { onTv = !onTv } }
             items(tvs, key = { "tv:" + it.id }) { tv ->
                 val on = tv.id in chosenTvs
-                CheckRow(tv.name, on, platter) { chosenTvs = if (on) chosenTvs - tv.id else chosenTvs + tv.id }
+                CheckRow(tv.name, on, platter) { untickedTvs = if (on) untickedTvs + tv.id else untickedTvs - tv.id }
             }
         }
         ButtonRow {

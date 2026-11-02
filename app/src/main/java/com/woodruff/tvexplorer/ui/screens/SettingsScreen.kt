@@ -261,7 +261,7 @@ fun SettingsScreen(vm: MainViewModel) {
         }
     }
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
-    LaunchedEffect(Unit) { Phones.load(context) }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Phones.load(context) } } // the encrypted store: off the main thread
     val phones by Phones.items.collectAsStateWithLifecycle()
     val roots by vm.roots.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshRoots() }
