@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
@@ -147,10 +148,15 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     // on coming back from the player and while the screen stays open. And what the other TVs
     // watched, as Home does: a TV woken into Movies or TV Shows used to offer last week's spot.
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { drive.refreshToken(); FamilySync.pullSoon(context) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(5 * 60_000L)
-            drive.refreshToken()
+    // Only while it's on show: not behind the player or another app, nor all night with Woodruff
+    // kept in the background (Back at Home keeps it, on Android 9–11 too).
+    val screenLife = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(screenLife) {
+        screenLife.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                kotlinx.coroutines.delay(5 * 60_000L)
+                drive.refreshToken()
+            }
         }
     }
 
@@ -802,10 +808,9 @@ internal fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token:
         var fadeEnds = 0L
         androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { next ->
             // No key for 750 ms, and the same title all that time (each decode and cross-fade is a
-            // full-screen repaint, on the screen the graphics chip already struggles with).
-            com.woodruff.tvexplorer.ui.motion.BrowseSettle.awaitSettled()
-            val running = fadeEnds - com.woodruff.tvexplorer.ui.motion.BrowseSettle.uptime()
-            if (running > 0) kotlinx.coroutines.delay(running)
+            // full-screen repaint, on the screen the graphics chip already struggles with); after the
+            // fade under way, with a key while it finishes waiting for the next calm.
+            com.woodruff.tvexplorer.ui.motion.BrowseSettle.awaitSettledAfter(fadeEnds)
             if (next != shown) {
                 shown = next
                 fadeEnds = com.woodruff.tvexplorer.ui.motion.BrowseSettle.uptime() + BACKDROP_FADE_MS

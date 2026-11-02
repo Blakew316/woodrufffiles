@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.media3.ui.PlayerView
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -66,6 +67,29 @@ class PlayerComesBackTest {
         c.restart().resume()
         idle()
         assertTrue(playerView(c).player!!.playWhenReady)
+    }
+
+    @Test
+    fun madeAgainAfterAndroidClosedWoodruffItIsAtTheSameSpotNotTheStartItOpenedWith() {
+        // "Start over" opened it at 0:00; 42 s in, the TV's Home, and Android closes Woodruff.
+        val film = File(File(app.cacheDir, "start-over").apply { mkdirs() }, "Midnight Harbor (2024).mp4").apply { writeBytes(ByteArray(64)) }
+        val c = Robolectric.buildActivity(PlayerActivity::class.java, PlayerActivity.intent(app, listOf(film.path), listOf("Midnight Harbor (2024)"), film.path, positionMs = 0L)).setup()
+        idle()
+        playerView(c).player!!.seekTo(42_000)
+        c.userLeaving()
+        c.pause().stop()
+        val saved = android.os.Bundle()
+        c.saveInstanceState(saved)
+        c.destroy()
+        val kept = PlayerKeep.restore(saved)!!
+        assertEquals(listOf(film.path), kept.keys)
+        assertEquals(42_000L, kept.positionMs)
+        // Made again from what Android kept: the same film at 0:42, paused, not 0:00.
+        val again = Robolectric.buildActivity(PlayerActivity::class.java, c.intent).setup(saved)
+        val player = playerView(again).player!!
+        assertEquals(film.path, player.currentMediaItem?.mediaId)
+        assertEquals(42_000L, player.currentPosition)
+        assertFalse(player.playWhenReady)
     }
 
     @Test

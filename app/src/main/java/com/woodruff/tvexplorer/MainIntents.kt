@@ -12,13 +12,16 @@ import androidx.activity.OnBackPressedCallback
  * MainActivity is `singleTop`, not `singleTask`: opening Woodruff from the TV's app row brings its
  * task back as it was — the paused film over the screen it was started from, the photo viewer, any
  * screen with its focus and scroll — instead of closing everything above the main window. Android
- * only does that when the task still answers to the app row's intent (`MAIN` + the launcher
- * category: `Task.isSameIntentFilter`). Two things keep it so:
- *  - every intent Woodruff opens its main window with carries that same identity ([open], [resume]),
- *    so the task it starts, or re-roots with CLEAR_TOP, still matches the app row;
- *  - should a task not match anyway (opened from a phone launcher's category, or by an older
- *    intent), Android starts a second main window on top for the app row, and MainActivity closes
- *    it at once ([isRepeatLaunch]), so the task shows what it had.
+ * only does that when the task still answers to the app row's intent (`Task.isSameIntentFilter`:
+ * the action, categories, data, package and component, compared exactly). Two things keep it so:
+ *  - every intent Woodruff opens its main window with carries the identity TV launchers give it
+ *    (`MAIN`, the TV launcher's category, the component; [open], [resume]), so the task it starts,
+ *    or re-roots with CLEAR_TOP, still matches the app row;
+ *  - should a task not match anyway (a launcher that also names the package, or uses the phone
+ *    launcher's category, or an intent from an older version), Android starts a second main window
+ *    on top for the app row, and MainActivity closes it at once ([isRepeatLaunch]), so the task
+ *    shows what it had. An app row opening while the main window is on top gives the task the app
+ *    row's own identity again (Android hands the window the intent and keeps it as the task's).
  */
 object MainIntents {
     /**
