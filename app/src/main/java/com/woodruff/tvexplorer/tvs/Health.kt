@@ -313,8 +313,14 @@ data class HealthReport(
     /** The about sentence: "Google Drive’s sign-in ended, and the last update didn’t install." or "Everything’s working." */
     val sentence: String get() = sentenceOf(attention)
 
-    /** What /api/status and /api/tvs carry: good or attention, how many, and the first, capitalised. */
-    val summary: HealthSummary get() = HealthSummary(if (good) "good" else "attention", attention.size, attention.firstOrNull()?.words?.let(::capitalised))
+    /**
+     * What /api/status and /api/tvs carry: good or attention, how many, the first, capitalised, and which sign-ins
+     * Google ended and when (the hub tells its phones about those once each: [SignInAlerts]).
+     */
+    val summary: HealthSummary get() = HealthSummary(
+        if (good) "good" else "attention", attention.size, attention.firstOrNull()?.words?.let(::capitalised),
+        signIns.entries.mapNotNull { (g, s) -> s.since?.takeIf { s.state == SignInState.EXPIRED }?.let { g.json to it } }.toMap(),
+    )
 
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("at", at).put("android", android).put("version", version)
@@ -377,8 +383,9 @@ data class HealthReport(
                     DoorbellState.entries.firstOrNull { it.json == bell?.optString("state") } ?: DoorbellState.OFF,
                     bell?.optString("text")?.ifEmpty { null } ?: "Off", bell?.optString("detail")?.ifEmpty { null },
                 ),
+                // Scrubbed here too: a report kept from a TV on an older Woodruff passes through this hub to its phones.
                 lastCrash = o.optJSONObject("lastCrash")?.let {
-                    CrashRow(it.optLong("at"), it.optString("text"), it.optBoolean("attention"), it.optString("summary"), it.optString("lines"), it.optString("report"))
+                    CrashRow(it.optLong("at"), it.optString("text"), it.optBoolean("attention"), it.optString("summary"), scrubbed(it.optString("lines")), scrubbed(it.optString("report")))
                 },
                 closedByAndroid = o.optJSONObject("closedByAndroid")?.let { ClosedRow(it.optString("text"), it.optBoolean("attention"), it.optString("detail").takeIf { d -> d.isNotEmpty() && d != "null" }) },
                 freeSpace = o.optJSONObject("freeSpace")?.let { SpaceRow(it.optLong("free"), it.optString("text"), it.optBoolean("attention")) },
@@ -391,17 +398,22 @@ data class HealthReport(
     }
 }
 
-/** A report in a few words, for lists: [status] "good" or "attention", how many things, and the first. */
-data class HealthSummary(val status: String, val count: Int, val first: String?) {
+/**
+ * A report in a few words, for lists: [status] "good" or "attention", how many things, and the first. [ended]: the
+ * sign-ins Google ended (by [HealthGrant.json]) and since when, by that TV's clock (a Woodruff from before sends none).
+ */
+data class HealthSummary(val status: String, val count: Int, val first: String?, val ended: Map<String, Long> = emptyMap()) {
     val attention: Boolean get() = status == "attention"
 
     fun toJson(): JSONObject = JSONObject().put("status", status).put("count", count).put("first", first ?: JSONObject.NULL)
+        .apply { if (ended.isNotEmpty()) put("ended", JSONObject().apply { ended.forEach { (g, at) -> put(g, at) } }) }
 
     companion object {
         fun fromJson(o: JSONObject?): HealthSummary? {
             o ?: return null
             val status = o.optString("status").ifEmpty { return null }
-            return HealthSummary(status, o.optInt("count"), o.optString("first").takeIf { it.isNotEmpty() && it != "null" })
+            val ended = o.optJSONObject("ended")?.let { e -> e.keys().asSequence().mapNotNull { g -> e.optLong(g).takeIf { it > 0 }?.let { g to it } }.toMap() }
+            return HealthSummary(status, o.optInt("count"), o.optString("first").takeIf { it.isNotEmpty() && it != "null" }, ended.orEmpty())
         }
     }
 }
@@ -447,6 +459,26 @@ fun sentenceOf(items: List<HealthItem>): String {
     }
     return capitalised(joined) + "."
 }
+
+/**
+ * [text] with anything secret or personal taken out: a crash report leaves the TV in a health report (the
+ * phone shows and copies it, and a linked hub keeps it), and an exception's message can carry the address it
+ * failed on. Keys, tokens and codes in an address ("?api_key=…"), a "Bearer" token, network addresses and
+ * email addresses each become "…"; the trace itself (classes, files, lines) stays as it was.
+ */
+fun scrubbed(text: String): String = text
+    .replace(SECRET_PARAM) { it.groupValues[1] + "…" }
+    .replace(BEARER, "Bearer …")
+    .replace(EMAIL, "…")
+    .replace(IPV4, "…")
+
+private val SECRET_PARAM = Regex(
+    """((?<![A-Za-z0-9_])(?:api_?key|key|k|access_token|refresh_token|id_token|token|code|state|client_secret|secret|password|sig)=)[^&;,\s"'<>]+""",
+    RegexOption.IGNORE_CASE,
+)
+private val BEARER = Regex("""(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+""")
+private val EMAIL = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
+private val IPV4 = Regex("""(?<![\d.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\d.])""")
 
 /** "IllegalStateException in the player": a crash report in a few words, from its exception and Woodruff's first frame. */
 fun crashSummary(report: String): String {
@@ -563,7 +595,8 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
         signIns = signIns,
         doorbell = f.doorbell,
         lastCrash = crash?.let { c ->
-            CrashRow(c.at, clock.stamp(c.at), c.at > week, crashSummary(c.report), c.report.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(3).joinToString("\n"), c.report.take(6_000))
+            val text = scrubbed(c.report)
+            CrashRow(c.at, clock.stamp(c.at), c.at > week, crashSummary(text), text.lines().map { it.trim() }.filter { it.isNotEmpty() }.take(3).joinToString("\n"), text.take(6_000))
         },
         closedByAndroid = closed,
         freeSpace = f.freeBytes?.let { SpaceRow(it, "${Format.bytes(it)} free", lowSpace) },

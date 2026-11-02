@@ -77,7 +77,8 @@ class HealthReportTest {
         assertEquals("signin", r.attention[0].fix)
         assertEquals("drive", r.attention[0].grant)
         assertEquals("Google Drive’s sign-in ended, and the cameras’ sign-in ended.", r.sentence)
-        assertEquals(HealthSummary("attention", 2, "Google Drive’s sign-in ended"), r.summary)
+        // The summary names what ended and since when (the hub tells its phones once per ending).
+        assertEquals(HealthSummary("attention", 2, "Google Drive’s sign-in ended", mapOf("drive" to at(2026, 11, 1, 21, 0))), r.summary)
     }
 
     @Test fun keysGoogleTurnsDownAreOneItemWhateverHowManySignInsSayIt() {
@@ -276,6 +277,28 @@ class HealthReportTest {
         assertFalse(Regex("""\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b""").containsMatchIn(json))
         assertFalse(Regex("""[\w.]+@[\w.]+\.\w+""").containsMatchIn(json))
         assertFalse("GOCSPX" in json || "apps.googleusercontent.com" in json || "ya29." in json)
+    }
+
+    @Test fun aCrashThatNamedAnAddressOrATokenLeavesTheTvWithoutThem() {
+        // An exception's message can carry what it failed on: the TV's report (and the copy the phone makes) never does.
+        val crash = HealthTest.CRASH + "Caused by: java.io.FileNotFoundException: https://api.themoviedb.org/3/search/movie?api_key=abc123secret&query=harbor\n" +
+            "Caused by: java.net.ConnectException: failed to connect to /192.168.1.21 (port 8080) from /192.168.1.20 (port 41234)\n" +
+            "Caused by: java.io.IOException: Unauthorized for someone@example.com, Authorization: Bearer ya29.a0AfH6SMexample\n"
+        val r = report(facts(crash = CrashFact(now - HOUR, crash)))
+        val json = r.toJson().toString()
+        listOf("abc123secret", "192.168.1.21", "192.168.1.20", "someone@example.com", "ya29.a0AfH6SMexample").forEach {
+            assertFalse("$it leaves the TV", it in json)
+        }
+        val text = r.lastCrash!!.report
+        assertTrue("api_key=…&query=harbor" in text)
+        assertTrue("failed to connect to /… (port 8080)" in text)
+        // The trace itself stays as it was.
+        assertTrue("\tat com.woodruff.tvexplorer.player.PlayerActivity.onStop(PlayerActivity.kt:410)" in text)
+        assertEquals("IllegalStateException in the player", r.lastCrash!!.summary)
+        // A report kept from a TV on an older Woodruff is cleaned as it passes through the hub.
+        val old = JSONObject(json).apply { getJSONObject("lastCrash").put("report", crash).put("lines", "token=xyz789") }
+        val back = HealthReport.fromJson(old)!!.lastCrash!!
+        assertFalse("abc123secret" in back.report || "192.168.1.21" in back.report || "xyz789" in back.lines)
     }
 
     @Test fun aReportFromAnotherVersionStillReads() {

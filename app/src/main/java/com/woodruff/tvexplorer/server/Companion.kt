@@ -17,6 +17,8 @@ import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.remote.TvScreen
 import com.woodruff.tvexplorer.tvs.Health
+import com.woodruff.tvexplorer.tvs.HealthGrant
+import com.woodruff.tvexplorer.tvs.SignIns
 import com.woodruff.tvexplorer.tvs.TvHealth
 import com.woodruff.tvexplorer.tvs.TvHealthKind
 import com.woodruff.tvexplorer.tvs.TvLinks
@@ -88,8 +90,11 @@ class CompanionRoutes(private val ctx: Context) {
         val state = s.parameters["state"]?.firstOrNull()
         val attempt = state?.let { CompanionHub.googleAttempts[it] }
         if (attempt == null) {
+            // Used, replaced or too late; one the phone started points back to the phone.
+            if (state != null && PhoneSignIn.known(state)) return phonePage(PhonePage.Old)
             return page("Sign-in expired", "On the TV, open the screen you were connecting and scan the new QR code.")
         }
+        if (attempt.fromPhone) return phoneCallback(s, attempt)
         s.parameters["error"]?.firstOrNull()?.let {
             return page("Sign-in cancelled", "You can try again from the TV.")
         }
@@ -107,6 +112,29 @@ class CompanionRoutes(private val ctx: Context) {
         }
         return page("You're signed in ✓", "Look at your TV: Woodruff Family is loading your Google Drive.")
     }
+
+    /**
+     * Google's answer for a sign-in started from the phone: finished here and now (no screen needed), and its page,
+     * once the TV has finished (or as long as it can wait), says so and points back to the phone.
+     */
+    private fun phoneCallback(s: IHTTPSession, attempt: GoogleAuth.Attempt): Response {
+        // One use: taken here, unless a newer attempt for the same sign-in just replaced it.
+        if (!CompanionHub.take(attempt)) return phonePage(PhonePage.Old)
+        if (s.parameters["error"]?.firstOrNull() != null) {
+            PhoneSignIn.cancelled(attempt.state)
+            return phonePage(PhonePage.Cancelled)
+        }
+        val code = s.parameters["code"]?.firstOrNull() ?: return phonePage(PhonePage.NotFinished(PhoneSignIn.incomplete(ctx, attempt.state)))
+        // Too late (the phone stopped waiting and said so): nothing is used.
+        val job = PhoneSignIn.finish(ctx, code, attempt) ?: return phonePage(PhonePage.Old)
+        return when (val o = PhoneSignIn.outcome(job)) {
+            PhoneSignIn.Outcome.SignedIn -> phonePage(PhonePage.Done(attempt.grant))
+            is PhoneSignIn.Outcome.Failed -> phonePage(PhonePage.NotFinished(o.reason))
+            PhoneSignIn.Outcome.Slow -> phonePage(PhonePage.Finishing)
+        }
+    }
+
+    private fun phonePage(p: PhonePage): Response = phonePage(p, TvLinks.name(ctx)).let { (title, body) -> page(title, body) }
 
     fun handle(s: IHTTPSession): Response? = when {
         // The phone's Family Memories tab.
@@ -435,6 +463,22 @@ class CompanionRoutes(private val ctx: Context) {
             ok()
         }
 
+        // ---- Signing this TV in from its phone app (PhoneSignIn) ---------------------------------------
+        // This TV's own pairing key only: never in LINK_ROUTES, since sign-ins aren't shared between TVs.
+        s.uri == "/api/signin" && s.method == Method.POST -> {
+            val grant = HealthGrant.of(body(s).optString("grant"))?.let(SignIns::googleGrant) ?: throw IllegalArgumentException("Unknown sign-in")
+            when (val r = PhoneSignIn.start(ctx, grant, TransferService.state.value.base)) {
+                is PhoneSignIn.Start.Ready -> json(JSONObject().put("state", r.state).put("authUrl", r.authUrl).put("expiresAt", r.expiresAt)
+                    .put("again", r.again).put("tv", r.tv))
+                is PhoneSignIn.Start.Needs -> NanoHTTPD.newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+                    JSONObject().put("need", r.need).put("message", r.message).toString())
+                is PhoneSignIn.Start.CantStart -> NanoHTTPD.newFixedLengthResponse(Response.Status.CONFLICT, "application/json",
+                    JSONObject().put("message", r.message).toString())
+            }
+        }
+        s.uri == "/api/signin/status" && s.method == Method.GET -> json(PhoneSignIn.status(
+            ctx, s.parameters["state"]?.firstOrNull().orEmpty(), HealthGrant.of(s.parameters["grant"]?.firstOrNull())?.let(SignIns::googleGrant),
+        ))
         s.uri == "/api/settings" && s.method == Method.GET -> json(settingsJson(s))
         // Its body is read too (unread, it would be taken as the start of the phone's next request on this connection).
         s.uri == "/api/crash/clear" && s.method == Method.POST -> {
@@ -541,6 +585,10 @@ class CompanionRoutes(private val ctx: Context) {
     private fun settingsJson(s: IHTTPSession): JSONObject {
         val clientId = GoogleAuth.clientId(ctx)
         val host = s.headers["host"] ?: "this-tv:8080"
+        // The sign-ins as Settings → Accounts says them (offline never changes them), so the phone's Connections
+        // words are the TV's: "Signed in", "Sign-in ended", "Keys not accepted", "Not signed in", "Not set up".
+        val drive = SignIns.account(ctx, HealthGrant.DRIVE).state
+        val cameras = SignIns.account(ctx, HealthGrant.CAMERAS).state
         return JSONObject()
             // For iPhone Shortcuts / automations: the pairing key travels in the URL. tvs=all: the
             // message shows on every linked TV too (links copied before reach only this TV).
@@ -550,15 +598,18 @@ class CompanionRoutes(private val ctx: Context) {
                 .put("clientId", clientId ?: "")
                 .put("hasSecret", GoogleAuth.isConfigured(ctx))
                 .put("connected", GoogleAuth.isConnected(ctx))
+                .put("state", drive.json).put("text", drive.words(HealthGrant.DRIVE))
                 .put("redirectUri", GoogleAuth.REDIRECT_URI))
             .put("tmdb", Tmdb.isConfigured(ctx))
             .put("weather", com.woodruff.tvexplorer.weather.Weather.place(ctx) ?: "")
             .put("version", com.woodruff.tvexplorer.BuildConfig.VERSION_NAME)
-            .put("crash", com.woodruff.tvexplorer.util.CrashLog.last(ctx) ?: "")
+            // This TV's last crash for the phone (shown, copied, maybe pasted somewhere public): nothing secret in it.
+            .put("crash", com.woodruff.tvexplorer.util.CrashLog.last(ctx)?.let { com.woodruff.tvexplorer.tvs.scrubbed(it) } ?: "")
             .put("awayUrl", TransferService.awayUrl() ?: "")
             .put("nest", JSONObject()
                 .put("project", GoogleAuth.nestProject(ctx) ?: "")
                 .put("connected", GoogleAuth.isConnected(ctx, GoogleAuth.Grant.NEST))
+                .put("state", cameras.json).put("text", cameras.words(HealthGrant.CAMERAS))
                 .put("doorbell", com.woodruff.tvexplorer.nest.Doorbell.subscription(ctx) ?: "")
                 .put("doorbellStatus", com.woodruff.tvexplorer.nest.Doorbell.status.value ?: "")
                 .put("person", com.woodruff.tvexplorer.nest.Doorbell.personAlerts(ctx))
@@ -689,12 +740,15 @@ class CompanionRoutes(private val ctx: Context) {
     private fun ok() = json(JSONObject().put("ok", true))
     private fun json(o: JSONObject) = NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "application/json", o.toString())
 
+    /** A plain page for the phone's browser (Google's answer lands on one). Its words may hold a TV's name: escaped. */
     private fun page(title: String, body: String) = NanoHTTPD.newFixedLengthResponse(
         Response.Status.OK, "text/html; charset=utf-8",
         """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Woodruff Family</title><body style="margin:0;padding:28px;font:17px/1.5 -apple-system,system-ui,sans-serif;background:#0b0d12;color:#f2f4f7">
-        <h1 style="font-size:24px;margin:0 0 10px">$title</h1><p style="color:#9aa4b2">$body</p></body>""",
+        <h1 style="font-size:24px;margin:0 0 10px">${html(title)}</h1><p style="color:#9aa4b2">${html(body)}</p></body>""",
     )
+
+    private fun html(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 }
 
 private val PUBLIC_ASSETS = mapOf(
@@ -709,11 +763,25 @@ object CompanionHub {
     /** Google sign-ins waiting for the phone, by `state` (Drive and cameras can be pending at once). */
     val googleAttempts = java.util.concurrent.ConcurrentHashMap<String, com.woodruff.tvexplorer.cloud.GoogleAuth.Attempt>()
 
-    /** Starts waiting for [a]; replaces any older attempt for the same kind of sign-in. */
+    /**
+     * Starts waiting for [a]; replaces any older attempt for the same kind of sign-in. A phone that was waiting on
+     * the one replaced is told ([PhoneSignIn.replaced]): only the newest attempt's answer counts.
+     */
+    @Synchronized
     fun expect(a: com.woodruff.tvexplorer.cloud.GoogleAuth.Attempt) {
-        googleAttempts.values.removeAll { it.grant == a.grant }
+        val gone = googleAttempts.values.filter { it.grant == a.grant && it.state != a.state }
+        gone.forEach { googleAttempts.remove(it.state, it) }
         googleAttempts[a.state] = a
+        gone.forEach { if (it.fromPhone) PhoneSignIn.replaced(it.state) }
     }
+
+    /**
+     * Takes [a] for its answer, once: false when it's no longer waiting (replaced meanwhile). Under the same lock as
+     * [expect], so a phone never hears "replaced" about an attempt whose answer is being used.
+     */
+    @Synchronized
+    fun take(a: com.woodruff.tvexplorer.cloud.GoogleAuth.Attempt): Boolean = googleAttempts.remove(a.state, a)
+
     val googleCodes = MutableSharedFlow<Pair<String, com.woodruff.tvexplorer.cloud.GoogleAuth.Attempt>>(extraBufferCapacity = 4)
     /** Emitted when keys or accounts are changed from the phone, so open screens refresh. */
     val settingsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 8)

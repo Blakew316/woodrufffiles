@@ -21,6 +21,10 @@ import java.util.concurrent.ConcurrentHashMap
 object SignIns {
     private const val PREFS = "health"
     private const val ENDED = "ended."
+    /** The last two times Google ended each sign-in ("t1,t2"), kept across new sign-ins: "every week" ([endsWeekly]). */
+    private const val ENDINGS = "endings."
+    /** Two endings this close together: the consent screen's 7-day limit in Testing, not a one-off. */
+    private const val WEEKLY_MS = 8 * 24 * 3_600_000L
     /** A renewal that couldn't reach Google counts for this long (then the next try decides). */
     private const val UNREACHABLE_FOR_MS = 15 * 60_000L
     /** A sign-in nothing has used for this long is renewed once when a full report is asked for. */
@@ -48,9 +52,59 @@ object SignIns {
     /** When Google ended [grant]'s sign-in on this TV; null when it hasn't (or it was made again since). */
     fun endedAt(c: Context, grant: GoogleAuth.Grant): Long? = prefs(c).getLong(ENDED + grant.name, 0L).takeIf { it > 0 }
 
-    private fun markEnded(c: Context, grant: GoogleAuth.Grant) { prefs(c).edit().putLong(ENDED + grant.name, System.currentTimeMillis()).apply() }
+    /**
+     * Google ended [grant]'s sign-in at [at] (just now): kept (with the one before, for [endsWeekly]) and told to the
+     * phones ([SignInAlerts]: this TV's own phones, once per ending). Visible for tests.
+     */
+    internal fun markEnded(c: Context, grant: GoogleAuth.Grant, at: Long = System.currentTimeMillis()) {
+        val p = prefs(c)
+        p.edit().putLong(ENDED + grant.name, at).putString(ENDINGS + grant.name, withEnding(p.getString(ENDINGS + grant.name, null), at)).apply()
+        runCatching { SignInAlerts.ended(c, grant, at) }
+    }
     private fun clear(c: Context, grant: GoogleAuth.Grant) { if (endedAt(c, grant) != null) prefs(c).edit().remove(ENDED + grant.name).apply() }
-    private fun clearAll(c: Context) { val e = prefs(c).edit(); GoogleAuth.Grant.entries.forEach { e.remove(ENDED + it.name) }; e.apply() }
+    private fun clearAll(c: Context) {
+        val e = prefs(c).edit()
+        GoogleAuth.Grant.entries.forEach { e.remove(ENDED + it.name); e.remove(ENDINGS + it.name) }
+        e.apply()
+    }
+
+    /**
+     * [grant] was signed in again from the phone app (its code never reaches the TV's own sign-in screens, which
+     * clear the mark themselves through [CompanionHub.googleCodes]): it hasn't ended any more.
+     */
+    fun signedIn(c: Context, grant: GoogleAuth.Grant) = clear(c.applicationContext, grant)
+
+    /**
+     * Whether Google ended [grant]'s sign-in twice within 8 days: the consent screen's 7-day limit while it's in
+     * Testing (the phone then says how to stop it), not a one-off like a changed password.
+     */
+    fun endsWeekly(c: Context, grant: GoogleAuth.Grant): Boolean = endedTwiceWithin(prefs(c).getString(ENDINGS + grant.name, null), WEEKLY_MS)
+
+    /**
+     * [grant]'s sign-in as Settings → Accounts and the phone's Connections say it: being offline (or Google out of
+     * reach) never changes it there, since a TV that's offline is still signed in (offline-states.md §3.7).
+     */
+    fun account(c: Context, grant: HealthGrant): SignInFact = state(c, grant).let { it.copy(state = accountState(it.state)) }
+
+    /** [state] without the two connectivity states, which only the health report shows. Visible for tests. */
+    internal fun accountState(state: SignInState): SignInState =
+        if (state == SignInState.OFFLINE || state == SignInState.UNREACHABLE) SignInState.SIGNED_IN else state
+
+    /** [history] ("t1,t2": the last endings, oldest first) with one more at [at], keeping the last two. Visible for tests. */
+    internal fun withEnding(history: String?, at: Long): String =
+        (history.orEmpty().split(',').mapNotNull { it.trim().toLongOrNull() } + at).takeLast(2).joinToString(",")
+
+    /** Whether the last two endings in [history] came at most [windowMs] apart. Visible for tests. */
+    internal fun endedTwiceWithin(history: String?, windowMs: Long): Boolean {
+        val t = history.orEmpty().split(',').mapNotNull { it.trim().toLongOrNull() }
+        return t.size >= 2 && t[t.size - 1] - t[t.size - 2] in 0..windowMs
+    }
+
+    /** Google's grant for the report's [grant] (the phone and the report say "cameras" for Google's NEST). */
+    fun googleGrant(grant: HealthGrant): GoogleAuth.Grant = grant.auth
+
+    /** The report's grant for Google's [grant]. */
+    fun healthGrant(grant: GoogleAuth.Grant): HealthGrant = HealthGrant.entries.first { it.auth == grant }
 
     /** The report's grant for Google's. */
     val HealthGrant.auth: GoogleAuth.Grant

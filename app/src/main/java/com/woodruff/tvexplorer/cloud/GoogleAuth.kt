@@ -158,14 +158,19 @@ object GoogleAuth {
     fun saveClientId(c: Context, id: String) = saveClient(c, id, s(c).get(K_CLIENT_SECRET).orEmpty())
     fun saveClientSecret(c: Context, secret: String) = saveClient(c, clientId(c).orEmpty(), secret)
 
-    /** A sign-in attempt: [state] ties the phone's callback to this TV; [verifier] is the PKCE secret (null = no PKCE). */
-    data class Attempt(val state: String, val verifier: String?, val authUrl: String, val grant: Grant = Grant.DRIVE)
+    /**
+     * A sign-in attempt: [state] ties the phone's callback to this TV; [verifier] is the PKCE secret (null = no PKCE).
+     * [fromPhone]: started from this TV's own phone app (its sign-in sheet), not from a QR code on the TV. Its code
+     * is swapped for tokens in the background ([com.woodruff.tvexplorer.server.PhoneSignIn]), so no screen has to be
+     * open on the TV, and the page Google's answer lands on points back to the phone.
+     */
+    data class Attempt(val state: String, val verifier: String?, val authUrl: String, val grant: Grant = Grant.DRIVE, val fromPhone: Boolean = false)
 
     /**
      * [tvBase] is where the phone should send the code back, e.g. "http://192.168.1.20:8091".
-     * It travels inside `state`, which the relay page reads.
+     * It travels inside `state`, which the relay page reads. [fromPhone]: see [Attempt.fromPhone].
      */
-    fun newAttempt(c: Context, tvBase: String, grant: Grant = Grant.DRIVE): Attempt {
+    fun newAttempt(c: Context, tvBase: String, grant: Grant = Grant.DRIVE, fromPhone: Boolean = false): Attempt {
         val nonce = random(24)
         val state = b64(JSONObject().put("r", tvBase).put("n", nonce).toString().toByteArray())
         val common = arrayOf(
@@ -182,7 +187,7 @@ object GoogleAuth {
             // owner also picks which home and cameras to share. It's a confidential-client flow
             // (client secret), without PKCE.
             val project = nestProject(c) ?: throw IOException("Enter the Device Access Project ID first")
-            return Attempt(state, null, "https://nestservices.google.com/partnerconnections/$project/auth?" + form(*common), grant)
+            return Attempt(state, null, "https://nestservices.google.com/partnerconnections/$project/auth?" + form(*common), grant, fromPhone)
         }
         val verifier = random(64)
         val challenge = b64(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()))
@@ -191,7 +196,7 @@ object GoogleAuth {
             "code_challenge" to challenge,
             "code_challenge_method" to "S256",
         )
-        return Attempt(state, verifier, url, grant)
+        return Attempt(state, verifier, url, grant, fromPhone)
     }
 
     /** Swaps the one-time code for tokens and stores them. */

@@ -53,6 +53,8 @@ TITLES = {
     'watch-title-show': 'Watch › a show', 'watch-play-on': 'Watch › Play on', 'watch-context': 'Watch › hold a tile',
     'watch-movies': 'Watch › Movies', 'watch-search': 'Watch › Search', 'watch-now-playing': 'Watch › now playing',
     'watch-offline': 'Watch · offline', 'watch-signin': 'Watch · sign-in ended', 'watch-loading': 'Watch · first load',
+    'signin': 'Sign in from the phone', 'signin-waiting': 'Sign in · waiting for Google', 'signin-done': 'Sign in · done',
+    'signin-banner': 'A sign-in ended (banner)', 'signin-linked': 'Sign in · another TV',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -84,7 +86,7 @@ PHONE_ORDER = ['remote', 'keyboard',
                'watch-search', 'watch-now-playing', 'watch-offline', 'watch-signin', 'watch-loading',
                'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs',
                'settings-tv', 'settings-tv-attention', 'settings-tv-attention-sheet', 'settings-tv-off', 'settings-tv-link', 'settings-tv-relink',
-               'tv-screen', 'settings-drive']
+               'tv-screen', 'settings-drive', 'signin', 'signin-waiting', 'signin-done', 'signin-banner', 'signin-linked']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {
     'build': build,

@@ -291,6 +291,8 @@ class TransferService : Service() {
             runCatching { SharedKeys.sync(app) }
             // And the family message board's last pin, for a TV that was off when it was pinned.
             runCatching { com.woodruff.tvexplorer.notify.Board.sync(app) }
+            // A linked TV whose sign-in Google ended: this TV's phones are told, once.
+            runCatching { com.woodruff.tvexplorer.tvs.SignInAlerts.sync(app) }
             delay(MAIL_INTERVAL_MS)
         }
     }

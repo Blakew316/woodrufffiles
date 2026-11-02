@@ -3,7 +3,8 @@
 // the Movies grid, Search, the TV Screen sheet from the now-playing bar, and Watch offline, signed out and loading;
 // Send's To page, Photos & Files (also scrolled, its large title collapsed into the bar) and a file's action sheet,
 // a photo in Family Memories, Settings › TVs, each TV's page (all good, needs attention and its fix, off, Link again
-// and its code), a TV's screen, and a Settings page.
+// and its code), a TV's screen, a Settings page, and signing the TV in from the phone (ready, waiting for Google, done,
+// the banner when a sign-in ends, and another TV's "Sign In on Den").
 // It runs like the Home Screen app: the web view under a "default" status bar (so no top safe area),
 // the home indicator's 34pt at the bottom, and navigator.standalone set.
 // Usage: node phone.mjs <output dir>   (with mock_server.py running on :8765, or on MOCK_PORT)
@@ -15,9 +16,10 @@ mkdirSync(out, { recursive: true });
 const base = `http://127.0.0.1:${process.env.MOCK_PORT || 8765}/`;
 const tabs = ['remote', 'watch', 'send', 'memories', 'settings'];
 // Extra states: [name, tab, steps in turn, mock state]. A step is an element to tap (each tap opens a push, sheet or
-// action sheet), { scroll: scroller, y } to scroll a page to y, { type: field, text } to type into a field, or
-// { context: element } to hold it (a right click, which the page takes as a long press). The mock state, when
-// there is one, is posted to /__mock/set before the shot and undone with /__mock/reset after it.
+// action sheet), { scroll: scroller, y } to scroll a page to y, { type: field, text } to type into a field,
+// { context: element } to hold it (a right click, which the page takes as a long press), or { wait: ms } to let time
+// pass (a poll answering). The mock state, when there is one, is posted to /__mock/set before the shot (its `inbox`,
+// a message for this phone, to /__mock/inbox) and undone with /__mock/reset after it.
 const extras = [
   ['keyboard', 'remote', ['#kb-open2']],                                               // the keyboard sheet
   ['watch-scrolled', 'watch', [{ scroll: '#watch-root .scroller', y: 520 }]],          // Movies and TV Shows rows under the now-playing bar
@@ -45,6 +47,16 @@ const extras = [
   ['settings-tv-relink', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(4)', '#tvp-link']],
   ['tv-screen', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(1)', '#tvp-screen']],     // a TV's screen (sheet)
   ['settings-drive', 'settings', ['#set-main [data-page=set-conn]', '#set-conn [data-page=set-drive]']],
+  // Signing this TV in from the phone: Google Drive's sign-in ended, the sheet over its page, waiting for Google, done.
+  ['signin', 'settings', ['#set-main [data-page=set-conn]', '#set-conn [data-page=set-drive]', '#g-signin'], { settings: { google: { state: 'expired' } } }],
+  ['signin-waiting', 'settings', ['#set-main [data-page=set-conn]', '#set-conn [data-page=set-drive]', '#g-signin', '#si-go'], { settings: { google: { state: 'expired' } } }],
+  ['signin-done', 'settings', ['#set-main [data-page=set-conn]', '#set-conn [data-page=set-drive]', '#g-signin', '#si-go', { wait: 2500 }],
+    { settings: { google: { state: 'expired' } }, signin: 'done' }],
+  // The banner when Google ends this TV's sign-in, over the Remote (the inbox is asked every 5 s).
+  ['signin-banner', 'remote', [{ wait: 5600 }], { inbox: { title: 'Sign in to Google Drive again', body: 'Google ended Living Room’s sign-in. Tap to sign it in again from this phone.',
+    from: 'Living Room', link: '#settings/tvs/this/signin/drive', id: 'signin:this:drive:1' } }],
+  // Another TV can't be signed in from here: the phone says where.
+  ['signin-linked', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(2)', '#tvp-signins [data-grant="drive"]']],
 ];
 const settle = 900; // the push and sheet animations take 500 ms
 const mock = (what, body) => fetch(base + '__mock/' + what, { method: 'POST', body: JSON.stringify(body || {}) });
@@ -80,7 +92,11 @@ for (const scheme of ['dark', 'light']) {
     await page.screenshot({ path: `${out}/phone-${tab}-${scheme}.png` });
   }
   for (const [name, tab, targets, state] of extras) {
-    if (state) await mock('set', state);
+    if (state) {
+      const { inbox, ...rest } = state;
+      if (Object.keys(rest).length) await mock('set', rest);
+      if (inbox) await mock('inbox', inbox);
+    }
     // A fresh page each time: nothing left open from the shot before (a sheet, a menu, a search).
     await page.goto(base + '#' + tab);
     await page.reload();
@@ -89,6 +105,7 @@ for (const scheme of ['dark', 'light']) {
       if (typeof target === 'string') await page.tap(target);
       else if (target.type) { await page.tap(target.type); await page.keyboard.type(target.text); }
       else if (target.context) await page.click(target.context, { button: 'right' });
+      else if (target.wait) { await page.waitForTimeout(target.wait); continue; }
       else await page.evaluate(([sel, y]) => { document.querySelector(sel).scrollTop = y; }, [target.scroll, target.y]);
       await page.waitForTimeout(settle);
     }

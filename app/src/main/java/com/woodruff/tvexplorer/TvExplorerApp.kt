@@ -36,11 +36,13 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
             runCatching { com.woodruff.tvexplorer.player.Watched.isWatched(this, "") }
         }, "startup-warmup").apply { priority = Thread.NORM_PRIORITY + 1 }.start()
         GoogleAuth.migrate(this)
+        // The TV health report: sign-ins Google ends, updates waiting (TV health, Settings and phone).
+        // Before the cameras, Photos and the calendar start: it listens for Google ending a sign-in, which the
+        // first token they ask for can find out (and nobody hears it then if nothing listens yet).
+        com.woodruff.tvexplorer.tvs.Health.init(this)
         com.woodruff.tvexplorer.nest.Nest.init(this)
         com.woodruff.tvexplorer.photos.GooglePhotos.init(this)
         com.woodruff.tvexplorer.calendar.TodayCalendar.init(this)
-        // The TV health report: sign-ins Google ends, updates waiting (TV health, Settings and phone).
-        com.woodruff.tvexplorer.tvs.Health.init(this)
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
