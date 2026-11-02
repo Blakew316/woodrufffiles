@@ -55,7 +55,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -170,8 +169,9 @@ object SearchPages {
     val isOpen: Boolean get() = _request.value != null
 
     /**
-     * The remote's search (or voice) button, pressed in any Woodruff window: Search opens listening (when the
-     * TV can listen; else as the side menu's item opens it), or, already open, listens again.
+     * The remote's search (or voice) button, pressed in the main window or any of its pop-ups, Search's own
+     * included (AppRoot hands on [com.woodruff.tvexplorer.ui.SearchKey.presses]): Search opens listening (when
+     * the TV can listen; else as the side menu's item opens it), or, already open, listens again.
      */
     fun searchKey() {
         if (_request.value != null) _listenAgain.tryEmit(Unit) else open(SearchFrom.REMOTE, listen = true)
@@ -199,18 +199,6 @@ internal object SearchVoice {
     fun intent(): Intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         .putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a movie or show")
-}
-
-/**
- * The remote's search (or voice) button pressed in one of Woodruff's own pop-up windows (a title page, the filter
- * sheet), whose keys never reach the activity: Search opens over it, as from a screen ([SearchPages.searchKey]).
- * Only those two keys are taken, and only when nothing inside used them.
- */
-internal fun Modifier.searchKeyOpensSearch(): Modifier = onKeyEvent { e ->
-    val code = e.nativeKeyEvent.keyCode
-    if (code != NativeKeyEvent.KEYCODE_SEARCH && code != NativeKeyEvent.KEYCODE_VOICE_ASSIST) return@onKeyEvent false
-    if (e.nativeKeyEvent.action == NativeKeyEvent.ACTION_UP) SearchPages.searchKey()
-    true
 }
 
 /** The box the phone's keyboard types into while Search is up (as the phone shows it). */
@@ -538,14 +526,11 @@ internal fun SearchScreen(
     Box(
         Modifier.fillMaxSize().ambientBackdrop().onPreviewKeyEvent { e ->
             // A real keyboard's letters, digits, space and delete type from anywhere on the page, never moving the
-            // focus; the remote's search (or voice) button listens again.
+            // focus. (The remote's Search button never gets here: the page's window hands it to SearchPages, which
+            // listens again, see listenAgain.)
             val n = e.nativeKeyEvent
             val c = keyChar(n.keyCode)
             when {
-                n.keyCode == NativeKeyEvent.KEYCODE_SEARCH || n.keyCode == NativeKeyEvent.KEYCODE_VOICE_ASSIST -> {
-                    if (n.action == NativeKeyEvent.ACTION_UP && voice) onListen()
-                    true
-                }
                 n.keyCode == NativeKeyEvent.KEYCODE_DEL -> { if (n.action == NativeKeyEvent.ACTION_DOWN) erase(); true }
                 c != null -> { if (n.action == NativeKeyEvent.ACTION_DOWN) type(c); true }
                 else -> false

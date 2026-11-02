@@ -130,13 +130,6 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) { snapshotFlow { Appearance.idleMinutes }.collect { armIdle() } }
         }
-        // The remote's Search button, in this window or any of its pop-ups (SearchKey), starts the voice
-        // search AppRoot has. (Whatever opens Search collects SearchKey.presses; this hands them on.)
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                com.woodruff.tvexplorer.ui.SearchKey.presses.collect { com.woodruff.tvexplorer.ui.VoiceSearch.requests.tryEmit(Unit) }
-            }
-        }
     }
 
     /**

@@ -151,21 +151,16 @@ fun AppRoot(vm: MainViewModel) {
     val railActive = remember { FocusRequester() }
     val open = railFocused || RailPreview.open
 
-    // The remote's search button (MainActivity hands it over): Search, listening if the TV can, or, already
-    // open, listening again (see SearchPages.searchKey).
-    LaunchedEffect(Unit) { VoiceSearch.requests.collect { com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey() } }
+    // The remote's Search button, pressed in this window or any of its pop-ups (a title page, a menu, the
+    // filters, Search itself: SearchKey): Search, listening if the TV can, or, already open, listening again
+    // (see SearchPages.searchKey), never a second Search.
+    LaunchedEffect(Unit) { SearchKey.presses.collect { com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey() } }
     // Search on screen: the smoothness meter counts its frames as "Search".
     val searchOpen by remember { com.woodruff.tvexplorer.ui.screens.SearchPages.request.map { it != null }.distinctUntilChanged() }
         .collectAsStateWithLifecycle(false)
 
     Box(
-        Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background))
-            // The remote's voice button, if a TV ever hands it to apps (most keep it for their assistant): as Search's.
-            .onKeyEvent { e ->
-                if (e.nativeKeyEvent.keyCode != android.view.KeyEvent.KEYCODE_VOICE_ASSIST) return@onKeyEvent false
-                if (e.type == KeyEventType.KeyUp) com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey()
-                true
-            },
+        Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background)),
     ) {
         // Optional background photo (Settings → Screensaver & background), dimmed so text stays
         // readable. Dimmed as it's drawn (a colour filter), not by a see-through layer over the
@@ -538,14 +533,6 @@ internal fun untilNextMinute(now: Long): Long = 60_000 - now.mod(60_000L) + 50
  * straight Home; Home is chosen in the sidebar.
  */
 internal val LocalOpenSidebar = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
-
-/**
- * The remote's search button, pressed in the main window (MainActivity forwards it here): it opens Search,
- * listening when the TV can ([com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey]).
- */
-internal object VoiceSearch {
-    val requests = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-}
 
 /** Gallery hook: draws the menu open without giving it focus. */
 internal object RailPreview { var open by mutableStateOf(false) }

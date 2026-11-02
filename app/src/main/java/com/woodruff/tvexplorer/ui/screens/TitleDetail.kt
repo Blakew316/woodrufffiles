@@ -158,9 +158,9 @@ fun TitleDetail(
         // The page grows into place as it fades in, and back out, as the system moves its window
         // (smooth even while the page is still being built).
         DialogWindowMotion(WindowMotion.Page, label = "Title page")
-        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here. The remote's search
-        // button opens Search over the page.
-        Box(Modifier.fillMaxSize().dpadGate().searchKeyOpensSearch()) {
+        // A dialog's keys never pass the activity's own: the gate gives the page the same (held arrows gated, the
+        // remote's Search button opening Search over the page, the phone's remote reaching it).
+        Box(Modifier.fillMaxSize().dpadGate()) {
             // One page per title: a title picked from "More like this" starts afresh, with nothing (cast,
             // seasons, the first episode, scroll, focus) carried over from the one before.
             key(f.id) {

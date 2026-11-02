@@ -23,6 +23,7 @@ import com.woodruff.tvexplorer.cloud.MediaInfo
 import com.woodruff.tvexplorer.cloud.TitleSearch
 import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import org.junit.Assert.assertEquals
@@ -53,7 +54,10 @@ class SearchScreenTest {
     private var listened = 0
     private val heard = MutableSharedFlow<String>(extraBufferCapacity = 1)
 
-    private fun open(block: SearchBlock = SearchBlock.NONE, voice: Boolean = true, recent: List<Pair<DrivePlace, DriveFile>> = emptyList()) {
+    private fun open(
+        block: SearchBlock = SearchBlock.NONE, voice: Boolean = true, recent: List<Pair<DrivePlace, DriveFile>> = emptyList(),
+        listenAgain: Flow<Unit> = emptyFlow(),
+    ) {
         compose.setContent {
             TvExplorerTheme {
                 SearchScreen(
@@ -61,7 +65,7 @@ class SearchScreenTest {
                     libraries = { mapOf(DrivePlace.Movies to films, DrivePlace.TvShows to shows) }, listings = 1,
                     recent = recent, news = emptyMap(), offline = null, down = false, token = null, voice = voice, covered = false,
                     marks = remember { mutableIntStateOf(0) },
-                    onListen = { listened++ }, heard = heard, listenAgain = emptyFlow(),
+                    onListen = { listened++ }, heard = heard, listenAgain = listenAgain,
                     onOpen = { opened = it }, onMenu = {}, onPlay = {}, onFix = { fixed = it },
                 )
             }
@@ -113,7 +117,8 @@ class SearchScreenTest {
         open()
         val target = RemoteInput.target
         assertEquals(SEARCH_BOX, target?.label)
-        RemoteInput.type(null, "harbor", submit = true)
+        // On the UI thread between frames, as the phone connection's typing reaches the page.
+        compose.runOnIdle { RemoteInput.type(null, "harbor", submit = true) }
         waitForText("Midnight Harbor (2024)")
         compose.waitUntil(5_000) {
             runCatching { compose.onNode(hasText("Midnight Harbor (2024)") and hasClickAction()).assertIsFocused() }.isSuccess
@@ -122,11 +127,11 @@ class SearchScreenTest {
 
     @Test fun aFocusedResultThatGoesHandsTheFocusToTheFirst() {
         open()
-        RemoteInput.type(null, "the", submit = false)
+        compose.runOnIdle { RemoteInput.type(null, "the", submit = false) }
         waitForText("The Lighthouse (2019)")
         compose.onNode(hasText("The Lighthouse (2019)") and hasClickAction()).requestFocus()
         // The phone types on: The Lighthouse no longer matches, The Last Light does.
-        RemoteInput.type(null, "the last", submit = false)
+        compose.runOnIdle { RemoteInput.type(null, "the last", submit = false) }
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("The Lighthouse (2019)")).fetchSemanticsNodes().isEmpty() }
         compose.waitUntil(5_000) {
             runCatching { compose.onNode(hasText("The Last Light (2023)") and hasClickAction()).assertIsFocused() }.isSuccess
@@ -140,6 +145,23 @@ class SearchScreenTest {
         assertEquals(1, listened)
         heard.tryEmit("  orbit ")
         waitForText("Orbit (2021)")
+    }
+
+    @Test fun theRemotesButtonPressedAgainListensAgain() {
+        val again = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        open(listenAgain = again)
+        compose.runOnIdle { again.tryEmit(Unit) }
+        compose.waitForIdle()
+        assertEquals(1, listened)
+    }
+
+    @Test fun onATvThatCantListenTheButtonAgainLeavesThePageAsItIs() {
+        val again = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        open(voice = false, listenAgain = again)
+        compose.runOnIdle { again.tryEmit(Unit) }
+        compose.waitForIdle()
+        assertEquals(0, listened)
+        key("a").assertIsFocused()
     }
 
     @Test fun holdingOkOnDeleteClears() {
