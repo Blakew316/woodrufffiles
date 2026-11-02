@@ -1,6 +1,9 @@
 package com.woodruff.tvexplorer.tmdb
 
 import android.content.Context
+import android.util.JsonReader
+import android.util.JsonToken
+import android.util.JsonWriter
 import android.util.Log
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.Library
@@ -10,6 +13,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -47,14 +53,46 @@ object Tmdb {
     fun key(c: Context): String? = SecretStore.get(c).get(KEY)?.takeIf { it.isNotBlank() }
     fun isConfigured(c: Context) = key(c) != null
 
+    private val _keyChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /**
+     * Ticks when the key really changes (set, replaced or removed): not when the same key is entered
+     * again, or sent back by a linked TV. The libraries then look their posters and details up
+     * again, without listing Drive again.
+     */
+    val keyChanges: SharedFlow<Unit> = _keyChanges.asSharedFlow()
+
     /**
      * Accepts either the v3 "API Key" or the v4 "API Read Access Token". Someone setting it goes
-     * through SharedKeys.set, which also copies it to the linked TVs.
+     * through SharedKeys.set, which also copies it to the linked TVs. What TMDB answered before is
+     * kept: its answers don't depend on whose key asked (wiping them made every TV look every title
+     * up again, even when the same key was entered twice).
      */
     fun saveKey(c: Context, key: String?) {
-        SecretStore.get(c).put(KEY, key?.trim()?.ifBlank { null })
-        cache.clear()
-        cacheFile(c).delete()
+        val clean = key?.trim()?.ifBlank { null }
+        if (!keyChanged(key(c), clean)) return
+        SecretStore.get(c).put(KEY, clean)
+        rejected = null
+        _keyChanges.tryEmit(Unit)
+    }
+
+    /** Whether saving [new] changes the key from [old] (both trimmed, null for none). Visible for tests. */
+    internal fun keyChanged(old: String?, new: String?): Boolean = old != new
+
+    /**
+     * The key TMDB last turned down (401), and when: titles aren't looked up with it again for
+     * [REJECTED_MS], since each would fail the same way (a pass over a big library used to send one
+     * failing request per title, from every TV at once). A new key clears it.
+     */
+    @Volatile private var rejected: Pair<String, Long>? = null
+    private const val REJECTED_MS = 60 * 60_000L
+
+    /** TMDB turned the key down: the lookup is skipped, quietly (one line in the log per pass, not a stack trace per title). */
+    internal class KeyRejected : IllegalStateException("TMDB rejected the API key")
+
+    /** Logs a lookup that failed for any reason but a turned-down key (said once, by [fill]). */
+    private fun warn(what: String, e: Throwable) {
+        if (e !is KeyRejected) Log.w("Tmdb", what, e)
     }
 
     /**
@@ -83,7 +121,7 @@ object Tmdb {
                                 Mode.EPISODES, Mode.NONE -> null
                             }
                         }
-                    }.onFailure { Log.w("Tmdb", "lookup failed: ${f.name}", it) }.getOrNull() ?: return@async f
+                    }.onFailure { warn("lookup failed: ${f.name}", it) }.getOrNull() ?: return@async f
                     val parsed = f.info ?: Library.parsed(f.name, f.isFolder)
                     f.copy(
                         posterUrl = f.posterUrl ?: hit.poster,
@@ -96,6 +134,7 @@ object Tmdb {
             }.awaitAll()
         }
         if (cache.size != before) save(c)
+        if (rejected?.first == key) Log.w("Tmdb", "TMDB turned the key down: posters and details wait for one that works")
         when {
             // A show's own folder can hold its episodes too (no season folders): their pictures.
             mode == Mode.SEASONS && show != null -> withEpisodeStills(c, out, show, null)
@@ -121,7 +160,7 @@ object Tmdb {
         val before = cache.size
         val seasons = wanted.map { it.first }.distinct().associateWith { s ->
             runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
-                .onFailure { Log.w("Tmdb", "episode pictures failed: $title season $s", it) }
+                .onFailure { warn("episode pictures failed: $title season $s", it) }
                 .getOrDefault(emptyMap())
         }
         if (cache.size != before) save(c)
@@ -146,7 +185,7 @@ object Tmdb {
         if (title.isBlank()) return@withContext null
         val before = cache.size
         val runtime = runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
-            .onFailure { Log.w("Tmdb", "episode lengths failed: $title season $s", it) }
+            .onFailure { warn("episode lengths failed: $title season $s", it) }
             .getOrNull()?.get(e)?.runtime
         if (cache.size != before) save(c)
         runtime
@@ -295,7 +334,7 @@ object Tmdb {
                     else movieDetails(get(key, "movie/$id?append_to_response=release_dates,credits")).toJson()
                 }
             }
-        }.onFailure { Log.w("Tmdb", "details failed: ${if (tv) "tv" else "movie"} $id", it) }.getOrNull()
+        }.onFailure { warn("details failed: ${if (tv) "tv" else "movie"} $id", it) }.getOrNull()
         if (cache.size != before) save(c)
         json?.let { Details.fromJson(it) }
     }
@@ -310,7 +349,7 @@ object Tmdb {
         val before = cache.size
         val json = runCatching {
             gate.withPermit { cachedJson("k:$id") { JSONObject().put("p", JSONArray(collectionParts(get(key, "collection/$id")))) } }
-        }.onFailure { Log.w("Tmdb", "collection failed: $id", it) }.getOrNull()
+        }.onFailure { warn("collection failed: $id", it) }.getOrNull()
         if (cache.size != before) save(c)
         json?.optJSONArray("p")?.let { a -> (0 until a.length()).map { a.optInt(it) }.filter { it > 0 } }.orEmpty()
     }
@@ -470,6 +509,8 @@ object Tmdb {
     internal val tvGenres get() = TV_GENRES
 
     private fun get(key: String, path: String): JSONObject {
+        // Turned down a moment ago: each title would fail the same way, so none is asked for.
+        rejected?.let { (k, at) -> if (k == key && System.currentTimeMillis() - at in 0 until REJECTED_MS) throw KeyRejected() }
         // v4 read-access tokens are JWTs ("eyJ…") sent as a bearer token; v3 keys go in the URL.
         val bearer = key.startsWith("eyJ")
         val url = API + path + if (bearer) "" else (if ('?' in path) "&" else "?") + "api_key=${enc(key)}"
@@ -481,7 +522,10 @@ object Tmdb {
         }
         try {
             val code = conn.responseCode
-            if (code == 401) throw IllegalStateException("TMDB rejected the API key")
+            if (code == 401) {
+                rejected = key to System.currentTimeMillis()
+                throw KeyRejected()
+            }
             if (code !in 200..299) throw IllegalStateException("TMDB error $code")
             return JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
         } finally {
@@ -532,6 +576,8 @@ object Tmdb {
     // v2 holds full matches; the old file (posters only) is dropped so titles get their genres.
     private fun cacheFile(c: Context) = File(c.applicationContext.filesDir, "tmdb_cache4.json") // 4: adds synopsis, backdrop and TMDB id
 
+    // Read and written as a stream: a big library's cache is megabytes, and building it as one
+    // string first could run a TV with a small memory allowance out of it.
     @Synchronized
     private fun load(c: Context) {
         if (loaded) return
@@ -539,10 +585,7 @@ object Tmdb {
         File(c.applicationContext.filesDir, "tmdb_cache.json").delete()
         File(c.applicationContext.filesDir, "tmdb_cache2.json").delete()
         File(c.applicationContext.filesDir, "tmdb_cache3.json").delete()
-        runCatching {
-            val o = JSONObject(cacheFile(c).readText())
-            o.keys().forEach { k -> cache[k] = o.getString(k) }
-        }
+        runCatching { JsonReader(cacheFile(c).bufferedReader()).use { readCache(it, cache) } }
         // Episode pictures are kept with the episodes' lengths now ("ep:"): the old entries go.
         cache.keys.removeAll { it.startsWith("e:") }
     }
@@ -552,9 +595,26 @@ object Tmdb {
         runCatching {
             val f = cacheFile(c)
             val tmp = File(f.parentFile, f.name + ".tmp")
-            tmp.writeText(JSONObject(cache as Map<*, *>).toString())
+            JsonWriter(tmp.bufferedWriter()).use { writeCache(it, cache) }
             tmp.renameTo(f)
         }
+    }
+
+    /** The cache as it's saved: one object, each lookup to its answer ("" for none). Visible for tests. */
+    internal fun writeCache(w: JsonWriter, entries: Map<String, String>) {
+        w.beginObject()
+        for ((k, v) in entries) w.name(k).value(v)
+        w.endObject()
+    }
+
+    /** Reads what [writeCache] saved (and what earlier versions saved the same way) into [into]. Visible for tests. */
+    internal fun readCache(r: JsonReader, into: MutableMap<String, String>) {
+        r.beginObject()
+        while (r.hasNext()) {
+            val k = r.nextName()
+            if (r.peek() == JsonToken.STRING) into[k] = r.nextString() else r.skipValue()
+        }
+        r.endObject()
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")

@@ -222,7 +222,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             GoogleAuth.expirations.collect { grant -> if (grant == GoogleAuth.Grant.DRIVE) askToSignIn() }
         }
-        // Keys saved from the phone or the Settings screen: move on to the sign-in step.
+        // Keys saved from the phone or the Settings screen: move on to the sign-in step. Signed in,
+        // nothing here depends on the other settings this announces (mail, the doorbell, a TV's
+        // name…): reloading both libraries for each of them blanked Movies and listed everything again.
         viewModelScope.launch {
             CompanionHub.changes.collect {
                 if (!_state.value.connected) {
@@ -232,8 +234,16 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     _state.update { it.copy(step = step) }
                     if (step == SignInStep.CONNECTED) load() else prepareSignIn()
                 }
-                // A new TMDB key changes posters: drop cached library listings and fetch again.
-                else if (_state.value.library) { cache.clear(); listedAt.clear(); prefetchLibraries(); load() }
+            }
+        }
+        // A new TMDB key (here, from the phone or a linked TV) changes posters and details only:
+        // each library's listing as it is, looked up again; no Drive pass, nothing blanked.
+        viewModelScope.launch {
+            Tmdb.keyChanges.collect {
+                for (place in LIBRARIES) if (cache[place] != null) refreshes.tmdbPass(place) { retag(place) }
+                // A show's seasons or episodes on screen: their pictures, listed again (a folder is small).
+                val s = _state.value
+                if (s.connected && s.library && s.stack.size > 1) load()
             }
         }
         prefetchLibraries(seed = true)
@@ -251,11 +261,10 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Warm Movies and TV Shows in the background, so Home has their posters and Recently added,
-     * search finds them and the sidebar opens them instantly. [seed] (at launch only: after a new
-     * TMDB key, the saved copies are what's being replaced) starts from the copies saved last time,
-     * read just after the first frame, so all that works at once rather than after the refresh. A
-     * library listed moments ago (its saved copy too, before a restart) isn't listed again; one the
-     * Drive screen is listing already is joined, not listed twice.
+     * search finds them and the sidebar opens them instantly. [seed] (at launch) starts from the
+     * copies saved last time, read just after the first frame, so all that works at once rather
+     * than after the refresh. A library listed moments ago (its saved copy too, before a restart)
+     * isn't listed again; one the Drive screen is listing already is joined, not listed twice.
      */
     private fun prefetchLibraries(seed: Boolean = false) {
         prefetchJob?.cancel()
@@ -444,6 +453,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             GoogleAuth.exchange(ctx, code, attempt)
             _state.update { it.copy(step = SignInStep.CONNECTED, busy = false, qrUrl = null) }
             load()
+            // The other library too, so Home's Recently added and search have both without a visit.
+            prefetchLibraries()
         } catch (e: Exception) {
             _state.update { it.copy(busy = false, error = e.message ?: "Sign-in failed") }
             prepareSignIn()
@@ -686,6 +697,24 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             fetchFailure(e, ::explain)
         }
+    }
+
+    /**
+     * A new TMDB key: a library's listing as it is, with TMDB's posters and details looked up again,
+     * and no Drive pass. What TMDB matched before comes from its cache; only the rest is asked for.
+     * Unchanged (the same answers), nothing is redrawn or saved.
+     */
+    private suspend fun retag(place: DrivePlace.Named): Fetch {
+        val gen = synchronized(libraryLock) { generation }
+        val disk = ListingCache.generation()
+        val shown = cache[place] ?: return Fetch.Done
+        val withTmdb = carryOver(tmdb(listOf(place), shown), shown.associateBy { it.id })
+        if (withTmdb == shown) return Fetch.Done
+        publish(gen, place, withTmdb)
+        _state.value.token?.let { warm(it, listOf(place), withTmdb) }
+        withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb, disk) }
+        updateRecentlyAdded()
+        return Fetch.Done
     }
 
     /**
