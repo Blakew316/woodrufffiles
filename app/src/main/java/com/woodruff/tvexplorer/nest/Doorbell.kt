@@ -4,6 +4,7 @@ import android.content.Context
 import android.provider.Settings
 import android.util.Base64
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.notify.Chime
@@ -18,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -33,6 +35,7 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import org.json.JSONArray
@@ -147,6 +150,11 @@ object Doorbell {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?) = size > 200
     }
     private val visits = Visits()
+    /**
+     * The time a ring is judged by (pauses, visits, freshness): the TV's clock, which tests move on
+     * (a battery doorbell's follow-up 45 s later, past the 30 s pause).
+     */
+    @VisibleForTesting internal var clock: () -> Long = System::currentTimeMillis
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val main = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
@@ -250,14 +258,14 @@ object Doorbell {
     }
 
     /** True once for [ring], on the screen it's meant for ([host]), while it's fresh: that screen opens it. */
-    fun claim(ring: Ring, host: Host): Boolean = claims.claim(ring, host, System.currentTimeMillis())
+    fun claim(ring: Ring, host: Host): Boolean = claims.claim(ring, host, clock())
 
     /** The screen that claimed [ring] couldn't open its camera after all: the ring's card pops up a moment later instead. */
     fun unclaim(ring: Ring) = claims.release(ring.id)
 
     private fun present(host: Host, on: Boolean) {
         when (host) {
-            Host.VIEW -> if (on) { viewStartedAt = System.currentTimeMillis(); views.incrementAndGet() } else views.decrementAndGet()
+            Host.VIEW -> if (on) { viewStartedAt = clock(); views.incrementAndGet() } else views.decrementAndGet()
             Host.SLIDESHOW -> if (on) slideshows.incrementAndGet() else slideshows.decrementAndGet()
             Host.SCREENSAVER -> dreaming = on
             Host.APP -> Unit // MainActivity says so itself (AppVisibility.foreground)
@@ -296,7 +304,11 @@ object Doorbell {
     }
 
     private fun store(app: Context, value: String?, setHere: Boolean) {
-        prefs(app).edit().putString(K_SUBSCRIPTION, value.orEmpty()).putBoolean(K_SET_HERE, setHere).apply()
+        val edit = prefs(app).edit().putString(K_SUBSCRIPTION, value.orEmpty()).putBoolean(K_SET_HERE, setHere)
+        // Removed (here, or on another TV and passed on): the family turned doorbell alerts off, so
+        // no TV passes them on any more ("Off", not "Through Living Room" from before).
+        if (value == null) edit.remove(K_RELAY_FROM)
+        edit.apply()
     }
 
     /** Set on this TV (also when it was set before subscriptions were shared, which is the only way it could be). */
@@ -346,7 +358,7 @@ object Doorbell {
             val sender = cleanTvName(from).orEmpty()
             if (relayFrom(app).let { it == null || (sender.isNotEmpty() && it != sender) }) prefs(app).edit().putString(K_RELAY_FROM, sender).apply()
         }
-        val now = System.currentTimeMillis()
+        val now = clock()
         if (!isNews(camera, session, kind, now)) return
         // What happened, then which camera: "Person seen" / "Backyard" reads right for every name.
         val name = Nest.label(camera) ?: label.trim().ifEmpty { null }
@@ -610,10 +622,14 @@ object Doorbell {
         setListening(app, if (target.own) DoorbellListening.Own else DoorbellListening.Shared)
         if (messages.length() == 0) return Next.After(EMPTY_PAUSE_MS)
         // Acknowledged first: if handling one goes wrong, it still isn't delivered (and announced) again.
-        val acks = JSONArray()
-        for (i in 0 until messages.length()) acks.put(messages.getJSONObject(i).optString("ackId"))
-        runCatching { PubSub.acknowledge(token, target.name, acks) }.onFailure { Log.w("Doorbell", "acknowledge: ${it.message}") }
-        for (i in 0 until messages.length()) messages.getJSONObject(i).optJSONObject("message")?.let { handle(app, it) }
+        // From here they're this TV's to announce, even if listening was restarted meanwhile (a long
+        // pull still waiting when the phone saved the Cameras page, say): Google won't send them again.
+        withContext(NonCancellable) {
+            val acks = JSONArray()
+            for (i in 0 until messages.length()) acks.put(messages.getJSONObject(i).optString("ackId"))
+            runCatching { PubSub.acknowledge(token, target.name, acks) }.onFailure { Log.w("Doorbell", "acknowledge: ${it.message}") }
+            for (i in 0 until messages.length()) messages.getJSONObject(i).optJSONObject("message")?.let { handle(app, it) }
+        }
         return Next.Now
     }
 
@@ -622,7 +638,7 @@ object Doorbell {
         val id = message.optString("messageId")
         if (id.isNotEmpty() && synchronized(seen) { seen.put(id, Unit) != null }) return
         val json = runCatching { String(Base64.decode(message.optString("data"), Base64.DEFAULT)) }.getOrNull() ?: return
-        val now = System.currentTimeMillis()
+        val now = clock()
         for (event in cameraEvents(json)) {
             if (isStale(event.at, now)) continue
             val wanted = when (event.kind) {

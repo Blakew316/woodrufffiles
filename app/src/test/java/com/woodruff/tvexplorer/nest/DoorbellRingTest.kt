@@ -57,6 +57,35 @@ class DoorbellRingTest {
         assertEquals(before + 1, Notices.items.value.size)
     }
 
+    @Test fun aBatteryDoorbellsFollowUpDoesntRingButTheNextVisitDoes() {
+        Notices.load(app)
+        var t = 1_800_000_000_000L
+        Doorbell.clock = { t }
+        try {
+            val door = camera()
+            val before = Notices.items.value.size
+            Doorbell.ring(app, door, "Front Door", relay = false, session = "visit-a")
+            // About 45 s later, past the 30 s pause: the same press again with its clip, same visit.
+            t += 45_000
+            Doorbell.ring(app, door, "Front Door", relay = false, session = "visit-a")
+            assertEquals(before + 1, Notices.items.value.size)
+            // Someone else, a new visit: it rings.
+            t += 45_000
+            Doorbell.ring(app, door, "Front Door", relay = false, session = "visit-b")
+            assertEquals(before + 2, Notices.items.value.size)
+            // An older doorbell that doesn't say which visit: the 30 s pause makes a double press one ring.
+            t += 10_000
+            Doorbell.ring(app, door, "Front Door", relay = false)
+            assertEquals(before + 2, Notices.items.value.size)
+            // A person seen in the visit that rang, minutes later: no card.
+            t += 3 * 60_000
+            Doorbell.ring(app, door, "Front Door", relay = false, kind = "person", session = "visit-b")
+            assertEquals(before + 2, Notices.items.value.size)
+        } finally {
+            Doorbell.clock = System::currentTimeMillis
+        }
+    }
+
     @Test fun anAlertKindNobodyKnowsIsIgnored() {
         Notices.load(app)
         val before = Notices.items.value.size
@@ -86,6 +115,16 @@ class DoorbellRingTest {
         Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v11", from = "Living Room")
         Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v12")
         assertEquals("Through Living Room", Doorbell.alerts(app).value)
+    }
+
+    @Test fun turningDoorbellAlertsOffSaysOffEvenOnATvThatHeardThemThroughAnother() {
+        Doorbell.received(app, "projects/p/subscriptions/doorbell")
+        Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v20", from = "Living Room")
+        assertEquals("Through Living Room", Doorbell.alerts(app).value)
+        // Removed on the TV it was set on, and passed on to this one: nobody passes alerts on now.
+        Doorbell.received(app, null)
+        assertEquals(DoorbellAlerts.State.OFF, Doorbell.alerts(app).state)
+        assertEquals("Off", Doorbell.alerts(app).value)
     }
 
     @Test fun aTvWithoutCamerasSaysItHearsTheDoorbellThroughTheTvThatPassedItOn() {
