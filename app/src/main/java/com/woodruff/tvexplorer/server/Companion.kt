@@ -853,7 +853,9 @@ object CompanionHub {
  * Opened is whichever of Woodruff's screens comes back to the front: the TV's app row brings Woodruff
  * back as it was (MainIntents), so that may be a paused film or the photo viewer rather than the main
  * window, and a notice's tap brings the main window. The video starts over that screen, in Woodruff's
- * own task, so Back returns to it; once. Woodruff's screens put back after an update come back first
+ * own task, so Back returns to it; once. Not to Woodruff's slideshow, though (up again after standby): a
+ * screensaver ends when something starts over it ([com.woodruff.tvexplorer.screensaver.SlideshowActivity]),
+ * so Back returns to the screen under it. Woodruff's screens put back after an update come back first
  * ([com.woodruff.tvexplorer.update.Restore], the video over them). The doorbell's camera, which pops up
  * by itself on a ring, and the recovery screen don't count as opening Woodruff.
  */
