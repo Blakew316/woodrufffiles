@@ -839,7 +839,9 @@ class PlayerActivity : ComponentActivity() {
         // a Blu-ray remux would fill Media3's ~140 MB otherwise.
         val heapMb = getSystemService(android.app.ActivityManager::class.java)?.memoryClass ?: 256
         val smallHeap = heapMb <= SMALL_HEAP_MB
-        player = ExoPlayer.Builder(this).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()))
+        // The TV's own decoders (and sound passed straight through to a soundbar) first; FFmpeg's
+        // for the sound the TV can't play itself, so DTS and TrueHD films aren't silent.
+        player = ExoPlayer.Builder(this, playerRenderers(this)).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()))
             // Start as soon as 1 s is buffered (2 s after a stall) instead of the default 2.5 / 5 s,
             // so Play feels immediate; it keeps filling up to 50 s ahead while it plays. The last 10 s
             // (5 on a small heap) stay too, so a short rewind is instant instead of a new download.
@@ -1272,6 +1274,19 @@ internal const val TOKEN_RENEW_LEAD_MS = 50_000L
 
 /** How long to wait before renewing a token that runs out at [expiresAt]; 0 when that's due already. */
 internal fun tokenRenewDelayMs(expiresAt: Long, now: Long): Long = (expiresAt - TOKEN_RENEW_LEAD_MS - now).coerceAtLeast(0)
+
+/**
+ * The player's decoders. The TV's own come first, as before, and so does passing the sound
+ * straight through to a soundbar or receiver that can decode it: Media3 gives each track to the
+ * first renderer that fully handles it. FFmpeg's sound decoder (Jellyfin's build for Media3) comes
+ * after them, for what the TV can neither decode nor pass through: DTS, DTS-HD, Dolby TrueHD, and
+ * Dolby Digital (Plus) on TVs without Dolby. Remuxes of Blu-rays often carry only those, and
+ * without it they played silently, or on whichever commentary track the TV could play.
+ */
+@OptIn(UnstableApi::class)
+internal fun playerRenderers(context: Context): androidx.media3.exoplayer.DefaultRenderersFactory =
+    androidx.media3.exoplayer.DefaultRenderersFactory(context)
+        .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
 
 /** Heaps of this many MB or fewer get a smaller player buffer. */
 internal const val SMALL_HEAP_MB = 192
