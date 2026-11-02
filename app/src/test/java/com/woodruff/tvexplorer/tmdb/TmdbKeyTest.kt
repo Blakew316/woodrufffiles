@@ -28,6 +28,24 @@ class TmdbKeyTest {
         assertTrue(Tmdb.keyChanged("abc123", "eyJhbGciOi.new"))
     }
 
+    @Test fun aKeyBeingEnteredIsJudgedByTmdbsAnswer() {
+        // TMDB answered with the key: it works.
+        assertEquals(Tmdb.KeyCheck.ACCEPTED, Tmdb.keyCheckOf(200))
+        // TMDB turned it down: not saved, and the person is told.
+        assertEquals(Tmdb.KeyCheck.REFUSED, Tmdb.keyCheckOf(401))
+        // Busy, failing or anything else: saved, and checked as posters next load.
+        for (code in listOf(429, 500, 502, 503, 404, 403)) assertEquals("$code", Tmdb.KeyCheck.UNCHECKED, Tmdb.keyCheckOf(code))
+    }
+
+    @Test fun anEmptyKeyIsRefusedWithoutAsking() = kotlinx.coroutines.runBlocking {
+        assertEquals(Tmdb.KeyCheck.REFUSED, Tmdb.check("   "))
+    }
+
+    @Test fun whatThePersonIsTold() {
+        assertEquals("TMDB didn’t accept that key. Copy the API Key or the Read Access Token again from themoviedb.org → Settings → API.", Tmdb.REFUSED_WORDS)
+        assertEquals("Saved. TMDB couldn’t be reached just now, so the key will be checked when posters next load.", Tmdb.UNCHECKED_WORDS)
+    }
+
     @Test fun theCacheReadsBackAsItWasSaved() {
         val hit = Tmdb.Hit("https://image.tmdb.org/t/p/w342/p.jpg", 2024, listOf("Drama"), 7.1, "A \"quiet\" night.\nAnd a / slash.", null, 42, tv = false)
         val entries = mapOf("m:Midnight Harbor:2024" to hit.toJson(), "t:Nothing Here:null" to "", "s:Backyard Science:null:2" to "{\"p\":\"x\"}")

@@ -68,6 +68,13 @@ object Palette {
     val onAccent get() = pick(0xFF06203A, 0xFFFFFFFF)
     val danger get() = pick(0xFFFF7B72, 0xFFD1242F)
     val success get() = pick(0xFF5DD39E, 0xFF1E9E63)
+    /**
+     * Amber for "needs attention": something a person has to fix ("Sign-in ended", "Keys not
+     * accepted"). Words only: never an icon tint or a fill, and never for offline (that clears by
+     * itself) or errors. Dark 8.5:1 or better on the backdrops; light #8A4F00 is 5.2:1 at worst in
+     * Settings' value column, where the light theme's blue glow is strongest.
+     */
+    val attention get() = pick(0xFFFFB547, 0xFF8A4F00)
     val folder get() = pick(0xFFFFC857, 0xFFD99A00)
     val video get() = pick(0xFFFF8A65, 0xFFE0603A)
     val audio get() = pick(0xFFC792EA, 0xFF9C4DCC)

@@ -103,6 +103,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.cloud.GoogleAuth
+import com.woodruff.tvexplorer.cloud.needsAttention
+import com.woodruff.tvexplorer.cloud.signInWords
 import com.woodruff.tvexplorer.notify.Chime
 import com.woodruff.tvexplorer.player.FrameRateMatch
 import com.woodruff.tvexplorer.util.Qr
@@ -177,9 +179,11 @@ fun SettingsScreen(vm: MainViewModel) {
     var showPhotos by remember { mutableStateOf(false) }
     var showCalendar by remember { mutableStateOf(false) }
     val calendar by TodayCalendar.state.collectAsStateWithLifecycle()
-    // Bumped whenever something changes (here, from the phone, or after returning from Android settings).
+    // Bumped whenever something changes (here, from the phone, or after returning from Android settings),
+    // and when a sign-in changes by itself (Google ended it, or refused the keys).
     var version by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { CompanionHub.changes.collect { version++ } }
+    LaunchedEffect(Unit) { GoogleAuth.accountChanges.collect { version++ } }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { version++ }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
 
@@ -187,8 +191,10 @@ fun SettingsScreen(vm: MainViewModel) {
     // second while Advanced is open, below). One state for the screen's life, so the Advanced rows kept
     // below always read the current one.
     var smoothness by remember { mutableStateOf(FrameStats.summary()) }
-    // The pages opened from the first one, in order: the last is on screen.
-    var path by remember { mutableStateOf(emptyList<SettingsPage>()) }
+    // The pages opened from the first one, in order: the last is on screen. Opened at a page from
+    // elsewhere (Streaming's Open Keys, Home's calendar row), with the pages above it under it, so
+    // Back walks up them as usual.
+    var path by remember { mutableStateOf(SettingsRequests.take()?.let(::pathTo) ?: emptyList()) }
     // Page changes so far, and the page Back just left (the row that opened it takes the focus again).
     var moves by remember { mutableIntStateOf(0) }
     var left by remember { mutableStateOf<SettingsPage?>(null) }
@@ -202,7 +208,7 @@ fun SettingsScreen(vm: MainViewModel) {
     // first frame, so nothing flashes, then off the main thread each time something changes or the
     // TV comes back from Android's settings. Google Photos connects in its own dialog: read again
     // when it closes.
-    val facts by produceState(remember { readFacts(context) }, v, showPhotos) {
+    val facts by produceState(remember { readFacts(context) }, v, showPhotos, showCalendar) {
         value = withContext(Dispatchers.IO) { readFacts(context) }
     }
     val update by Updater.state.collectAsStateWithLifecycle()
@@ -247,10 +253,13 @@ fun SettingsScreen(vm: MainViewModel) {
             )
         }
         SettingsPage.ACCOUNTS -> listOfNotNull(
-            SettingItem(
-                Sym.AddToDrive, "Google Drive", if (facts.connected) "Signed in" else if (facts.configured) "Not signed in" else "Not set up",
+            // Each sign-in as it stands ("Sign-in ended" and "Keys not accepted" in amber): OK fixes it
+            // where it can be fixed. Offline never changes these: a TV that's offline is still signed in.
+            accountItem(
+                Sym.AddToDrive, "Google Drive", GoogleAuth.Grant.DRIVE, facts.drive,
                 about = "Movies, TV Shows and files from your Google Drive. OK opens it.",
-            ) { vm.show(Screen.DRIVE) },
+                ended = "Google ended this TV’s sign-in. OK opens Streaming to sign in again; your library, Continue watching and ✓s are kept.",
+            ) { if (facts.drive == GoogleAuth.SignIn.KEYS_REFUSED) open(SettingsPage.KEYS) else vm.show(Screen.DRIVE) },
             // Through Drive, so it lives with it. Why it isn't working shows on the right.
             SettingItem(
                 Sym.Autorenew, "Share progress with other TVs", onOff(facts.shareProgress), detail = facts.shareProblem,
@@ -261,18 +270,27 @@ fun SettingsScreen(vm: MainViewModel) {
                 Sym.Key, "Sign in to Google Drive again",
                 about = "Lets this TV share progress with your other TVs. Scan a code with your phone; the library stays as it is.",
             ) { dialog = SettingsDialog.DriveAgain } else null,
-            SettingItem(
-                Sym.PhotoLibrary, "Google Photos", if (facts.photosConnected) "Connected" else "Connect",
+            accountItem(
+                Sym.PhotoLibrary, "Google Photos", GoogleAuth.Grant.PHOTOS, facts.photos,
                 about = "Brings photos and videos into Family Memories.",
-            ) { showPhotos = true },
-            SettingItem(
-                Sym.Event, "Google Calendar", if (calendar.connected) "Connected" else "Connect",
+                ended = "Google ended this TV’s sign-in. OK connects Google Photos again.",
+            ) { if (facts.photos == GoogleAuth.SignIn.KEYS_REFUSED) open(SettingsPage.KEYS) else showPhotos = true },
+            accountItem(
+                Sym.Event, "Google Calendar", GoogleAuth.Grant.CALENDAR, facts.calendar,
                 about = "Today's events on Home.",
-            ) { if (!calendar.connected) showCalendar = true },
-            SettingItem(
-                Sym.Videocam, "Cameras", if (facts.nestConnected) "Connected" else "Not connected",
+                ended = "Google ended this TV’s sign-in. OK connects Google Calendar again.",
+            ) {
+                when (facts.calendar) {
+                    GoogleAuth.SignIn.KEYS_REFUSED -> open(SettingsPage.KEYS)
+                    GoogleAuth.SignIn.SIGNED_IN -> Unit
+                    else -> showCalendar = true
+                }
+            },
+            accountItem(
+                Sym.Videocam, "Cameras", GoogleAuth.Grant.NEST, facts.cameras,
                 about = "Live Google Home cameras in the Command Center. OK opens them.",
-            ) { vm.show(Screen.CAMERAS) },
+                ended = "Google ended this TV’s camera sign-in. OK opens the Command Center to connect them again.",
+            ) { if (facts.cameras == GoogleAuth.SignIn.KEYS_REFUSED) open(SettingsPage.KEYS) else vm.show(Screen.CAMERAS) },
             opener(SettingsPage.MAIL, count(facts.accounts.size, "account", "None")),
             opener(SettingsPage.KEYS, null, spaced = true),
         )
@@ -286,7 +304,15 @@ fun SettingsScreen(vm: MainViewModel) {
             add(SettingItem(Sym.Key, "Google Client ID", facts.clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it. Copied to every linked TV.") { dialog = SettingsDialog.ClientId })
             add(SettingItem(Sym.Lock, "Google Client secret", if (facts.configured) "Saved" else "Not set", about = "Goes with the Client ID. Kept encrypted, and copied to every linked TV.") { dialog = SettingsDialog.ClientSecret })
             add(SettingItem(Sym.Key, "Cameras project ID", facts.nestProject?.let { mask(it, 13) } ?: "Not set", about = "From Google Device Access. The cameras need it. Copied to every linked TV.") { dialog = SettingsDialog.NestProject })
-            add(SettingItem(Sym.Key, "TMDB key", if (facts.tmdbSet) "Saved" else "Not set", about = "From themoviedb.org. Fills in posters, ratings and episode pictures. Copied to every linked TV.") { dialog = SettingsDialog.TmdbKey })
+            // A key saved while TMDB couldn't be reached is checked as posters load: one TMDB turns down says so.
+            add(
+                SettingItem(
+                    Sym.Key, "TMDB key", when { facts.tmdbRefused -> "Not accepted"; facts.tmdbSet -> "Saved"; else -> "Not set" },
+                    attention = facts.tmdbRefused,
+                    about = if (facts.tmdbRefused) "TMDB didn’t accept the key saved on this TV, so posters and details can’t load. OK enters a new one."
+                    else "From themoviedb.org. Fills in posters, ratings and episode pictures. Copied to every linked TV.",
+                ) { dialog = SettingsDialog.TmdbKey },
+            )
             // Signing out, set apart from the keys.
             var gap = true
             fun out(on: Boolean, title: String, about: String, action: () -> Unit) {
@@ -585,7 +611,8 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsDialog.TmdbKey -> TextInputDialog(
             "TMDB API key", "", "Save",
-            onConfirm = { key -> SharedKeys.set(context, SharedKey.TMDB) { Tmdb.saveKey(context, key) }; changed() },
+            // Checked with TMDB first: a key it refuses isn't saved (or copied to the other TVs).
+            onConfirm = { key -> scope.launch { saveTmdbKey(context, vm, key); changed() } },
             onDismiss = { dialog = null }, secret = true,
             hint = "Free at themoviedb.org → Settings → API. The API Key or the Read Access Token both work.",
         )
@@ -685,6 +712,22 @@ private fun DriveAgainDialog(onDone: () -> Unit, onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * Asks TMDB about [key] before keeping it (one light request), and says how it went: a key TMDB
+ * refuses isn't saved; one that can't be checked now (TMDB unreachable) is saved and checked when
+ * posters next load. Saved, it's copied to every linked TV. The key itself is never logged.
+ */
+private suspend fun saveTmdbKey(context: android.content.Context, vm: MainViewModel, key: String) {
+    vm.say("Checking the key with TMDB…")
+    val check = Tmdb.check(key)
+    if (check == Tmdb.KeyCheck.REFUSED) {
+        vm.say(Tmdb.REFUSED_WORDS)
+        return
+    }
+    withContext(Dispatchers.IO) { SharedKeys.set(context, SharedKey.TMDB) { Tmdb.saveKey(context, key) } }
+    vm.say(if (check == Tmdb.KeyCheck.ACCEPTED) "TMDB key saved. Posters update on every linked TV." else Tmdb.UNCHECKED_WORDS)
+}
+
 /** Signs in once before saving, so a wrong password is caught now rather than at the next check. */
 private fun addMail(
     context: android.content.Context, vm: MainViewModel,
@@ -708,6 +751,33 @@ private fun addMail(
     }
 }
 
+/** Sample sign-ins for the UI gallery, which has no Google (or Keystore). Never set in the app. */
+internal object SettingsSamples {
+    var signIns: Map<GoogleAuth.Grant, GoogleAuth.SignIn>? = null
+}
+
+/** Pages Settings can be opened at from elsewhere ([openSettingsAt]). */
+internal enum class SettingsAt { ACCOUNTS, KEYS }
+
+/** A page asked for before Settings opens, taken by it as it comes on screen. */
+internal object SettingsRequests {
+    @Volatile private var at: SettingsAt? = null
+    fun ask(page: SettingsAt) { at = page }
+    fun take(): SettingsAt? = at.also { at = null }
+}
+
+/** Opens Settings at [page] (Accounts, or Keys & sign-out under it), from another screen. */
+internal fun openSettingsAt(vm: MainViewModel, page: SettingsAt) {
+    SettingsRequests.ask(page)
+    vm.show(Screen.SETTINGS)
+}
+
+/** The pages from the first one down to [page]: Back walks up them. */
+private fun pathTo(page: SettingsAt): List<SettingsPage> = when (page) {
+    SettingsAt.ACCOUNTS -> listOf(SettingsPage.ACCOUNTS)
+    SettingsAt.KEYS -> listOf(SettingsPage.ACCOUNTS, SettingsPage.KEYS)
+}
+
 /** The pages of Settings: the first, and the ones opened from it. */
 private enum class SettingsPage(val title: String, val icon: ImageVector, val about: String) {
     HOME("Settings", Sym.Settings, ""),
@@ -726,12 +796,29 @@ private enum class SettingsPage(val title: String, val icon: ImageVector, val ab
 
 /**
  * One row. A row that [opens] a page shows a chevron; any other runs [onClick]. [spaced]: a gap
- * above it. [about] and [detail] show on the right while the row has the focus.
+ * above it. [about] and [detail] show on the right while the row has the focus. [attention]: its
+ * value needs someone to act ("Sign-in ended"), in amber.
  */
 private class SettingItem(
     val icon: ImageVector, val title: String, val value: String? = null,
     val detail: String? = null, val danger: Boolean = false,
-    val opens: SettingsPage? = null, val spaced: Boolean = false, val about: String? = null, val onClick: () -> Unit = {},
+    val opens: SettingsPage? = null, val spaced: Boolean = false, val about: String? = null,
+    val attention: Boolean = false, val onClick: () -> Unit = {},
+)
+
+/**
+ * A sign-in's row on Accounts: its [state] in words ([signInWords]), amber when it needs someone,
+ * and what OK does then: [ended] when Google ended it, the keys text when Google refuses the keys.
+ */
+private fun accountItem(
+    icon: ImageVector, title: String, grant: GoogleAuth.Grant, state: GoogleAuth.SignIn, about: String, ended: String, onClick: () -> Unit,
+) = SettingItem(
+    icon, title, signInWords(grant, state), attention = state.needsAttention, onClick = onClick,
+    about = when (state) {
+        GoogleAuth.SignIn.ENDED -> ended
+        GoogleAuth.SignIn.KEYS_REFUSED -> "Google doesn’t accept the Client ID or secret saved on this TV. OK opens Keys & sign-out to fix them."
+        else -> about
+    },
 )
 
 /** The row that opens [page], named and pictured like the page. */
@@ -747,6 +834,10 @@ private fun onOff(on: Boolean) = if (on) "On" else "Off"
 private data class SettingsFacts(
     val clientId: String?, val configured: Boolean, val connected: Boolean,
     val nestProject: String?, val nestConnected: Boolean, val photosConnected: Boolean, val tmdbSet: Boolean,
+    /** Each sign-in as Accounts says it (ended, keys refused…). */
+    val drive: GoogleAuth.SignIn, val photos: GoogleAuth.SignIn, val calendar: GoogleAuth.SignIn, val cameras: GoogleAuth.SignIn,
+    /** TMDB turned the saved key down (as posters loaded). */
+    val tmdbRefused: Boolean,
     val tvName: String, val autoStart: Boolean, val autoUpdate: Boolean, val testTv: Boolean,
     val seesOtherApps: Boolean, val accounts: List<MailAccount>, val overlay: Boolean,
     // This TV's own switches: nothing on the phone shows them, so changing one only refreshes this screen.
@@ -765,6 +856,11 @@ private fun readFacts(context: android.content.Context): SettingsFacts {
         nestConnected = GoogleAuth.isConnected(context, GoogleAuth.Grant.NEST),
         photosConnected = GoogleAuth.isConnected(context, GoogleAuth.Grant.PHOTOS),
         tmdbSet = Tmdb.isConfigured(context),
+        drive = SettingsSamples.signIns?.get(GoogleAuth.Grant.DRIVE) ?: GoogleAuth.signIn(context, GoogleAuth.Grant.DRIVE),
+        photos = SettingsSamples.signIns?.get(GoogleAuth.Grant.PHOTOS) ?: GoogleAuth.signIn(context, GoogleAuth.Grant.PHOTOS),
+        calendar = SettingsSamples.signIns?.get(GoogleAuth.Grant.CALENDAR) ?: GoogleAuth.signIn(context, GoogleAuth.Grant.CALENDAR),
+        cameras = SettingsSamples.signIns?.get(GoogleAuth.Grant.NEST) ?: GoogleAuth.signIn(context, GoogleAuth.Grant.NEST),
+        tmdbRefused = Tmdb.refused(context),
         tvName = TvLinks.name(context),
         autoStart = AutoStart.enabled(context),
         autoUpdate = Updater.autoEnabled(context),
@@ -903,7 +999,7 @@ private fun SettingAbout(item: SettingItem, inside: List<SettingItem>?) {
         TvIcon(item.icon, size = 72.dp, tint = Palette.text)
         Text(item.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 18.dp))
         if (item.value != null) {
-            Text(item.value, style = MaterialTheme.typography.titleMedium, color = Palette.muted, modifier = Modifier.padding(top = 4.dp))
+            Text(item.value, style = MaterialTheme.typography.titleMedium, color = if (item.attention) Palette.attention else Palette.muted, modifier = Modifier.padding(top = 4.dp))
         }
         if (item.about != null) {
             Text(item.about, style = MaterialTheme.typography.bodyLarge, color = Palette.muted, modifier = Modifier.padding(top = 14.dp).widthIn(max = 460.dp))
@@ -951,7 +1047,10 @@ private fun SettingRow(item: SettingItem, platter: FocusPlatter, modifier: Modif
     // Red only off the focus: on the white platter it washes out, so it takes the row's dark text.
     val titleColor = if (item.danger) Palette.danger else text
     val titleTint = remember(motion, titleColor, onWhite) { FocusColor(motion, titleColor, onWhite) }
-    val valueTint = remember(motion, text, onWhite) { FocusColor(motion, text.copy(alpha = 0.62f), onWhite.copy(alpha = 0.62f)) }
+    // Values at 62 % in the dark theme, 70 % in the light (62 % measured 4.25:1 there, where the light
+    // backdrop's blue glow is strongest); amber when they need someone. Dark on the white focus.
+    val valueRest = if (item.attention) Palette.attention else text.copy(alpha = if (Palette.light) 0.70f else 0.62f)
+    val valueTint = remember(motion, valueRest, onWhite) { FocusColor(motion, valueRest, onWhite.copy(alpha = 0.62f)) }
     TvCard(
         onClick = onClick,
         shape = SettingRowShape,

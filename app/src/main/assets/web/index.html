@@ -3361,7 +3361,7 @@
   };
   $('t-save').onclick = function () {
     var k = $('t-key').value.trim(); if (!k) return toast('Paste the TMDB key first', true);
-    post('/api/settings/tmdb', { key: k }).then(function (r) { $('t-key').value = ''; renderSettings(r); toast('Saved. Posters update on every linked TV'); }, err);
+    post('/api/settings/tmdb', { key: k }).then(function (r) { $('t-key').value = ''; renderSettings(r); toast(r.note || 'Saved. Posters update on every linked TV'); }, err);
   };
   $('c-person').onchange = function () { post('/api/settings/nest', { person: $('c-person').checked }).then(renderSettings, err); };
   $('c-motion').onchange = function () { post('/api/settings/nest', { motion: $('c-motion').checked }).then(renderSettings, err); };

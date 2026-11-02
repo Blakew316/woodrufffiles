@@ -90,6 +90,61 @@ object Tmdb {
     /** TMDB turned the key down: the lookup is skipped, quietly (one line in the log per pass, not a stack trace per title). */
     internal class KeyRejected : IllegalStateException("TMDB rejected the API key")
 
+    /** Whether TMDB turned this TV's key down in the last [REJECTED_MS] (a key saved unchecked, found out as posters loaded). */
+    fun refused(c: Context): Boolean {
+        val k = key(c) ?: return false
+        val (rk, at) = rejected ?: return false
+        return rk == k && System.currentTimeMillis() - at in 0 until REJECTED_MS
+    }
+
+    /** What TMDB said about a key someone is entering ([check]). */
+    enum class KeyCheck {
+        /** TMDB answered it: it works. */
+        ACCEPTED,
+        /** TMDB turned it down: it isn't saved. */
+        REFUSED,
+        /** TMDB couldn't be asked just now (no network, TMDB busy): it's saved, and checked as posters next load. */
+        UNCHECKED,
+    }
+
+    /** What the person entering a key TMDB refuses is told. */
+    const val REFUSED_WORDS = "TMDB didn’t accept that key. Copy the API Key or the Read Access Token again from themoviedb.org → Settings → API."
+
+    /** What the person entering a key is told when TMDB couldn't be asked. */
+    const val UNCHECKED_WORDS = "Saved. TMDB couldn’t be reached just now, so the key will be checked when posters next load."
+
+    /**
+     * Asks TMDB whether [key] works, with one light request (its configuration), before it's kept:
+     * on the TV and from the phone. Nothing about the key is logged, and the request's address (which
+     * carries a v3 key) is never put in a message.
+     */
+    suspend fun check(key: String): KeyCheck = withContext(Dispatchers.IO) {
+        val k = key.trim()
+        if (k.isEmpty()) return@withContext KeyCheck.REFUSED
+        val result = try {
+            val conn = connect(k, "configuration", connectMs = 8_000, readMs = 10_000)
+            try { keyCheckOf(conn.responseCode) } finally { conn.disconnect() }
+        } catch (e: java.io.IOException) {
+            KeyCheck.UNCHECKED
+        } catch (e: IllegalArgumentException) {
+            // Characters no key has (a line break pasted into a v4 token can't even be sent).
+            KeyCheck.REFUSED
+        }
+        // Turned down earlier (TMDB having a bad moment), and fine now: posters look it up again.
+        if (result == KeyCheck.ACCEPTED && rejected?.first == k) {
+            rejected = null
+            _keyChanges.tryEmit(Unit)
+        }
+        result
+    }
+
+    /** What TMDB's answer [code] to a key check means. Visible for tests. */
+    internal fun keyCheckOf(code: Int): KeyCheck = when (code) {
+        in 200..299 -> KeyCheck.ACCEPTED
+        401 -> KeyCheck.REFUSED
+        else -> KeyCheck.UNCHECKED
+    }
+
     /** Logs a lookup that failed for any reason but a turned-down key (said once, by [fill]). */
     private fun warn(what: String, e: Throwable) {
         if (e !is KeyRejected) Log.w("Tmdb", what, e)
@@ -508,18 +563,25 @@ object Tmdb {
     internal val movieGenres get() = MOVIE_GENRES
     internal val tvGenres get() = TV_GENRES
 
-    private fun get(key: String, path: String): JSONObject {
-        // Turned down a moment ago: each title would fail the same way, so none is asked for.
-        rejected?.let { (k, at) -> if (k == key && System.currentTimeMillis() - at in 0 until REJECTED_MS) throw KeyRejected() }
-        // v4 read-access tokens are JWTs ("eyJ…") sent as a bearer token; v3 keys go in the URL.
+    /**
+     * A request to TMDB's [path] with [key]: v4 read-access tokens are JWTs ("eyJ…") sent as a bearer
+     * token; v3 keys go in the URL.
+     */
+    private fun connect(key: String, path: String, connectMs: Int = 10_000, readMs: Int = 15_000): HttpURLConnection {
         val bearer = key.startsWith("eyJ")
         val url = API + path + if (bearer) "" else (if ('?' in path) "&" else "?") + "api_key=${enc(key)}"
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 10_000
-            readTimeout = 15_000
+        return (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = connectMs
+            readTimeout = readMs
             if (bearer) setRequestProperty("Authorization", "Bearer $key")
             setRequestProperty("Accept", "application/json")
         }
+    }
+
+    private fun get(key: String, path: String): JSONObject {
+        // Turned down a moment ago: each title would fail the same way, so none is asked for.
+        rejected?.let { (k, at) -> if (k == key && System.currentTimeMillis() - at in 0 until REJECTED_MS) throw KeyRejected() }
+        val conn = connect(key, path)
         try {
             val code = conn.responseCode
             if (code == 401) {

@@ -354,11 +354,15 @@ class CompanionRoutes(private val ctx: Context) {
             json(settingsJson(s))
         }
         s.uri == "/api/settings/tmdb" && s.method == Method.POST -> {
+            // Checked with TMDB first (one light request): a key it refuses isn't saved, and the phone
+            // says why. One that can't be checked now is saved, and the phone says it's checked later.
+            val key = body(s).optString("key").trim()
+            val check = if (key.isEmpty()) null else runBlocking { Tmdb.check(key) }
+            if (check == Tmdb.KeyCheck.REFUSED) throw IllegalArgumentException(Tmdb.REFUSED_WORDS)
             // Saved here and copied to every linked TV.
-            val key = body(s).optString("key")
             SharedKeys.set(ctx, SharedKey.TMDB) { Tmdb.saveKey(ctx, key) }
             CompanionHub.settingsChanged.tryEmit(Unit)
-            json(settingsJson(s))
+            json(settingsJson(s).apply { if (check == Tmdb.KeyCheck.UNCHECKED) put("note", Tmdb.UNCHECKED_WORDS) })
         }
         // The keys every TV shares (SharedKeys): a linked TV asks what this TV has (with ?id=…, that
         // key itself) and sends a newer one, which is kept only if it is newer.
