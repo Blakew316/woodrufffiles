@@ -44,6 +44,11 @@ TITLES = {
     'player-still-reconnecting': 'Player · still reconnecting', 'player-signed-out': 'Player · Drive sign-in ended',
     'player-subtitles': 'Player · subtitles', 'player-subtitles-raised': 'Player · subtitles above the controls',
     'player-subtitle-size': 'Player › Subtitle size', 'settings-subtitle-size': 'Settings › Appearance › Subtitle size',
+    'health': 'Settings › TV health', 'health-report': 'Settings › TV health › a TV that needs attention',
+    'health-good': 'Settings › TV health › all good', 'health-link-again': 'Settings › TV health › link again',
+    'settings-tv': 'Settings › TVs › a TV', 'settings-tv-attention': 'Settings › TVs › a TV that needs attention',
+    'settings-tv-attention-sheet': 'Settings › TVs › fixing it', 'settings-tv-off': "Settings › TVs › a TV that's off",
+    'settings-tv-link': 'Settings › TVs › Link again', 'settings-tv-relink': 'Settings › TVs › typing the code',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -64,12 +69,15 @@ ORDER = ['home', 'home-menu', 'home-notice', 'home-person-notice', 'home-cameras
          'doorbell-ring-home', 'doorbell-slideshow', 'doorbell-connecting', 'doorbell-reconnecting', 'doorbell-offline',
          'google-drive', 'mail', 'notifications', 'notes', 'apps',
          'phone', 'phone-waiting', 'phone-waiting-focused', 'phone-off',
-         'settings', 'settings-accounts-ended', 'settings-updated', 'settings-updates', 'settings-updates-asks', 'settings-start', 'settings-popups',
+         'settings', 'health', 'health-report', 'health-good', 'health-link-again',
+         'settings-accounts-ended', 'settings-updated', 'settings-updates', 'settings-updates-asks', 'settings-start', 'settings-popups',
          'update-offer', 'update-offer-retry', 'recovery', 'recovery-ready', 'recovery-details',
          'player', 'player-menu', 'player-up-next', 'player-audio-menu', 'player-no-sound',
          'player-buffering', 'player-reconnecting', 'player-still-reconnecting', 'player-signed-out',
          'player-subtitles', 'player-subtitles-raised', 'player-subtitle-size', 'settings-subtitle-size', 'player-restored', 'restore-gone', 'files', 'tv', 'keyboard', 'send']
-PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
+PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs',
+               'settings-tv', 'settings-tv-attention', 'settings-tv-attention-sheet', 'settings-tv-off', 'settings-tv-link', 'settings-tv-relink',
+               'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {
     'build': build,

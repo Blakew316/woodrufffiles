@@ -69,10 +69,11 @@ object Palette {
     val danger get() = pick(0xFFFF7B72, 0xFFD1242F)
     val success get() = pick(0xFF5DD39E, 0xFF1E9E63)
     /**
-     * Amber for "needs attention": something a person has to fix ("Sign-in ended", "Keys not
-     * accepted"). Words only: never an icon tint or a fill, and never for offline (that clears by
-     * itself) or errors. Dark 8.5:1 or better on the backdrops; light #8A4F00 is 5.2:1 at worst in
-     * Settings' value column, where the light theme's blue glow is strongest.
+     * Amber for "needs attention": something a person has to fix ("Needs attention", "Link again",
+     * "Sign-in ended", "Keys not accepted"). Words only: never an icon tint or a fill, and never for
+     * offline (that clears by itself) or errors. Measured on Settings' real backdrops: dark 8.5:1 or
+     * better; light #8A4F00 is 6.0:1 on the background and 5.2:1 at worst in Settings' value column,
+     * where the light theme's blue glow is strongest.
      */
     val attention get() = pick(0xFFFFB547, 0xFF8A4F00)
     val folder get() = pick(0xFFFFC857, 0xFFD99A00)

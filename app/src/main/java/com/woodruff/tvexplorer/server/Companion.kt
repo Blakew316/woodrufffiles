@@ -16,8 +16,12 @@ import com.woodruff.tvexplorer.phones.Phones
 import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.remote.TvScreen
+import com.woodruff.tvexplorer.tvs.Health
+import com.woodruff.tvexplorer.tvs.TvHealth
+import com.woodruff.tvexplorer.tvs.TvHealthKind
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.tvs.TvTargets
+import com.woodruff.tvexplorer.tvs.aboutTv
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.screensaver.SlideshowActivity
 import com.woodruff.tvexplorer.util.Handoff
@@ -75,7 +79,8 @@ class CompanionRoutes(private val ctx: Context) {
             Notices.post(ctx, NoticeSource.SYSTEM, "TV linked", "${b.optString("from").ifBlank { "Another TV" }} can now see what's playing here.")
             return json(r)
         }
-        // A linked hub TV: its link key opens only status, screen, remote keys and the keys every TV shares.
+        // A linked hub TV: its link key opens only status, screen, remote keys, the keys every TV shares,
+        // this TV's health report and an update check (TvLinks.LINK_ROUTES).
         if (s.uri in TvLinks.LINK_ROUTES && TvLinks.isLinkKey(ctx, s.parameters["k"]?.firstOrNull())) return handle(s)
         if (s.uri != "/oauth/callback") return null
         val state = s.parameters["state"]?.firstOrNull()
@@ -159,10 +164,15 @@ class CompanionRoutes(private val ctx: Context) {
             launch(PlayerActivity.intent(ctx, listOf(key), listOf(b.optString("title").ifBlank { "Video" }), key, b.optLong("position").coerceAtLeast(0)))
             ok()
         }
+        // A message the hub pinned: "at" is when it was pinned there (a hub from before sends none),
+        // so a TV shows it once, also when the hub sends it again later for a TV that was off.
         s.uri == "/api/board" && s.method == Method.POST -> {
             val b = body(s)
             require(b.optString("title").isNotBlank()) { "Empty message" }
-            com.woodruff.tvexplorer.notify.Board.pin(ctx, b.optString("title"), b.optString("body"), b.optString("from").ifBlank { null }, relay = false)
+            com.woodruff.tvexplorer.notify.Board.receive(
+                ctx, b.optString("title"), b.optString("body"), b.optString("from").ifBlank { null },
+                b.optLong("at").takeIf { it > 0 } ?: System.currentTimeMillis(),
+            )
             ok()
         }
         s.uri == "/api/settings/weather" && s.method == Method.POST -> {
@@ -188,14 +198,64 @@ class CompanionRoutes(private val ctx: Context) {
         }
         // ---- Several TVs (this one is the hub) ------------------------------------------------
         s.uri == "/api/status" && s.method == Method.GET -> json(TvLinks.status(ctx))
+        // This TV's health report (also for a linked hub, with its link key): words and facts, no secrets.
+        s.uri == "/api/health" && s.method == Method.GET -> json(Health.report(ctx, probe = true).toJson())
+        // Check for an update now (also for a linked hub): as Settings → Updates → Check for updates does.
+        s.uri == "/api/update/check" && s.method == Method.POST -> {
+            body(s)
+            com.woodruff.tvexplorer.update.Updater.checkNow(ctx)
+            ok()
+        }
         s.uri == "/api/tvs" && s.method == Method.GET -> {
             val list = runBlocking { TvLinks.statuses(ctx) }
-            json(JSONObject().put("tvs", JSONArray().apply {
-                list.forEachIndexed { i, t ->
-                    put(JSONObject().put("id", if (i == 0) "this" else t.id).put("name", t.name).put("online", t.online)
-                        .put("onScreen", t.onScreen).put("playing", t.playing?.toJson() ?: JSONObject.NULL))
+            json(JSONObject().put("tvs", JSONArray().apply { list.forEachIndexed { i, t -> put(tvJson(t, i == 0)) } }))
+        }
+        // A TV's whole health report for the phone's TV page: this TV's own, or a linked TV's (asked
+        // with its link key, about 4 s at most). A linked TV that's off, turns down its link, runs an
+        // older Woodruff or doesn't answer: 409, with its last report if this TV kept one.
+        s.uri == "/api/tvs/health" && s.method == Method.GET -> {
+            val id = s.parameters["id"]?.firstOrNull().orEmpty()
+            if (id == "this") json(Health.report(ctx, probe = true).toJson())
+            else {
+                val tv = TvLinks.find(id) ?: throw IllegalArgumentException("Unknown TV")
+                val k = runBlocking { TvHealth.check(ctx, tv) }
+                val report = k.report
+                if ((k.kind == TvHealthKind.GOOD || k.kind == TvHealthKind.ATTENTION) && report != null) {
+                    json(report.toJson().put("at", k.checkedAt ?: report.at).put("via", TvLinks.name(ctx)))
+                } else {
+                    val view = TvHealth.view(tv).copy(kind = if (k.kind == TvHealthKind.CHECKING) TvHealthKind.OFF else k.kind)
+                    NanoHTTPD.newFixedLengthResponse(
+                        Response.Status.CONFLICT, "application/json",
+                        JSONObject().put("status", view.kind.json).put("message", aboutTv(view) ?: "")
+                            .put("version", k.version ?: JSONObject.NULL).put("seen", TvLinks.seenAt(tv.id) ?: JSONObject.NULL)
+                            .put("last", report?.toJson()?.put("at", k.checkedAt ?: report.at) ?: JSONObject.NULL)
+                            .put("lastAt", k.checkedAt ?: JSONObject.NULL).toString(),
+                    )
                 }
-            }))
+            }
+        }
+        s.uri == "/api/tvs/update/check" && s.method == Method.POST -> {
+            val id = body(s).optString("id")
+            if (id == "this") com.woodruff.tvexplorer.update.Updater.checkNow(ctx)
+            else {
+                val tv = TvLinks.find(id) ?: throw IllegalArgumentException("Unknown TV")
+                try {
+                    TvLinks.checkForUpdates(tv)
+                } catch (e: java.io.IOException) {
+                    throw IllegalArgumentException("${tv.name} didn’t respond")
+                }
+            }
+            ok()
+        }
+        // Links again a TV whose link stopped working, with the code it shows (finding 55): one entry, not two.
+        s.uri == "/api/tvs/relink" && s.method == Method.POST -> {
+            val b = body(s)
+            val tv = try {
+                runBlocking { TvLinks.relink(ctx, b.optString("id"), b.optString("code")) }
+            } catch (e: java.io.IOException) {
+                throw IllegalArgumentException(e.message ?: "Couldn’t reach that TV.")
+            }
+            json(JSONObject().put("ok", true).put("name", tv.name).put("id", tv.id))
         }
         s.uri == "/api/tvs/screen" && s.method == Method.GET -> {
             val tv = TvLinks.find(s.parameters["id"]?.firstOrNull().orEmpty()) ?: throw IllegalArgumentException("Unknown TV")
@@ -331,7 +391,13 @@ class CompanionRoutes(private val ctx: Context) {
 
         s.uri == "/api/settings" && s.method == Method.GET -> json(settingsJson(s))
         // Its body is read too (unread, it would be taken as the start of the phone's next request on this connection).
-        s.uri == "/api/crash/clear" && s.method == Method.POST -> { body(s); com.woodruff.tvexplorer.util.CrashLog.clear(ctx); json(settingsJson(s)) }
+        s.uri == "/api/crash/clear" && s.method == Method.POST -> {
+            body(s)
+            com.woodruff.tvexplorer.util.CrashLog.clear(ctx)
+            // Seen and cleared: that crash no longer makes this TV "need attention".
+            Health.crashesCleared(ctx)
+            json(settingsJson(s))
+        }
         // The phone's Smoothness Report (Settings › TVs): plain text. X-Recording-Left: the seconds the
         // detailed recording still runs, 0 when none is running.
         s.uri == "/api/diagnostics" && s.method == Method.GET -> {
@@ -520,6 +586,25 @@ class CompanionRoutes(private val ctx: Context) {
     }
 
     private fun phonesJson() = JSONArray().apply { Phones.load(ctx); Phones.items.value.forEach { put(Phones.toJson(it, withTopic = false)) } }
+
+    /**
+     * One TV for the phone's TV list: what it plays, its version, when it last answered ([TvStatus.seen]),
+     * whether it turns down its link ("refused": Link again) and its health in a few words ("good",
+     * "attention", "old" for a Woodruff from before health reports, else "unknown").
+     */
+    private fun tvJson(t: com.woodruff.tvexplorer.tvs.TvStatus, me: Boolean): JSONObject {
+        val health = when {
+            t.refused || !t.online -> null
+            !t.reportsHealth -> com.woodruff.tvexplorer.tvs.HealthSummary("old", 0, null)
+            else -> t.health
+        }
+        return JSONObject().put("id", if (me) "this" else t.id).put("name", t.name).put("online", t.online)
+            .put("onScreen", t.onScreen).put("playing", t.playing?.toJson() ?: JSONObject.NULL)
+            .put("version", t.version ?: JSONObject.NULL)
+            .put("seen", t.seen ?: JSONObject.NULL)
+            .put("link", if (t.refused) "refused" else "ok")
+            .put("health", health?.toJson() ?: JSONObject().put("status", "unknown").put("count", 0).put("first", JSONObject.NULL))
+    }
 
     /**
      * The TVs a message is for, from its optional "tvs": "all", "this", or TVs by id or name (a list,

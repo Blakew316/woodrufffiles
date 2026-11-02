@@ -299,19 +299,35 @@ object GoogleAuth {
      */
     fun blockingTokenResult(c: Context, grant: Grant = Grant.DRIVE): TokenResult {
         val store = Stored(s(c))
-        current(store, grant, System.currentTimeMillis())?.let { return TokenResult.Ok(it) }
-        synchronized(lock(grant)) {
-            val endedBefore = store.get(grant.endedKey)
-            val result = refresh(store, grant, System.currentTimeMillis(), ::post)
-            // This renewal is what found out Google ended it: tell the family, once.
-            if (result == TokenResult.SignedOut) {
-                store.get(grant.endedKey)?.takeIf { it != endedBefore }?.toLongOrNull()?.let { at ->
-                    runCatching { SignInNotice.ended(c.applicationContext, grant, at) }.onFailure { android.util.Log.w("GoogleAuth", "couldn't post the sign-in notice", it) }
+        val result = current(store, grant, System.currentTimeMillis())?.let { TokenResult.Ok(it) }
+            ?: synchronized(lock(grant)) {
+                val endedBefore = store.get(grant.endedKey)
+                val renewed = refresh(store, grant, System.currentTimeMillis(), ::post)
+                // This renewal is what found out Google ended it: tell the family, once.
+                if (renewed == TokenResult.SignedOut) {
+                    store.get(grant.endedKey)?.takeIf { it != endedBefore }?.toLongOrNull()?.let { at ->
+                        runCatching { SignInNotice.ended(c.applicationContext, grant, at) }.onFailure { android.util.Log.w("GoogleAuth", "couldn't post the sign-in notice", it) }
+                    }
                 }
+                renewed
             }
-            return result
-        }
+        // Every answer, a good token straight from the store included, for the health report ([lastAsk]).
+        lastAsks[grant] = LastAsk(result is TokenResult.Offline, result is TokenResult.Rejected, System.currentTimeMillis(),
+            com.woodruff.tvexplorer.util.NetworkWatch.online.value)
+        return result
     }
+
+    /**
+     * How the last ask for a sign-in's token went: whether Google couldn't be reached ([offline],
+     * with whether the TV had a network then: [networkUp]) or turned down the keys ([rejected]),
+     * and when. The TV health report tells "Can't reach Google" and "Keys not accepted" by it.
+     */
+    data class LastAsk(val offline: Boolean, val rejected: Boolean, val at: Long, val networkUp: Boolean)
+
+    private val lastAsks = java.util.concurrent.ConcurrentHashMap<Grant, LastAsk>()
+
+    /** How the last ask for [grant]'s token went in this run of the app; null before the first. */
+    fun lastAsk(grant: Grant): LastAsk? = lastAsks[grant]
 
     /**
      * [grant]'s access token, or an [AuthException] saying why not: [signedOut] is the message for a

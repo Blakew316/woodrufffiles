@@ -1,6 +1,7 @@
 // Screenshots the phone app on an iPhone-sized screen, light and dark, for the UI gallery:
 // each tab, plus the keyboard sheet, Send's To page, Photos & Files (also scrolled, its large title collapsed into
-// the bar) and a file's action sheet, a photo in Family Memories, Settings › TVs with a TV's screen, and a Settings page.
+// the bar) and a file's action sheet, a photo in Family Memories, Settings › TVs, each TV's page (all good, needs
+// attention and its fix, off, Link again and its code), a TV's screen, and a Settings page.
 // It runs like the Home Screen app: the web view under a "default" status bar (so no top safe area),
 // the home indicator's 34pt at the bottom, and navigator.standalone set.
 // Usage: node phone.mjs <output dir>   (with mock_server.py running on :8765)
@@ -20,8 +21,14 @@ const extras = [
   ['files-scrolled', 'send', ['#send-root [data-page=files-root]', { scroll: '#files-root .scroller', y: 90 }]],   // its large title collapsed into the bar
   ['files-actions', 'send', ['#send-root [data-page=files-root]', '#list [data-i="7"]']], // a video's action sheet
   ['memories-photo', 'memories', ['#mem-grid .mtile:nth-child(3)']],                    // a photo, full screen
-  ['settings-tvs', 'settings', ['#set-main [data-page=set-tvs]']],                     // every TV and what it plays
-  ['tv-screen', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row']],       // a TV's screen (sheet)
+  ['settings-tvs', 'settings', ['#set-main [data-page=set-tvs]']],                     // every TV, what it plays, how it's doing
+  ['settings-tv', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(1)']],                   // Living Room: all good
+  ['settings-tv-attention', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(2)']],         // Den: needs attention
+  ['settings-tv-attention-sheet', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(2)', '#tvp-sum [data-att="signin.drive"]']],
+  ['settings-tv-off', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(3)']],               // Kitchen: off
+  ['settings-tv-link', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(4)']],              // Bedroom: Link again
+  ['settings-tv-relink', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(4)', '#tvp-link']],
+  ['tv-screen', 'settings', ['#set-main [data-page=set-tvs]', '#tv-list .row:nth-child(1)', '#tvp-screen']],     // a TV's screen (sheet)
   ['settings-drive', 'settings', ['#set-main [data-page=set-conn]', '#set-conn [data-page=set-drive]']],
 ];
 const settle = 900; // the push and sheet animations take 500 ms

@@ -10,8 +10,12 @@ JPEG, its size) so tests can check what the page sent.
 Test-only controls, never used by the gallery: POST /__mock/inbox {title, body, from} queues an
 announcement for the phone, POST /__mock/crash {text} sets the "last crash", POST /__mock/field {field}
 sets (or clears, with null) the TV text box the keyboard types into, and POST /__mock/set {settings, tvs, phones}
-changes the sample settings (merged), the linked TVs or the phones (replaced).
-Remote keys are checked like the TV does; the Kids Room TV has no Netflix, so a test can see that error.
+changes the sample settings (merged), the linked TVs or the phones (replaced); POST /__mock/reset puts the TVs back.
+Remote keys are checked like the TV does; the Den TV has no Netflix, so a test can see that error.
+TV health: four TVs, as in the TV's own health gallery: Living Room (this TV, all good), Den (needs attention: its
+Drive sign-in ended and the last update didn't install), Kitchen (off for two hours) and Bedroom (reset: it turns down
+its link). /api/tvs/health answers each like a TV would (409 with the last report for Kitchen and Bedroom);
+/api/tvs/relink takes the code 123456 (then Bedroom is linked again and all good).
 GET /api/diagnostics answers with a sample Smoothness Report (and X-Recording-Left, like the TV); POST
 /api/diagnostics/record starts a 3-minute "recording" here, so the phone page's countdown can be seen."""
 import json, math, os, sys, time
@@ -133,13 +137,138 @@ SETTINGS = {
 }
 FIELD = {'field': {'id': 1, 'label': 'Search file names', 'secret': False, 'multiline': False, 'text': 'vacation'}}
 INBOX = []
-TVS = {'tvs': [
-    {'id': 'this', 'name': 'Living Room', 'online': True, 'onScreen': True,
-     'playing': {'title': 'Midnight Harbor', 'app': 'Woodruff Family', 'playing': True, 'position': 2710000, 'duration': 6840000}},
-    {'id': 'b', 'name': 'Kids Room', 'online': True, 'onScreen': False,
-     'playing': {'title': 'Backyard Science · S2 E4', 'app': 'YouTube', 'playing': True, 'position': 410000, 'duration': 1320000}},
-    {'id': 'c', 'name': 'Bedroom', 'online': False, 'onScreen': False, 'playing': None},
-]}
+MIN, HOUR = 60_000, 3_600_000
+TV_STATE = {'relinked': False, 'playing': {'this': True, 'b': True}}
+TVS_SET = {'tvs': None}   # /__mock/set {tvs}: replaces the list until /__mock/reset
+
+
+def _now():
+    return int(time.time() * 1000)
+
+
+def _health(status, count=0, first=None):
+    return {'status': status, 'count': count, 'first': first}
+
+
+def tvs_json():
+    """The four TVs, as /api/tvs answers (seen times are relative to now)."""
+    if TVS_SET['tvs'] is not None:
+        return {'tvs': TVS_SET['tvs']}
+    now, p = _now(), TV_STATE['playing']
+    bedroom_ok = TV_STATE['relinked']
+    return {'tvs': [
+        {'id': 'this', 'name': 'Living Room', 'online': True, 'onScreen': True, 'version': '2.0.171', 'seen': None, 'link': 'ok',
+         'health': _health('good'),
+         'playing': {'title': 'Midnight Harbor', 'app': 'Woodruff Family', 'playing': p['this'], 'position': 2710000, 'duration': 6840000,
+                     'can': ['playpause', 'back10', 'fwd30', 'next']}},
+        {'id': 'b', 'name': 'Den', 'online': True, 'onScreen': False, 'version': '2.0.171', 'seen': now, 'link': 'ok',
+         'health': _health('attention', 2, 'Google Drive’s sign-in ended'),
+         'playing': {'title': 'Backyard Science · S2 E4', 'app': 'YouTube', 'playing': p['b'], 'position': 410000, 'duration': 1320000, 'can': ['playpause']}},
+        {'id': 'c', 'name': 'Kitchen', 'online': False, 'onScreen': False, 'version': '2.0.171', 'seen': now - 2 * HOUR, 'link': 'ok',
+         'health': _health('unknown'), 'playing': None},
+        {'id': 'd', 'name': 'Bedroom', 'online': bedroom_ok, 'onScreen': False, 'version': '2.0.171', 'seen': now if bedroom_ok else now - 26 * HOUR,
+         'link': 'ok' if bedroom_ok else 'refused', 'health': _health('good' if bedroom_ok else 'unknown'), 'playing': None},
+    ]}
+
+
+def _clock(ms):
+    return time.strftime('%I:%M %p', time.localtime(ms / 1000)).lstrip('0')
+
+
+def _date(ms):
+    return time.strftime('%b ', time.localtime(ms / 1000)) + str(time.localtime(ms / 1000).tm_mday)
+
+
+def _moment(ms):
+    """As the TV writes a moment: today the time, then "yesterday", then the date."""
+    a, b = time.localtime(ms / 1000), time.localtime()
+    if (a.tm_year, a.tm_yday) == (b.tm_year, b.tm_yday):
+        return _clock(ms)
+    if (_now() - ms) < 2 * 24 * HOUR and a.tm_yday == b.tm_yday - 1:
+        return 'yesterday'
+    return _date(ms)
+
+
+SIGNIN_WORDS = {'signedIn': ('Signed in', 'Connected'), 'offline': ('Offline', 'Offline'), 'unreachable': ('Can’t reach Google', 'Can’t reach Google'),
+                'expired': ('Sign-in ended', 'Sign-in ended'), 'keysRejected': ('Keys not accepted', 'Keys not accepted'),
+                'notSignedIn': ('Not signed in', 'Not connected'), 'notSetUp': ('Not set up', 'Not connected')}
+CRASH_REPORT = ('Version 2.0.170 · {when} · thread main\njava.lang.IllegalStateException: The player was released\n'
+                '\tat androidx.media3.exoplayer.ExoPlayerImpl.verifyApplicationThread(ExoPlayerImpl.java:2861)\n'
+                '\tat com.woodruff.tvexplorer.player.PlayerActivity.onStop(PlayerActivity.kt:410)\n'
+                '\tat android.app.Activity.performStop(Activity.java:8501)\n\tat android.app.ActivityThread.callActivityOnStop(ActivityThread.java:5208)')
+
+
+def health_report(name, at, attention=(), states=None, doorbell=('watching', 'Watching', 'Doorbell presses pop up on this TV, even when the other TVs are off.'),
+                  updates=('upToDate', 'Up to date', False), last_try=None, crash_at=None, closed=('Nothing unusual', False, None), android=31):
+    """A TV's /api/health report, every word as the TV's own builder writes it."""
+    states = states or {}
+    sign_ins = {}
+    for g in ('drive', 'photos', 'calendar', 'cameras'):
+        st = states.get(g, 'signedIn')
+        sign_ins[g] = {'state': st, 'text': SIGNIN_WORDS[st][0 if g == 'drive' else 1], 'attention': st in ('expired', 'keysRejected')}
+        if st == 'expired':
+            sign_ins[g]['since'] = at - 24 * HOUR
+    sign_ins['doorbell'] = {'state': doorbell[0], 'text': doorbell[1], 'attention': doorbell[0] == 'failing', 'detail': doorbell[2]}
+    items = [dict(zip(('id', 'words', 'detail', 'fix'), a[:4]), **({'grant': a[4]} if len(a) > 4 else {})) for a in attention]
+    words = [i['words'] for i in items]
+    frag = [w if w.split(' ')[0] in ('Google', 'Woodruff', 'Android') else w[0].lower() + w[1:] for w in words]
+    sentence = 'Everything’s working.' if not frag else (frag[0] if len(frag) == 1 else ', '.join(frag[:-1]) + ', and ' + frag[-1])
+    sentence = sentence[0].upper() + sentence[1:] + ('' if not frag else '.')
+    crash = None
+    if crash_at:
+        crash = {'at': crash_at, 'text': ('Yesterday, ' + _clock(crash_at)) if _moment(crash_at) == 'yesterday' else
+                 (_clock(crash_at) if _moment(crash_at) == _clock(crash_at) else _date(crash_at) + ', ' + _clock(crash_at)),
+                 'attention': _now() - crash_at < 7 * 24 * HOUR, 'summary': 'IllegalStateException in the player',
+                 'lines': 'Version 2.0.170 · ' + _date(crash_at) + ', ' + _clock(crash_at) + ' · thread main\njava.lang.IllegalStateException: The player was released\nat androidx.media3.exoplayer.ExoPlayerImpl.verifyApplicationThread(ExoPlayerImpl.java:2861)',
+                 'report': CRASH_REPORT.format(when=_date(crash_at) + ', ' + _clock(crash_at))}
+    return {
+        'id': name.lower().replace(' ', '-'), 'name': name, 'at': at, 'android': android, 'version': '2.0.171',
+        'status': 'attention' if items else 'good', 'sentence': sentence, 'attention': items,
+        'installedBy': {'summary': 'Installed fresh Oct 12, 9:10 AM · updated Nov 1, 3:02 AM by Woodruff itself', 'by': 'Woodruff itself',
+                        'firstInstall': 1760278200000, 'lastUpdate': 1761984120000},
+        'updates': {'step': updates[0], 'text': updates[1], 'attention': updates[2], 'auto': True, 'testTv': False},
+        'lastUpdateTry': last_try,
+        'installPermission': {'allowed': True, 'text': 'Allowed', 'attention': False},
+        'signIns': sign_ins,
+        'lastCrash': crash,
+        'closedByAndroid': {'text': closed[0], 'attention': closed[1], 'detail': closed[2]} if android >= 30 else None,
+        'freeSpace': {'free': 13314398618, 'text': '12.4 GB free', 'attention': False},
+        'keys': {'text': 'All saved', 'googleClientId': True, 'googleClientSecret': True, 'camerasProject': True, 'tmdb': True},
+        'uptime': 2 * 24 * HOUR + 3 * HOUR,
+    }
+
+
+THROUGH = ('through', 'Through Living Room', 'This TV hears the doorbell from Living Room while that TV is on. Connect the cameras on this TV to hear it on its own.')
+
+
+def tv_health(tv_id):
+    """(status, body) for /api/tvs/health?id=…, as the hub answers."""
+    now = _now()
+    if tv_id == 'this':
+        low = now - 11 * HOUR
+        return 200, health_report('Living Room', now, closed=('Low memory · ' + _moment(low), False, _date(low) + ', ' + _clock(low)))
+    if tv_id == 'b':
+        r = health_report('Den', now - 3 * MIN, attention=[
+            ('signin.drive', 'Google Drive’s sign-in ended', 'Google ended this sign-in. On Den: open Streaming and scan the code with your phone.', 'signin', 'drive'),
+            ('update.failed', 'The last update didn’t install', 'The package installer said no.', 'update'),
+        ], states={'drive': 'expired', 'calendar': 'notSignedIn', 'cameras': 'unreachable'}, doorbell=THROUGH,
+            updates=('ready', '2.0.172 ready', False), last_try={'text': 'Didn’t install', 'reason': 'The package installer said no.'},
+            crash_at=now - 12 * 24 * HOUR)
+        r['via'] = 'Living Room'
+        return 200, r
+    if tv_id == 'c':
+        last = health_report('Kitchen', now - 2 * HOUR, doorbell=THROUGH)
+        return 409, {'status': 'off', 'message': 'Off or asleep. These are the last things it reported.', 'version': '2.0.171',
+                     'seen': now - 2 * HOUR, 'last': last, 'lastAt': now - 2 * HOUR}
+    if tv_id == 'd':
+        if TV_STATE['relinked']:
+            r = health_report('Bedroom', now, doorbell=THROUGH)
+            r['via'] = 'Living Room'
+            return 200, r
+        last = health_report('Bedroom', now - 26 * HOUR, doorbell=THROUGH)
+        return 409, {'status': 'refused', 'message': '', 'version': '2.0.171', 'seen': now - 26 * HOUR, 'last': last, 'lastAt': now - 26 * HOUR}
+    return 400, 'Unknown TV'
+
 # The phone's Smoothness Report (Settings › TVs): what a TV sends after a 3-minute recording, made by the
 # app's own report code from realistic numbers. {recording} is where it stands: see diagnostics().
 SMOOTHNESS = """Woodruff Family · smoothness report
@@ -367,9 +496,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/screen':
             return self.screen()
         if path == '/api/tvs/screen':
-            if query.get('id', [''])[0] == 'c':
-                return self.send({'message': "Bedroom isn't showing Woodruff Family, or is off."}, status=409)
+            tv = query.get('id', [''])[0]
+            if tv in ('c', 'd'):
+                return self.send({'message': "%s isn't showing Woodruff Family, or is off." % ('Kitchen' if tv == 'c' else 'Bedroom')}, status=409)
             return self.screen()
+        if path == '/api/tvs/health':
+            status, body = tv_health(query.get('id', [''])[0])
+            return self.send(body, 'application/json' if isinstance(body, dict) else 'text/plain', status)
         if path == '/api/list':
             where = query.get('path', [ROOT])[0].rstrip('/') or ROOT
             if where not in TREE:
@@ -405,7 +538,7 @@ class Handler(BaseHTTPRequestHandler):
             '/api/memories': memories_json(),
             '/api/phones': {'phones': PHONES},
             '/api/settings': SETTINGS,
-            '/api/tvs': TVS,
+            '/api/tvs': tvs_json(),
         }
         if path in api:
             return self.send(api[path])
@@ -433,10 +566,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/__mock/field':
             FIELD['field'] = body.get('field')
             return self.send({'ok': True})
+        if path == '/__mock/reset':
+            TVS_SET['tvs'] = None
+            TV_STATE['relinked'] = False
+            TV_STATE['playing'] = {'this': True, 'b': True}
+            return self.send({'ok': True})
         if path == '/__mock/set':
             SETTINGS.update(body.get('settings') or {})
             if 'tvs' in body:
-                TVS['tvs'] = body['tvs']
+                TVS_SET['tvs'] = body['tvs']
             if 'phones' in body:
                 PHONES[:] = body['phones']
             return self.send({'ok': True})
@@ -444,8 +582,28 @@ class Handler(BaseHTTPRequestHandler):
             if body.get('key') not in KEYS:
                 return self.send('Unknown key', 'text/plain', 400)
             if path == '/api/tvs/key' and body.get('id') == 'b' and body.get('key') == 'netflix':
-                return self.send("Kids Room: Netflix isn't installed on this TV", 'text/plain', 400)
+                return self.send("Den: Netflix isn't installed on this TV", 'text/plain', 400)
+            if body.get('key') == 'playpause':
+                tv = 'this' if path == '/api/key' else body.get('id')
+                if tv in TV_STATE['playing']:
+                    TV_STATE['playing'][tv] = not TV_STATE['playing'][tv]
             return self.send({'ok': True})
+        if path in ('/api/media', '/api/tvs/media'):
+            tv = 'this' if path == '/api/media' else body.get('id')
+            if tv not in TV_STATE['playing']:
+                return self.send('Nothing is playing on that TV', 'text/plain', 400)
+            if body.get('action') == 'playpause':
+                TV_STATE['playing'][tv] = not TV_STATE['playing'][tv]
+            return self.send({'ok': True, 'playing': TV_STATE['playing'][tv]})
+        if path == '/api/tvs/update/check':
+            return self.send({'ok': True})
+        if path == '/api/tvs/relink':
+            if body.get('id') != 'd':
+                return self.send('That TV isn’t linked any more.', 'text/plain', 400)
+            if ''.join(ch for ch in str(body.get('code', '')) if ch.isdigit()) != '123456':
+                return self.send('That code didn’t work. Check the code on the other TV.', 'text/plain', 400)
+            TV_STATE['relinked'] = True
+            return self.send({'ok': True, 'name': 'Bedroom', 'id': 'd'})
         if path == '/api/diagnostics/record':
             DIAG['started'] = time.time()
             return self.send({'ok': True, 'seconds': RECORD_S})

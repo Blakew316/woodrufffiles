@@ -212,6 +212,12 @@ object Sym {
     // ---- L2 (player) ----
     /** Lucide "captions": Settings → Appearance → Subtitle size. */
     val Captions: ImageVector by lazy { line("M 5 5 H 19 A 2 2 0 0 1 21 7 V 17 A 2 2 0 0 1 19 19 H 5 A 2 2 0 0 1 3 17 V 7 A 2 2 0 0 1 5 5 Z", "M 7 15 h 4", "M 15 15 h 2", "M 7 11 h 2", "M 13 11 h 4") }
+
+    // ---- L4 (TV health) ----
+    /** Lucide "activity": TV health. */
+    val Activity: ImageVector by lazy { line("M 22 12 h -4 l -3 9 L 9 3 l -3 9 H 2") }
+    /** Lucide "circle-alert": something needs attention, a crash. */
+    val AlertCircle: ImageVector by lazy { line("M 2 12 A 10 10 0 1 0 22 12 A 10 10 0 1 0 2 12 Z", "M 12 8 v 4", "M 12 16 h 0.01") }
 }
 
 /** Stroke weight on the 24-unit grid: close to SF Symbols' regular weight at TV sizes. */

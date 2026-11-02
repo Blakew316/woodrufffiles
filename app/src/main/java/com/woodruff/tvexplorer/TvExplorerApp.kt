@@ -39,6 +39,8 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         com.woodruff.tvexplorer.nest.Nest.init(this)
         com.woodruff.tvexplorer.photos.GooglePhotos.init(this)
         com.woodruff.tvexplorer.calendar.TodayCalendar.init(this)
+        // The TV health report: sign-ins Google ends, updates waiting (TV health, Settings and phone).
+        com.woodruff.tvexplorer.tvs.Health.init(this)
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -81,7 +83,7 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         val SETTINGS_FILES = listOf(
             "settings", "appearance", "notices", "secrets", "secrets_meta", "recent", "episode_shows", "watched",
             "player_shows", "player", "updates", "weather", "chime", "board", "doorbell", "family_sync", "mail_poll",
-            "startup", "google_oauth",
+            "startup", "google_oauth", "tvs", "health",
         )
 
         /**
