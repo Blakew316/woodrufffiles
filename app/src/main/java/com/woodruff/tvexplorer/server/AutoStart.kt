@@ -22,15 +22,24 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         // Both are protected broadcasts: only the system can send them.
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-        // Updated while Woodruff was on screen: put it back. (Android allows this from the background
-        // when Woodruff may draw over other apps, which the pop-up notifications already ask for.)
-        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED && com.woodruff.tvexplorer.update.Updater.takeReopen(context)) {
-            runCatching {
-                context.startActivity(Intent(context, com.woodruff.tvexplorer.MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }.onFailure { Log.w("BootReceiver", "couldn't reopen after the update", it) }
-        }
+        // Updated while Woodruff was on screen: put back what it showed (update/Restore). In the
+        // background: it reads what was saved, and may ask Google Drive whether a film is still there.
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) reopen(context.applicationContext, goAsync())
         if (!AutoStart.enabled(context)) return
         // Boot and app updates are allowed to start a foreground service from the background.
         runCatching { TransferService.start(context) }.onFailure { Log.w("BootReceiver", "couldn't start the phone connection", it) }
+    }
+
+    /** Reopens what the update interrupted, if anything, then lets the broadcast end ([pending]). */
+    private fun reopen(app: Context, pending: PendingResult?) {
+        Thread({
+            try {
+                com.woodruff.tvexplorer.update.Updater.takeReopen(app)?.let { com.woodruff.tvexplorer.update.Restore.reopen(app, it) }
+            } catch (e: Exception) {
+                Log.w("BootReceiver", "couldn't reopen after the update", e)
+            } finally {
+                pending?.finish()
+            }
+        }, "reopen").start()
     }
 }

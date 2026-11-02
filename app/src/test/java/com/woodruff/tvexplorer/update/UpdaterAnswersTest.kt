@@ -68,7 +68,7 @@ class UpdaterAnswersTest {
         Updater.onResult(context, PackageInstaller.STATUS_FAILURE_ABORTED, "Session was abandoned", null, how = How.BY_ITSELF, build = 170, answered = id)
         assertEquals(State(Step.READY, 170), Updater.state.value)
         // The flag it left won't open Woodruff after some later update.
-        assertFalse(Updater.takeReopen(context))
+        assertNull(Updater.takeReopen(context))
         // Offered the next time Woodruff opens.
         assertTrue(Updater.offerDue(context, Updater.state.value, System.currentTimeMillis()))
     }
@@ -132,17 +132,43 @@ class UpdaterAnswersTest {
 
     @Test fun woodruffOpensAgainOnlyAfterTheUpdateItWasOnScreenFor() {
         val now = System.currentTimeMillis()
-        // As 2.0.165 and older left it (no build, no time): honoured once.
+        val home = Restore.App(com.woodruff.tvexplorer.ui.Screen.HOME)
+        // As 2.0.165 and older left it (no build, no time): honoured once, at Home.
         prefs.edit().putBoolean("reopen", true).apply()
-        assertTrue(Updater.takeReopen(context))
-        assertFalse(Updater.takeReopen(context))
-        // Set a minute ago for the build that's running now (the one that just went in).
+        assertEquals(home, Updater.takeReopen(context))
+        assertNull(Updater.takeReopen(context))
+        // Set a minute ago for the build that's running now (the one that just went in), by a version
+        // from before what was on screen was saved: Home.
         prefs.edit().putInt("reopenFor", Updater.current).putLong("reopenAt", now - 60_000).apply()
-        assertTrue(Updater.takeReopen(context))
-        assertFalse(Updater.takeReopen(context))
+        assertEquals(home, Updater.takeReopen(context))
+        assertNull(Updater.takeReopen(context))
         // Set for some other build that never went in: not.
         prefs.edit().putInt("reopenFor", Updater.current + 1).putLong("reopenAt", now).apply()
-        assertFalse(Updater.takeReopen(context))
+        assertNull(Updater.takeReopen(context))
+    }
+
+    @Test fun woodruffOpensAgainToWhatItShowed() {
+        val now = System.currentTimeMillis()
+        val film = Restore.Film(listOf("drive:a", "drive:b"), listOf("A", "B"), 1, 2_400_000, under = Restore.App(com.woodruff.tvexplorer.ui.Screen.DRIVE, "tv"))
+        prefs.edit().putInt("reopenFor", Updater.current).putLong("reopenAt", now - 60_000).putString("reopenRoute", Restore.encode(film)).apply()
+        assertEquals(film, Updater.takeReopen(context))
+        // Once.
+        assertNull(Updater.takeReopen(context))
+        assertFalse(prefs.contains("reopenRoute"))
+        // A route left by an install that never went in opens nothing, and goes.
+        prefs.edit().putInt("reopenFor", Updater.current + 1).putLong("reopenAt", now).putString("reopenRoute", Restore.encode(film)).apply()
+        assertNull(Updater.takeReopen(context))
+        assertFalse(prefs.contains("reopenRoute"))
+        // One this version can't read: Home rather than nothing (Woodruff was on screen).
+        prefs.edit().putInt("reopenFor", Updater.current).putLong("reopenAt", now).putString("reopenRoute", "{\"v\":7}").apply()
+        assertEquals(Restore.App(com.woodruff.tvexplorer.ui.Screen.HOME), Updater.takeReopen(context))
+    }
+
+    @Test fun aRefusedInstallForgetsWhatToOpen() {
+        prefs.edit().putInt("reopenFor", 170).putLong("reopenAt", System.currentTimeMillis()).putString("reopenRoute", Restore.encode(Restore.Slideshow(false))).apply()
+        Updater.onResult(context, PackageInstaller.STATUS_FAILURE_STORAGE, null, null, how = How.BY_ITSELF, build = 170, answered = 80)
+        assertFalse(prefs.contains("reopenRoute"))
+        assertFalse(prefs.contains("reopenFor"))
     }
 
     @Test fun readsGitHubsListOfReleases() {

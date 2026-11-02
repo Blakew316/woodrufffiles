@@ -39,11 +39,12 @@ import com.woodruff.tvexplorer.ui.screens.PermissionScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
+import com.woodruff.tvexplorer.update.Restore
 import com.woodruff.tvexplorer.util.Permissions
 import com.woodruff.tvexplorer.util.Presence
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), Restore.Restorable {
     private val vm: MainViewModel by viewModels()
     /** Streaming's state, the same one the screens show (made by them, on this thread, when first needed). */
     private val drive: DriveViewModel by viewModels()
@@ -62,7 +63,8 @@ class MainActivity : ComponentActivity() {
         Notices.load(this)
         com.woodruff.tvexplorer.util.CrashLog.report(this)
         Appearance.load(this)
-        handleOpen(intent)
+        // Before the first frame: a screen put back after an update is the first thing drawn.
+        handleOpen(intent, fresh = savedInstanceState == null)
         // The app's motion plays at its own speed, even on a TV with Android's animations turned off.
         window.decorView.useAppMotion(lifecycle)
         setContent {
@@ -150,6 +152,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * The screen up in the main window, to put back after an update: Streaming in its library with
+     * its filter, the Command Center with its camera full screen, the folder in Files. (Pages and
+     * menus over it aren't put back.) Main thread.
+     */
+    override fun restoreRoute(): Restore.Route = Restore.app(
+        vm.screen.value,
+        if (hasAccess) drive.state.value else null,
+        vm.browser.value.location,
+        com.woodruff.tvexplorer.ui.screens.fullCamera,
+    )
+
+    /**
      * Holding an arrow: Android repeats it about 20 times a second. When drawing falls behind, the
      * repeats queue up and the focus keeps sliding after the button is let go, which is what makes
      * scrolling feel laggy. [DpadGate] lets a repeat through only once the previous move has been
@@ -182,13 +196,21 @@ class MainActivity : ComponentActivity() {
         handleOpen(intent)
     }
 
-    /** Notification taps land on the matching screen. */
-    private fun handleOpen(intent: Intent?) {
+    /**
+     * Notification taps land on the matching screen; after an update, the screen that was up comes
+     * back as it was ([Restore]), only as the window first opens ([fresh]: not when it's made again
+     * later, by when it may have moved on and said its message).
+     */
+    private fun handleOpen(intent: Intent?, fresh: Boolean = true) {
         // (Only when this brings Woodruff on screen: a tap while it's showing starts nothing.)
         openedFor = intent?.getStringExtra(EXTRA_OPEN) != null && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
         when (intent?.getStringExtra(EXTRA_OPEN)) {
             "notifications" -> vm.show(Screen.NOTIFICATIONS)
             "home" -> vm.show(Screen.HOME)
+            Restore.OPEN -> if (fresh) {
+                (Restore.decode(intent.getStringExtra(Restore.EXTRA_ROUTE)) as? Restore.App)?.let { Restore.apply(it, vm) { drive } }
+                    ?: vm.show(Screen.HOME)
+            }
         }
     }
 

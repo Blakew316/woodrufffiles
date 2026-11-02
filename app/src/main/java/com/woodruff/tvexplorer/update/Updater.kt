@@ -11,7 +11,7 @@ import android.util.JsonToken
 import android.util.Log
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.notify.AppVisibility
-import com.woodruff.tvexplorer.nowplaying.NowPlaying
+import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.util.Presence
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,11 +38,12 @@ import kotlin.math.abs
  * signed with the same key as the installed app.
  *
  * Android 12+ lets an app update itself without a prompt. Silent installs wait until nobody is
- * using Woodruff (nothing playing, no key pressed anywhere in it for 2 minutes, no copy or transfer
- * under way), since an update restarts it;
- * if it was on screen, it opens again by itself. Some TVs still ask for a press for every update
- * (and Android 11 and older always do): that update is offered the next time someone opens
- * Woodruff instead ([offer]).
+ * using Woodruff ([quietNow]: nothing playing, no key pressed anywhere in it for 2 minutes, no copy
+ * or transfer under way, a paused film left for half an hour), since an update restarts it. What
+ * was on screen comes back by itself afterwards ([Restore]): the slideshow, the cameras, the photo,
+ * the paused film at its spot, the screen. Some TVs still ask for a press for every update (and
+ * Android 11 and older always do): that update is offered the next time someone opens Woodruff
+ * instead ([offer]).
  *
  * On Android 9+ the update brings its speed profile (a .dm file published with the release) in the
  * same install, as Play and adb do: Android compiles the new code while installing, instead of
@@ -67,7 +68,9 @@ object Updater {
     /** When Woodruff is opened: often enough that a fresh release shows up the next time you open it. */
     private const val CHECK_ON_OPEN_MS = 10 * 60_000L
     /** No key pressed in Woodruff for this long: nobody's using it. */
-    private const val IDLE_MS = 2 * 60_000L
+    internal const val IDLE_MS = 2 * 60_000L
+    /** A film paused in Woodruff's player (on screen or under the TV's screensaver) waits this long: someone may be back. */
+    internal const val PAUSED_IDLE_MS = 30 * 60_000L
     /** How long a build must be the newest before the TVs other than the test TV take it. */
     internal const val SETTLE_MS = 24 * HOUR
     /** "Later" on an offered update: not offered again for this long (Settings → Updates still installs it). */
@@ -91,6 +94,8 @@ object Updater {
     /** Woodruff was on screen as this build started installing (and when): it opens again once it's in. */
     private const val K_REOPEN_FOR = "reopenFor"
     private const val K_REOPEN_AT = "reopenAt"
+    /** What it showed then ([Restore.encode]): what it opens again to. */
+    private const val K_REOPEN_ROUTE = "reopenRoute"
     /** What 2.0.165 and older saved instead (no build, no time): still honoured once. */
     private const val K_REOPEN_OLD = "reopen"
 
@@ -194,23 +199,36 @@ object Updater {
                 checkAndDownload(app)
             }
             val afterCheck = System.currentTimeMillis()
-            if (_state.value.step == Step.READY && canInstallSilently(app) && idle() && afterCheck >= retryAt &&
-                afterCheck >= p.getLong(K_PROMPT_UNTIL, 0)
+            if (_state.value.step == Step.READY && canInstallSilently(app) && afterCheck >= retryAt &&
+                afterCheck >= p.getLong(K_PROMPT_UNTIL, 0) &&
+                // Someone's using it, or something mustn't be cut short: no need to look further.
+                Presence.sinceUseMs() >= IDLE_MS && !Presence.isBusy
             ) {
-                // On screen but untouched: Woodruff restarts, so it opens again afterwards.
-                startInstall(app, How.BY_ITSELF, reopen = AppVisibility.foreground)
+                // What's up, asked of the screens themselves: whether it's a film playing, and what to
+                // put back once the update is in (Woodruff restarts).
+                val now = OnScreen.momentNow(app) ?: return@launch
+                if (quietNow(Presence.sinceUseMs(), now.film, Presence.isBusy, now.screenOn)) {
+                    startInstall(app, How.BY_ITSELF, reopen = now.route)
+                }
             }
         }
     }
 
     /**
-     * Nobody is using Woodruff: nothing playing in it, nothing running that mustn't be cut short (a
-     * copy, a file from the phone, a Google Photos pick), and it's either not on screen or no key has
-     * been pressed anywhere in it (any window, the phone's remote) for [IDLE_MS], so a restart for the
-     * update interrupts no one.
+     * Whether an update may restart Woodruff now, with no one asked: nothing that mustn't be cut short
+     * is running ([busy]: a copy, a file from the phone, a Google Photos pick), its player isn't
+     * playing, and nobody has pressed a key in it for [IDLE_MS] — or [PAUSED_IDLE_MS] when a film is
+     * paused in it (on screen, or under the TV's screensaver), since someone who paused may well be
+     * back. With the TV's screen off nobody is watching anything (but a film playing still isn't
+     * interrupted). What was on screen comes back afterwards. Visible for tests.
      */
-    private fun idle(): Boolean = NowPlaying.ownPlayer == null && !Presence.isBusy &&
-        (!AppVisibility.foreground || Presence.sinceUseMs() >= IDLE_MS)
+    internal fun quietNow(sinceUseMs: Long, film: OnScreen.Film, busy: Boolean, screenOn: Boolean): Boolean = when {
+        busy -> false
+        film == OnScreen.Film.PLAYING -> false
+        !screenOn -> true
+        film == OnScreen.Film.PAUSED -> sinceUseMs >= PAUSED_IDLE_MS
+        else -> sinceUseMs >= IDLE_MS
+    }
 
     private fun offerIfDue(c: Context) {
         val s = _state.value
@@ -244,13 +262,19 @@ object Updater {
         prefs(c).edit().putInt(K_LATER_FOR, build).putLong(K_LATER_UNTIL, System.currentTimeMillis() + OFFER_LATER_MS).apply()
     }
 
-    /** After an update: whether Woodruff was on screen as it started, so it opens again (once). */
-    fun takeReopen(c: Context): Boolean {
+    /**
+     * After an update: what to open again, if Woodruff was on screen as it started (once). What it
+     * showed then, or its Home when that wasn't saved (an update started by a version from before
+     * that was).
+     */
+    fun takeReopen(c: Context): Restore.Route? {
         val p = prefs(c)
         val due = reopenDue(p.getInt(K_REOPEN_FOR, 0), p.getLong(K_REOPEN_AT, 0), current, System.currentTimeMillis()) ||
             p.getBoolean(K_REOPEN_OLD, false)
-        p.edit().remove(K_REOPEN_FOR).remove(K_REOPEN_AT).remove(K_REOPEN_OLD).apply()
-        return due
+        val saved = p.getString(K_REOPEN_ROUTE, null)
+        p.edit().remove(K_REOPEN_FOR).remove(K_REOPEN_AT).remove(K_REOPEN_OLD).remove(K_REOPEN_ROUTE).apply()
+        if (!due) return null
+        return Restore.decode(saved) ?: Restore.App(Screen.HOME)
     }
 
     /**
@@ -262,11 +286,16 @@ object Updater {
     internal fun reopenDue(forBuild: Int, at: Long, installed: Int, now: Long): Boolean =
         forBuild > 0 && forBuild == installed && abs(now - at) < REOPEN_WITHIN_MS
 
-    /** Written at once (on the install's background thread): the install ends this run of Woodruff moments later. */
-    private fun setReopen(c: Context, build: Int) =
-        prefs(c).edit().putInt(K_REOPEN_FOR, build).putLong(K_REOPEN_AT, System.currentTimeMillis()).remove(K_REOPEN_OLD).commit()
+    /**
+     * Written at once (on the install's background thread): the install ends this run of Woodruff
+     * moments later. [route]: what it opens again to.
+     */
+    private fun setReopen(c: Context, build: Int, route: Restore.Route) = prefs(c).edit()
+        .putInt(K_REOPEN_FOR, build).putLong(K_REOPEN_AT, System.currentTimeMillis())
+        .putString(K_REOPEN_ROUTE, Restore.encode(route)).remove(K_REOPEN_OLD).commit()
 
-    private fun clearReopen(c: Context) = prefs(c).edit().remove(K_REOPEN_FOR).remove(K_REOPEN_AT).remove(K_REOPEN_OLD).apply()
+    private fun clearReopen(c: Context) =
+        prefs(c).edit().remove(K_REOPEN_FOR).remove(K_REOPEN_AT).remove(K_REOPEN_OLD).remove(K_REOPEN_ROUTE).apply()
 
     /**
      * How this copy of Woodruff came to be, for Settings → Updates and the phone's TV report: when it
@@ -502,16 +531,22 @@ object Updater {
      * Hands the downloaded APK to the package installer. With a press needed, Android shows its
      * "Update" screen (only possible while Woodruff is on screen); without, it just installs and
      * Woodruff restarts (the phone connection comes back by itself). [how]: who started it; when
-     * someone's at Woodruff ([How.OFFERED], [How.CHOSEN]) it opens again after the update.
+     * someone's at Woodruff ([How.OFFERED], [How.CHOSEN]) it opens again after the update, to the
+     * screen they were on (asked here when that's the main thread, as the screens call it; else Home).
      */
-    fun install(c: Context, how: How = How.CHOSEN) = startInstall(c.applicationContext, how, reopen = how != How.BY_ITSELF)
+    fun install(c: Context, how: How = How.CHOSEN) {
+        val app = c.applicationContext
+        val route = if (how == How.BY_ITSELF) null
+        else (if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) OnScreen.routeNow(app) else null) ?: Restore.App(Screen.HOME)
+        startInstall(app, how, reopen = route)
+    }
 
     /**
-     * [reopen]: whether Woodruff opens again once the update is in; null leaves that as it was (a
-     * retry). Called from the screen too: only the claim happens here, the files are looked at in
-     * the background.
+     * [reopen]: what Woodruff opens again to once the update is in (null: it doesn't); a [retry]
+     * leaves that as it was. Called from the screen too: only the claim happens here, the files are
+     * looked at in the background.
      */
-    private fun startInstall(app: Context, how: How, reopen: Boolean?) {
+    private fun startInstall(app: Context, how: How, reopen: Restore.Route?, retry: Boolean = false) {
         // Claimed at once, so a second press (or the background loop) can't start another meanwhile.
         val ready = _state.value
         if (ready.step != Step.READY || !_state.compareAndSet(ready, ready.copy(step = Step.INSTALLING))) return
@@ -531,10 +566,10 @@ object Updater {
             val profile = profileFile(app, build).takeIf {
                 Build.VERSION.SDK_INT >= 28 && it.exists() && prefs(app).getInt("profileRefused", 0) != build
             }
-            when (reopen) {
-                true -> setReopen(app, build)
-                false -> clearReopen(app)
-                null -> Unit
+            when {
+                retry -> Unit
+                reopen != null -> setReopen(app, build, reopen)
+                else -> clearReopen(app)
             }
             val installer = app.packageManager.packageInstaller
             var id = -1
@@ -577,7 +612,7 @@ object Updater {
                 if (addedProfile && refuseProfile(app, build, e.message)) {
                     // Go again at once without the profile, in a new session.
                     _state.update { it.copy(step = Step.READY) }
-                    startInstall(app, how, reopen = null)
+                    startInstall(app, how, reopen = null, retry = true)
                     return@launch
                 }
                 installFailed()
@@ -691,7 +726,7 @@ object Updater {
                 // the profile, so once per build the update goes again without it.
                 refuseProfile(app, profile, message)
                 backToReady(build, null)
-                startInstall(app, how ?: How.BY_ITSELF, reopen = null)
+                startInstall(app, how ?: How.BY_ITSELF, reopen = null, retry = true)
             }
             Next.FAILED -> {
                 installFailed()
