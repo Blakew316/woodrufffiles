@@ -122,7 +122,7 @@ class PlayerActivity : ComponentActivity() {
         nextEp = PlayerStyle.pill(this, "Next Episode", com.woodruff.tvexplorer.R.drawable.tv_ic_play)
         nextCard = GlidingCard(nextEp, GlidingCard.Way.Rise)
         // "Someone's at the door" when the doorbell rings: a notice at the top right, as tvOS shows them.
-        doorbell = PlayerStyle.card(this)
+        doorbell = PlayerStyle.notice(this)
         doorbellCard = GlidingCard(doorbell, GlidingCard.Way.Drop)
         // The player's own messages ("Sleeping in 30 minutes"), at the bottom in the middle: Android's
         // toasts popped up over the film in the system's own way.

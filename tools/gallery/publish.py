@@ -10,7 +10,7 @@ for old in glob.glob(os.path.join(img_dir, '*.webp')):
     os.remove(old)
 
 TITLES = {
-    'home': 'Home', 'home-menu': 'Home · menu open', 'movies': 'Movies (sample posters)', 'tv-shows': 'TV Shows (sample posters)', 'command-center': 'Command center', 'google-drive': 'Google Drive', 'mail': 'Mail',
+    'home': 'Home', 'home-menu': 'Home · menu open', 'home-notice': 'Home · a notice', 'movies': 'Movies (sample posters)', 'tv-shows': 'TV Shows (sample posters)', 'command-center': 'Command center', 'google-drive': 'Google Drive', 'mail': 'Mail',
     'notifications': 'Notifications', 'notes': 'Notes', 'apps': 'Apps', 'phone': 'Phone connection',
     'settings': 'Settings', 'files': 'Send › Photos & Files', 'tv': 'TV', 'remote': 'Remote', 'keyboard': 'Keyboard', 'send': 'Send',
     'files-actions': 'File actions', 'memories': 'Family Memories', 'memories-photo': 'Family Memories › a photo',
@@ -30,7 +30,7 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     im.save(os.path.join(img_dir, out), 'WEBP', quality=82, method=6)
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
-ORDER = ['home', 'home-menu', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
+ORDER = ['home', 'home-menu', 'home-notice', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
          'player', 'player-menu', 'player-up-next', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])

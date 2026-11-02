@@ -64,6 +64,19 @@ internal object PlayerStyle {
         }
     }
 
+    /**
+     * The notice at the top right over the film (the doorbell's): the same compact card as the app's
+     * notices elsewhere ([com.woodruff.tvexplorer.notify.NoticeLook]). Its second line is set smaller.
+     */
+    fun notice(c: Context): TextView = card(c, com.woodruff.tvexplorer.notify.NoticeLook.TITLE_SP).apply {
+        val look = com.woodruff.tvexplorer.notify.NoticeLook
+        setLineSpacing(dp(c, look.TITLE_LINE_SP - look.TITLE_SP), 1f)
+        setPadding(dp(c, look.PAD_H_DP.toFloat()).toInt(), dp(c, look.PAD_V_DP.toFloat()).toInt(), dp(c, look.PAD_H_DP.toFloat()).toInt(), dp(c, look.PAD_V_DP.toFloat()).toInt())
+        background = glass(c, look.CORNER_DP.toFloat())
+        maxWidth = dp(c, look.WIDTH_DP.toFloat()).toInt()
+        elevation = dp(c, 8f)
+    }
+
     /** A message or notice card over the film: glass, white text. */
     fun card(c: Context, sizeSp: Float = 17f): TextView = TextView(c).apply {
         setTextColor(0xFFFFFFFF.toInt())

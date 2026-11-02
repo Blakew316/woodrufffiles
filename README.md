@@ -151,7 +151,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   Pub/Sub for the Device Access project, create a pull subscription to its topic in Google Cloud, enter the
   subscription's full name in the phone app (Settings → Connections → Cameras → Doorbell alerts) for one TV, then connect the
   cameras again on that TV so the sign-in includes Pub/Sub.
-- **Notifications**: messages from the phone and new mail appear as a pop-up, even over other apps once
+- **Notifications**: messages from the phone and new mail appear as a compact pop-up at the top right (who it's from,
+  the title and the message), even over other apps once
   "Pop-ups over other apps" is allowed in Settings (also on Android 7 TVs, such as older Fire TV sticks). They're also
   kept in the Notifications screen. Announcements and the doorbell play a soft chime (Settings → Advanced → *Chime for
   announcements*; never for mail, never while the TV is asleep), and a doorbell pop-up over another app stays 25 s.

@@ -56,23 +56,30 @@ object NoticeOverlay {
 
         val card = LinearLayout(app).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(14))
+            // Compact, the same size as in Woodruff and over a film (NoticeLook).
+            setPadding(dp(NoticeLook.PAD_H_DP), dp(NoticeLook.PAD_V_DP), dp(NoticeLook.PAD_H_DP), dp(NoticeLook.PAD_V_DP))
             background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
+                cornerRadius = dp(NoticeLook.CORNER_DP).toFloat()
                 setColor(0xF20E1726.toInt())
                 setStroke(dp(1), 0x33FFFFFF)
             }
             addView(TextView(app).apply {
                 text = when (n.source) { NoticeSource.PHONE -> "From your phone"; NoticeSource.MAIL -> "New mail"; NoticeSource.SYSTEM -> "Woodruff Family" }
-                setTextColor(0xFF6FB3E6.toInt()); textSize = 12f; typeface = font ?: Typeface.DEFAULT_BOLD
+                setTextColor(0xFF6FB3E6.toInt()); textSize = NoticeLook.LABEL_SP; typeface = font ?: Typeface.DEFAULT_BOLD
+                letterSpacing = 0.04f
+                lines(NoticeLook.LABEL_SP, NoticeLook.LABEL_LINE_SP)
             })
             addView(TextView(app).apply {
-                text = n.title; setTextColor(0xFFF2F4F7.toInt()); textSize = 17f; maxLines = 2
+                text = n.title; setTextColor(0xFFF2F4F7.toInt()); textSize = NoticeLook.TITLE_SP
+                maxLines = NoticeLook.TITLE_LINES; ellipsize = android.text.TextUtils.TruncateAt.END
                 typeface = font ?: Typeface.DEFAULT_BOLD
+                lines(NoticeLook.TITLE_SP, NoticeLook.TITLE_LINE_SP)
             })
             if (n.body.isNotBlank()) addView(TextView(app).apply {
-                text = n.body; setTextColor(0xFFB8C2CF.toInt()); textSize = 14f; maxLines = 3
+                text = n.body; setTextColor(0xFFB8C2CF.toInt()); textSize = NoticeLook.BODY_SP
+                maxLines = NoticeLook.BODY_LINES; ellipsize = android.text.TextUtils.TruncateAt.END
                 typeface = fontBody ?: Typeface.DEFAULT
+                lines(NoticeLook.BODY_SP, NoticeLook.BODY_LINE_SP)
             })
         }
         // Its window reaches up to the screen's top edge (see-through above the card, which still rests
@@ -87,7 +94,7 @@ object NoticeOverlay {
         AppMotion.refresh(app)
         val glide = if (AppMotion.windowsAnimate || AppMotion.reduced) null else GlidingCard(card, GlidingCard.Way.Drop)
         val params = WindowManager.LayoutParams(
-            dp(380), WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(NoticeLook.WIDTH_DP), WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
@@ -113,6 +120,12 @@ object NoticeOverlay {
             // notification instead (the history list has it either way).
             Notices.systemNotification(app, n)
         }
+    }
+
+    /** Spaces this text's lines [lineSp] apart, as the in-app card does (for its [sizeSp] text). */
+    private fun TextView.lines(sizeSp: Float, lineSp: Float) {
+        val px = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, lineSp - sizeSp, resources.displayMetrics)
+        setLineSpacing(px.coerceAtLeast(0f), 1f)
     }
 
     /** Off the screen: its window goes (and its animation glides it away), or its card glides out first. */

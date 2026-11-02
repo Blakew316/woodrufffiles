@@ -84,6 +84,7 @@ import com.woodruff.tvexplorer.ui.screens.SettingsScreen
 import com.woodruff.tvexplorer.ui.screens.TransferScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.ambientBackdrop
+import com.woodruff.tvexplorer.notify.NoticeLook
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import kotlinx.coroutines.delay
@@ -662,19 +663,28 @@ private fun NoticeBanner(modifier: Modifier, onOpen: () -> Unit) {
         modifier = modifier.padding(top = 24.dp, end = 24.dp),
     ) {
         val n = notice ?: kept.value ?: return@AnimatedVisibility
+        // Compact, the same size as over other apps and over a film (NoticeLook).
+        val shape = RoundedCornerShape(NoticeLook.CORNER_DP.dp)
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = shape,
             colors = SurfaceDefaults.colors(containerColor = Palette.glass, contentColor = Palette.text),
-            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(20.dp)),
-            modifier = Modifier.bannerGlide(transition, fromTop = true).width(360.dp),
+            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = shape),
+            modifier = Modifier.bannerGlide(transition, fromTop = true).width(NoticeLook.WIDTH_DP.dp),
         ) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
+            Column(Modifier.padding(horizontal = NoticeLook.PAD_H_DP.dp, vertical = NoticeLook.PAD_V_DP.dp)) {
                 Text(
                     when (n.source) { NoticeSource.PHONE -> "FROM YOUR PHONE"; NoticeSource.MAIL -> "NEW MAIL"; NoticeSource.SYSTEM -> "WOODRUFF FAMILY" },
-                    style = MaterialTheme.typography.labelSmall, color = Palette.accent,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = NoticeLook.LABEL_SP.sp, lineHeight = NoticeLook.LABEL_LINE_SP.sp),
+                    color = Palette.accent,
                 )
-                Text(n.title, style = MaterialTheme.typography.titleMedium, maxLines = 2)
-                if (n.body.isNotBlank()) Text(n.body, style = MaterialTheme.typography.bodyMedium, color = Palette.muted, maxLines = 3)
+                Text(
+                    n.title, maxLines = NoticeLook.TITLE_LINES, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = NoticeLook.TITLE_SP.sp, lineHeight = NoticeLook.TITLE_LINE_SP.sp),
+                )
+                if (n.body.isNotBlank()) Text(
+                    n.body, color = Palette.muted, maxLines = NoticeLook.BODY_LINES, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = NoticeLook.BODY_SP.sp, lineHeight = NoticeLook.BODY_LINE_SP.sp),
+                )
             }
         }
     }

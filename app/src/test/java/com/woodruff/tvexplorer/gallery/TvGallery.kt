@@ -77,6 +77,13 @@ class TvGallery {
                     compose.onRoot().captureRoboImage(File(out, "tv-home-menu-${if (light) "light" else "dark"}.png").path)
                     compose.runOnIdle { RailPreview.open = false }
                     compose.mainClock.advanceTimeBy(600)
+                    // A notice at the top right (the doorbell's), as it pops up over any screen.
+                    compose.runOnIdle { Notices.post(app, NoticeSource.SYSTEM, "Someone's at the door", "Front Door") }
+                    compose.mainClock.advanceTimeBy(1_000)
+                    compose.waitForIdle()
+                    compose.onRoot().captureRoboImage(File(out, "tv-home-notice-${if (light) "light" else "dark"}.png").path)
+                    compose.runOnIdle { Notices.dismissLatest() }
+                    compose.mainClock.advanceTimeBy(1_000)
                 }
             }
         }
