@@ -217,6 +217,20 @@ class UrgentUpdateTest {
         assertTrue(prefs.getLong("promptUntil", 0) > System.currentTimeMillis())
     }
 
+    @Test fun androidsPromptOpensOverTheRecoveryScreenToo() {
+        // The recovery screen up: Woodruff doesn't count as in front for notices, but the prompt for
+        // Install the fix (Android 11 and older, or a TV that asks) still opens over it.
+        AppVisibility.foreground = false
+        RecoveryView.inFront = true
+        try {
+            val confirm = Intent("android.content.pm.action.CONFIRM_INSTALL")
+            Updater.onResult(app, PackageInstaller.STATUS_PENDING_USER_ACTION, null, confirm, how = How.CHOSEN, build = next, answered = 7)
+            assertEquals(confirm.action, shadowOf(app).nextStartedActivity?.action)
+        } finally {
+            RecoveryView.inFront = false
+        }
+    }
+
     @Test fun andIsOfferedNextTimeWhenWoodruffIsntOnScreen() {
         AppVisibility.foreground = false
         Updater.onResult(app, PackageInstaller.STATUS_PENDING_USER_ACTION, null, Intent("confirm"), how = How.URGENT, build = next, answered = 7)

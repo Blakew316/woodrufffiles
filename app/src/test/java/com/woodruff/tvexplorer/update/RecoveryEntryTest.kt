@@ -9,6 +9,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.MainActivity
 import com.woodruff.tvexplorer.notify.AppVisibility
+import com.woodruff.tvexplorer.notify.NoticeSource
+import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.util.EarlyCrashes
 import org.junit.After
@@ -84,6 +86,28 @@ class RecoveryEntryTest {
         // The remote's Search key has nothing to open here.
         assertTrue(a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SEARCH)))
         controller.pause().stop().destroy()
+    }
+
+    @Test fun noticesAndTheDoorbellStillReachTheTvWhileItsUp() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        shadowOf(Looper.getMainLooper()).idle()
+        // Woodruff's own banner isn't there, so Woodruff doesn't count as in front for the rest of the
+        // app; the updater still knows its main screen is (Android's install prompt opens over it).
+        assertFalse(AppVisibility.foreground)
+        assertTrue(RecoveryView.inFront)
+        // A message from a phone: shown as it would be over any other app (here, without the pop-up
+        // permission, as Android's notification), not handed to a banner nobody sees.
+        val nm = app.getSystemService(android.app.NotificationManager::class.java)
+        try {
+            Notices.post(app, NoticeSource.PHONE, "Dinner's ready", "Come down when you can")
+            assertEquals(1, shadowOf(nm).allNotifications.size)
+        } finally {
+            Notices.clear(app)
+            Notices.dismissLatest()
+        }
+        controller.pause().stop()
+        assertFalse(RecoveryView.inFront)
+        controller.destroy()
     }
 
     @Test fun tryOpeningAgainOpensTheAppWithOneCloseLeft() {

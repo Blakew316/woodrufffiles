@@ -118,9 +118,11 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
     override fun onStart() {
         super.onStart()
         TvScreen.attach(this)
-        AppVisibility.foreground = true
         // The recovery screen looks for a fix itself; the phone connection and the rest stay as they are.
-        if (recovering) return
+        // Nor does it count as Woodruff in front: its banner isn't there, so notices and the doorbell show
+        // over it as over another app (Android's install prompt still opens over it: RecoveryView.inFront).
+        if (recovering) { RecoveryView.inFront = true; return }
+        AppVisibility.foreground = true
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
         // An update that needs a press is offered now, as Woodruff comes on screen, unless it was
@@ -135,6 +137,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
     override fun onStop() {
         TvScreen.detach(this)
         AppVisibility.foreground = false
+        RecoveryView.inFront = false
         idle.removeCallbacks(startSlideshow)
         super.onStop()
     }

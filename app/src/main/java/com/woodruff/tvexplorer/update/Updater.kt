@@ -339,9 +339,16 @@ object Updater {
         val moment = OnScreen.momentNow(app)
         if (!mayInstallUrgently(moment?.film ?: OnScreen.Film.NONE, Presence.isBusy)) return
         // A screen that didn't answer in time is up but stuck: its Home comes back.
-        val route = moment?.route ?: if (AppVisibility.foreground) Restore.App(Screen.HOME) else null
+        val route = moment?.route ?: if (mainScreenInFront()) Restore.App(Screen.HOME) else null
         startInstall(app, How.URGENT, reopen = route)
     }
+
+    /**
+     * Woodruff's main screen is in front, as itself or as the recovery screen: where Android's install
+     * prompt may open. (The recovery screen doesn't count as Woodruff in front for the rest of the app:
+     * see [RecoveryView.inFront].)
+     */
+    private fun mainScreenInFront(): Boolean = AppVisibility.foreground || RecoveryView.inFront
 
     /**
      * Whether a fix after an early close may restart Woodruff now: even with someone using it, but never
@@ -830,7 +837,7 @@ object Updater {
         val app = c.applicationContext
         val p = prefs(app)
         val next = nextStep(
-            status, how, answered, session, answered in letGoSessions, canPrompt = confirm != null && AppVisibility.foreground,
+            status, how, answered, session, answered in letGoSessions, canPrompt = confirm != null && mainScreenInFront(),
             mayRetryWithoutProfile = profile > 0 && p.getInt("profileRefused", 0) != profile,
         )
         Log.i("Updater", "installer answered $status for 2.0.$build (${how ?: "?"}, session $answered): $next${message?.let { " ($it)" } ?: ""}")
