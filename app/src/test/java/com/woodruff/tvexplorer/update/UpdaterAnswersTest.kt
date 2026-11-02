@@ -133,10 +133,16 @@ class UpdaterAnswersTest {
     @Test fun woodruffOpensAgainOnlyAfterTheUpdateItWasOnScreenFor() {
         val now = System.currentTimeMillis()
         val home = Restore.App(com.woodruff.tvexplorer.ui.Screen.HOME)
-        // As 2.0.165 and older left it (no build, no time): honoured once, at Home.
+        // As 2.0.165 and older left it (no build, no time), maybe by a try that never went in: it can't tell
+        // that from this update, and this update may have gone in under another app's film. Cleared, opens nothing.
         prefs.edit().putBoolean("reopen", true).apply()
+        assertNull(Updater.takeReopen(context))
+        assertFalse(prefs.contains("reopen"))
+        // Beside a flag of this version's own for this very update, it changes nothing either.
+        prefs.edit().putBoolean("reopen", true).putInt("reopenFor", Updater.current).putLong("reopenAt", now - 60_000).apply()
         assertEquals(home, Updater.takeReopen(context))
         assertNull(Updater.takeReopen(context))
+        assertFalse(prefs.contains("reopen"))
         // Set a minute ago for the build that's running now (the one that just went in), by a version
         // from before what was on screen was saved: Home.
         prefs.edit().putInt("reopenFor", Updater.current).putLong("reopenAt", now - 60_000).apply()

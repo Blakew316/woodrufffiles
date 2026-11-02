@@ -108,7 +108,10 @@ object Updater {
     private const val K_REOPEN_AT = "reopenAt"
     /** What it showed then ([Restore.encode]): what it opens again to. */
     private const val K_REOPEN_ROUTE = "reopenRoute"
-    /** What 2.0.165 and older saved instead (no build, no time): still honoured once. */
+    /**
+     * What 2.0.165 and older saved instead (no build, no time), and left behind by a try that didn't go
+     * in: never acted on, only cleared ([takeReopen]).
+     */
     private const val K_REOPEN_OLD = "reopen"
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
@@ -415,11 +418,17 @@ object Updater {
      * After an update: what to open again, if Woodruff was on screen as it started (once). What it
      * showed then, or its Home when that wasn't saved (an update started by a version from before
      * that was).
+     *
+     * Not for the flag 2.0.165 and older left ([K_REOPEN_OLD]): they set it before every try at going in
+     * by itself while Woodruff sat on screen, and kept it through a try that didn't go in (out of space,
+     * the download cleared), so a later update installed while another app was in front found it. Taken
+     * at its word, Woodruff would open over someone's film, or wake the TV into Woodruff. With no build or
+     * time to tell it from a flag for this very update, it's cleared and not acted on: an update that
+     * went in by itself as Woodruff sat on screen leaves the TV at its home screen this one time.
      */
     fun takeReopen(c: Context): Restore.Route? {
         val p = prefs(c)
-        val due = reopenDue(p.getInt(K_REOPEN_FOR, 0), p.getLong(K_REOPEN_AT, 0), current, System.currentTimeMillis()) ||
-            p.getBoolean(K_REOPEN_OLD, false)
+        val due = reopenDue(p.getInt(K_REOPEN_FOR, 0), p.getLong(K_REOPEN_AT, 0), current, System.currentTimeMillis())
         val saved = p.getString(K_REOPEN_ROUTE, null)
         p.edit().remove(K_REOPEN_FOR).remove(K_REOPEN_AT).remove(K_REOPEN_OLD).remove(K_REOPEN_ROUTE).apply()
         if (!due) return null
