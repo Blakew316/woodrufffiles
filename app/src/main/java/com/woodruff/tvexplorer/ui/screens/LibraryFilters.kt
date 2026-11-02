@@ -231,8 +231,9 @@ private fun FilterSheet(
         // the window (smooth even while the panel is still being built), so the panel doesn't move itself.
         DialogWindowMotion(WindowMotion.SideSheet)
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(first)
-        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
-        Box(Modifier.fillMaxSize().dpadGate(), contentAlignment = Alignment.CenterEnd) {
+        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here. The remote's search
+        // button opens Search over the sheet.
+        Box(Modifier.fillMaxSize().dpadGate().searchKeyOpensSearch(), contentAlignment = Alignment.CenterEnd) {
             LazyColumn(
                 state = list,
                 modifier = Modifier

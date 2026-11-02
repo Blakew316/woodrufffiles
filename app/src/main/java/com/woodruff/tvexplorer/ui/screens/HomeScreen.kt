@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -513,22 +514,32 @@ private fun ContinuePanel(
     val firstButton = remember { FocusRequester() }
     val latestRecent by rememberUpdatedState(recent)
     val latestAdded by rememberUpdatedState(added)
-    LaunchedEffect(removing) {
-        snapshotFlow { removing.pending }.collect { tile ->
-            if (tile == null) return@collect
-            withFrameNanos {} // the menu's window gone, the focus back in this one
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    // Where the focus still has to go once a tile is gone: the panel's first button when it was the last thing in it.
+    var emptied by remember { mutableIntStateOf(0) }
+    // A tile chosen to come off Continue watching: the focus moves to its neighbour at once, in this same press
+    // (before the tile goes, so it's never left on nothing), then the tile goes.
+    DisposableEffect(removing) {
+        removing.handOff = { tile ->
             val keys = latestRecent.take(RESUME_TILES).map { it.key } + latestAdded.map { addedKey(it) }
             val at = keys.indexOf(tile.key)
-            val focused = focusedKey[0] == tile.key
-            val next = if (at >= 0) keys.getOrNull(at + 1) ?: keys.getOrNull(at - 1) else null
-            if (focused && next != null) runCatching { requester(next).requestFocus() }
-            removing.hidden += RecentStore.showOf(tile)
-            removing.pending = null
-            if (focused && next == null) {
-                // The panel's empty now: its first button, once it's there.
-                repeat(10) { withFrameNanos {}; if (firstButton.tryFocus()) return@collect }
+            if (focusedKey[0] == tile.key) {
+                val right = keys.getOrNull(at + 1)
+                val left = keys.getOrNull(at - 1)
+                when {
+                    // A neighbour scrolled out of the row isn't composed: the row's own move brings it in.
+                    right != null -> if (!requester(right).tryFocus()) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right)
+                    left != null -> if (!requester(left).tryFocus()) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
+                    else -> emptied++
+                }
             }
         }
+        onDispose { removing.handOff = null }
+    }
+    // The panel emptied under the focus: its first button, once it's there.
+    LaunchedEffect(emptied) {
+        if (emptied == 0) return@LaunchedEffect
+        repeat(10) { withFrameNanos {}; if (firstButton.tryFocus()) return@LaunchedEffect }
     }
     val title = if (recent.isEmpty() && added.isNotEmpty()) "Recently added" else "Continue watching"
     Panel(title, modifier.onFocusChanged { if (!it.hasFocus) onAdded.value = false }, eyebrow = { ContinueEyebrow(onAdded, onlyAdded = recent.isEmpty() && added.isNotEmpty()) }) {
@@ -624,16 +635,22 @@ private fun LazyItemScope.AddedPoster(
 }
 
 /**
- * Continue watching tiles being taken off from their menu (title-access §4.2): [pending], the one chosen, until
- * the focus has moved off it; then its show is [hidden] until a fresh read of Continue watching leaves it out.
+ * Continue watching tiles being taken off from their menu (title-access §4.2): the focus moves to the tile's
+ * neighbour first ([handOff], set by the panel while it's on screen), then its show is [hidden] until a fresh
+ * read of Continue watching leaves it out.
  */
 @androidx.compose.runtime.Stable
 internal class RemovedTiles {
-    var pending by mutableStateOf<RecentItem?>(null)
     val hidden = androidx.compose.runtime.mutableStateListOf<String>()
 
-    /** [tile] was chosen to come off. */
-    fun start(tile: RecentItem) { pending = tile }
+    /** Moves the focus off a tile that's about to go, to its neighbour; main thread. */
+    internal var handOff: ((RecentItem) -> Unit)? = null
+
+    /** [tile] was chosen to come off: in the same press, before anything is written. Main thread. */
+    fun start(tile: RecentItem) {
+        handOff?.invoke(tile)
+        hidden += RecentStore.showOf(tile)
+    }
 }
 
 @Composable

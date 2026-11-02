@@ -55,6 +55,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -198,6 +199,18 @@ internal object SearchVoice {
     fun intent(): Intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         .putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a movie or show")
+}
+
+/**
+ * The remote's search (or voice) button pressed in one of Woodruff's own pop-up windows (a title page, the filter
+ * sheet), whose keys never reach the activity: Search opens over it, as from a screen ([SearchPages.searchKey]).
+ * Only those two keys are taken, and only when nothing inside used them.
+ */
+internal fun Modifier.searchKeyOpensSearch(): Modifier = onKeyEvent { e ->
+    val code = e.nativeKeyEvent.keyCode
+    if (code != NativeKeyEvent.KEYCODE_SEARCH && code != NativeKeyEvent.KEYCODE_VOICE_ASSIST) return@onKeyEvent false
+    if (e.nativeKeyEvent.action == NativeKeyEvent.ACTION_UP) SearchPages.searchKey()
+    true
 }
 
 /** The box the phone's keyboard types into while Search is up (as the phone shows it). */
