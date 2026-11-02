@@ -10,7 +10,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
@@ -37,6 +37,8 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class SearchScreenTest {
+    // The rule's second version: an effect goes on on the main thread after its work elsewhere (the search runs
+    // off it), as on a TV. SearchResultsThreadTest keeps the first, to catch work done from that other thread.
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
     private fun film(id: String, title: String, year: Int, rating: Double) =
