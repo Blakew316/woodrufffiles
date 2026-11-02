@@ -23,6 +23,12 @@ object ListingCache {
         return File(dir(c), key.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json")
     }
 
+    /**
+     * When [place]'s listing was last saved (its file's time; 0 when none is saved), without reading
+     * it: the phone's Watch tab keeps the listing it read until this changes.
+     */
+    fun savedAt(c: Context, place: DrivePlace): Long = runCatching { file(c, place)?.lastModified() ?: 0L }.getOrDefault(0L)
+
     // Synchronized: a listing that's still being saved (from a load that was since replaced) and the
     // next one would otherwise write the same temporary file at once.
     @Synchronized
