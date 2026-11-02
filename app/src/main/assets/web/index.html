@@ -312,6 +312,8 @@
   .tvbar.on i { background:var(--tint); }
   /* Settings › TVs: a TV that needs attention gets a fourth line, in amber, saying what. */
   .att-l { font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--attention); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* A message under Settings › This Phone: its title, up to two lines of its words, and who sent it when. */
+  .row.msg .meta { margin-top:2px; font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   /* ---- A TV's page (Settings › TVs › a TV): its screen, controls and health ------------------------------ */
   #tvp-now { padding:12px; }
@@ -830,7 +832,7 @@
   .banner img { width:38px; height:38px; border-radius:9px; flex:none; }
   .banner small { display:block; font-size:13px; line-height:16px; letter-spacing:-.08px; color:var(--label2); }
   .banner b { display:block; font-weight:600; font-size:15px; line-height:20px; letter-spacing:-.23px; }
-  .banner .s { white-space:normal; }
+  .banner .s { white-space:normal; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; }   /* the whole message is in Settings › This Phone */
 
   /* ---- Content that changes: nothing pops (the script's morph, dissolve and swap) -------------------- */
   /* What went away fades out where it was as a copy (.ghost); a group (an inset card) that grows or shrinks lends
@@ -1062,6 +1064,11 @@
       <button class="row tap" id="p-ntfy" data-page="set-ntfy" hidden><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button>
     </div>
     <p class="foot">Announcements reach the Lock Screen through the free ntfy app.</p>
+    <div id="p-msgs-sec" hidden>
+      <div class="head">Recent Messages</div>
+      <div class="group" id="p-msgs"></div>
+      <p class="foot">Messages to this phone stay here for a week.</p>
+    </div>
   </div></div>
 
   <div class="page" id="set-ntfy" data-title="How to Set Up"><div class="scroller">
@@ -5097,6 +5104,7 @@
     setHidden($('p-ntfy'), !ntfy);   // How to Set Up (ntfy)
     setText($('p-topic'), device.topic || '');
     setHidden($('name-me'), !!device.name);
+    setHidden($('p-msgs-sec'), !device.name);   // (a phone without a name gets no messages)
     swapText($('me-name'), device.name || 'Name This Phone');
     $('me-name').classList.toggle('act', !device.name);
     swapText($('me-sub'), device.name ? 'This phone · Lock-screen alerts ' + (device.alerts ? 'on' : 'off') : 'So it can get announcements too');
@@ -5121,14 +5129,37 @@
     var b = $('alert');
     function set() { b._link = /^#[a-z]/.test(m.link || '') ? m.link : null; setText($('alert-from'), 'From ' + (m.from || 'the TV')); setText($('alert-title'), m.title); setText($('alert-body'), m.body || ''); }
     if (!b.classList.contains('show')) { set(); overlay(b, true, LOOK.banner, spring(0.5, 0.8)); }
-    else swap(b, bannerTf, set);   // another one while it's up: the new one takes its place
-    clearTimeout(showAlert.h); showAlert.h = setTimeout(hideAlert, 8000);
+    else swap(b, bannerTf, set);   // the next one while it's up: the new one takes its place
+    alertTimer(alerts.length ? 5000 : 8000);
   }
   function hideAlert(v, from, lead) { if ($('alert').classList.contains('show')) overlay($('alert'), false, LOOK.banner, spring(0.35, 1, v || 0), from, null, lead); }
+  // Messages that arrive together show one after another (finding 43): each for 5 s while others wait, the last for
+  // 8 s. Four or more waiting at once become one banner ("4 new messages", the newest titles), whose tap opens them
+  // all under Settings › This Phone.
+  var alerts = [];
+  function queueAlerts(list) {
+    alerts = alerts.concat(list);
+    if (alerts.length > 3) alerts = [summaryAlert(alerts)];
+    var b = $('alert');
+    if (!b.classList.contains('show')) return nextAlert();
+    if (!b._held && showAlert.until - Date.now() > 5000) alertTimer(5000);   // the one up makes way sooner
+  }
+  function nextAlert() { var m = alerts.shift(); if (m) showAlert(m); }
+  function alertTimer(ms) { clearTimeout(showAlert.h); showAlert.h = setTimeout(alertDone, ms); showAlert.until = Date.now() + ms; }
+  function alertDone() { if (alerts.length) nextAlert(); else hideAlert(); }
+  // After one is put away (swiped up, or tapped), the next comes once it has gone.
+  function alertAfter() { if (alerts.length) setTimeout(function () { if (!$('alert').classList.contains('show')) nextAlert(); }, 450); }
+  function summaryAlert(list) {
+    var all = [].concat.apply([], list.map(function (m) { return m.items || [m]; }));
+    var from = all.map(function (m) { return m.from || 'the TV'; }).filter(function (f, i, a) { return a.indexOf(f) === i; });
+    return { items: all, title: all.length + ' new messages', link: '#settings/phone',
+      body: all.slice(-3).reverse().map(function (m) { return m.title; }).join(' · '),
+      from: from.length === 1 ? from[0] : from.length === 2 ? from[0] + ' and ' + from[1] : from[0] + ' and ' + (from.length - 1) + ' others' };
+  }
   // A tap puts it away and opens its link, over whatever was open; a swipe up only puts it away.
   $('alert').onclick = function () {
     var link = $('alert')._link;
-    hideAlert();
+    hideAlert(); alertAfter();
     if (!link) return;
     if (menuOpen) closeMenu(); if (dialogOpen) closeDialog(); if (sheetOpen) closeSheet(); if (TS.open) closeTs();
     if (SI.open) closeSignIn(); if (screenOpen) closeScreen(); if (kbOpen) closeKb(); if (mv.open) closeViewer();
@@ -5143,7 +5174,7 @@
     b.addEventListener('touchstart', function (e) {
       if (!b.classList.contains('show')) return;
       var y0 = 0; if (b._ov) { y0 = new DOMMatrix(getComputedStyle(b).transform).m42; b._ov.cancel(); b._ov = null; b.style.transform = 'translate3d(0,' + y0 + 'px,0)'; }
-      d = { y: e.touches[0].clientY - y0, dy: y0, pts: [] }; clearTimeout(showAlert.h);
+      d = { y: e.touches[0].clientY - y0, dy: y0, pts: [] }; clearTimeout(showAlert.h); b._held = true;
     }, { passive: true });
     b.addEventListener('touchmove', function (e) {
       if (!d) return;
@@ -5151,13 +5182,13 @@
       b.style.transform = 'translate3d(0,' + y(d.dy).toFixed(1) + 'px,0)';
     }, { passive: true });
     function end(e) {
-      if (!d) return; var g = d; d = null;
+      if (!d) return; var g = d; d = null; b._held = false;
       var v = 0; if (g.pts.length > 1) { var p = g.pts[0], q = g.pts[g.pts.length - 1]; v = (q[1] - p[1]) / Math.max(1, q[0] - p[0]); }   // px per ms
       var from = { transform: 'translateY(' + y(g.dy).toFixed(1) + 'px)', opacity: 1 }, lead = since(g.pts, e.timeStamp);
       b.style.transform = '';
-      if (Math.abs(g.dy) < 4 && g.pts.length < 2) { showAlert.h = setTimeout(hideAlert, 8000); return; }   // a tap: its click puts it away
-      if (g.dy < -b.offsetHeight / 3 || v < -0.3) hideAlert(-v * 1000 / Math.max(40, b.offsetHeight + 30 + g.dy), from, lead);
-      else { overlay(b, true, LOOK.banner, spring(0.4, 0.75, 0), from, null, lead); showAlert.h = setTimeout(hideAlert, 8000); }
+      if (Math.abs(g.dy) < 4 && g.pts.length < 2) { alertTimer(alerts.length ? 5000 : 8000); return; }   // a tap: its click puts it away
+      if (g.dy < -b.offsetHeight / 3 || v < -0.3) { hideAlert(-v * 1000 / Math.max(40, b.offsetHeight + 30 + g.dy), from, lead); alertAfter(); }
+      else { overlay(b, true, LOOK.banner, spring(0.4, 0.75, 0), from, null, lead); alertTimer(alerts.length ? 5000 : 8000); }
     }
     b.addEventListener('touchend', end, { passive: true }); b.addEventListener('touchcancel', end, { passive: true });
   })();
@@ -5170,9 +5201,58 @@
     store('woodruff.seen', JSON.stringify(seenIds));
     return true;
   }
+  // The TV keeps this phone's messages (the last 20 of the last week), numbered in turn, and never takes them
+  // (finding 43): every 5 s while the app is open it's asked for those after the last one this phone has ("after",
+  // kept with the name of the TV's inbox, so a TV reinstalled since starts again from its first), so a reply lost on
+  // the way just comes again, and a TV that restarted for an update still has them. Each goes on a banner and stays
+  // under Settings › This Phone for a week.
+  var INBOX_KEY = 'woodruff.inbox', MSGS_KEY = 'woodruff.messages', MSG_KEEP = 7 * 864e5, inbox = { epoch: '', after: 0, busy: false };
+  try { (function (s) { inbox.epoch = String(s.epoch || ''); inbox.after = +s.after || 0; })(JSON.parse(stored(INBOX_KEY) || '{}')); } catch (e) {}
+  var messages = (function () { try { var a = JSON.parse(stored(MSGS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
   function checkInbox() {
-    if (!device.name || document.hidden) return;
-    api('/api/inbox?id=' + q(device.id)).then(function (d) { d.messages.forEach(function (m) { if (firstSight(m.id)) showAlert(m); }); }, function () {});
+    if (!device.name || document.hidden || inbox.busy) return;
+    inbox.busy = true;   // (one ask at a time: two at once would bring the same messages)
+    api('/api/inbox?id=' + q(device.id) + '&after=' + inbox.after + '&epoch=' + q(inbox.epoch), null, 10000).then(function (d) {
+      if (d.epoch && d.epoch !== inbox.epoch) { inbox.epoch = d.epoch; inbox.after = 0; }
+      var fresh = (d.messages || []).filter(function (m) { return (m.seq || 0) > inbox.after; });
+      inbox.after = Math.max(inbox.after, d.seq || 0);
+      store(INBOX_KEY, JSON.stringify({ epoch: inbox.epoch, after: inbox.after }));
+      fresh = fresh.filter(function (m) { return firstSight(m.id); });
+      if (fresh.length) { keepMessages(fresh); queueAlerts(fresh); }
+    }, function () {}).then(function () { inbox.busy = false; });
+  }
+  // This phone's last 20 messages of the week, newest first (Settings › This Phone).
+  function keepMessages(list) {
+    var now = Date.now();
+    messages = list.slice().reverse().map(function (m) {
+      return { seq: m.seq || 0, title: m.title || '', body: m.body || '', from: m.from || '', at: m.at || now, link: /^#[a-z]/.test(m.link || '') ? m.link : null };
+    }).concat(messages).filter(function (m) { return now - m.at < MSG_KEEP; }).slice(0, 20);
+    store(MSGS_KEY, JSON.stringify(messages));
+    renderMessages();
+  }
+  // soon: the page is on its way in (drawn at once, not glided).
+  function renderMessages(soon) {
+    var box = $('p-msgs'), now = Date.now(), list = messages.filter(function (m) { return now - m.at < MSG_KEEP; });
+    // Drawn again only when a message came or went, or a minute has passed ("3 min ago" moves on).
+    var k = list.map(function (m) { return m.seq + '.' + m.at; }).join() + '|' + Math.floor(now / 6e4);
+    if (k === renderMessages.k) return;
+    renderMessages.k = k;
+    function fill() {
+      box.textContent = ''; box.classList.toggle('is-empty', false);
+      if (!list.length) { box.appendChild(el('div', 'empty', 'No messages this week')).dataset.k = 'm-none'; return; }
+      list.forEach(function (m) {
+        // One with a link (a sign-in that ended: that TV's page) opens it; the rest are to read.
+        var r = el(m.link ? 'button' : 'div', 'row msg' + (m.link ? ' tap' : ''));
+        r.dataset.k = 'm' + m.seq + '.' + m.at;
+        var tx = r.appendChild(el('span', 'txt'));
+        tx.appendChild(el('span', 't', m.title));
+        if (m.body) tx.appendChild(el('span', 's two', m.body));
+        tx.appendChild(el('span', 'meta', 'From ' + (m.from || 'the TV') + ' · ' + ago(m.at)));
+        if (m.link) { r.insertAdjacentHTML('beforeend', I.chev); r.onclick = function () { route(m.link); }; }
+        box.appendChild(r);
+      });
+    }
+    if (soon !== true && current === 'settings' && topOf('settings') === PG['set-phone']) glideTop(fill); else fill();
   }
   setInterval(checkInbox, 5000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); loadSmooth(); loadTvHealth(); tvpFrame(); pollSignIn(); if (current === 'watch') loadHome(); } });
@@ -5328,6 +5408,7 @@
     ['set-share'], ['set-share-help', null, 'set-share'], ['set-crash']].forEach(function (x) {
     adopt('settings', x[0], { actions: x[1], parent: x[2] });
   });
+  PG['set-phone'].o.onShow = function () { renderMessages(true); };   // its Recent Messages, with times as of now
   doc.querySelectorAll('[data-page]').forEach(function (b) { b.onclick = function () { openPage(b.dataset.page, b); }; });
   // Settings' own crash row is this TV's.
   doc.querySelector('#crash-group button').onclick = function () {

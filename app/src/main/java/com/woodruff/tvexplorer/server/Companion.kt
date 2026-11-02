@@ -450,7 +450,12 @@ class CompanionRoutes(private val ctx: Context) {
         }
         s.uri == "/api/phones" && s.method == Method.GET -> json(JSONObject().put("phones", phonesJson()))
         s.uri == "/api/phone/delete" && s.method == Method.POST -> { Phones.remove(ctx, body(s).optString("id")); json(JSONObject().put("phones", phonesJson())) }
-        s.uri == "/api/inbox" && s.method == Method.GET -> json(JSONObject().put("messages", Phones.takeInbox(s.parameters["id"]?.firstOrNull().orEmpty())))
+        // A phone's messages after the last one it has (?after=, with the inbox's ?epoch= it was numbered in), never
+        // taken: one whose reply didn't reach the phone comes again (finding 43). Without ?after=, as before numbers.
+        s.uri == "/api/inbox" && s.method == Method.GET -> json(com.woodruff.tvexplorer.phones.PhoneInbox.since(
+            ctx, s.parameters["id"]?.firstOrNull().orEmpty(),
+            after = s.parameters["after"]?.firstOrNull()?.toLongOrNull(), epoch = s.parameters["epoch"]?.firstOrNull(),
+        ))
         s.uri == "/api/announce" && s.method == Method.POST -> {
             val b = body(s)
             val title = b.optString("title").trim()
