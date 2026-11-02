@@ -182,11 +182,12 @@ internal data class StartWindows(
 }
 
 /**
- * The player's key ("drive:<id>") for the address the player streams a Drive file from
- * (DriveApi.mediaUrl), or null for any other address.
+ * The player's key ("drive:<id>") for the address the player streams a Drive film from
+ * (DriveApi.mediaUrl), or null for any other address. A subtitle file beside a film
+ * ([SidecarLoading.mark]) isn't one: nothing of it is kept, and an edited one is no film "replaced".
  */
 internal fun driveFileKey(uri: Uri): String? {
-    if (!carriesDriveToken(uri.scheme, uri.host, uri.path)) return null
+    if (!carriesDriveToken(uri.scheme, uri.host, uri.path) || SidecarLoading.isMarked(uri)) return null
     val path = uri.pathSegments
     if (path.size != 4 || path[0] != "drive" || path[1] != "v3" || path[2] != "files" || path[3].isBlank()) return null
     if (runCatching { uri.getQueryParameter("alt") }.getOrNull() != "media") return null
