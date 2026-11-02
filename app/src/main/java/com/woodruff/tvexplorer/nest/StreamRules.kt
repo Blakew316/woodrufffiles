@@ -3,8 +3,8 @@ package com.woodruff.tvexplorer.nest
 import com.woodruff.tvexplorer.util.isNetworkFailure
 
 // A camera stream's rules, kept apart from WebRTC and the network so they can be unit-tested: when
-// a picture counts as live, when a stream is stuck and is made again, and how long it waits between
-// tries.
+// a picture counts as live, when a stream is stuck and is made again, how long it waits between
+// tries, and how long it waits for the TV's network addresses before asking Google for a stream.
 // Times are SystemClock.elapsedRealtime() milliseconds (a TV's wall clock can jump after standby).
 
 /** No frame for this long: the picture holds and its views say "Reconnecting…". */
@@ -105,3 +105,76 @@ internal fun troubleSince(status: CameraStream.Status): Long = when (status) {
  * try); and a dropped connection or a stall never stops the session (it ends by itself in a few minutes).
  */
 internal fun stopsOldSession(e: Throwable): Boolean = e !is RateLimited && !isNetworkFailure(e)
+
+// ---- The TV's network addresses -----------------------------------------------------------------
+
+/** How long to wait for a public address after the first local one is found. */
+internal const val LOCAL_GRACE_MS = 500L
+
+/** Never wait longer than this for the TV's network addresses. */
+internal const val ADDRESS_LIMIT_MS = 3_000L
+
+/** Why the wait for the TV's network addresses ended (the smoothness report says). */
+internal enum class AddressesEnd(val words: String) {
+    /** A public address (seen from outside the home network): the one Google needs. */
+    PUBLIC("public"),
+    /** Every network was asked and answered. */
+    ALL("all"),
+    /** Only local addresses after [LOCAL_GRACE_MS]: sent as they are. */
+    LOCAL("local only"),
+    /** [ADDRESS_LIMIT_MS] passed. */
+    LIMIT("3 s limit"),
+}
+
+/**
+ * Waiting for this TV's network addresses (WebRTC's ICE candidates) before the offer goes to Google,
+ * which takes none found later. Waiting for every network to answer could take the full 3 s where
+ * one never does (broken IPv6, some VPN set-ups): so it ends at the first public address, or
+ * [LOCAL_GRACE_MS] after the first local one, or once every network has answered, and never later
+ * than [ADDRESS_LIMIT_MS] after it [begin]s. No network is left out (a VPN on the TV may be the only
+ * way out). Its callbacks come on WebRTC's signaling thread, its checks on the stream's own: synchronized.
+ */
+internal class AddressWait {
+    private var startedAt = -1L
+    private var firstLocalAt = 0L
+
+    /** Why it ended; null while it goes on. */
+    var end: AddressesEnd? = null
+        @Synchronized get
+        private set
+
+    /** Asking for the addresses starts now ([now]). */
+    @Synchronized fun begin(now: Long) {
+        if (startedAt < 0) startedAt = now
+    }
+
+    /** An address of [type] ("host", "srflx"…, from [candidateType]) was found at [now]. */
+    @Synchronized fun found(type: String?, now: Long) {
+        if (end != null) return
+        when (type) {
+            "srflx" -> end = AddressesEnd.PUBLIC
+            "host" -> if (firstLocalAt == 0L) firstLocalAt = now
+        }
+    }
+
+    /** Every network has answered. */
+    @Synchronized fun complete() {
+        if (end == null) end = AddressesEnd.ALL
+    }
+
+    /** How much longer to wait at [now] (0 or less: it's over, and [end] says why). */
+    @Synchronized fun left(now: Long): Long {
+        if (end != null) return 0L
+        val start = if (startedAt < 0) now else startedAt
+        val limit = start + ADDRESS_LIMIT_MS
+        val local = if (firstLocalAt > 0) firstLocalAt + LOCAL_GRACE_MS else Long.MAX_VALUE
+        val left = minOf(limit, local) - now
+        if (left <= 0) end = if (local <= limit) AddressesEnd.LOCAL else AddressesEnd.LIMIT
+        return left
+    }
+}
+
+private val CANDIDATE_TYPE = Regex(" typ ([a-z]+)")
+
+/** The kind of a network address WebRTC found ("host", "srflx", "prflx", "relay"), from its SDP line; null if it doesn't say. */
+internal fun candidateType(sdp: String?): String? = sdp?.let { CANDIDATE_TYPE.find(it)?.groupValues?.get(1) }

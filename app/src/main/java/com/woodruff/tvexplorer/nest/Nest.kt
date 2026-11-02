@@ -165,7 +165,8 @@ object Nest {
     fun open() {
         val s = step()
         _state.update { it.copy(step = s, error = null) }
-        if (s == NestStep.CONNECTED) CameraGl.warm()
+        // Cameras are about to show: their GL thread and WebRTC are made ready in the background.
+        if (s == NestStep.CONNECTED) { CameraGl.warm(); Rtc.warm(app) }
         when (s) {
             NestStep.CONNECTED -> if (_state.value.cameras.isEmpty()) refresh()
             NestStep.SIGN_IN -> startSignIn()
@@ -184,6 +185,7 @@ object Nest {
             _state.update { it.copy(step = s) }
             if (s == NestStep.CONNECTED) {
                 CameraGl.warm()
+                Rtc.warm(app)
                 if (_state.value.cameras.isEmpty() && !_state.value.loading) refresh()
             }
         }
