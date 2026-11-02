@@ -30,13 +30,13 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
     selected on that TV, the keyboard button lights up and a *Type into …* button appears; letters appear on the TV
     as you type and Enter presses Done. This works on a linked TV too (through the TV that serves the app): the
     Keyboard sheet names the TV it types into, and picking another TV starts again on that TV's own text box. In
-    other apps, Play/Pause, volume and Home work; the arrows and OK only work in Woodruff Family (Android doesn't let
-    one app press keys in another). In Woodruff they reach whatever is open on the TV, title pages, menus, the
-    filters and confirmations included (Back closes them), and holding OK opens the menu for what's focused, as
+    other apps, Play/Pause, volume and Home work; the arrows, OK and typing only work in Woodruff Family (Android
+    doesn't let one app press keys in another). In Woodruff they reach whatever is open on the TV, title pages, menus,
+    the filters and confirmations included (Back closes them), and holding OK opens the menu for what's focused, as
     holding OK on the TV's remote does. While one of Android's own screens is up over Woodruff (an install or
-    permission prompt), use the TV's remote: the phone's keys do nothing rather than press Woodruff behind it. If the
-    TV can't be reached, the Remote says so (*Can't Reach Living Room · Check that it's on and this phone is on the
-    same Wi-Fi.*) until it answers again, and no request waits forever.
+    permission prompt), use the TV's remote: the phone's keys and keyboard do nothing rather than press or type into
+    Woodruff behind it. If the TV can't be reached, the Remote says so (*Can't Reach Living Room · Check that it's on
+    and this phone is on the same Wi-Fi.*) until it answers again, and no request waits forever.
   - **Watch**: what's in the Google Drive Movies and TV Shows folders the TVs play from: a billboard of featured
     titles, Continue Watching with progress (tap to resume on the TV), Recently Added, Movies and TV Shows rows with
     See All grids (filters and search), and a Search page across both libraries. Tap a title for its details and, for
@@ -44,10 +44,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
     with *On … ⌄* on a title's page. With more than one TV you can also start *Watch Together on All TVs*. Hold a
     tile for *Start Over*, *Play On…*, *Mark as Watched* and *Remove from Continue Watching*; marks and removals are
     the same ones the TV's own menus make. While the chosen TV plays, a bar above the tabs shows what's on, with
-    −10 s, Play/Pause and +30 s (seeking only where what's playing supports it); tap it for the TV's screen and
-    *Next Episode*. If Woodruff can't come to the front on that TV (another app is open and *Pop-ups over other apps*
-    is off), the phone says *Ready on Den*: the video waits there and starts when Woodruff is opened on that TV
-    within 10 minutes.
+    −10 s, Play/Pause and +30 s; tap it for the TV's screen and *Next Episode*. The skips and *Next Episode* show only
+    where they work: in Woodruff's own player once a film has opened and can jump (*Next Episode* when something is
+    queued after it), and in Netflix, YouTube and other apps where the app allows seeking or skipping. If Woodruff
+    can't come to the front on that TV (another app is open and *Pop-ups over other apps* is off), the phone says
+    *Ready on Den*: the video waits there and starts when Woodruff is opened on that TV within 10 minutes.
   - **Send**: one message box and a **To** row (everyone by default; choose TVs, phones and *Keep on Every TV's
     Home*), then **Photos & Files** (browse the TV's storage, with each drive's free space; play, set as background,
     save to iPhone, upload, and press and hold a folder to use it for the slideshow), **Open a Link** (YouTube, Apple
@@ -64,14 +65,14 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
     TV.
   - **Settings**: this phone (name, lock-screen alerts and the week's *Recent Messages*), **TVs** (each TV with what
     it's playing and how it's doing; tap one for its page, see *TV health* below), **Connections** (Google Drive,
-    posters, cameras, mail, and *Sign In* for this TV's Google sign-ins), weather on Home, **Away From Home** (the
-    Tailscale link) and **Shortcuts** (the links for iPhone Shortcuts).
-- **Library in the side menu**: **Movies** and **TV Shows** open the Drive folders of those names (created by you,
-  anywhere in My Drive, top level preferred) and stream from them. Subtitle files, `.nfo` files and artwork kept beside
-  the videos never show up as titles. **Family Memories** (Photos and Videos) shows what
-  you've added from Google Photos or a phone (saved on the TV), with an **Add from Google Photos** button; what a phone
-  adds or deletes shows up while you're looking, and a photo a phone shows on the TV changes in place, cross-fading. Google Drive and Google Photos
-  settings live in Settings.
+    posters, cameras and mail; this TV's Drive and cameras can be signed in from there), weather on Home, **Away From
+    Home** (the Tailscale link) and **Shortcuts** (the links for iPhone Shortcuts).
+- **Library in the side menu**: **Streaming** has **Movies** and **TV Shows** (switched at the top): the Drive folders
+  of those names (created by you, anywhere in My Drive, top level preferred), streamed from there. Subtitle files,
+  `.nfo` files and artwork kept beside the videos never show up as titles. **Family Memories** (Photos and Videos)
+  shows what you've added from Google Photos (Settings → Accounts → Google Photos) or a phone, saved on the TV; what a
+  phone adds or deletes shows up while you're looking, and a photo a phone shows on the TV changes in place,
+  cross-fading. Google Drive and Google Photos settings live in Settings.
 - **Filters**: Movies and TV Shows can be sorted (A–Z, recently added, newest, top rated) and narrowed by decade and
   genre, and their search field opens Search (below). Titles and years come from the file names ("The.Matrix.1999.
   1080p.mkv" shows as *The Matrix (1999)*); genres and ratings come from TMDB when a key is set. *Show → Unwatched*
@@ -97,45 +98,49 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   by itself: Settings → TVs & phones → *Start when the TV turns on*.
 - **Several TVs**: install Woodruff Family on each TV and give each a name (Settings → TVs & phones → This TV's name).
   On the TV you'll watch from (the hub), choose **Add another TV** (Settings → TVs & phones → Other TVs), pick the other
-  TV from the list (by name) and type the 6-digit code it shows under **Link this TV to another**. The hub's Command
-  center and the phone's Settings → TVs then list every TV with what's playing, and the phone can see and control any
-  of them. Linked TVs share their keys (TMDB, Google's Client ID and secret, the cameras project; also the
+  TV from the list (by name) and type the 6-digit code it shows under **Link this TV to another**. The hub's Home
+  (its *TVs* panel) and the phone's Settings → TVs then list every TV with what's playing, and the phone can see and
+  control any of them. Linked TVs share their keys (TMDB, Google's Client ID and secret, the cameras project; also the
   doorbell's subscription and the person/motion choice): enter them on one and every TV gets them (see
-  [Keys are entered once](#keys-are-entered-once)). Woodruff's own player is
-  always reported; to also see Netflix, YouTube and other apps, turn on **See what other apps are playing** on
-  each TV (Notification access; Settings shows an adb command for TVs that hide that setting). If the router gives a
-  TV a new address, the others find it again by themselves within a few minutes. The phone's TV list answers at once:
-  a sleeping TV shows as it was last seen, then as off. A TV that was reset or reinstalled shows *Link again* instead
-  of staying on the hub as a ghost: on that TV open Settings → TVs & phones → Other TVs → **Link this TV to another**,
-  then choose *Link Again* on the phone or the hub TV and type the code; its old entry is replaced.
-- **Notes** (side menu): pinned and recent notes, written on the TV.
-- **Announcements**: each phone gets a name ("Kitchen iPad"). From the TV (Notifications → Announce) or a phone,
-  pick who gets it. Phones that turned on *Lock-screen alerts* get a real notification through the free
-  [ntfy](https://ntfy.sh) app. The others see it whenever Woodruff is open: each TV keeps every phone's messages (the
-  last 20 of the last week) on its own storage, so an automatic update or a lost reply never loses one. Messages that
-  arrive together show one after another, four or more as one banner (*4 new messages*), and the week's messages stay
-  under Settings → This Phone → *Recent Messages*. The phone's *TV screen* switch shows it on
-  every linked TV, over whatever is playing, with a soft chime; the TV's Announce dialog picks phones, *This TV* and each
-  linked TV. A TV that's off is skipped without holding anyone up.
-- **Screensaver and background**: any photo can be the app background, and a photo slideshow (with a clock) can run
-  from Home, after a few minutes without a key pressed anywhere in Woodruff (it waits while a Google Photos pick or a
-  copy is under way), or as the TV's own screensaver (Settings → Screensaver). Coming back from it,
-  posters show at once.
-- **Light on the TV**: ten minutes after Woodruff leaves the screen (another app, the TV's home or screensaver,
-  standby), or at once if Android says memory is short, it gives back the memory it kept for scrolling back and the
-  phone picture's buffers, and the camera tiles' graphics too if the screen you left shows no cameras, so the TV's
-  other apps have more room. The screen you left still comes back exactly as it was.
-- **Command center**: live Google Home / Nest cameras and doorbells (WebRTC, so the newest models work). Either
-  cameras only or "all on one" next to the clock, notifications and notes. Select a camera for full screen with sound,
-  Left/Right flips between cameras. Setup is [below](#connect-google-home-cameras).
-- **Home dashboard**: one screen that shows everything at a glance. *Continue watching* shows the latest video
-  large and the rest as square tiles, each with a play button, one click to resume; *TVs* switches between the family's linked TVs to show what's on each, with a live picture; *Cameras*
-  plays the first four cameras live on their own (only while Woodruff is on screen; Settings → Appearance →
-  *Cameras on Home* turns this off per TV), and opens one full screen; *At a glance* has the next calendar
-  event, the latest notifications and a pinned note. Setup (iCloud, storage, apps, browse by type) lives in Settings.
+  [Keys are entered once](#keys-are-entered-once)). Woodruff's own player is always reported; to also see Netflix,
+  YouTube and other apps, turn on **See what other apps are playing** (Settings → Advanced) on each TV (Notification
+  access; Settings shows an adb command for TVs that hide that setting). If the router gives a TV a new address, the
+  others find it again by themselves within a few minutes. The phone's TV list answers at once: a sleeping TV shows as
+  it was last seen, then as off. A TV that was reset or reinstalled shows *Link again* instead of staying on the hub
+  as a ghost: on that TV open Settings → TVs & phones → Other TVs → **Link this TV to another**, then choose *Link
+  again* on the hub TV (*Link Again* on the phone) and type the code; its old entry is replaced.
+- **Notes** (Command Center → Notes): pinned and recent notes, written on the TV.
+- **Announcements**: each phone gets a name ("Kitchen iPad"). From the TV (Command Center → Notifications →
+  Announce) or a phone, pick who gets it. Phones that turned on *Lock-Screen Alerts* get a real notification through
+  the free [ntfy](https://ntfy.sh) app. The others see it whenever the phone app is open: each TV keeps every phone's
+  messages (the last 20 of the last week) on its own storage, so an automatic update or a lost reply never loses one.
+  In the phone app, messages that arrive together show one after another, four or more as one banner (*4 new
+  messages*), and the week's messages stay under Settings → This Phone → *Recent Messages*. The phone's *All TVs*
+  switch (under **To**) shows it on every linked TV, over whatever is playing, with a soft chime; the TV's Announce
+  dialog picks phones, *This TV* and each linked TV. A TV that's off is skipped without holding anyone up.
+- **Screensaver and background**: any photo can be the app background, and a photo slideshow (with a clock) can
+  start after a few minutes without a key pressed anywhere in Woodruff (Settings → Screensaver → *Start when idle*; it
+  waits while a Google Photos pick or a copy is under way), or run as the TV's own screensaver (*Use as the TV's
+  screensaver* there). Leaving Woodruff with Home ends its slideshow, so Woodruff reopens on the screen under it.
+  Coming back from it, posters show at once.
+- **Light on the TV**: camera tiles let go of their camera and graphics as soon as their screen goes. Ten minutes
+  after Woodruff leaves the screen (another app, the TV's home or screensaver, standby), or at once if Android says
+  memory is short, it gives back the memory it kept for scrolling back, the phone picture's buffers and the camera
+  tiles' graphics thread, so the TV's other apps have more room. The screen you left still comes back exactly as it was.
+- **Command center**: live Google Home / Nest cameras and doorbells (WebRTC, so the newest models work), either on
+  their own (*Cameras only*) or *All on one*, beside the latest notifications. Select a camera for full screen with
+  sound, Left/Right flips between cameras. Its other tabs are Mail, Notifications and Notes. Setup is
+  [below](#connect-google-home-cameras).
+- **Home dashboard**: one screen that shows everything at a glance. *Continue watching* shows what's in progress as
+  posters, newest first, each showing how far through it is, one click to resume; *TVs* switches between the family's
+  linked TVs to show what's on each, with a live picture; *Cameras* plays the first four cameras live on their own
+  (only while Woodruff is on screen; Settings → Appearance → *Cameras on Home* turns this off per TV), and opens one
+  full screen; *At a glance* has the next calendar event, the latest notifications and a pinned note. Setup (iCloud,
+  storage, apps, browse by type) lives in Settings.
 
-  An iPhone **Shortcut** can POST to `/api/notify?k=…&tvs=all` (the URL is shown on that tab) for automations like "when
-  I get home". `tvs` can also be `this` or TV names, comma-separated; links copied before this version reach only that TV.
+  An iPhone **Shortcut** can POST to `/api/notify?k=…&tvs=all` (the phone app's Settings → Shortcuts → *Copy
+  Announcement Link* copies it) for automations like "When I get home". `tvs` can also be `this` or TV names,
+  comma-separated; links copied before this version reach only that TV.
 - **Player controls**, laid out like tvOS: what's playing at the bottom left (the show and *S2, E5* small above the
   episode's name), three small round buttons tucked at the far right (Subtitles, Audio, and **…** for speed, the next
   episode, sleep timer and intro) and a thin scrub bar with the time played and the time left. Play, pause, Next and
@@ -164,7 +169,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   themselves for foreign speech (full subtitles before SDH or signs-only ones). Woodruff learns them from the Drive
   folders it lists anyway (a library, a title page, a season) and keeps that list on the TV, so a film whose folder
   this TV has never opened plays without them until its title page or folder has been opened once. Subtitle files
-  saved in Windows' Western encoding keep their accents, and a missing or broken one never stops the film.
+  saved in Windows' Western encoding keep their accents, one that fails to load for a moment is tried again, and a
+  missing or broken one never stops the film.
 
   Text subtitles look like Apple TV's: white Inter SemiBold letters with a thin dark outline and no boxes. When the
   TV's own caption settings are on (Accessibility → Captions), they decide instead. Choose *Small*, *Standard* or
@@ -196,12 +202,12 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **TV health** (the first row in Settings): its value says *All good* or how many TVs need attention (in amber). It
   opens the house's TVs, each marked *All good*, *Needs attention*, *Off · seen 2 h ago* or *Link again*. Each TV opens
   its report: sign-ins (Google Drive, Photos, Calendar, cameras) and doorbell alerts, version and updates (including an
-  update that didn't install and why), whether Woodruff may install updates, the last crash, why Android last closed
-  Woodruff (Android 11 and newer), free space, and which keys are saved (never their values). Anything that needs
-  attention is amber and says how to fix it. *Check for updates*, *Link again* and *Unlink* are at the bottom of a TV's
-  report. On the phone it's Settings → TVs → tap a TV: a still frame of its screen (tap it for the live picture),
-  Play/Pause for what it plays, *All Good* or what needs attention, and the same report, with *Check for Updates* and
-  *Copy Health Report* (text, with no addresses).
+  update that didn't install and why), whether Woodruff may install updates and pop up over other apps, the last
+  crash, why Android last closed Woodruff (Android 11 and newer), free space, and which keys are saved (never their
+  values). Anything that needs attention is amber and says how to fix it. *Check for updates*, *Link again* and
+  *Unlink this TV* are at the bottom of a TV's report. On the phone it's Settings → TVs → tap a TV: a still frame of
+  its screen (tap it for the live picture), the controls for what it plays, *All Good* or what needs attention, and the
+  same report, with *Check for Updates* and *Copy Health Report* (text, with no addresses).
 - **Share to TV from iPhone**: phone app → Settings → *Shortcuts* copies a link for a "Send to TV" Shortcut in the
   share sheet (steps are on that screen). Links open on the TV (YouTube and Apple Music in their apps); text
   shows up as a message.
@@ -240,18 +246,20 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   *Episodes will show when the TV is back online.* and loads by itself when the network returns.
 - **Title menu**: hold OK (or press Menu) on any film or show (Home, Streaming's rows, grid and banner, a title page's
   rows, Search) for one short menu. It offers the title page's own main action (*Play* / *Resume S2 E4*), then
-  *Start over*, *Episodes* / *Details* (Home's resume tiles), *Watch together* (linked TVs), *Mark as watched* (or
-  unwatched), *Download* and *Remove from Continue watching*. Episodes on a show's page have the same kind of menu
-  (*Resume from 40m*, *Play from the start*, *Watch together*, *Mark as watched*), and holding OK on a season's tab
-  offers *Mark season as watched* (or unwatched). Play/Pause on a focused title plays it straight away.
-- **Watch together**: *Watch together* in the title menu (with TVs linked) starts that Google Drive video on every
-  linked TV from the same spot. The TV that started it leads: pausing, seeking and
-  its position keep the others in step (re-synced when more than 2 seconds apart).
+  *Start over*, *Episodes* / *Details* (Home's resume tiles), *Watch together on all TVs* (linked TVs), *Mark as
+  watched* (or unwatched), *Download to this TV* and *Remove from Continue watching*. Episodes on a show's page have
+  the same kind of menu (*Resume from 40m*, *Play from the start*, *Watch together on all TVs*, *Mark as watched*),
+  and holding OK on a season's tab offers *Mark season as watched* (or unwatched). Play/Pause on a focused title plays
+  it straight away.
+- **Watch together**: *Watch together on all TVs* in the title menu (with TVs linked) starts that Google Drive video
+  on every linked TV from the same spot. The TV that started it leads: pausing, seeking and its position keep the
+  others in step (re-synced when more than 2 seconds apart).
 - **Search**: the first item in the side menu. The remote's search (or mic) button, on TVs that pass it to apps,
-  opens it from any screen, title page or menu and starts listening where the TV can; pressed again while Search is
-  open, it listens again. Streaming's search field (*Search Movies & TV Shows*) opens the same page. One search covers
-  Movies and TV Shows, and a four-digit year ("2024") also finds titles released that year. Type on Woodruff's own
-  keys, a real keyboard, the phone's keyboard (Remote → keyboard; Enter jumps to the first result), or by voice.
+  opens it from any screen, title page or menu (the player, photo viewer and slideshow leave it to the TV) and starts
+  listening where the TV can; pressed again while Search is open, it listens again. Streaming's search field (*Search
+  Movies & TV Shows*) opens the same page. One search covers Movies and TV Shows, and a four-digit year ("2024") also
+  finds titles released that year. Type on Woodruff's own keys, a real keyboard, the phone's keyboard (Remote →
+  keyboard; Enter jumps to the first result), or by voice.
   Results are posters that open the title page; Back returns to the result, and Back again returns to the keys.
   Offline, it searches the saved library. If Google Drive isn't set up, its sign-in has ended or the Google keys are
   refused, Search says so and offers the one button that fixes it.
@@ -277,11 +285,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   photo slideshow and (with *Pop-ups over other apps* allowed) Woodruff's screensaver, the doorbell's camera opens
   full screen with its sound and says when it rang (*RANG AT 7:42 PM*). Back returns to what was showing, exactly as
   it was; with no key pressed for 2 minutes the camera closes by itself. During a film in Woodruff's player a card at
-  the top right says *Someone's at the door · OK to look* for 20 s: OK shows the camera live with sound (Left/Right
-  for the others), and Back returns to the film. Over other apps it's a card for 25 s. One visitor rings once: a
-  battery doorbell's follow-up message about the same visit doesn't ring again, and two doorbells ringing at once
-  open one camera view (the second switches it), so one press of Back closes it. Each TV asks Google again as soon as
-  a check comes back empty, so a ring shows within seconds.
+  the top right says *Someone's at the door*, with the camera's name and *OK to look* under it, for 20 s: OK shows
+  the camera live with sound (Left/Right for the others), and Back returns to the film. Over other apps it's a card
+  for 25 s. One visitor rings once: a battery doorbell's follow-up message about the same visit doesn't ring again,
+  and two doorbells ringing at once open one camera view (the second switches it), so one press of Back closes it.
+  Each TV asks Google again as soon as a check comes back empty, so a ring shows within seconds.
 
   Google only announces rings through Cloud Pub/Sub: turn on Pub/Sub for the Device Access project, create a pull
   subscription to its topic in Google Cloud, and enter the subscription's full name in the phone app (Settings →
@@ -317,10 +325,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   it, and a show another TV went on with plays its next episode.
   Videos from the TV's own storage show a still from the video, made once and kept on the TV.
 - **iCloud**: iCloud Mail works through Mail (Apple supports IMAP with an app-specific password).
-  iCloud Drive has no supported sign-in for Android apps, so files come from the iPhone through **Phone → Files → Upload → Browse**.
+  iCloud Drive has no supported sign-in for Android apps, so files come from the iPhone through the phone app: Send →
+  **Photos & Files** → **+** → *Upload Photos or Files*, then iCloud Drive in the iPhone's picker.
 
 - **Browse everything**: internal storage, SD cards and USB drives. The list refreshes when a drive is plugged in.
-- **Browse by type** (Settings → Storage & apps): Videos, Music, Pictures, Documents, APK files, Archives and Downloads, across all drives.
+- **Browse by type** (Settings → Storage & apps): Videos, Music, Photos, Documents, APK files, Archives and Downloads, across all drives.
 - **File operations**: copy, move, rename, delete, new folder, zip and unzip. Multi-select works with the remote.
   Large copies show progress and can be cancelled. Existing files are never overwritten (the copy is named `name (1).ext` instead).
 - **Built-in player and viewer**: videos and music play in a Media3 (ExoPlayer) player, and photos open in a viewer with a slideshow.
@@ -331,7 +340,7 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **App manager**: launch apps, back up an APK to `Download/Woodruff Family/Apps`, open App info, or uninstall.
 - **Send files**: start a small web server on the TV, then scan the QR code with your phone or open the URL on a computer.
   You can drag and drop uploads (streamed straight to disk, so they can go to a USB drive), download, create folders and delete.
-- **Light or dark mode**: switch it at the bottom of the side menu (Display → Light mode); the choice is remembered.
+- **Light or dark mode**: Settings → Appearance → *Theme*; the choice is remembered.
 - **TV-first navigation**: a slim icon menu on the left that slides open over the screen when you move onto it (so
   screens like the Home dashboard use nearly the full width), large focus targets, and Back always does the expected thing.
   Coming back to a folder puts you on the item you left. Long-press OK or the Menu key opens the action menu.
@@ -348,23 +357,25 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 | Photo viewer | OK / Play | Start or stop the slideshow |
 | Any film or show | Hold OK / Menu | The title menu: Play or Resume, Start over, Watch together, Mark as watched… |
 | Any film or show | Play/Pause | Play it straight away |
-| Anywhere | Search (or mic) | Open Search and listen (on TVs that pass the button to apps) |
+| Any screen, title page or menu | Search (or mic) | Open Search and listen (on TVs that pass the button to apps); pressed again in Search, listen again |
 | Movies, TV Shows, Family Memories | Back | From far down a long list, glide back to the top first (the banner's Play, or the first poster or photo). Back again opens the side menu. A quick double Back goes straight to the side menu. Inside a show's folders or a sub-folder, Back goes up a folder. |
-| Anywhere | Home, then Woodruff from the TV's app row | Back where you were: a film you were watching is still there, paused at its spot with the controls up, even if the TV closed Woodruff meanwhile to free memory; any screen is as you left it. |
-| Home's side menu | Back | Leave Woodruff, keeping everything as it was, so it reopens at once (on Android 9–11 too). |
+| Anywhere | Home, then Woodruff from the TV's app row | Back where you were: a film you were watching is still there, paused at its spot with the controls up (or where another TV has got to since), even if the TV closed Woodruff meanwhile to free memory; any screen is as you left it (Woodruff's slideshow ends with Home). |
+| Home's side menu | Back | Leave Woodruff, keeping everything as it was, so it reopens at once (on Android 11 and older too). |
 
 ## Automatic updates
 
 Woodruff checks this project's releases every hour (and each time it opens, at most every 10 minutes), downloads a newer version
 and installs it with Android's package installer (which only accepts an update signed with the same key). A check that
 finds nothing new costs almost nothing: Woodruff asks GitHub whether the list of releases changed since its last look.
+GitHub's API allows the whole home 60 requests an hour; when GitHub says to wait, no check on that TV asks again
+before the time it gives, and Settings → Updates says so (*GitHub is busy · checking again at 9:40 PM*).
 
 - **Never under someone using it**: on Android 12 and newer, updates install by themselves as soon as nobody is using
-  Woodruff: nothing playing in it, no key pressed anywhere in it for 2 minutes (title pages, menus, filters, search,
-  the player, the photo viewer, the slideshow and the phone's remote all count), nothing under way that a restart
-  would cut short (a copy to a USB drive, a Google Drive download, a Google Photos pick, a file coming from or going to
-  the phone), and a paused film left alone for half an hour. With the TV's screen off nobody counts as watching,
-  though a film that's playing is never interrupted.
+  Woodruff: nothing playing in it, the doorbell's camera not up, no key pressed anywhere in it for 2 minutes (title
+  pages, menus, filters, search, the player, the photo viewer, the slideshow and the phone's remote all count),
+  nothing under way that a restart would cut short (a copy to a USB drive, a Google Drive download, a Google Photos
+  pick, a file coming from or going to the phone), and a paused film left alone for half an hour. With the TV's screen
+  off nobody counts as watching, though a film that's playing is never interrupted.
 - **Back where it was**: Woodruff then opens straight back into what was showing: its slideshow, the Command Center
   (with the same camera full screen), the same photo in the photo viewer, the film paused at its spot with the
   controls up (Back goes to the screen it was started from), or the screen that was up (Streaming in the same library
@@ -395,7 +406,8 @@ finds nothing new costs almost nothing: Woodruff asks GitHub whether the list of
 - **Test TV** (Settings → Updates): turn it on for one TV. That TV installs each new version as soon as it's out.
   Every other TV only installs a version that was the newest for a whole day, however often new versions come: a run
   of releases only makes them wait longer, and a version that had to be replaced within its first day never reaches
-  them. They go by release times, so this works best with the test TV in use. *Check for updates* skips the wait.
+  them. They go by release times, so this works best with the test TV in use. *Check for updates* in a TV's own
+  Settings skips the wait; one asked for from the phone or another TV looks at once but still waits for the day.
 - **Undo a bad update**: Android won't install an older version over a newer one, so an earlier version is
   re-released with a new, higher number: GitHub → Actions → Build APK → *Run workflow*, with the commit to go
   back to. It's marked "rollback", so no TV waits a day for it.
@@ -464,10 +476,10 @@ To find out why moving around isn't smooth on a particular TV:
   remote or the phone's): how many were slow (over 25 ms), the stutters (over 50 ms) and what they
   were mostly spent on. Camera video and animations running by themselves are counted apart, so they neither
   water it down nor add to it.
-- **OK** on that row, or **Record 3 Minutes** in the phone app (Settings → TVs → *Smoothness Report*), starts
-  counting again and records the next 3 minutes in detail: whenever one piece of main-thread work (a message, or
-  a remote key being handled) runs over 12 ms, its stack is sampled every 5 ms; long work is added up by kind, and
-  garbage collection is counted. Nothing of this runs outside a recording.
+- **OK** on that row, or **Record 3 Minutes** in the phone app (Settings → TVs → the TV that serves the app →
+  *Smoothness Report*), starts counting again and records the next 3 minutes in detail: whenever one piece of
+  main-thread work (a message, or a remote key being handled) runs over 12 ms, its stack is sampled every 5 ms; long
+  work is added up by kind, and garbage collection is counted. Nothing of this runs outside a recording.
 - The phone page shows the whole report as text, with **Copy Report**: this TV (model, Android version, CPU,
   memory, display modes, animation scales, its graphics driver and whether it can repaint just what changed,
   whether the app's code is compiled), each screen's navigating and idle frames (late, slow, stutters,
@@ -485,7 +497,8 @@ To find out why moving around isn't smooth on a particular TV:
    https://github.com/Blakew316/woodrufffiles/releases/latest/download/WoodruffFamily.apk
    (The older `WoodruffFilms.apk`, `WoodruffPictures.apk` and `WoodruffShows.apk` links still work and get the same
    latest build.)
-   It's signed with a debug key so it can be sideloaded.
+   It's signed with the key kept in this repo (see [Security notes](#security-notes)), so each update installs over
+   the last.
 2. Get it onto the TV with any of these:
    - type the link above into the **Downloader** app on the TV (easiest, no computer needed)
    - `adb connect <tv-ip>` then `adb install WoodruffFamily.apk`
@@ -524,7 +537,7 @@ That's expected: it means the page is live.
    - Create it, and keep the **Client ID** and **Client secret** handy (open the client again to copy them).
    - If you made an *Android* client earlier, you can delete it. It's no longer used.
 
-**3. On the TV**, open **Google Drive** in Woodruff Family:
+**3. On the TV**, open **Streaming** from Woodruff Family's side menu:
 1. Scan the first QR code with your phone (on the same Wi-Fi as the TV). Paste the Client ID and Client secret, then tap **Save**.
 2. The TV shows a second QR code. Scan it, pick your Google account and allow access.
    Google warns that the app isn't verified: tap **Continue**. That's expected for your own private project.
@@ -562,7 +575,8 @@ the phone, and every linked TV gets them (see *Several TVs*):
 - **They stay through updates.** Each TV keeps its keys encrypted in its own storage, and updating Woodruff (by
   itself, or from Downloader without uninstalling) never touches them. Only uninstalling Woodruff, or *Clear data* /
   *Clear storage* in Android's settings, erases them. If a TV's Keystore can't find their key for a moment (some TVs,
-  just after turning on), nothing is lost: they read as unset until it's back, and are only reset if it stays missing
+  just after turning on), nothing is lost: Settings still shows them as *Saved* and won't take new ones over them
+  until it's back, everything carries on by itself the moment it is, and they're only reset if it stays missing
   (three times, at least 5 minutes apart).
 - **A new or reset TV gets them by itself:** link it to the hub (Settings → TVs & phones → Other TVs → Add another TV)
   and the keys arrive within a few seconds. A TV that was off gets them within 5 minutes of coming back (the hub checks
@@ -572,13 +586,13 @@ the phone, and every linked TV gets them (see *Several TVs*):
   this version are left as they are (replacing them would sign that TV out); entering them again shares them.
 - **Sign-ins are once per TV, and the phone can do them:** Drive, Photos, Calendar and the cameras are each approved
   on each TV, by scanning a QR code on the TV with the phone, or from that TV's own phone app instead: Settings →
-  Connections → Google Drive → *Sign In* (or Cameras → *Connect Your Cameras*), or Settings → TVs → that TV. The TV
-  finishes by itself with no screen open; this works on the home Wi-Fi only. Sign-ins stay through updates too, and a
-  TV that's only offline keeps them and never asks for them again. When Google really ends a sign-in, the family's
-  phones are told once: a banner in the app that opens the TV's sign-in, and a Lock Screen alert (ntfy) for phones
-  that have it on. The hub also tells its phones about linked TVs, and the same sign-in ending on several TVs within
-  10 minutes is one message. If a TV asks to sign in to Google again every week, that's Google's 7-day limit for apps
-  in "Testing" mode: click **Publish app** on the consent screen (see the Drive setup).
+  Connections → Google Drive → *Sign In to Google Drive* (or Cameras → *Connect Your Cameras*), or Settings → TVs →
+  that TV. The TV finishes by itself with no screen open; this works on the home Wi-Fi only. Sign-ins stay through
+  updates too, and a TV that's only offline keeps them and never asks for them again. When Google really ends a
+  sign-in, the family's phones are told once: a banner in the app that opens the TV's sign-in, and a Lock Screen alert
+  (ntfy) for phones that have it on. The hub also tells its phones about linked TVs, and the same sign-in ending on
+  several TVs within 10 minutes is one message. If a TV asks to sign in to Google again every week, that's Google's
+  7-day limit for apps in "Testing" mode: click **Publish app** on the consent screen (see the Drive setup).
 - **Not built into the APK:** releases are public downloads, so anything built into the APK could be read by anyone.
 
 TVs share keys from version 2.0.158 (2.0.157 shared only the TMDB key).
@@ -590,33 +604,34 @@ Movies and TV Shows use poster tiles. Artwork follows the Plex/Kodi convention, 
 - A **loose movie file**: put an image with the same name next to it, e.g. `Inception.mp4` + `Inception.jpg`.
 Those images are used as posters and hidden from the grid.
 
-**Automatic posters (TMDB):** add a free API key from [themoviedb.org](https://www.themoviedb.org/settings/api)
-(the API Key or the Read Access Token) in **Settings → Keys & sign-out → TMDB key**, or in the phone's Settings tab. Movies,
-shows and seasons without their own art then get official posters, matched from names like `Inception (2010).mkv`,
-`The.Office.S01.1080p` or `Season 2`. Lookups are cached on the TV. A new key only looks posters and details up
-again, without listing Drive again; entering the same key again changes nothing. Your own art always wins. Without
-either, the video's Drive preview frame (or a title card for folders) is shown. Movies and TV Shows also need the key
-for their Netflix-style page: the featured banner, *Top rated* and the genre rows all come from TMDB.
-The key is checked with TMDB when it's entered, on the TV or the phone (ten seconds at most). A key TMDB doesn't
-accept isn't saved, and you're told why. If TMDB can't be reached just then, the key is saved and checked when posters
-next load; Settings → Keys & sign-out shows **Not accepted** if TMDB turns it down then.
+**Automatic posters (TMDB):** add a free API key from [themoviedb.org](https://www.themoviedb.org/settings/api) (the
+API Key or the Read Access Token) in **Settings → Accounts → Keys & sign-out → TMDB key**, or on the phone (Settings →
+Connections → Movie & Show Posters). Movies, shows and seasons without their own art then get official posters,
+matched from names like `Inception (2010).mkv`, `The.Office.S01.1080p` or `Season 2`. Lookups are cached on the TV. A
+new key only looks posters and details up again, without listing Drive again; entering the same key again changes
+nothing. Your own art always wins. Without either, the video's Drive preview frame (or a title card for folders) is
+shown. Movies and TV Shows also need the key for their Netflix-style page: the featured banner, *Top rated* and the
+genre rows all come from TMDB. The key is checked with TMDB when it's entered, on the TV or the phone (ten seconds at
+most). A key TMDB doesn't accept isn't saved, and you're told why. If TMDB can't be reached just then, the key is
+saved and checked when posters next load; Settings → Accounts → Keys & sign-out shows **Not accepted** if TMDB turns
+it down then.
 
 **One key for every TV:** enter it once, on any TV or from the phone, and it's copied to every linked TV. See
 [Keys are entered once](#keys-are-entered-once).
 
 *This product uses the TMDB API but is not endorsed or certified by TMDB.*
 
-## Connect Google Calendar (Today's Activities)
+## Connect Google Calendar
 
 1. In Google Cloud (the Drive project), **APIs & Services → Library**: enable **Google Calendar API**.
-2. On the TV: **Settings → Google Calendar → Today's Activities**, scan the QR code and sign in.
-Today's events from every calendar that's switched on in Google Calendar appear on Home under the greeting and in the
-Command center, refreshed every 10 minutes and at midnight. Read-only.
+2. On the TV: **Settings → Accounts → Google Calendar**, scan the QR code and sign in.
+Today's events from every calendar that's switched on in Google Calendar show on Home: the next one in *At a glance*,
+and before 10am in the greeting's morning briefing. They're refreshed every 10 minutes and at midnight. Read-only.
 
 ## Connect Google Photos (slideshow)
 
 1. In Google Cloud (the Drive project), **APIs & Services → Library**: enable **Google Photos Picker API**.
-2. On the TV: **Settings → Google Photos** (or the Home tile). Scan the QR code and sign in, then scan the next
+2. On the TV: **Settings → Accounts → Google Photos**. Scan the QR code and sign in, then scan the next
    QR code, pick photos in Google's picker on your phone and tap **Done**.
 3. The TV downloads them to `Pictures/Google Photos` (videos to `Movies/Google Photos`) and the slideshow switches
    to that folder.
@@ -655,7 +670,7 @@ videos at once, so the grid streams the first 4 cameras and the rest start when 
 
 ## Build locally
 
-You need JDK 17 and the Android SDK (platform 35).
+You need JDK 17 and the Android SDK (platform 37).
 
 ```sh
 ./gradlew testDebugUnitTest assembleRelease
@@ -696,27 +711,30 @@ The other `tools/gallery/phone_*_check.mjs` scripts run the same way. `phone.mjs
   Use it on a network you trust.
 - The pairing key stays in the phone page's address so a Home Screen copy keeps working; the TV answers that address
   directly, with a cookie, instead of redirecting first. Treat that link like a password. Every route behind the
-  phone app's Watch tab, TV pages and Sign In needs that TV's pairing key, like the rest of the phone app. Posters
-  stored in Google Drive are fetched by the TV itself, only for files it has listed and only from Google's servers, so
-  the Google sign-in never reaches the phone.
+  phone app's Watch tab, TV pages and Sign In needs that TV's pairing key, like the rest of the phone app. The Watch
+  tab can list only a show's own seasons, never any other Drive folder, and posters stored in Google Drive are fetched
+  by the TV itself, only for files in Movies and TV Shows and only from Google's servers, so the Google sign-in never
+  reaches the phone.
 - Lock-screen alerts go through the public ntfy.sh server. Each phone's topic is random, but anyone who learns it can read
   the announcements sent to that phone, so don't announce secrets. Nothing Woodruff pushes through ntfy carries a link
   or a key.
 - A linked TV gets its own link key, not the phone pairing key: it can only read status and the TV's health report
   (keys only marked saved or not, never their values), see the screen, press remote keys, type into the TV's open text
-  box (the same as pressing its keys; it's how the phone's keyboard reaches a linked TV), pass on the phone's playback
-  controls (Play/Pause, −10 s, +30 s, Next: no more than its remote keys could do), ask it to check for an update,
-  show messages and doorbell alerts, and read or update the shared settings (TMDB, Google's Client ID and secret, the
-  cameras project, the doorbell's Pub/Sub subscription name and the person/motion choice). It can never touch files,
-  mail, sign-ins (it can't start one) or any other setting. The subscription name isn't a credential: using it needs a
-  Google sign-in with Pub/Sub access. **Stop other TVs seeing this one** in Settings revokes every link.
-  Linking codes last 10 minutes, work once, and die after 5 wrong tries.
+  box while Woodruff is in front there (the same as pressing its keys; it's how the phone's keyboard reaches a linked
+  TV), pass on the phone's playback controls (Play/Pause, −10 s, +30 s, Next: no more than its remote keys could do),
+  start a Google Drive video there and keep Watch together in step, ask it to check for an update (it still waits for
+  the test TV's day), show messages, the family message board and doorbell alerts, and read or update the shared
+  settings (TMDB, Google's Client ID and secret, the cameras project, the doorbell's Pub/Sub subscription name and the
+  person/motion choice). It can never touch files, mail, sign-ins (it can't start one) or any other setting. The
+  subscription name isn't a credential: using it needs a Google sign-in with Pub/Sub access. **Stop other TVs seeing
+  this one** in Settings revokes every link. Linking codes last 10 minutes, work once, and die after 5 wrong tries.
 - A linked TV turns a hub away only when its own saved link key says no: if it can't read its keys for a moment after
   power-on, it never makes a new link key, so hubs don't show *Link again* for a TV that was never reset. A TV's id and
   name are kept in plain app settings (they aren't secrets), so a Keystore that loses its key never makes a TV look
   like a new one. When you link a TV, the list of TVs found shows their names only.
 - Crash reports that leave a TV (in its health report, on the phone's *Last Crash* page and in *Copy Crash Report*)
-  have addresses, keys, tokens and email addresses taken out, and *Copy Health Report* carries no addresses.
+  have network addresses (IPv4 and IPv6), keys, tokens and email addresses taken out, as do the TV's own crash notice
+  and recovery screen, and *Copy Health Report* carries no addresses.
 - To find a linked TV at a new address, a TV asks the device on your network that now uses that TV's name, with the
   link key, and uses it only if it answers as the same TV. Like the rest of this traffic, it's plain HTTP on your network.
 - Archive extraction rejects "zip slip" entries that would write outside the target folder.
@@ -725,11 +743,13 @@ The other `tools/gallery/phone_*_check.mjs` scripts run the same way. `phone.mjs
 
 ```
 app/src/main/java/com/woodruff/tvexplorer/
-  cloud/     Google Drive sign-in, API client and screen state
+  cloud/     Google Drive sign-in, API client, library and progress sharing
   data/      file listing, storage volumes, file operations, installed apps
-  server/    wireless transfer HTTP server + foreground service
+  server/    the phone app's web server and routes + foreground service
   player/    video/music player, photo viewer, Continue-watching history
-  ui/        Compose for TV screens, dialogs and the main ViewModel
+  ui/        Compose for TV screens, dialogs, motion and the main ViewModel
   util/      intents (open/install/uninstall), permissions, QR, formatting
-app/src/main/assets/web/index.html   the browser UI for wireless transfer
+  nest/ (cameras, doorbell), tvs/ (linked TVs, TV health), update/ (updates, recovery), phones/, mail/,
+  calendar/, photos/, notify/, notes/, remote/, nowplaying/, screensaver/, settings/, tmdb/, weather/, net/
+app/src/main/assets/web/index.html   the phone app the TVs serve (Remote, Watch, Send, Memories, Settings)
 ```
