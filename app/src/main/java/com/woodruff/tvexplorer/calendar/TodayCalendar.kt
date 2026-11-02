@@ -181,7 +181,7 @@ object TodayCalendar {
             }
             TransferService.start(app)
             val server = TransferService.state.first { it.running || it.error != null }
-            val base = server.base ?: return@launch _state.update { it.copy(error = server.error ?: "The phone connection couldn't start.") }
+            val base = server.base ?: return@launch _state.update { it.copy(error = server.error ?: "The phone connection couldn’t start.") }
             val a = GoogleAuth.newAttempt(app, base, GoogleAuth.Grant.CALENDAR)
             CompanionHub.expect(a)
             _state.update { it.copy(qrUrl = a.authUrl) }

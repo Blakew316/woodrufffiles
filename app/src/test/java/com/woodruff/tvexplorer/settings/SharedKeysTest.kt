@@ -179,8 +179,8 @@ class SharedKeysTest {
     @Test fun aKeySetOnTheHubReachesEveryTv() {
         for (tie in listOf(true, false)) {
             val house = House(
-                mutableMapOf("hub" to none, "sony" to none, "kids" to none),
-                mapOf("hub" to listOf("sony", "kids")), tie,
+                mutableMapOf("hub" to none, "sony" to none, "den" to none),
+                mapOf("hub" to listOf("sony", "den")), tie,
             )
             house.set("hub", KeyVersion(k1, 100))
             assertEquals(setOf(k1), house.fingerprints())
@@ -190,8 +190,8 @@ class SharedKeysTest {
     @Test fun aKeySetOnATvTheHubLinksToReachesTheRestAtTheHubsCheck() {
         // The Sony knows no other TV, so its key waits for the hub to ask.
         val house = House(
-            mutableMapOf("hub" to KeyVersion(k1, 0), "sony" to none, "kids" to KeyVersion(k1, 0)),
-            mapOf("hub" to listOf("sony", "kids")),
+            mutableMapOf("hub" to KeyVersion(k1, 0), "sony" to none, "den" to KeyVersion(k1, 0)),
+            mapOf("hub" to listOf("sony", "den")),
         )
         house.set("sony", KeyVersion(k2, 200))
         assertEquals(KeyVersion(k1, 0), house.keys["hub"])

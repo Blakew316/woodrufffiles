@@ -72,7 +72,7 @@ object FamilyMemories {
         val f = File(path).canonicalFile
         val dir = f.parentFile
         require(dir != null && (dir == photos.canonicalFile || dir == videos.canonicalFile) && f.isFile && kindOf(f.name) != null) {
-            "That isn't in Family Memories"
+            "That isn’t in Family Memories"
         }
         return f
     }
@@ -90,7 +90,7 @@ object FamilyMemories {
         // Picks write their list of files before any upload lands, so a pick never mistakes an upload for one of its own.
         GooglePhotos.ready()
         return synchronized(this) {
-            FileOperations.uniqueTarget(dir, clean).also { if (!it.createNewFile()) throw IOException("Couldn't save $clean") }
+            FileOperations.uniqueTarget(dir, clean).also { if (!it.createNewFile()) throw IOException("Couldn’t save $clean") }
         }
     }
 

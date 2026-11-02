@@ -704,7 +704,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             val server = TransferService.state.first { it.running || it.error != null }
             val base = server.base
             if (base == null) {
-                _state.update { it.copy(qrUrl = null, error = server.error ?: "The phone connection couldn't start.") }
+                _state.update { it.copy(qrUrl = null, error = server.error ?: "The phone connection couldn’t start.") }
                 return@launch
             }
             if (!GoogleAuth.isConfigured(ctx)) {

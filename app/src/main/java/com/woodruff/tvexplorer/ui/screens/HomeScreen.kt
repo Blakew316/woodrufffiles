@@ -411,7 +411,7 @@ internal fun calendarBriefing(cal: com.woodruff.tvexplorer.calendar.CalendarStat
 private val MORNING = listOf(
     "Coffee first, credits later.",
     "Rise and stream.",
-    "Cartoons and cereal o'clock.",
+    "Cartoons and cereal o’clock.",
     "Early show, best seats in the house.",
     "Morning matinee, anyone?",
 )
@@ -419,13 +419,13 @@ private val AFTERNOON = listOf(
     "Perfect time for a matinee.",
     "Popcorn pairs well with lunch.",
     "An intermission from the day.",
-    "One more episode won't hurt.",
+    "One more episode won’t hurt.",
     "Snack break, then the next episode.",
 )
 private val EVENING = listOf(
     "What are we watching tonight?",
     "Lights down, phones away.",
-    "Prime time at the Woodruffs'.",
+    "Prime time at the Woodruffs’.",
     "Grab the blankets and the popcorn.",
     "Just one more episode… probably.",
     "The remote is the real MVP.",
@@ -909,7 +909,7 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
                 PanelButton("Open Command Center", Sym.Videocam) { vm.show(Screen.CAMERAS) }
             }
             else -> {
-                Text("Google Home cameras aren't connected.", style = MaterialTheme.typography.bodyMedium)
+                Text("Google Home cameras aren’t connected.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(10.dp))
                 PanelButton("Set up in Settings", Sym.Settings) { vm.show(Screen.SETTINGS) }
             }

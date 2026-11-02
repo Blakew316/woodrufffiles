@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Process
 import android.os.StatFs
 import android.os.SystemClock
+import android.provider.Settings
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.nest.Doorbell
@@ -12,7 +13,6 @@ import com.woodruff.tvexplorer.tmdb.Tmdb
 import com.woodruff.tvexplorer.update.Updater
 import com.woodruff.tvexplorer.util.CrashLog
 import com.woodruff.tvexplorer.util.ExitReasons
-import com.woodruff.tvexplorer.util.NetworkWatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +26,8 @@ import java.util.TimeZone
 
 /**
  * This TV's health report ([buildHealth]), from facts it already holds: each sign-in's state
- * ([SignIns]), the update state, how this copy was installed, the last crash ([CrashLog]) and
+ * ([SignIns]), how it hears the doorbell ([Doorbell.alerts], the words Settings → Advanced shows),
+ * the update state, how this copy was installed, the last crash ([CrashLog]) and
  * Android's reasons for closing Woodruff ([ExitReasons]), free space and which shared keys are saved
  * (never their values). Every read is cheap, but some ask Android's services or the disk: build it
  * off the main thread. Kept for 10 s, so phones and the hub asking at once cost one.
@@ -125,7 +126,7 @@ object Health {
             sdk = Build.VERSION.SDK_INT,
             uptimeMs = runCatching { SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime() }.getOrDefault(0L),
             signIns = HealthGrant.entries.associateWith { runCatching { SignIns.state(c, it) }.getOrDefault(SignInFact(SignInState.NOT_SET_UP)) },
-            doorbell = doorbellFact(Doorbell.subscription(c) != null, Doorbell.status.value, NetworkWatch.online.value),
+            doorbell = runCatching { doorbellFact(Doorbell.alerts(c)) }.getOrDefault(DoorbellFact(DoorbellState.OFF, "Off", null)),
             update = UpdateFact(
                 step = stepName(u.step), latestName = u.latestName, progress = u.progress, message = u.message,
                 readySince = readySince, auto = Updater.autoEnabled(c), testTv = Updater.isTestTv(c),
@@ -133,6 +134,7 @@ object Health {
             ),
             installed = InstallFact(installed.summary(), installed.installedBy, installed.firstInstall, installed.lastUpdate),
             installAllowed = if (Build.VERSION.SDK_INT >= 26) runCatching { c.packageManager.canRequestPackageInstalls() }.getOrNull() else null,
+            popUpsAllowed = if (Build.VERSION.SDK_INT >= 29) runCatching { Settings.canDrawOverlays(c) }.getOrNull() else null,
             crash = crash,
             crashesClearedAt = p.getLong(K_CRASH_CLEARED, 0L),
             exits = ExitReasons.recent(c),

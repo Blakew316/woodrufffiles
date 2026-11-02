@@ -13,7 +13,7 @@ class FileRepository(private val context: Context) {
 
     suspend fun list(dir: File, showHidden: Boolean, sort: SortOrder): List<FileItem> =
         withContext(Dispatchers.IO) {
-            val children = dir.listFiles() ?: throw SecurityException("Can't read ${dir.absolutePath}")
+            val children = dir.listFiles() ?: throw SecurityException("Can’t read ${dir.absolutePath}")
             sorted(
                 children.asSequence()
                     .filter { showHidden || !it.name.startsWith(".") }

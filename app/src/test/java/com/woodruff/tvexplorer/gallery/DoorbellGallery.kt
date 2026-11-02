@@ -175,7 +175,7 @@ class DoorbellGallery {
         }
         DashboardSamples.tvs = listOf(
             TvStatus("this", "Living Room", true, true, Playing("Midnight Harbor", null, "Woodruff Family", true, 2_710_000, 6_840_000)),
-            TvStatus("kids", "Den", true, false, Playing("Backyard Science", null, "YouTube", true, 410_000, 1_320_000)),
+            TvStatus("den", "Den", true, false, Playing("Backyard Science", null, "YouTube", true, 410_000, 1_320_000)),
             TvStatus("bed", "Kitchen", false, false, null),
         )
         DashboardSamples.cameras = listOf("Front Door", "Backyard", "Garage", "Driveway")

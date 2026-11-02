@@ -65,7 +65,7 @@ fun PermissionScreen(onRecheck: () -> Unit) {
             ) { Text("Grant access") }
             if (noSettingsScreen) {
                 Text(
-                    "This TV doesn't have a settings screen for this permission. From a computer on the same network, " +
+                    "This TV doesn’t have a settings screen for this permission. From a computer on the same network, " +
                         "enable ADB debugging on the TV and run:",
                     color = Palette.muted,
                 )

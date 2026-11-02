@@ -109,7 +109,7 @@ fun BrowserDialogs(dialog: BrowserDialog, vm: MainViewModel, onDismiss: () -> Un
             val n = dialog.files.size
             ConfirmDialog(
                 title = if (n == 1) "Delete \"${dialog.files[0].name}\"?" else "Delete $n items?",
-                body = "This can't be undone. Folders are deleted with everything inside them.",
+                body = "This can’t be undone. Folders are deleted with everything inside them.",
                 confirmLabel = "Delete",
                 onConfirm = { vm.delete(dialog.files) },
                 onDismiss = onDismiss,

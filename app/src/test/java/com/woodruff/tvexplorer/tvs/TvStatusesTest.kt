@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** The phone's TV list: quick answers, the last known status for slow TVs, and "off" for the unknown. */
 class TvStatusesTest {
-    private val kids = LinkedTv("kids-id", "Kids Room", "http://192.168.1.21:8080", "key1")
+    private val den = LinkedTv("den-id", "Den", "http://192.168.1.21:8080", "key1")
     private val bedroom = LinkedTv("bed-id", "Bedroom", "http://192.168.1.22:8080", "key2")
     private val jobs = mutableListOf<Job>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -54,22 +54,22 @@ class TvStatusesTest {
     }
 
     @Test fun aTvHeardFromShowsItsLastStatusUnderItsLinkedName() {
-        val last = TvStatus("kids-id", "Old name", online = true, onScreen = true, playing = null, version = "2.0.40")
-        val list = lastKnown(listOf(kids), mapOf("kids-id" to last))
-        assertEquals(listOf(last.copy(name = "Kids Room")), list)
+        val last = TvStatus("den-id", "Old name", online = true, onScreen = true, playing = null, version = "2.0.40")
+        val list = lastKnown(listOf(den), mapOf("den-id" to last))
+        assertEquals(listOf(last.copy(name = "Den")), list)
     }
 
     @Test fun aTvRenamedOnItselfIsRenamedInTheList() {
-        val renamed = renamedIn(listOf(kids, bedroom), "kids-id", "  Kyler's Room ")!!
-        assertEquals(listOf("Kyler's Room", "Bedroom"), renamed.map { it.name })
-        assertEquals(listOf(kids.key, bedroom.key), renamed.map { it.key })
+        val renamed = renamedIn(listOf(den, bedroom), "den-id", "  Guest Room ")!!
+        assertEquals(listOf("Guest Room", "Bedroom"), renamed.map { it.name })
+        assertEquals(listOf(den.key, bedroom.key), renamed.map { it.key })
         // The same name, a blank one, or a TV that isn't linked: nothing to change.
-        assertNull(renamedIn(listOf(kids), "kids-id", "Kids Room"))
-        assertNull(renamedIn(listOf(kids), "kids-id", "   "))
-        assertNull(renamedIn(listOf(kids), "kids-id", null))
-        assertNull(renamedIn(listOf(kids), "gone-id", "Elliott's Room"))
+        assertNull(renamedIn(listOf(den), "den-id", "Den"))
+        assertNull(renamedIn(listOf(den), "den-id", "   "))
+        assertNull(renamedIn(listOf(den), "den-id", null))
+        assertNull(renamedIn(listOf(den), "gone-id", "Office"))
         // At most 40 characters, as on the TV.
-        assertEquals(40, renamedIn(listOf(kids), "kids-id", "x".repeat(60))!!.single().name.length)
+        assertEquals(40, renamedIn(listOf(den), "den-id", "x".repeat(60))!!.single().name.length)
     }
 
     @Test fun aTvNeverHeardFromIsOff() {
@@ -81,21 +81,21 @@ class TvStatusesTest {
             "bed-id" to TvStatus("bed-id", "Bedroom", true, false, null),
             "gone-id" to TvStatus("gone-id", "Unlinked", true, false, null),
         )
-        assertEquals(listOf("kids-id", "bed-id"), lastKnown(listOf(kids, bedroom), known).map { it.id })
+        assertEquals(listOf("den-id", "bed-id"), lastKnown(listOf(den, bedroom), known).map { it.id })
     }
 
     @Test fun answersInTimeAreNotWaitedOnFurther() {
-        val ms = elapsed { awaitAnswers(mapOf("kids-id" to answered(), "bed-id" to answered()), emptySet(), quickMs = 5_000, firstMs = 10_000) }
+        val ms = elapsed { awaitAnswers(mapOf("den-id" to answered(), "bed-id" to answered()), emptySet(), quickMs = 5_000, firstMs = 10_000) }
         assertTrue("took $ms ms", ms < 2_000)
     }
 
     @Test fun aSlowTvHeardFromBeforeGetsOnlyTheShortWait() {
-        val ms = elapsed { awaitAnswers(mapOf("kids-id" to pending(), "bed-id" to answered()), setOf("kids-id"), quickMs = 200, firstMs = 10_000) }
+        val ms = elapsed { awaitAnswers(mapOf("den-id" to pending(), "bed-id" to answered()), setOf("den-id"), quickMs = 200, firstMs = 10_000) }
         assertTrue("took $ms ms", ms in 180L until 5_000L)
     }
 
     @Test fun aTvNeverHeardFromGetsTheLongerWait() {
-        val ms = elapsed { awaitAnswers(mapOf("kids-id" to pending()), emptySet(), quickMs = 100, firstMs = 600) }
+        val ms = elapsed { awaitAnswers(mapOf("den-id" to pending()), emptySet(), quickMs = 100, firstMs = 600) }
         assertTrue("took $ms ms", ms in 550L until 5_000L)
     }
 
@@ -109,23 +109,23 @@ class TvStatusesTest {
     }
 
     @Test fun aTvThatAnswersShowsWhatItSaid() {
-        val tv = FakeTv().apply { next = TvStatus("kids-id", "Kids", online = true, onScreen = true, playing = null, version = "2.0.41") }
-        val list = runBlocking { StatusChecks(scope, tv::ask).statuses(listOf(kids)) }
-        assertEquals(listOf(TvStatus("kids-id", "Kids Room", online = true, onScreen = true, playing = null, version = "2.0.41")), list)
+        val tv = FakeTv().apply { next = TvStatus("den-id", "Den TV", online = true, onScreen = true, playing = null, version = "2.0.41") }
+        val list = runBlocking { StatusChecks(scope, tv::ask).statuses(listOf(den)) }
+        assertEquals(listOf(TvStatus("den-id", "Den", online = true, onScreen = true, playing = null, version = "2.0.41")), list)
     }
 
     @Test fun aTvThatFallsAsleepShowsItsLastAnswerUntilItsCheckGivesUp() {
-        val tv = FakeTv().apply { next = TvStatus("kids-id", "Kids Room", online = true, onScreen = false, playing = null) }
+        val tv = FakeTv().apply { next = TvStatus("den-id", "Den", online = true, onScreen = false, playing = null) }
         val checks = StatusChecks(scope, tv::ask)
-        runBlocking { checks.statuses(listOf(kids)) }
+        runBlocking { checks.statuses(listOf(den)) }
         // Asleep: no answer for a second, then the check fails.
         tv.next = null
         tv.delayMs = 1_000
-        val ms = elapsed { assertTrue(checks.statuses(listOf(kids), quickMs = 100, firstMs = 5_000).single().online) }
+        val ms = elapsed { assertTrue(checks.statuses(listOf(den), quickMs = 100, firstMs = 5_000).single().online) }
         assertTrue("took $ms ms", ms < 900)
         Thread.sleep(1_300)
         // That check has given up by now: the TV counts as off, still without waiting.
-        assertFalse(runBlocking { checks.statuses(listOf(kids), quickMs = 100, firstMs = 5_000) }.single().online)
+        assertFalse(runBlocking { checks.statuses(listOf(den), quickMs = 100, firstMs = 5_000) }.single().online)
     }
 
     @Test fun aTvNeverHeardFromIsOffAfterTheLongerWait() {
@@ -136,10 +136,10 @@ class TvStatusesTest {
     }
 
     @Test fun aSecondCallerJoinsTheCheckUnderWay() = runBlocking {
-        val tv = FakeTv().apply { next = TvStatus("kids-id", "Kids Room", true, false, null); delayMs = 400 }
+        val tv = FakeTv().apply { next = TvStatus("den-id", "Den", true, false, null); delayMs = 400 }
         val checks = StatusChecks(scope, tv::ask)
-        val a = async { checks.statuses(listOf(kids), quickMs = 50, firstMs = 100) }
-        val b = async { checks.statuses(listOf(kids), quickMs = 50, firstMs = 100) }
+        val a = async { checks.statuses(listOf(den), quickMs = 50, firstMs = 100) }
+        val b = async { checks.statuses(listOf(den), quickMs = 50, firstMs = 100) }
         a.await(); b.await()
         assertEquals(1, tv.asked.get())
     }

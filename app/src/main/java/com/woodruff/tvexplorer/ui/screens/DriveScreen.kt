@@ -544,7 +544,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     )
                 }
                 if (!f.isFolder && !f.isGoogleDoc) add(MenuAction("Download to this TV", Sym.Download) { drive.download(f) })
-                if (f.isGoogleDoc) add(MenuAction("Google Docs files can't be opened on TV", Sym.Visibility) {})
+                if (f.isGoogleDoc) add(MenuAction("Google Docs files can’t be opened on TV", Sym.Visibility) {})
             },
         )
     }

@@ -146,9 +146,9 @@ def room_for(path):
 def memories_json():
     return {'items': MEMORIES, 'folder': PHOTOS, 'fit': [1920, 1080], 'slideshow': True, 'free': FREE['tv']}
 PHONES = [
-    {'id': 'p-blake', 'name': "Blake's iPhone", 'alerts': True},
-    {'id': 'p-mom', 'name': "Mom's iPhone", 'alerts': True},
-    {'id': 'p-kids', 'name': 'Kids iPad', 'alerts': False},
+    {'id': 'p-phone', 'name': 'Phone', 'alerts': True},
+    {'id': 'p-living-room', 'name': 'Living Room iPad', 'alerts': True},
+    {'id': 'p-kitchen', 'name': 'Kitchen iPad', 'alerts': False},
 ]
 SETTINGS = {
     'notifyUrl': 'http://192.168.1.20:8080/api/notify?k=…&tvs=all',
@@ -312,6 +312,7 @@ def health_report(name, at, attention=(), states=None, doorbell=('watching', 'Wa
         'updates': {'step': updates[0], 'text': updates[1], 'attention': updates[2], 'auto': True, 'testTv': False},
         'lastUpdateTry': last_try,
         'installPermission': {'allowed': True, 'text': 'Allowed', 'attention': False},
+        'popUps': {'allowed': True, 'text': 'Allowed', 'attention': False} if android >= 29 else None,
         'signIns': sign_ins,
         'lastCrash': crash,
         'closedByAndroid': {'text': closed[0], 'attention': closed[1], 'detail': closed[2]} if android >= 30 else None,
@@ -389,7 +390,7 @@ Late frames, average ms in each phase:
  sync   uploading pictures
  gfx    issuing commands, swapping buffers
  RT     queued behind the render thread
- GPU    the graphics chip's own time
+ GPU    the graphics chip’s own time
 
 == Home ==
 Navigating: 2,140 frames
@@ -449,7 +450,7 @@ Idle: 5,100 frames
 213 presses (and held repeats) handled
  ms p50 5 · p90 37 · p99 98 · max 107
  over 16 ms: 42 · over 50 ms: 7
- (A key's time shows as "wait" in the next frame.)
+ (A key’s time shows as "wait" in the next frame.)
 
 == Hot spots ==
 Main thread busy over 12 ms, sampled every
@@ -931,7 +932,7 @@ class Handler(BaseHTTPRequestHandler):
         shot = os.path.join(os.environ.get('GALLERY_RAW', '../../build/gallery'), 'tv-home-dark.png')
         if os.path.exists(shot):
             return self.send(open(shot, 'rb').read(), 'image/png')
-        return self.send({'message': 'Woodruff Family isn\'t on the TV screen right now.'}, status=409)
+        return self.send({'message': 'Woodruff Family isn’t on the TV screen right now. Press Home to open it.'}, status=409)
 
     def gone(self, path):
         """The TV isn't answering: the request's connection just closes, as a TV that's asleep or off the Wi-Fi leaves it
@@ -963,7 +964,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/tvs/screen':
             tv = query.get('id', [''])[0]
             if tv in ('c', 'd'):
-                return self.send({'message': "%s isn't showing Woodruff Family, or is off." % ('Kitchen' if tv == 'c' else 'Bedroom')}, status=409)
+                return self.send({'message': "%s isn’t showing Woodruff Family, or is off." % ('Kitchen' if tv == 'c' else 'Bedroom')}, status=409)
             return self.screen()
         if path == '/api/poster':
             return self.send(art_svg(query.get('id', [''])[0], query.get('kind', ['poster'])[0]), 'image/svg+xml',
@@ -993,7 +994,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/list':
             where = query.get('path', [ROOT])[0].rstrip('/') or ROOT
             if where not in TREE:
-                return self.send('Can\'t read folder', 'text/plain', 500)
+                return self.send('Can’t read folder', 'text/plain', 500)
             parent = where.rsplit('/', 1)[0]
             in_root = any(where != r['path'] and where.startswith(r['path'] + '/') for r in ROOTS)
             return self.send({'path': where, 'parent': parent if in_root else None, 'files': TREE[where], 'free': room_for(where)})
@@ -1017,7 +1018,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(ADDED[where][0], ADDED[where][1], headers={'Cache-Control': 'private, max-age=31536000'})
             i = next((n for n, m in enumerate(MEMORIES) if m['path'] == where), None)
             if i is None:
-                return self.send("That isn't in Family Memories", 'text/plain', 400)
+                return self.send("That isn’t in Family Memories", 'text/plain', 400)
             big, tall = path.endswith('photo'), i % 3 == 2
             w, h = (1200, 1600) if big and tall else (1600, 1200) if big else (315, 420) if tall else (420, 315)
             return self.send(landscape(i, w, h), 'image/svg+xml', headers={'Cache-Control': 'private, max-age=31536000'})
@@ -1122,7 +1123,7 @@ class Handler(BaseHTTPRequestHandler):
             if body.get('key') not in KEYS:
                 return self.send('Unknown key', 'text/plain', 400)
             if path == '/api/tvs/key' and body.get('id') == 'b' and body.get('key') == 'netflix':
-                return self.send("Den: Netflix isn't installed on this TV", 'text/plain', 400)
+                return self.send("Den: Netflix isn’t installed on this TV", 'text/plain', 400)
             if body.get('key') == 'playpause':
                 tv = 'this' if path == '/api/key' else body.get('id')
                 if tv in TV_STATE['playing']:
@@ -1217,7 +1218,7 @@ class Handler(BaseHTTPRequestHandler):
             DIAG['started'] = time.time()
             return self.send({'ok': True, 'seconds': RECORD_S})
         if path == '/api/phone/hello':
-            phone = {'id': body.get('id', 'p-blake'), 'name': body.get('name', "Blake's iPhone"),
+            phone = {'id': body.get('id', 'p-phone'), 'name': body.get('name', 'Phone'),
                      'alerts': body.get('alerts', True), 'topic': 'woodruff-example'}
             return self.send({'phone': phone, 'phones': PHONES})
         if upload and len(raw) > room_for(query.get('path', [PHOTOS])[0] if path == '/api/upload' else PHOTOS):

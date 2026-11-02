@@ -50,13 +50,13 @@ fun TodayActivities() {
     if (!cal.connected) return
     Column {
         Text(
-            "Today's Activities:", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+            "Today’s Activities:", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 48.dp, bottom = 12.dp),
         )
         when {
             !cal.loaded -> Text("Loading…", color = Palette.muted, modifier = Modifier.padding(start = 48.dp))
             cal.events.isEmpty() -> Text(
-                cal.error ?: if (cal.offline) "Offline. Today's events will show once the TV is back online." else "Nothing on the calendar today.",
+                cal.error ?: if (cal.offline) "Offline. Today’s events will show once the TV is back online." else "Nothing on the calendar today.",
                 color = Palette.muted, modifier = Modifier.padding(start = 48.dp),
             )
             else -> LazyRow(contentPadding = PaddingValues(horizontal = 48.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {

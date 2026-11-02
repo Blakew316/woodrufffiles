@@ -4,10 +4,12 @@ import com.woodruff.tvexplorer.tvs.HealthTest.DAY
 import com.woodruff.tvexplorer.tvs.HealthTest.HOUR
 import com.woodruff.tvexplorer.tvs.HealthTest.MIN
 import com.woodruff.tvexplorer.tvs.HealthTest.at
+import com.woodruff.tvexplorer.tvs.HealthTest.bell
 import com.woodruff.tvexplorer.tvs.HealthTest.facts
 import com.woodruff.tvexplorer.tvs.HealthTest.now
 import com.woodruff.tvexplorer.tvs.HealthTest.report
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.woodruff.tvexplorer.nest.DoorbellListening
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -48,11 +50,22 @@ class HealthReportTest {
         // A key not set, a routine close, an off doorbell: information only.
         val r = report(facts(
             keys = KeysFact(googleClientId = false, googleClientSecret = false, camerasProject = false, tmdb = false),
-            doorbell = doorbellFact(subscribed = false, status = null, networkUp = true),
+            doorbell = bell(subscription = false, cameras = false, listening = DoorbellListening.Idle),
         ))
         assertTrue(r.good)
         assertEquals("3 keys not set", r.keys.text)
         assertEquals("Off", r.doorbell.text)
+    }
+
+    @Test fun aTvHearingTheDoorbellThroughTheHubIsAllGood() {
+        // Its cameras aren't connected here, so it has no subscription of its own: the hub passes rings on.
+        val r = report(facts(doorbell = bell(cameras = false, from = "Living Room", listening = DoorbellListening.Idle)))
+        assertTrue(r.good)
+        assertEquals("Through Living Room", r.doorbell.text)
+        assertFalse(r.doorbell.attention)
+        // Off and offline aren't attention either; only what the doorbell itself says a person has to fix is.
+        assertTrue(report(facts(doorbell = DoorbellFact(DoorbellState.WATCHING, "Watching", null))).good)
+        assertEquals(listOf("doorbell.failing"), ids(report(facts(doorbell = DoorbellFact(DoorbellState.FAILING, "Keys not accepted", "Fix them.")))))
     }
 
     @Test fun signInWordsFollowAccountsForEachGrant() {
@@ -133,6 +146,33 @@ class HealthReportTest {
         // Android 12+ installs Woodruff's own updates without it; automatic updates off: nothing to install.
         assertTrue(report(facts(installAllowed = false, sdk = 31)).good)
         assertTrue(report(facts(installAllowed = false, sdk = 29, update = UpdateFact("upToDate", auto = false))).good)
+    }
+
+    @Test fun popUpsOverOtherAppsMatterWhereWoodruffOpensAgainAfterAnUpdate() {
+        // Android 10+, automatic updates on: without it, an update leaves the TV on its home screen.
+        val r = report(facts(popUpsAllowed = false, sdk = 29))
+        assertEquals(listOf("update.popUps"), ids(r))
+        assertEquals("Woodruff can’t open again by itself after an update", r.attention[0].words)
+        assertEquals("On Den, open Settings → Advanced and turn on Pop-ups over other apps.", r.attention[0].detail)
+        assertEquals("none", r.attention[0].fix)
+        assertEquals("Woodruff can’t open again by itself after an update.", r.sentence)
+        assertEquals("Not allowed", r.popUps!!.text)
+        assertTrue(r.popUps!!.attention)
+        assertEquals(listOf("update.popUps"), ids(report(facts(popUpsAllowed = false, sdk = 34))))
+        // Allowed, or automatic updates off (someone is there for each update): information only.
+        report(facts(popUpsAllowed = true, sdk = 31)).let { assertTrue(it.good); assertEquals("Allowed", it.popUps!!.text) }
+        report(facts(popUpsAllowed = false, sdk = 31, update = UpdateFact("upToDate", auto = false))).let {
+            assertTrue(it.good); assertEquals("Not allowed", it.popUps!!.text); assertFalse(it.popUps!!.attention)
+        }
+        // Android 9 opens Woodruff again without it: no row at all.
+        report(facts(popUpsAllowed = false, sdk = 28)).let { assertTrue(it.good); assertNull(it.popUps) }
+        // After "isn't allowed to install updates", in the spec's order (rule 2), on an Android 10 or 11 TV.
+        assertEquals(listOf("update.notAllowed", "update.popUps"), ids(report(facts(installAllowed = false, popUpsAllowed = false, sdk = 30))))
+        // It travels to the hub and the phones, and a report from a Woodruff before it has none.
+        val json = JSONObject(r.toJson().toString())
+        assertEquals("Not allowed", json.getJSONObject("popUps").getString("text"))
+        assertEquals(r, HealthReport.fromJson(json))
+        assertNull(HealthReport.fromJson(json.apply { remove("popUps") })!!.popUps)
     }
 
     @Test fun updateWordsAreTheReportsOwn() {
@@ -218,13 +258,16 @@ class HealthReportTest {
     @Test fun lowSpaceAndAFailingDoorbell() {
         val r = report(facts(
             freeBytes = 600L * 1024 * 1024,
-            doorbell = doorbellFact(subscribed = true, status = "Google refused the doorbell subscription. Connect the cameras again (to allow Pub/Sub) and check the subscription name.", networkUp = true),
+            // Google wouldn't make this TV a subscription of its own.
+            doorbell = bell(from = "Living Room", listening = DoorbellListening.Refused),
         ))
         assertEquals(listOf("space.low", "doorbell.failing"), ids(r))
         assertEquals("only 600 MB is free", r.attention[0].words)
         assertEquals("600 MB free", r.freeSpace!!.text)
         assertEquals("doorbell alerts aren’t working", r.attention[1].words)
+        assertEquals("Google’s project doesn’t let this TV listen on its own; it hears the doorbell through Living Room instead.", r.attention[1].detail)
         assertEquals("Google refused", r.doorbell.text)
+        assertTrue(r.doorbell.attention)
         assertEquals("Only 600 MB is free, and doorbell alerts aren’t working.", r.sentence)
     }
 
@@ -266,6 +309,15 @@ class HealthReportTest {
         assertEquals("attention", json.getString("status"))
         assertEquals("expired", json.getJSONObject("signIns").getJSONObject("drive").getString("state"))
         assertEquals("Can’t reach Google", json.getJSONObject("signIns").getJSONObject("cameras").getString("text"))
+        // The doorbell row as the TV words it, whatever it is.
+        for (b in listOf(bell(cameras = false, from = "Living Room", listening = DoorbellListening.Idle), bell(listening = DoorbellListening.Refused))) {
+            val there = report(facts(doorbell = b))
+            val bellJson = there.toJson().getJSONObject("signIns").getJSONObject("doorbell")
+            assertEquals(b.state.json, bellJson.getString("state"))
+            assertEquals(b.text, bellJson.getString("text"))
+            assertEquals(b.attention, bellJson.getBoolean("attention"))
+            assertEquals(there, HealthReport.fromJson(JSONObject(there.toJson().toString())))
+        }
     }
 
     @Test fun aReportNeverCarriesKeysTokensAddressesOrEmails() {

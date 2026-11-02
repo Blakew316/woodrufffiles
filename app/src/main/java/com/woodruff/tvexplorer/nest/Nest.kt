@@ -223,13 +223,13 @@ object Nest {
                 try {
                     val cams = NestApi.cameras(app)
                     listed(cams)
-                    _state.update { it.copy(loading = false, offline = false, error = if (cams.isEmpty()) "No cameras were shared. Connect again and turn on your cameras on Google's sharing page." else null) }
+                    _state.update { it.copy(loading = false, offline = false, error = if (cams.isEmpty()) "No cameras were shared. Connect again and turn on your cameras on Google’s sharing page." else null) }
                     return@launch
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     if (!isNetworkFailure(e)) {
-                        _state.update { it.copy(loading = false, offline = false, error = e.message ?: "Couldn't load cameras", step = step()) }
+                        _state.update { it.copy(loading = false, offline = false, error = e.message ?: "Couldn’t load cameras", step = step()) }
                         return@launch
                     }
                     _state.update { it.copy(loading = false, offline = true, error = null) }
@@ -247,7 +247,7 @@ object Nest {
             val server = TransferService.state.first { it.running || it.error != null }
             val base = server.base
             if (base == null) {
-                _state.update { it.copy(error = server.error ?: "The phone connection couldn't start.") }
+                _state.update { it.copy(error = server.error ?: "The phone connection couldn’t start.") }
                 return@launch
             }
             try {

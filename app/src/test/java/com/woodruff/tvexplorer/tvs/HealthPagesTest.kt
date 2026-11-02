@@ -104,7 +104,7 @@ class HealthPagesTest {
         val rows = reportRows(view("Den", TvHealthKind.ATTENTION, attention), clock())
         assertEquals(
             listOf("summary", "signin.drive", "signin.photos", "signin.calendar", "signin.cameras", "doorbell", "version", "lastTry", "permission",
-                "crash", "closed", "space", "keys", "check", "unlink"),
+                "popUps", "crash", "closed", "space", "keys", "check", "unlink"),
             rows.map { it.key },
         )
         val byKey = rows.associateBy { it.key }
@@ -116,6 +116,9 @@ class HealthPagesTest {
         assertEquals("Didn’t install", byKey.getValue("lastTry").value)
         assertEquals("Last update try", byKey.getValue("lastTry").title)
         assertEquals("None", byKey.getValue("crash").value)
+        assertEquals("Pop-ups over other apps", byKey.getValue("popUps").title)
+        assertEquals("Allowed", byKey.getValue("popUps").value)
+        assertEquals("Woodruff needs this to open again where it was after an update. On Den: Settings → Advanced → Pop-ups over other apps.", byKey.getValue("popUps").about)
         assertEquals("Unlink this TV", byKey.getValue("unlink").title)
         assertTrue(byKey.getValue("unlink").danger)
         // Groups start with a gap.
@@ -181,6 +184,7 @@ class HealthPagesTest {
         assertEquals(json.getJSONObject("lastUpdateTry").getString("text"), rows.getValue("lastTry").value)
         assertEquals(json.getJSONObject("lastUpdateTry").getString("reason"), rows.getValue("lastTry").detail)
         assertEquals(json.getJSONObject("installPermission").getString("text"), rows.getValue("permission").value)
+        assertEquals(json.getJSONObject("popUps").getString("text"), rows.getValue("popUps").value)
         assertEquals(json.getJSONObject("lastCrash").getString("text"), rows.getValue("crash").value)
         assertEquals(json.getJSONObject("closedByAndroid").getString("text"), rows.getValue("closed").value)
         assertEquals(json.getJSONObject("freeSpace").getString("text"), rows.getValue("space").value)

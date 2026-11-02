@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.tvs
 
+import com.woodruff.tvexplorer.nest.DoorbellAlerts
 import com.woodruff.tvexplorer.util.Format
 import org.json.JSONArray
 import org.json.JSONObject
@@ -90,40 +91,32 @@ enum class ExitKind(val json: String, val words: String) {
 /** One time Android closed Woodruff ([kind], at [at]); for a native crash, whether its trace shows the camera or video code. */
 data class AppExit(val kind: ExitKind, val at: Long, val inMediaCode: Boolean = false)
 
-/** The doorbell alerts' state on one TV. */
-enum class DoorbellState(val json: String) { WATCHING("watching"), THROUGH("through"), OFF("off"), OFFLINE("offline"), UNREACHABLE("unreachable"), FAILING("failing") }
-
-/** The doorbell row: its state, its value ([text]) and what it's about ([detail]). */
-data class DoorbellFact(val state: DoorbellState, val text: String, val detail: String?) {
-    val failing: Boolean get() = state == DoorbellState.FAILING
-}
-
-private const val DOORBELL_WATCHING = "Doorbell presses pop up on this TV, even when the other TVs are off."
-private const val DOORBELL_OFF = "Set it up in the phone app."
+/** How one TV hears the doorbell, as Settings → Advanced → Doorbell alerts says it (doorbell.md §3.5). */
+enum class DoorbellState(val json: String) { WATCHING("watching"), THROUGH("through"), OFF("off"), FAILING("failing") }
 
 /**
- * The doorbell row from what this TV knows: whether it listens on a subscription itself
- * ([subscribed]) and why its last pull failed ([status], the doorbell's own words; null when it
- * worked). A failure the network explains reads as the sign-ins' connectivity words, never as
- * failing; [networkUp] tells "Offline" from "Can't reach Google".
+ * The doorbell row: its state, its value ([text]), what it's about ([detail]) and whether a person has
+ * to fix it ([attention]: amber, and the report's "doorbell alerts aren't working").
  */
-fun doorbellFact(subscribed: Boolean, status: String?, networkUp: Boolean): DoorbellFact {
-    if (!subscribed) return DoorbellFact(DoorbellState.OFF, "Off", DOORBELL_OFF)
-    val s = status?.trim().orEmpty()
-    if (s.isEmpty()) return DoorbellFact(DoorbellState.WATCHING, "Watching", DOORBELL_WATCHING)
-    val low = s.lowercase()
-    if (NETWORK_WORDS.any { it in low } || Regex("""error 5\d\d""").containsMatchIn(low)) {
-        return if (networkUp) DoorbellFact(DoorbellState.UNREACHABLE, SignInState.UNREACHABLE.words(HealthGrant.CAMERAS), DOORBELL_WATCHING)
-        else DoorbellFact(DoorbellState.OFFLINE, SignInState.OFFLINE.words(HealthGrant.CAMERAS), DOORBELL_WATCHING)
-    }
-    val short = when {
-        "refused" in low || "forbidden" in low -> "Google refused"
-        "not found" in low -> "Subscription not found"
-        "connect your cameras" in low -> "Cameras not connected"
-        else -> "Not working"
-    }
-    return DoorbellFact(DoorbellState.FAILING, short, s)
-}
+data class DoorbellFact(val state: DoorbellState, val text: String, val detail: String?, val attention: Boolean = state == DoorbellState.FAILING)
+
+/**
+ * The doorbell row from how this TV hears the doorbell ([com.woodruff.tvexplorer.nest.Doorbell.alerts]),
+ * word for word as Settings → Advanced says it: "Watching", "Through Living Room" (a TV without its own
+ * subscription, hearing it from the hub), "Off", or what's wrong ("Google refused"), which needs attention.
+ * Offline never changes it: the doorbell comes back by itself.
+ */
+fun doorbellFact(alerts: DoorbellAlerts): DoorbellFact = DoorbellFact(
+    state = when (alerts.state) {
+        DoorbellAlerts.State.WATCHING -> DoorbellState.WATCHING
+        DoorbellAlerts.State.THROUGH -> DoorbellState.THROUGH
+        DoorbellAlerts.State.OFF -> DoorbellState.OFF
+        DoorbellAlerts.State.FAILING -> DoorbellState.FAILING
+    },
+    text = alerts.value,
+    detail = alerts.about,
+    attention = alerts.attention,
+)
 
 private val NETWORK_WORDS = listOf("reach google", "resolve host", "timeout", "timed out", "failed to connect", "connection", "network", "ssl", "unreachable", "no route")
 
@@ -253,6 +246,11 @@ data class HealthFacts(
     val installed: InstallFact,
     /** Whether Woodruff may install apps ("Install unknown apps"); null below Android 8. */
     val installAllowed: Boolean?,
+    /**
+     * Whether Woodruff may show pop-ups over other apps (Settings → Advanced → Pop-ups over other apps);
+     * null below Android 10, where opening again after an update doesn't need it.
+     */
+    val popUpsAllowed: Boolean? = null,
     val crash: CrashFact?,
     /** When the phone last cleared the crash report: crashes before it no longer need attention. */
     val crashesClearedAt: Long = 0,
@@ -299,6 +297,8 @@ data class HealthReport(
     val updates: UpdatesRow,
     val lastUpdateTry: LastTryRow?,
     val installPermission: PermissionRow?,
+    /** "Pop-ups over other apps" (Android 10+; a report from an older Woodruff has none). */
+    val popUps: PermissionRow? = null,
     val signIns: Map<HealthGrant, SignInRow>,
     val doorbell: DoorbellFact,
     val lastCrash: CrashRow?,
@@ -335,11 +335,12 @@ data class HealthReport(
             .put("auto", updates.auto).put("testTv", updates.testTv).put("asks", updates.asks).apply { updates.reason?.let { put("reason", it) } })
         .put("lastUpdateTry", lastUpdateTry?.let { JSONObject().put("text", it.text).put("reason", it.reason) } ?: JSONObject.NULL)
         .put("installPermission", installPermission?.let { JSONObject().put("allowed", it.allowed).put("text", it.text).put("attention", it.attention) } ?: JSONObject.NULL)
+        .put("popUps", popUps?.let { JSONObject().put("allowed", it.allowed).put("text", it.text).put("attention", it.attention) } ?: JSONObject.NULL)
         .put("signIns", JSONObject().apply {
             signIns.forEach { (g, s) ->
                 put(g.json, JSONObject().put("state", s.state.json).put("text", s.text).put("attention", s.attention).apply { s.since?.let { put("since", it) } })
             }
-            put("doorbell", JSONObject().put("state", doorbell.state.json).put("text", doorbell.text).put("attention", doorbell.failing)
+            put("doorbell", JSONObject().put("state", doorbell.state.json).put("text", doorbell.text).put("attention", doorbell.attention)
                 .apply { doorbell.detail?.let { put("detail", it) } })
         })
         .put("lastCrash", lastCrash?.let {
@@ -373,15 +374,18 @@ data class HealthReport(
                 updates = UpdatesRow(u.optString("step"), u.optString("text"), u.optBoolean("attention"), u.optBoolean("auto", true), u.optBoolean("testTv"), u.optString("reason").ifEmpty { null }, u.optBoolean("asks")),
                 lastUpdateTry = o.optJSONObject("lastUpdateTry")?.let { LastTryRow(it.optString("text"), it.optString("reason")) },
                 installPermission = o.optJSONObject("installPermission")?.let { PermissionRow(it.optBoolean("allowed"), it.optString("text"), it.optBoolean("attention")) },
+                popUps = o.optJSONObject("popUps")?.let { PermissionRow(it.optBoolean("allowed"), it.optString("text"), it.optBoolean("attention")) },
                 signIns = HealthGrant.entries.associateWith { g ->
                     val s = signIns.optJSONObject(g.json)
                     val state = SignInState.of(s?.optString("state")) ?: SignInState.NOT_SET_UP
                     SignInRow(state, s?.optString("text")?.ifEmpty { null } ?: state.words(g), s?.optLong("since")?.takeIf { it > 0 })
                 },
-                doorbell = DoorbellFact(
-                    DoorbellState.entries.firstOrNull { it.json == bell?.optString("state") } ?: DoorbellState.OFF,
-                    bell?.optString("text")?.ifEmpty { null } ?: "Off", bell?.optString("detail")?.ifEmpty { null },
-                ),
+                doorbell = (DoorbellState.entries.firstOrNull { it.json == bell?.optString("state") } ?: DoorbellState.OFF).let { state ->
+                    DoorbellFact(
+                        state, bell?.optString("text")?.ifEmpty { null } ?: "Off", bell?.optString("detail")?.ifEmpty { null },
+                        bell?.optBoolean("attention", state == DoorbellState.FAILING) ?: false,
+                    )
+                },
                 // Scrubbed here too: a report kept from a TV on an older Woodruff passes through this hub to its phones.
                 lastCrash = o.optJSONObject("lastCrash")?.let {
                     CrashRow(it.optLong("at"), it.optString("text"), it.optBoolean("attention"), it.optString("summary"), scrubbed(it.optString("lines")), scrubbed(it.optString("report")))
@@ -426,6 +430,10 @@ internal const val KEYS_ABOUT = "Keys entered on one TV are copied to every link
 internal const val UPDATES_ABOUT = "Updates install by themselves when nobody is using Woodruff."
 
 internal fun permissionDetail(tv: String) = "Woodruff needs this to install its own updates. In $tv’s settings, allow Woodruff Family under Install unknown apps."
+/** The "Pop-ups over other apps" row's about text. */
+internal fun popUpsDetail(tv: String) = "Woodruff needs this to open again where it was after an update. On $tv: Settings → Advanced → Pop-ups over other apps."
+/** What to do when Woodruff can't open again after an update, for its attention item (the phone shows it under the item). */
+internal fun popUpsFix(tv: String) = "On $tv, open Settings → Advanced and turn on Pop-ups over other apps."
 internal fun spaceDetail(tv: String) = "Updates and saved posters need room. Free some in Storage & apps on $tv."
 internal fun waitingDetail(tv: String) = "On $tv, press Install when it asks."
 /** The Version row's about for a TV that asks before each update: Settings → Updates' own words on this TV. */
@@ -540,6 +548,12 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
     // anyway shows as waiting.
     val notAllowed = u.auto && f.sdk in 26..30 && f.installAllowed == false
     if (notAllowed) items += HealthItem("update.notAllowed", "Woodruff isn’t allowed to install updates", permissionDetail(tv), "none")
+    // Android 10+ lets Woodruff open again after an update (update/Restore, started from the update's own
+    // broadcast, in the background) only when it may show pop-ups over other apps. Without that, an update
+    // that installs by itself leaves the TV on its home screen instead of where Woodruff was.
+    val popUps = f.popUpsAllowed?.takeIf { f.sdk >= 29 }
+    val noPopUps = u.auto && popUps == false
+    if (noPopUps) items += HealthItem("update.popUps", "Woodruff can’t open again by itself after an update", popUpsFix(tv), "none")
 
     // Rules 3 and 4: crashes and Android's reasons in the last 7 days (one item each, the latest).
     val week = now - 7 * DAY
@@ -565,7 +579,8 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
     // Rule 5: space. Rule 6: the doorbell.
     val lowSpace = f.freeBytes != null && f.freeBytes < GIB
     if (lowSpace) items += HealthItem("space.low", "only ${Format.bytes(f.freeBytes!!)} is free", spaceDetail(tv), "none")
-    if (f.doorbell.failing) items += HealthItem("doorbell.failing", "doorbell alerts aren’t working", f.doorbell.detail ?: DOORBELL_OFF, "none")
+    // Only what a person has to fix: hearing it through another TV, or no doorbell set up, is information.
+    if (f.doorbell.attention) items += HealthItem("doorbell.failing", "doorbell alerts aren’t working", f.doorbell.detail ?: f.doorbell.text, "none")
 
     val closed = if (f.exits == null || f.sdk < 30) null else {
         val shown = recent.maxByOrNull { it.at }
@@ -591,6 +606,7 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
         updates = UpdatesRow(u.step, updateWords(u), waiting, u.auto, u.testTv, if (u.step == "error") plainUpdateReason(u.message) else null, u.asks),
         lastUpdateTry = if (failed) LastTryRow("Didn’t install", reason ?: "The package installer said no.") else null,
         installPermission = f.installAllowed?.let { PermissionRow(it, if (it) "Allowed" else "Not allowed", notAllowed) },
+        popUps = popUps?.let { PermissionRow(it, if (it) "Allowed" else "Not allowed", noPopUps) },
         signIns = signIns,
         doorbell = f.doorbell,
         lastCrash = crash?.let { c ->

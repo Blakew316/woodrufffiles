@@ -98,7 +98,7 @@ object Opener {
 
     @Suppress("DEPRECATION")
     fun uninstall(context: Context, packageName: String): OpenResult =
-        start(context, Intent(Intent.ACTION_UNINSTALL_PACKAGE, Uri.parse("package:$packageName")), "Uninstall isn't available on this device")
+        start(context, Intent(Intent.ACTION_UNINSTALL_PACKAGE, Uri.parse("package:$packageName")), "Uninstall isn’t available on this device")
 
     fun firstThatStarts(context: Context, intents: List<Intent>, failure: String): OpenResult {
         for (i in intents) {

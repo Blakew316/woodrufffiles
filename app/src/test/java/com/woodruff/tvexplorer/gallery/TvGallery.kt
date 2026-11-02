@@ -111,7 +111,7 @@ class TvGallery {
         }
         DashboardSamples.tvs = listOf(
             TvStatus("this", "Living Room", true, true, Playing("Midnight Harbor", null, "Woodruff Family", true, 2_710_000, 6_840_000)),
-            TvStatus("kids", "Kids Room", true, false, Playing("Backyard Science", null, "YouTube", true, 410_000, 1_320_000)),
+            TvStatus("den", "Den", true, false, Playing("Backyard Science", null, "YouTube", true, 410_000, 1_320_000)),
             TvStatus("bed", "Bedroom", false, false, null),
         )
         DashboardSamples.cameras = listOf("Front Door", "Backyard", "Garage", "Driveway")
@@ -123,7 +123,7 @@ class TvGallery {
     private fun seedNotices(app: Application) {
         Notices.load(app)
         Notices.clear(app)
-        Notices.post(app, NoticeSource.PHONE, "Dinner's ready", "Come downstairs when you can")
+        Notices.post(app, NoticeSource.PHONE, "Dinner’s ready", "Come downstairs when you can")
         Notices.post(app, NoticeSource.MAIL, "Your order has shipped", "Arriving Thursday")
         Notices.post(app, NoticeSource.SYSTEM, "Movie starts in 5 minutes", "")
         Notices.markAllRead(app)

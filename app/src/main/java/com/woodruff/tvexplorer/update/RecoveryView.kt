@@ -28,6 +28,7 @@ import android.widget.TextView
 import androidx.core.content.res.ResourcesCompat
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.R
+import com.woodruff.tvexplorer.tvs.scrubbed
 import com.woodruff.tvexplorer.util.CrashLog
 import com.woodruff.tvexplorer.util.EarlyCrashes
 import kotlinx.coroutines.CoroutineScope
@@ -498,10 +499,13 @@ class RecoveryView internal constructor(private val activity: Activity) : FrameL
          * The details box's text from a crash [report] ([CrashLog]'s: "Version … · time · thread …", then
          * the trace): the first line saying it happened while starting, the exception's first line, then
          * up to six lines of the trace — where it failed, then Woodruff's own frames and the causes, then
-         * the frames nearest the top — in their order, each cut to one line. No report: [NO_DETAILS].
+         * the frames nearest the top — in their order, each cut to one line. An exception's message can
+         * carry what it failed on: keys, tokens, addresses and emails never reach the screen ([scrubbed]).
+         * No report (or one that can't be cleaned): [NO_DETAILS].
          */
         internal fun summary(report: String?): String {
-            val lines = report?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+            val clean = report?.let { runCatching { scrubbed(it) }.getOrNull() ?: return NO_DETAILS }
+            val lines = clean?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
             if (lines.size < 2) return NO_DETAILS
             val head = lines[0].let { h -> h.indexOf(" · thread ").let { at -> if (at >= 0) h.substring(0, at) else h } } + " · while starting"
             val trace = lines.drop(2).filter { !it.startsWith("...") }

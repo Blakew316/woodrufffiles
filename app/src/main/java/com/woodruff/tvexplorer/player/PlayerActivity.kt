@@ -672,7 +672,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             "Intro ends here (${com.woodruff.tvexplorer.util.Format.duration(here)}): use for this show" to {
                 ShowPrefs.setIntroEnd(this, show(), here); introEnd = here; say("Skip intro will jump here")
             },
-            if (intro > 0) ("Forget this show's intro" to { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 }) else null,
+            if (intro > 0) ("Forget this show’s intro" to { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 }) else null,
         )
         // Any choice starts the sleep timer afresh, as it always has.
         menu.show("Options", first + choices.map { (label, action) ->

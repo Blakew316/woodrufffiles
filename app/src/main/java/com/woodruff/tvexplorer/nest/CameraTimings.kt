@@ -81,7 +81,7 @@ internal fun timingsSection(starts: List<CameraTimings.Start>, count: Int, stall
         append("== Camera starts ==\n")
         append("$count ${if (count == 1) "start" else "starts"} · $stalls ${if (stalls == 1) "stall" else "stalls"} · ")
         append("$reconnects ${if (reconnects == 1) "reconnect" else "reconnects"} since Woodruff started.\n")
-        append("Newest first, each step in ms: addresses (this TV's, for\n")
+        append("Newest first, each step in ms: addresses (this TV’s, for\n")
         append("the offer) · Google (its answer) · link (connected to the\n")
         append("camera) · picture (its first frame).\n")
         for (s in starts) {

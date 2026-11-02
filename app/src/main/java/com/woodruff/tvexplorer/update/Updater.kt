@@ -481,7 +481,7 @@ object Updater {
         }
 
         /** Why this TV's sign-ins may be gone, in words; null when nothing says they were lost. */
-        fun signIns(): String? = signInsLostAt?.let { "Lost ${day(it)}: the TV's key store lost their key" }
+        fun signIns(): String? = signInsLostAt?.let { "Lost ${day(it)}: the TV’s key store lost their key" }
 
         private fun day(ms: Long): String = if (ms <= 0) "?" else
             java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US).format(java.util.Date(ms))

@@ -19,10 +19,11 @@ import androidx.compose.ui.test.pressKey
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.woodruff.tvexplorer.nest.DoorbellListening
+import com.woodruff.tvexplorer.nest.doorbellAlerts
 import com.woodruff.tvexplorer.tvs.AppExit
 import com.woodruff.tvexplorer.tvs.CrashFact
 import com.woodruff.tvexplorer.tvs.DoorbellFact
-import com.woodruff.tvexplorer.tvs.DoorbellState
 import com.woodruff.tvexplorer.tvs.ExitKind
 import com.woodruff.tvexplorer.tvs.Health
 import com.woodruff.tvexplorer.tvs.HealthFacts
@@ -127,17 +128,18 @@ class HealthGallery {
             val day = 24 * hour
             fun facts(
                 name: String, signIns: Map<HealthGrant, SignInFact> = HealthGrant.entries.associateWith { SignInFact(SignInState.SIGNED_IN) },
-                doorbell: DoorbellFact = doorbellFact(subscribed = true, status = null, networkUp = true),
+                doorbell: DoorbellFact = doorbellFact(doorbellAlerts(subscription = true, camerasHere = true, relaysOut = false, relayFrom = null, listening = DoorbellListening.Own)),
                 update: UpdateFact = UpdateFact("upToDate", "2.0.171"), crash: CrashFact? = null, exits: List<AppExit> = emptyList(),
                 free: Long = 12_400L * 1024 * 1024 * 1024 / 1000,
             ) = HealthFacts(
                 id = name.lowercase(), name = name, version = "2.0.171", sdk = 31, uptimeMs = 2 * day,
                 signIns = signIns, doorbell = doorbell, update = update,
                 installed = InstallFact("Installed fresh Oct 12, 9:10 AM · updated Nov 1, 3:02 AM by Woodruff itself", "Woodruff itself", now - 20 * day, now - day),
-                installAllowed = true, crash = crash, exits = exits, freeBytes = free,
+                installAllowed = true, popUpsAllowed = true, crash = crash, exits = exits, freeBytes = free,
                 keys = KeysFact(googleClientId = true, googleClientSecret = true, camerasProject = true, tmdb = true),
             )
-            val through = DoorbellFact(DoorbellState.THROUGH, "Through Living Room", "This TV hears the doorbell from Living Room while that TV is on. Connect the cameras on this TV to hear it on its own.")
+            // The other TVs' cameras aren't connected: each hears the doorbell from Living Room.
+            val through = doorbellFact(doorbellAlerts(subscription = true, camerasHere = false, relaysOut = false, relayFrom = "Living Room", listening = DoorbellListening.Idle))
             val living = buildHealth(facts("Living Room", exits = listOf(AppExit(ExitKind.LOW_MEMORY, now - 11 * hour))), Health.clock(c, now))
             val den = buildHealth(facts(
                 "Den",

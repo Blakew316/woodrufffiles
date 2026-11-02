@@ -84,7 +84,7 @@ object SmoothnessReport {
             when {
                 r.running -> "Recording: running, ${clock(r.leftMs)} left"
                 r.finished -> "Recording: finished ${since(r.agoMs)} ago (${clock(r.lengthMs)} long)"
-                else -> "Recording: none yet. Press Record (or OK on the TV's Smoothness row) to record 3 minutes in detail."
+                else -> "Recording: none yet. Press Record (or OK on the TV’s Smoothness row) to record 3 minutes in detail."
             },
         )
         val f = d.frames
@@ -111,7 +111,7 @@ object SmoothnessReport {
         line(" sync   uploading pictures")
         line(" gfx    issuing commands, swapping buffers")
         line(" RT     queued behind the render thread")
-        if (d.deadlinePerFrame) line(" GPU    the graphics chip's own time")
+        if (d.deadlinePerFrame) line(" GPU    the graphics chip’s own time")
 
         val screens = f.screens.sortedWith(
             compareByDescending<ScreenFrames> { it.navigating.late }.thenByDescending { it.navigating.frames }.thenByDescending { it.idle.frames },
@@ -135,7 +135,7 @@ object SmoothnessReport {
             line("${count(k.count)} presses (and held repeats) handled")
             line(" ms p50 ${k.percentileMs(0.5)} · p90 ${k.percentileMs(0.9)} · p99 ${k.percentileMs(0.99)} · max ${k.maxNs / 1_000_000}")
             line(" over 16 ms: ${count(k.over(16))} · over 50 ms: ${count(k.over(50))}")
-            line(" (A key's time shows as \"wait\" in the next frame.)")
+            line(" (A key’s time shows as \"wait\" in the next frame.)")
         }
 
         line()

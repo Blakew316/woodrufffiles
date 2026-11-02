@@ -37,7 +37,7 @@ object Weather {
         // The geocoder matches place names; for "Austin, TX" it wants just "Austin".
         val name = q.substringBefore(',').trim()
         val res = JSONObject(get("https://geocoding-api.open-meteo.com/v1/search?count=5&language=en&name=" + URLEncoder.encode(name, "UTF-8")))
-        val results = res.optJSONArray("results") ?: throw IOException("Couldn't find “$q”")
+        val results = res.optJSONArray("results") ?: throw IOException("Couldn’t find “$q”")
         val hint = q.substringAfter(',', "").trim().lowercase()
         val pick = (0 until results.length()).map { results.getJSONObject(it) }.let { list ->
             list.firstOrNull { hint.isNotEmpty() && (it.optString("admin1").lowercase().startsWith(hint) || it.optString("country_code").lowercase() == hint || stateCode(it.optString("admin1")) == hint) }

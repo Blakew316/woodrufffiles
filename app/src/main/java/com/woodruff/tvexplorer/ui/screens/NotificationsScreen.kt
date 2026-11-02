@@ -161,7 +161,7 @@ private fun AnnounceDialog(vm: MainViewModel, onDismiss: () -> Unit) {
     }
     DialogFrame("Announcement", onDismiss, width = 640) {
         RemoteTextField(
-            text, { text = it }, label = "Announcement", placeholder = "Dinner's ready!",
+            text, { text = it }, label = "Announcement", placeholder = "Dinner’s ready!",
             onSubmit = send, modifier = Modifier.fillMaxWidth(), textModifier = Modifier.focusRequester(field),
         )
         if (phones.isEmpty()) {
