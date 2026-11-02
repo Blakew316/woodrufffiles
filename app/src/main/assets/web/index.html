@@ -2286,7 +2286,7 @@
   function stopRepeat() { clearTimeout(repeatTimer); clearInterval(repeatTimer); repeatTimer = null; }
   document.querySelectorAll('.pad .dir, .vol button').forEach(function (b) {
     b.addEventListener('touchstart', function () {
-      stopRepeat();
+      stopRepeat(); b._held = 0;   // a new touch: its own click counts (a quick tap just after a hold, say)
       // (only while it's still pressed: a hold that turns into a swipe on the clickpad stops repeating)
       repeatTimer = setTimeout(function () {
         if (!b.classList.contains('pressed')) return;
@@ -2300,7 +2300,7 @@
   (function () {
     var ok = $('pad').querySelector('.okb'), t = null;
     ok.addEventListener('touchstart', function () {
-      clearTimeout(t);
+      clearTimeout(t); ok._held = 0;
       t = setTimeout(function () { if (ok.classList.contains('pressed')) { held(ok); press('menu', ok); } }, 500);
     }, { passive: true });
     ['touchend', 'touchcancel'].forEach(function (ev) { ok.addEventListener(ev, function () { clearTimeout(t); letGo(ok); }, { passive: true }); });

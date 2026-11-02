@@ -24,6 +24,14 @@ object DpadGate {
     private const val STALE_MS = 100L
     private const val MIN_SIDEWAYS_MS = 90L   // Left/Right held: about 11 moves a second
     private const val MIN_UPDOWN_MS = 130L    // Up/Down moves a whole row or shelf
+    /**
+     * An arrow held on the phone's remote repeats at the phone's own pace (every 140 ms), already no
+     * faster than the gaps above, but Wi-Fi brings some of its repeats in closer together: held to
+     * those gaps, every third or fourth Up/Down was dropped and the focus stepped unevenly. So the
+     * phone's repeats only keep this far apart (a few arriving together still move once), besides
+     * waiting, as every repeat does, for the last move to be drawn.
+     */
+    private const val MIN_PHONE_MS = 60L
     private var lastMoveAt = 0L
     private var framesSinceMove = 2
     // The press last answered. The same press can reach a second gate (a dialog's own, and one put
@@ -38,15 +46,31 @@ object DpadGate {
             if (++framesSinceMove < 2) Choreographer.getInstance().postFrameCallback(this)
         }
     }
+    /** The press the phone's remote is handing in right now ([fromPhone]). Main thread. */
+    private var phonePress: KeyEvent? = null
+
+    /**
+     * Hands [event], a press of the phone's remote, to [dispatch], which passes it to a window there and
+     * then: while it does, this gate knows the press is the phone's ([MIN_PHONE_MS]). Main thread.
+     */
+    fun fromPhone(event: KeyEvent, dispatch: () -> Unit) {
+        phonePress = event
+        try {
+            dispatch()
+        } finally {
+            phonePress = null
+        }
+    }
 
     /** True when [event] is a repeat to drop. Main thread only (key events are). */
     fun shouldDrop(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return false
-        val minGap = when (event.keyCode) {
+        val arrowGap = when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> MIN_SIDEWAYS_MS
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> MIN_UPDOWN_MS
             else -> return false
         }
+        val minGap = if (event === phonePress) MIN_PHONE_MS else arrowGap
         if (event.eventTime == seenTime && event.downTime == seenDown && event.keyCode == seenCode && event.repeatCount == seenRepeat) {
             return seenDrop
         }

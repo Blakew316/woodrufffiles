@@ -1,6 +1,7 @@
 // Checks the phone remote's taps and holds against mock_server.py: a tap of OK presses OK; holding OK presses Menu
 // once (the TV's "more options", as holding OK on its remote does) and not OK; holding an arrow sends a press, then
-// repeats counting 1, 2, 3… (which the TV gates like its own remote's held button), and nothing more as it's let go.
+// repeats counting 1, 2, 3… (which the TV gates like its own remote's held button), and nothing more as it's let go;
+// a quick tap just after a hold still presses.
 // Usage: MOCK_LOG=/tmp/keys.log python3 mock_server.py ../../app/src/main/assets/web &
 //        node phone_remote_check.mjs /tmp/keys.log
 import { chromium, devices } from 'playwright';
@@ -22,13 +23,14 @@ const cdp = await context.newCDPSession(page);
 await page.goto(base + '#remote');
 await page.waitForTimeout(1200);
 
-async function hold(selector, ms) {
+// Touches [selector] for [ms], then waits [after] ms.
+async function hold(selector, ms, after = 900) {
   const b = await page.locator(selector).boundingBox();
   const x = b.x + b.width / 2, y = b.y + b.height / 2;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
   await page.waitForTimeout(ms);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(after);
 }
 const sent = () => readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
   .filter((r) => r.method === 'POST' && r.path.startsWith('/api/key')).map((r) => r.body);
@@ -53,6 +55,17 @@ check('hold Down', got.length >= 3 && same(got[0], { key: 'down' }) && got.slice
 await hold('[data-key=down]', 80);
 got = since();
 check('tap Down', same(got, [{ key: 'down' }]), got);
+
+// Let go of a hold, then a quick tap to step one more: the tap is pressed too (not taken for the hold's release).
+await hold('[data-key=down]', 900, 200);
+await hold('[data-key=down]', 80);
+got = since();
+check('tap just after a hold', got.length >= 3 && same(got[got.length - 1], { key: 'down' }) && got.filter((k) => !k.repeat).length === 2, got);
+
+await hold('.okb', 900, 200);
+await hold('.okb', 80);
+got = since();
+check('tap OK just after holding it', same(got, [{ key: 'menu' }, { key: 'ok' }]), got);
 
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -108,9 +108,9 @@ fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDi
     val platter = rememberFocusPlatter()
     val scheme = MaterialTheme.colorScheme
     DialogFrame(title, onDismiss, width = 460) {
-        // Settings → Smoothness counts its frames as the menu's.
-        PopUpName("Menu")
         if (subtitle != null) Text(subtitle, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
+        // Settings → Smoothness counts its frames as the menu's. (It draws nothing.)
+        PopUpName("Menu")
         // Room above the first row and below the last: a focused row grows past them, and the
         // list clips there.
         LazyColumn(

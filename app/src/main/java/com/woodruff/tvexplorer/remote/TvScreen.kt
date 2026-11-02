@@ -18,7 +18,10 @@ import android.view.PixelCopy
 import android.view.View
 import android.view.Window
 import android.view.WindowManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import com.woodruff.tvexplorer.ui.motion.DialogWindows
+import com.woodruff.tvexplorer.ui.motion.DpadGate
 import com.woodruff.tvexplorer.util.Presence
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,9 +43,9 @@ import kotlin.math.roundToInt
  * doorbell's camera), and each of its pop-ups (a title page, a menu, a confirmation, the filters,
  * search) is a window of its own over the screen that opened it ([DialogWindows]). A key goes to the
  * window with the focus, as the TV's remote's does, so Back closes a pop-up and OK presses Play on a
- * title page. It carries the time it came and, for an arrow held on the phone, how many times it has
- * repeated: held arrows are gated as the remote's are (never queued), and Settings → Smoothness counts
- * the moves.
+ * title page (and to none of them while another app's screen is in front). It carries the time it
+ * came and, for an arrow held on the phone, how many times it has repeated: held arrows are gated as
+ * the remote's are (never queued, at the phone's own pace), and Settings → Smoothness counts the moves.
  *
  * The picture is the screen with its pop-ups drawn over it, the screen dimmed behind them as on the
  * TV. Only this app's windows can be copied (Android needs a permission prompt on the TV for anything
@@ -113,7 +116,8 @@ object TvScreen {
         val (down, up) = events(code, repeat, SystemClock.uptimeMillis())
         main.post {
             val target = keyWindow() ?: return@post
-            target.dispatchKeyEvent(down)
+            // A held arrow's repeats keep the phone's own pace through the gate (DpadGate.fromPhone).
+            DpadGate.fromPhone(down) { target.dispatchKeyEvent(down) }
             target.dispatchKeyEvent(up)
         }
         pressedAt = SystemClock.elapsedRealtime() // the next picture should show what it did
@@ -158,14 +162,18 @@ object TvScreen {
 
     /**
      * Where a key goes now: of the top screen's windows (its own and its pop-ups over it), the one with
-     * the focus; when none has it (one of Android's own windows is over them), its top pop-up, else the
-     * screen itself. Its window's callback is what Android hands keys to (for a pop-up, the dialog:
-     * Back closes it). Main thread.
+     * the focus; when none has it (a window of Android's is over them for a moment), its top pop-up,
+     * else the screen itself. Its window's callback is what Android hands keys to (for a pop-up, the
+     * dialog: Back closes it). Nowhere (null) when another app's screen is in front of Woodruff's
+     * (Android's own install or permission screen, its voice search): the phone can't press there,
+     * and pressing behind it would act where nobody can see. Main thread.
      */
     private fun keyWindow(): Window.Callback? {
         val a = top() ?: return null
         val windows = listOf(a.window) + DialogWindows.of(a)
-        val w = windows.lastOrNull { it.peekDecorView()?.hasWindowFocus() == true } ?: windows.last()
+        val focused = windows.lastOrNull { it.peekDecorView()?.hasWindowFocus() == true }
+        if (focused == null && a is LifecycleOwner && !a.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return null
+        val w = focused ?: windows.last()
         return w.callback ?: a
     }
 
@@ -173,10 +181,18 @@ object TvScreen {
 
     private val pictureLock = Any()
     private class Made(val jpeg: ByteArray, val at: Long)
-    /** Pictures made lately, by width, and when (elapsed ms). */
+    /** Pictures made lately, by width, and when (elapsed ms); each only for [SHARE_MS]. */
     private val made = HashMap<Int, Made>()
-    /** What pictures of each width are copied into, one bitmap per window, kept for the next picture. */
-    private val spare = HashMap<Int, ArrayList<Bitmap>>()
+    /**
+     * What pictures of each width are copied into, one bitmap per window, kept for the next picture:
+     * for the [KEPT_WIDTHS] widths asked for last (the phone's and the hub's), so pictures asked for at
+     * other widths never pile up bitmaps.
+     */
+    private val spare = object : LinkedHashMap<Int, ArrayList<Bitmap>>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, ArrayList<Bitmap>>): Boolean =
+            (size > KEPT_WIDTHS).also { drop -> if (drop) eldest.value.forEach(Bitmap::recycle) }
+    }
+    private const val KEPT_WIDTHS = 2
     /** When those go if no picture comes first (elapsed ms), and the job that lets them go. */
     private var keepUntil = 0L
     private var letGo: Job? = null
@@ -193,7 +209,8 @@ object TvScreen {
         val width = maxWidth.coerceIn(MIN_WIDTH, WIDTH)
         synchronized(pictureLock) {
             val now = SystemClock.elapsedRealtime()
-            made[width]?.let { if (now - it.at < SHARE_MS && it.at >= pressedAt) return it.jpeg }
+            made[width]?.let { if (now - it.at in 0 until SHARE_MS && it.at >= pressedAt) return it.jpeg }
+            made.values.removeAll { now - it.at !in 0 until SHARE_MS }
             val a = top() ?: return null
             keepUntil = now + KEEP_MS
             if (letGo == null) letGo = scope.launch { letGoWhenDue() }
@@ -212,6 +229,9 @@ object TvScreen {
     /** Whether anything is kept for pictures (for tests). */
     internal val holdsBitmaps: Boolean get() = synchronized(pictureLock) { spare.isNotEmpty() }
 
+    /** The widths whose bitmaps are kept for the next picture (for tests). */
+    internal val keptWidths: Set<Int> get() = synchronized(pictureLock) { spare.keys.toSet() }
+
     private suspend fun letGoWhenDue() {
         while (true) {
             val left = synchronized(pictureLock) {
@@ -227,6 +247,8 @@ object TvScreen {
         spare.values.forEach { list -> list.forEach { it.recycle() } }
         spare.clear()
         made.clear()
+        // (Let go early, by release(): its timer has nothing left to do, and the next picture starts another.)
+        letGo?.cancel()
         letGo = null
     }
 
@@ -250,17 +272,27 @@ object TvScreen {
         }
         if (!copied[0]) return null
         val canvas = Canvas(into[0])
+        val dimBelow = dimBelow(layers.map { it.dim }, copied)
         for (i in 1 until layers.size) {
             if (!copied[i]) continue
             val l = layers[i]
-            // Dimmed behind it, as the TV dims what's under a pop-up.
-            if (l.dim > 0f) canvas.drawColor(Color.argb((l.dim.coerceIn(0f, 1f) * 255).roundToInt(), 0, 0, 0))
+            // What's under it dimmed, as the TV dims what's under a pop-up.
+            if (i == dimBelow) canvas.drawColor(Color.argb((l.dim.coerceIn(0f, 1f) * 255).roundToInt(), 0, 0, 0))
             canvas.drawBitmap(into[i], null, RectF(l.x * scale, l.y * scale, (l.x + l.w) * scale, (l.y + l.h) * scale), smooth)
         }
         return into[0]
     }
 
     private fun sized(px: Int, scale: Float) = (px * scale).roundToInt().coerceAtLeast(1)
+
+    /**
+     * Which of the layers (lowest first, the screen at 0, with how much each dims what's under it) has
+     * the dim drawn just below it: the top one that dims and was [copied]; -1 for none. Android dims
+     * once, just below the top window that asks to, so a menu over a title page dims the screen
+     * under both once, and the title page with it. Visible for tests.
+     */
+    internal fun dimBelow(dims: List<Float>, copied: BooleanArray): Int =
+        (dims.size - 1 downTo 1).firstOrNull { copied[it] && dims[it] > 0f } ?: -1
 
     /** One bitmap per window, [sizes] big, the ones from the last picture of this width where they fit. */
     private fun bitmaps(width: Int, sizes: List<Pair<Int, Int>>): List<Bitmap> {

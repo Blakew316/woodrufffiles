@@ -133,6 +133,24 @@ class TvScreenTest {
         assertFalse(TvScreen.press("ok"))
     }
 
+    @Test fun withAnotherAppsScreenInFrontThePhonePressesNothingUnseen() {
+        val controller = Robolectric.buildActivity(Screen::class.java).setup()
+        val screen = controller.get()
+        attach(screen)
+        // Android's own install screen over Woodruff (a window of another app): Woodruff's screen is
+        // paused, still started under it, and its window has lost the focus.
+        controller.pause().windowFocusChanged(false)
+        assertTrue(TvScreen.onScreen)
+        TvScreen.press("ok")
+        settle()
+        assertTrue(screen.keys.isEmpty())
+        // In front again: pressed as before.
+        controller.resume().windowFocusChanged(true)
+        TvScreen.press("ok")
+        settle()
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_DPAD_CENTER), screen.keys.map { it.keyCode })
+    }
+
     @Test fun aHeldArrowRepeatsAsTheRemotesDo() {
         val code = KeyEvent.KEYCODE_DPAD_RIGHT
         val (first, firstUp) = TvScreen.events(code, 0, 10_000)
@@ -194,6 +212,74 @@ class TvScreenTest {
         // Off the screen: no picture.
         TvScreen.detach(screen)
         assertEquals(null, offMain { TvScreen.frame() })
+    }
+
+    @Test fun aPopUpOverAPopUpDimsTheScreenOnce() {
+        val screen = open()
+        screen.setContent {
+            Box(Modifier.fillMaxSize().background(Color(0xFFD03030)))
+            Dialog(onDismissRequest = {}) { Box(Modifier.size(320.dp, 180.dp).dpadGate().background(Color(0xFF2050E0))) }
+            // A menu over the title page, say.
+            Dialog(onDismissRequest = {}) { Box(Modifier.size(160.dp, 90.dp).dpadGate().background(Color(0xFF20A040))) }
+        }
+        settle()
+        attach(screen)
+        val (page, menu) = DialogWindows.of(screen).also { assertEquals(2, it.size) }
+        val dim = menu.attributes.dimAmount
+        assertTrue(dim > 0f)
+        val picture = offMain { TvScreen.frame() }!!.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        fun dimmed(c: Int) = (c * (1 - dim)).toInt()
+        // Android dims once, just below the top pop-up: the screen and the page under the menu alike...
+        assertNear(AndroidColor.rgb(dimmed(0xD0), dimmed(0x30), dimmed(0x30)), picture.getPixel(picture.width - 40, picture.height - 40))
+        val decor = page.peekDecorView()
+        val at = IntArray(2).also { decor.getLocationOnScreen(it) }
+        assertNear(AndroidColor.rgb(dimmed(0x20), dimmed(0x50), dimmed(0xE0)), picture.getPixel((at[0] + decor.width - 20) / 2, (at[1] + decor.height - 20) / 2))
+        // ...and the menu itself not at all.
+        val top = menu.peekDecorView()
+        val mat = IntArray(2).also { top.getLocationOnScreen(it) }
+        assertNear(0xFF20A040.toInt(), picture.getPixel((mat[0] + top.width / 2) / 2, (mat[1] + top.height / 2) / 2))
+    }
+
+    @Test fun onlyTheTopPopUpThatDimsDims() {
+        val all = booleanArrayOf(true, true, true)
+        assertEquals(2, TvScreen.dimBelow(listOf(0f, 0.6f, 0.6f), all))
+        assertEquals(1, TvScreen.dimBelow(listOf(0f, 0.6f, 0f), all))
+        // A pop-up that couldn't be copied isn't in the picture: nor is its dim.
+        assertEquals(1, TvScreen.dimBelow(listOf(0f, 0.6f, 0.6f), booleanArrayOf(true, true, false)))
+        assertEquals(-1, TvScreen.dimBelow(listOf(0f), booleanArrayOf(true)))
+    }
+
+    @Test fun aHeldArrowOnThePhoneMovesAtItsOwnPace() {
+        val screen = open()
+        val moves = mutableListOf<Int>()
+        screen.setContent {
+            Dialog(onDismissRequest = {}) {
+                val focus = remember { FocusRequester() }
+                Box(
+                    Modifier.size(200.dp).dpadGate().focusRequester(focus).focusable()
+                        .onKeyEvent { if (it.type == KeyEventType.KeyDown) moves += it.nativeKeyEvent.repeatCount; false },
+                )
+                LaunchedEffect(Unit) { focus.requestFocus() }
+            }
+        }
+        settle()
+        attach(screen)
+        // The phone repeats every 140 ms; Wi-Fi brings some of them in closer together (110 ms here).
+        // Each still moves: none is dropped as "too soon" (the TV's remote's repeats are, at 130 ms).
+        for (n in 0..4) {
+            assertTrue(TvScreen.press("down", n))
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(110))
+        }
+        assertEquals(listOf(0, 1, 2, 3, 4), moves)
+    }
+
+    @Test fun picturesAskedForAtManyWidthsKeepBitmapsForTheLastTwo() {
+        val screen = open()
+        screen.setContent { Box(Modifier.fillMaxSize().background(Color(0xFF203040))) }
+        settle()
+        attach(screen)
+        for (w in listOf(960, 240, 480)) assertNotNull(offMain { TvScreen.frame(w) })
+        assertEquals(setOf(240, 480), TvScreen.keptWidths)
     }
 
     @Test fun whatPicturesAreCopiedIntoIsLetGo() {
