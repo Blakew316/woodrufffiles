@@ -19,7 +19,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Wi-Fi is back after standby (or a router restart), instead of on a fixed timer that left them
  * out of date for minutes after the network returned. One default-network callback for the whole
  * app, registered by the first [start]. If a TV refuses it, [online] stays true and [comebacks]
- * never ticks, so everything falls back on its own timer.
+ * never ticks, so everything falls back on its own timer. (While the phone connection runs, it
+ * also follows Wi-Fi and Ethernet themselves for their addresses: [com.woodruff.tvexplorer.server.LanWatch].)
  */
 object NetworkWatch {
     private val tracker = NetworkTracker()
@@ -73,6 +74,16 @@ object NetworkWatch {
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = note(tracker.capabilities(network, caps.validated()))
         override fun onLost(network: Network) = note(tracker.lost(network))
     }
+
+    /**
+     * Whether the TV has a network at all right now (Wi-Fi joined, Ethernet plugged in, a VPN up),
+     * checked for the internet or not, asked of Android there and then: for "is it worth trying at
+     * all" (the phone connection's background checks wait for one) and for saying why something
+     * failed (an update check with no network is "offline"). [online] is the stricter "Android
+     * checked it reaches the internet". True when Android can't say.
+     */
+    fun hasNetworkNow(c: Context): Boolean =
+        runCatching { c.getSystemService(ConnectivityManager::class.java)?.activeNetwork != null }.getOrDefault(true)
 
     /**
      * Waits until the network comes back after [mark] (a [comebacks] value read before the try that

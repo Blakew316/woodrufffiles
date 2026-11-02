@@ -21,7 +21,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * connection ([TransferService]) waits on it for as long as it takes after the TV turns on or wakes,
  * instead of giving up, and follows the TV to a new address.
  *
- * It listens to Wi-Fi and Ethernet themselves rather than to the app's default network: with
+ * It listens to Wi-Fi and Ethernet themselves rather than to the app's default network (that, and
+ * whether it reaches the internet, is [com.woodruff.tvexplorer.util.NetworkWatch]'s): with
  * Tailscale on the TV, the default network is Tailscale's, which says nothing when the Wi-Fi under
  * it gets a new address. A home network without internet counts too: the phone connection only
  * needs the home network. Android reports on a thread of its own; a report only bumps [changes].
