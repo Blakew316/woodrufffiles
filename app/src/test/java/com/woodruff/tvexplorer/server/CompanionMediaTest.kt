@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
 import com.woodruff.tvexplorer.nowplaying.Playing
 import com.woodruff.tvexplorer.nowplaying.PlayerCommand
+import com.woodruff.tvexplorer.remote.TvScreen
 import com.woodruff.tvexplorer.tvs.TvLinks
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CompletableDeferred
@@ -84,7 +85,9 @@ class CompanionMediaTest {
 
     @Test fun aStartSaysWhetherItIsOnScreen() {
         val f = File(ctx.cacheDir, "Family vacation.mp4").apply { writeBytes(ByteArray(16)) }
-        // Another app in front and no pop-up permission: it waits on the TV, and the answer says what to do there.
+        // Another app in front (none of Woodruff's screens up) and no pop-up permission: it waits on the TV, and the
+        // answer says what to do there.
+        assertFalse("a test before this one left one of Woodruff's screens up (started, never stopped)", TvScreen.onScreen)
         ShadowSettings.setCanDrawOverlays(false)
         val waits = JSONObject(text(post("/api/play", JSONObject().put("path", f.path))))
         assertTrue(waits.getBoolean("ok"))
