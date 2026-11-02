@@ -54,7 +54,13 @@ object Health {
         // The phones are told when Google ends one of this TV's sign-ins (and, on the hub, a linked TV's).
         SignInAlerts.init(app)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            Updater.state.collect { s -> if (s.step == Updater.Step.READY && s.latest != null) noteReady(app, s.latest) }
+            var step: Updater.Step? = null
+            Updater.state.collect { s ->
+                // A check or an install moved on (one asked for from a phone, too): the next ask says so, not the
+                // report kept from just before ("Checking…" for 10 s after it finished).
+                if (s.step != step) { step = s.step; kept = null }
+                if (s.step == Updater.Step.READY && s.latest != null) noteReady(app, s.latest)
+            }
         }
         scope.launch {
             delay(20_000)
