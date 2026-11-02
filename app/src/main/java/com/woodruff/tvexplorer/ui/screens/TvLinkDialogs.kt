@@ -24,7 +24,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.woodruff.tvexplorer.tvs.LinkedTv
 import com.woodruff.tvexplorer.tvs.TvLinks
+import com.woodruff.tvexplorer.tvs.sameTvName
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.components.ListRowShape
@@ -46,7 +48,7 @@ fun LinkCodeDialog(onDismiss: () -> Unit) {
     val close = { TvLinks.cancelCode(); onDismiss() }
     val focus = remember { FocusRequester() }
     DialogFrame("Link this TV", close, width = 600) {
-        Text("On the other TV: Settings → TVs → Add another TV, choose \"${TvLinks.name(context)}\" and enter:", color = Palette.muted)
+        Text("On the other TV: Settings → TVs & phones → Other TVs → Add another TV, choose “${TvLinks.name(context)}” and enter:", color = Palette.muted)
         Text(code.chunked(3).joinToString(" "), fontSize = 64.sp, fontWeight = FontWeight.Bold, color = Palette.accent, letterSpacing = 6.sp)
         Text("Works once, for 10 minutes.", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
         ButtonRow { TvOutlinedButton(onClick = close, modifier = Modifier.focusRequester(focus)) { Text("Done") } }
@@ -54,19 +56,31 @@ fun LinkCodeDialog(onDismiss: () -> Unit) {
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
-/** On the hub: finds Woodruff TVs on the network, then asks for the code the chosen one shows. */
+/**
+ * On the hub: finds Woodruff TVs on the network, then asks for the code the chosen one shows. With
+ * a [target] (a linked TV whose link stopped working: Link again), the TV found within 5 s with its
+ * id or name is chosen by itself, and linking replaces its old entry (one TV, not two); [onLinked]
+ * hears the new entry.
+ */
 @Composable
-fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
+fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit, target: LinkedTv? = null, onLinked: (LinkedTv) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val found = remember { mutableStateListOf<TvLinks.Found>() }
     var chosen by remember { mutableStateOf<TvLinks.Found?>(null) }
     var busy by remember { mutableStateOf(false) }
+    // Linking again: the TV itself, if it turns up within 5 s (else the list, to choose it there).
+    val since = remember { android.os.SystemClock.uptimeMillis() }
     DisposableEffect(Unit) {
         val main = android.os.Handler(android.os.Looper.getMainLooper())
         val stop = TvLinks.discover(context) { f ->
             // Found on a background thread: update the list on the main thread.
-            main.post { if (found.none { it.base == f.base }) found += f }
+            main.post {
+                if (found.none { it.base == f.base }) found += f
+                if (target != null && chosen == null && android.os.SystemClock.uptimeMillis() - since < 5_000 &&
+                    (f.id == target.id || sameTvName(f.name, target.name))
+                ) chosen = f
+            }
         }
         onDispose { stop() }
     }
@@ -77,14 +91,20 @@ fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit) {
             onConfirm = { code ->
                 busy = true
                 scope.launch {
-                    val msg = try { "Linked ${TvLinks.link(context, pick.base, code).name}" } catch (e: Exception) { e.message ?: "Couldn't link" }
+                    val msg = try {
+                        val tv = TvLinks.link(context, pick.base, code, replacing = target?.id)
+                        onLinked(tv)
+                        if (target != null) "${tv.name} is linked again" else "Linked ${tv.name}"
+                    } catch (e: Exception) {
+                        e.message ?: "Couldn’t link"
+                    }
                     busy = false
                     onResult(msg)
                     onDismiss()
                 }
             },
             onDismiss = { chosen = null },
-            hint = "On ${pick.name}: Settings → TVs → Link this TV.",
+            hint = "On ${pick.name}: Settings → TVs & phones → Other TVs → Link this TV to another.",
         )
         return
     }

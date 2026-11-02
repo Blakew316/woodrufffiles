@@ -129,6 +129,8 @@ class TransferService : Service() {
                 runCatching { com.woodruff.tvexplorer.update.Updater.maybeAuto(applicationContext) }
                 // The keys every TV shares: a TV that was off, reset or just linked gets the family's keys.
                 runCatching { com.woodruff.tvexplorer.settings.SharedKeys.sync(applicationContext) }
+                // And the family message board's last pin, for a TV that was off when it was pinned.
+                runCatching { com.woodruff.tvexplorer.notify.Board.sync(applicationContext) }
                 delay(MAIL_INTERVAL_MS)
             }
         }

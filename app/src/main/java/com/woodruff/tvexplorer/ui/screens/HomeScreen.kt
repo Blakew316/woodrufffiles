@@ -608,9 +608,11 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
             Column(Modifier.weight(1f)) {
                 val p = sel.playing
                 Text(sel.name + if (isThis && tvs.size > 1) " · this TV" else "", style = MaterialTheme.typography.labelMedium, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Off, or (TV health, finding 55) answering but turning down this TV's link: Link again.
                 Text(
-                    when { !sel.online -> "Off or unreachable"; p != null -> Format.title(p.title); else -> "Nothing playing" },
+                    when { sel.refused -> "Link again"; !sel.online -> "Off"; p != null -> Format.title(p.title); else -> "Nothing playing" },
                     style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (sel.refused) Palette.attention else Color.Unspecified,
                 )
                 if (sel.online && p != null) {
                     Text(

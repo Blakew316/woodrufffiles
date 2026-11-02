@@ -59,7 +59,7 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         val SETTINGS_FILES = listOf(
             "settings", "appearance", "notices", "secrets", "recent", "episode_shows", "watched", "player_shows",
             "player", "updates", "weather", "chime", "board", "doorbell", "family_sync", "mail_poll", "startup",
-            "google_oauth", "health",
+            "google_oauth", "tvs", "health",
         )
     }
 }

@@ -41,8 +41,18 @@ import java.util.concurrent.ConcurrentHashMap
 /** Another TV this one can see: its address and link key (stored encrypted). */
 data class LinkedTv(val id: String, val name: String, val base: String, val key: String)
 
-/** A TV's live status, for the phone's TV picker and the Command center. */
-data class TvStatus(val id: String, val name: String, val online: Boolean, val onScreen: Boolean, val playing: Playing?, val version: String? = null)
+/**
+ * A TV's live status, for the phone's TV picker and the Command center. [refused]: it answers but
+ * turns down this TV's link key (finding 55: Link again). [seen]: when it last answered. [health]:
+ * its health report in a few words, when it sends one ([reportsHealth]: a Woodruff from before
+ * health reports sends none). [board]: the newest pinned message it has shown or dismissed (null
+ * from a Woodruff that doesn't say).
+ */
+data class TvStatus(
+    val id: String, val name: String, val online: Boolean, val onScreen: Boolean, val playing: Playing?, val version: String? = null,
+    val refused: Boolean = false, val seen: Long? = null, val health: HealthSummary? = null, val reportsHealth: Boolean = false,
+    val board: Long? = null,
+)
 
 /** The TVs a message is for: this one ([here]) and linked TVs by id ([others]; null means all of them). */
 data class TvTargets(val here: Boolean, val others: Set<String>?) {
@@ -72,6 +82,14 @@ object TvLinks {
     private const val K_ID = "tvs.id"
     private const val K_NAME = "tvs.name"
     private const val K_LINK_KEY = "tvs.linkkey"
+    /** This TV's id and name, and what it knows of linked TVs (refused links, when each last answered): plain settings, none of it secret. */
+    private const val PREFS = "tvs"
+    private const val P_ID = "id"
+    private const val P_NAME = "name"
+    private const val P_REFUSED = "refused"
+    private const val P_SEEN = "seen"
+    /** A TV's last answer is written down at most this often (it's asked every few seconds while a TV list is open). */
+    private const val SEEN_WRITE_MS = 5 * 60_000L
     private const val CODE_TTL_MS = 10 * 60_000L
     /** A linked TV that stopped answering is looked for on the network at most this often. */
     private const val REFIND_EVERY_MS = 3 * 60_000L
@@ -84,11 +102,56 @@ object TvLinks {
 
     // ---- This TV ---------------------------------------------------------------------------
 
-    fun id(c: Context): String = SecretStore.get(c).get(K_ID) ?: UUID.randomUUID().toString().also { SecretStore.get(c).put(K_ID, it) }
-    fun name(c: Context): String = SecretStore.get(c).get(K_NAME)?.takeIf { it.isNotBlank() } ?: "${Build.MODEL ?: "Android"} TV"
-    /** The name someone gave this TV (Settings → TVs & phones → This TV's name); null while it has none. */
-    fun givenName(c: Context): String? = SecretStore.get(c).get(K_NAME)?.trim()?.takeIf { it.isNotEmpty() }
-    fun setName(c: Context, name: String) = SecretStore.get(c).put(K_NAME, name.trim().take(40).ifBlank { null })
+    private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val identity = Any()
+    /** While the Keystore can't be read yet, an id for this run only (never saved). */
+    @Volatile private var interimId: String? = null
+
+    /**
+     * This TV's id. Kept in plain settings (it's announced on the network anyway), so a Keystore that
+     * loses its key no longer gives the TV a new identity that its hub can't recognise. Copied once
+     * from the encrypted store, where versions before kept it.
+     */
+    fun id(c: Context): String {
+        prefs(c).getString(P_ID, null)?.let { return it }
+        synchronized(identity) {
+            val p = prefs(c)
+            p.getString(P_ID, null)?.let { return it }
+            val old = runCatching { SecretStore.get(c).get(K_ID) }.getOrNull()
+            if (old == null && savedSecretly(c, K_ID)) {
+                // Saved, but the Keystore can't be read just yet (some TVs, just after turning on):
+                // not a new identity for good, only one for now.
+                return interimId ?: UUID.randomUUID().toString().also { interimId = it }
+            }
+            val id = old ?: UUID.randomUUID().toString()
+            p.edit().putString(P_ID, id).apply()
+            return id
+        }
+    }
+
+    fun name(c: Context): String = givenName(c) ?: "${Build.MODEL ?: "Android"} TV"
+
+    /** The name someone gave this TV (Settings → TVs & phones → This TV's name); null while it has none. Plain settings, like [id]. */
+    fun givenName(c: Context): String? {
+        val p = prefs(c)
+        if (!p.contains(P_NAME)) synchronized(identity) {
+            if (!p.contains(P_NAME)) {
+                val old = runCatching { SecretStore.get(c).get(K_NAME) }.getOrNull()
+                if (old == null && savedSecretly(c, K_NAME)) return null // not readable yet: copied once it is
+                p.edit().putString(P_NAME, old?.trim().orEmpty()).apply()
+            }
+        }
+        return p.getString(P_NAME, null)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun setName(c: Context, name: String) {
+        prefs(c).edit().putString(P_NAME, name.trim().take(40)).apply()
+        runCatching { SecretStore.get(c).remove(K_NAME) }
+    }
+
+    /** Whether the encrypted store holds [name] (readable or not). */
+    private fun savedSecretly(c: Context, name: String) =
+        c.applicationContext.getSharedPreferences("secrets", Context.MODE_PRIVATE).contains(name)
 
     /** What other TVs use to reach this one. Only accepted for [LINK_ROUTES]. */
     private fun linkKey(c: Context): String =
@@ -107,16 +170,28 @@ object TvLinks {
     /**
      * /api/keys: the keys every TV shares (SharedKeys: TMDB, Google Client ID and secret, cameras
      * project). /api/tmdb: the TMDB key alone, for a hub on 2.0.157, the version before the others.
+     * /api/health: this TV's health report (no secrets: keys present or not, never their values).
+     * /api/update/check: check for an update now (harmless; it follows the test TV's day as always).
      */
-    val LINK_ROUTES = setOf("/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/keys", "/api/tmdb")
+    val LINK_ROUTES = setOf(
+        "/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/keys", "/api/tmdb",
+        "/api/health", "/api/update/check",
+    )
 
     fun isLinkKey(c: Context, k: String?): Boolean =
         k != null && MessageDigest.isEqual(k.toByteArray(), linkKey(c).toByteArray())
 
+    /**
+     * What this TV tells its hub every few seconds: who it is, what it plays, its health in a few
+     * words ([Health.summary]) and the newest pinned message it has shown or dismissed, so the hub
+     * can catch it up on one it missed while off ([com.woodruff.tvexplorer.notify.Board.sync]).
+     */
     fun status(c: Context): JSONObject = JSONObject()
         .put("id", id(c)).put("name", name(c)).put("onScreen", TvScreen.onScreen)
         .put("version", com.woodruff.tvexplorer.BuildConfig.VERSION_NAME)
         .put("playing", NowPlaying.current(c)?.toJson() ?: JSONObject.NULL)
+        .put("health", runCatching { Health.summary(c).toJson() }.getOrDefault(JSONObject.NULL))
+        .put("board", com.woodruff.tvexplorer.notify.Board.seenAt(c))
 
     // ---- Being linked (the other TV shows a code) -----------------------------------------------
 
@@ -161,6 +236,11 @@ object TvLinks {
                 LinkedTv(o.getString("id"), o.getString("name"), o.getString("base"), o.getString("key"))
             }
         }.getOrDefault(emptyList())
+        val p = prefs(c)
+        _refused.value = p.getStringSet(P_REFUSED, emptySet()).orEmpty().toSet()
+        runCatching { JSONObject(p.getString(P_SEEN, null) ?: "{}") }.getOrNull()?.let { o ->
+            o.keys().forEach { id -> o.optLong(id).takeIf { it > 0 }?.let { seen[id] = it; seenWritten[id] = it } }
+        }
     }
 
     @Synchronized
@@ -175,24 +255,75 @@ object TvLinks {
     @Synchronized
     private fun edit(c: Context, change: (List<LinkedTv>) -> List<LinkedTv>) = save(c, change(_linked.value))
 
-    fun remove(c: Context, id: String) { load(c); edit(c) { list -> list.filter { it.id != id } } }
+    fun remove(c: Context, id: String) {
+        load(c)
+        edit(c) { list -> list.filter { it.id != id } }
+        forget(c, setOf(id))
+    }
 
     /** Links the TV at [base] using the code it shows. */
-    suspend fun link(c: Context, base: String, code: String): LinkedTv = withContext(Dispatchers.IO) {
+    suspend fun link(c: Context, base: String, code: String, replacing: String? = null): LinkedTv = withContext(Dispatchers.IO) {
         load(c)
         val body = JSONObject().put("code", code.filter { it.isDigit() }).put("from", name(c))
         val r = try {
             request("$base/api/link", "POST", body.toString())
         } catch (e: IOException) {
-            throw IOException(if (e.message?.contains("403") == true) "That code didn't work. Check the code on the other TV." else "Couldn't reach that TV.")
+            throw IOException(if (e.message?.contains("403") == true) "That code didn’t work. Check the code on the other TV." else COULD_NOT_REACH)
         }
         val o = JSONObject(r)
         val tv = LinkedTv(o.getString("id"), o.getString("name"), base, o.getString("key"))
-        if (tv.id == id(c)) throw IOException("That's this TV.")
-        edit(c) { list -> list.filter { it.id != tv.id } + tv }
+        if (tv.id == id(c)) throw IOException("That’s this TV.")
+        var gone = emptySet<String>()
+        edit(c) { list ->
+            val (kept, replaced) = linkedAfter(list, tv, replacing, _refused.value)
+            gone = replaced
+            kept
+        }
+        forget(c, gone - tv.id)
+        clearRefused(c, tv.id)
+        sawTv(tv.id)
         // The shared keys go to the new TV now (or come from it), not at the next check.
         com.woodruff.tvexplorer.settings.SharedKeys.syncSoon(c)
         tv
+    }
+
+    /**
+     * Links again a TV whose link stopped working ([id]) with the code it shows: at its saved
+     * address, else wherever the network says it is now (by its id, or its name for a reset TV), for
+     * up to 5 s. The old entry gives way to the new one, so there's one, not two (finding 55).
+     */
+    suspend fun relink(c: Context, id: String, code: String): LinkedTv = withContext(Dispatchers.IO) {
+        load(c)
+        val old = find(id) ?: throw IOException("That TV isn't linked any more.")
+        try {
+            link(c, old.base, code, replacing = id)
+        } catch (e: IOException) {
+            if (e.message != COULD_NOT_REACH) throw e
+            val at = findOnNetwork(c, old) ?: throw e
+            link(c, at, code, replacing = id)
+        }
+    }
+
+    private const val COULD_NOT_REACH = "Couldn’t reach that TV."
+
+    /** Where [tv] (by its id, else its name) is on the network now, looking for up to 5 s; null when it isn't found. */
+    private suspend fun findOnNetwork(c: Context, tv: LinkedTv): String? {
+        val found = Channel<Found>(Channel.UNLIMITED)
+        val stop = discover(c) { found.trySend(it) }
+        try {
+            var byName: String? = null
+            val byId = withTimeoutOrNull(REFIND_SEARCH_MS) {
+                for (f in found) {
+                    if (f.id == tv.id) return@withTimeoutOrNull f.base
+                    if (byName == null && sameTvName(f.name, tv.name)) byName = f.base
+                }
+                null
+            }
+            return byId ?: byName
+        } finally {
+            stop()
+            found.close()
+        }
     }
 
     // ---- Talking to linked TVs ---------------------------------------------------------------
@@ -201,16 +332,22 @@ object TvLinks {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile private var recent: Pair<Long, List<TvStatus>>? = null
-    private val checks = StatusChecks(scope) { tv ->
+    private val checks = StatusChecks(scope) { tv -> statusOf(tv) }
+
+    /**
+     * [tv]'s status, asked with its link key. Renamed on that TV (Settings → This TV's name): the
+     * list here takes its new name, so the TV list, the phone's TV picker and messages by name all
+     * follow it. A TV that doesn't answer, or answers but turns down the key, is looked for on the
+     * network ([lost]).
+     */
+    fun statusOf(tv: LinkedTv): TvStatus {
         try {
             val status = parse(JSONObject(request("${tv.base}/api/status?k=${enc(tv.key)}", "GET", null)), true)
-            // Renamed on that TV (Settings → This TV's name): the list here takes its new name, so the
-            // TV list, the phone's TV picker and messages by name all follow it.
+            answered(tv)
             renamed(tv, status.name)
-            status.copy(id = tv.id, name = cleanName(status.name) ?: tv.name)
+            return status.copy(id = tv.id, name = cleanName(status.name) ?: tv.name)
         } catch (e: Exception) {
-            // Off, or at a new address: look for it on the network (in the background).
-            lost(tv)
+            lost(tv, refusedAt = (e as? KeyRefused)?.let { tv.base })
             throw e
         }
     }
@@ -229,7 +366,8 @@ object TvLinks {
     private suspend fun fetchStatuses(c: Context): List<TvStatus> = withContext(Dispatchers.IO) {
         load(c)
         val me = async { parse(status(c), online = true) }
-        val others = checks.statuses(_linked.value)
+        val refused = _refused.value
+        val others = checks.statuses(_linked.value).map { it.copy(refused = it.id in refused, seen = seen[it.id]) }
         listOf(me.await()) + others
     }
 
@@ -241,7 +379,7 @@ object TvLinks {
     fun screen(tv: LinkedTv): ByteArray? {
         val conn = open("${tv.base}/api/screen?k=${enc(tv.key)}", "GET")
         try {
-            return if (conn.responseCode == 200) conn.inputStream.use { it.readBytes() } else null
+            return if (conn.responseCode == 200) conn.inputStream.use { it.readBytes() }.also { answered(tv) } else null
         } catch (e: IOException) {
             lost(tv)
             throw e
@@ -259,10 +397,57 @@ object TvLinks {
         reach(tv, again = true) { t -> request("${t.base}/api/watch?k=${enc(t.key)}", "POST", body) }
     }
 
-    /** Pin a family message on [tv]'s Home. */
-    fun board(tv: LinkedTv, title: String, body: String, from: String?) {
-        val json = JSONObject().put("title", title).put("body", body).put("from", from ?: "").toString()
+    /** Pin a family message on [tv]'s Home; [at]: when it was pinned here, so [tv] shows it once ([com.woodruff.tvexplorer.notify.Board.receive]). */
+    fun board(tv: LinkedTv, title: String, body: String, from: String?, at: Long) {
+        val json = JSONObject().put("title", title).put("body", body).put("from", from ?: "").put("at", at).toString()
         reach(tv, again = true) { t -> request("${t.base}/api/board?k=${enc(t.key)}", "POST", json) }
+    }
+
+    /**
+     * [tv]'s health report, asked with its link key: at most about 4 s (2 to connect, 2 to answer),
+     * so a list of TVs never waits long on one. Tells a TV that's off ([HealthAnswer.Unreachable])
+     * from one that connected but didn't answer in time ([HealthAnswer.Slow]) and from one that
+     * answered without a report ([HealthAnswer.NoReport]: an older Woodruff, or one turning down the key).
+     */
+    fun health(tv: LinkedTv): HealthAnswer {
+        val conn = (URL("${tv.base}/api/health?k=${enc(tv.key)}").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 2_000
+            readTimeout = 2_000
+        }
+        try {
+            try {
+                conn.connect()
+            } catch (e: IOException) {
+                lost(tv)
+                return HealthAnswer.Unreachable
+            }
+            val code = try { conn.responseCode } catch (e: java.net.SocketTimeoutException) { return HealthAnswer.Slow }
+            if (code != 200) return HealthAnswer.NoReport(code)
+            val text = try { conn.inputStream.bufferedReader().use { it.readText() } } catch (e: java.net.SocketTimeoutException) { return HealthAnswer.Slow }
+            answered(tv)
+            return HealthReport.fromJson(runCatching { JSONObject(text) }.getOrNull())?.let { HealthAnswer.Report(it) } ?: HealthAnswer.NoReport(code)
+        } catch (e: IOException) {
+            return HealthAnswer.Unreachable
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** What asking a linked TV for its health report came to. */
+    sealed interface HealthAnswer {
+        data class Report(val report: HealthReport) : HealthAnswer
+        /** It answered, with no report ([code]): an older Woodruff (no such route for a link key), or a key it turns down. */
+        data class NoReport(val code: Int) : HealthAnswer
+        /** It connected but didn't answer in time. */
+        data object Slow : HealthAnswer
+        /** No connection: off, asleep, or gone from that address. */
+        data object Unreachable : HealthAnswer
+    }
+
+    /** Asks [tv] to check for an update now (it still follows the test TV's day, as its own checks do). */
+    fun checkForUpdates(tv: LinkedTv) {
+        request("${tv.base}/api/update/check?k=${enc(tv.key)}", "POST", "{}")
+        answered(tv)
     }
 
     /** Pop up a message on [tv], with its announcement chime; [id] makes a repeat show only once. */
@@ -328,7 +513,7 @@ object TvLinks {
     /** [pickTargets] for this TV and the TVs linked to it. */
     fun targets(c: Context, asked: List<String>?, default: TvTargets): TvTargets? {
         load(c)
-        return pickTargets(asked, default, id(c), name(c), _linked.value)
+        return pickTargets(asked, default, id(c), name(c), _linked.value, seen)
     }
 
     fun press(tv: LinkedTv, key: String) {
@@ -340,6 +525,8 @@ object TvLinks {
     private fun parse(o: JSONObject, online: Boolean) = TvStatus(
         o.optString("id"), o.optString("name"), online, o.optBoolean("onScreen"), Playing.fromJson(o.optJSONObject("playing")),
         o.optString("version").ifBlank { null },
+        health = HealthSummary.fromJson(o.optJSONObject("health")), reportsHealth = o.has("health"),
+        board = if (o.has("board")) o.optLong("board") else null,
     )
 
     private fun open(url: String, method: String) = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -369,6 +556,9 @@ object TvLinks {
     /** The other TV answered but couldn't do it, and said why ("Netflix isn't installed on this TV"). */
     class Refused(message: String) : IOException(message)
 
+    /** Something at the TV's address turned down its link key (HTTP 401): see [lost] for how that's told apart from another device there. */
+    class KeyRefused : IOException("HTTP 401")
+
     // ---- Finding a linked TV again after its address changed -----------------------------------
 
     /** Linked TVs that stopped answering, to look for on the network. */
@@ -384,9 +574,10 @@ object TvLinks {
     private fun reach(tv: LinkedTv, again: Boolean, send: (LinkedTv) -> Unit) {
         try {
             send(tv)
+            answered(tv)
         } catch (e: IOException) {
             // A TV that said no (with its reason) is where it should be: nothing to look for.
-            if (e !is Refused) lost(tv, if (again) send else null)
+            if (e !is Refused) lost(tv, if (again) send else null, refusedAt = (e as? KeyRefused)?.let { tv.base })
             throw e
         }
     }
@@ -394,10 +585,14 @@ object TvLinks {
     /**
      * [tv] didn't answer: it may be off, or at a new address. Looks for it on the network in the
      * background, at most every few minutes and without holding anyone up, and sends it [again]
-     * once it turns up at a new address.
+     * once it turns up at a new address. [refusedAt]: it did answer there, turning down its link key
+     * (HTTP 401); the search then also says whether it's a Woodruff TV at that address, which means
+     * this link stopped working (finding 55). A TV already known to refuse isn't looked for again.
      */
-    private fun lost(tv: LinkedTv, again: ((LinkedTv) -> Unit)? = null) {
+    private fun lost(tv: LinkedTv, again: ((LinkedTv) -> Unit)? = null, refusedAt: String? = null) {
         val c = appContext ?: return
+        if (tv.id in _refused.value) return
+        if (refusedAt != null) suspects[tv.id] = refusedAt
         val now = find(tv.id) ?: return
         // Found at its new address since this was sent: straight there.
         if (now.base != tv.base) {
@@ -425,6 +620,13 @@ object TvLinks {
         try {
             withTimeoutOrNull(REFIND_SEARCH_MS) {
                 for (f in found) {
+                    // A Woodruff TV advertised where a TV turned down its link key: that link stopped working.
+                    for (id in refusedHere(f, left, suspects)) {
+                        left.remove(id)
+                        markRefused(c, id)
+                        Log.i("TvLinks", "A linked TV turns down its link")
+                    }
+                    if (left.isEmpty()) break
                     val tv = candidatesFor(f, _linked.value.filter { it.id in left }).firstOrNull { isTv(it, f.base) } ?: continue
                     left.remove(tv.id)
                     if (f.base != tv.base) moved(c, tv.id, f.base)?.let { now ->
@@ -438,6 +640,73 @@ object TvLinks {
             stop()
             found.close()
         }
+    }
+
+    // ---- Links that stopped working, and when each TV last answered -------------------------------
+
+    private val _refused = MutableStateFlow<Set<String>>(emptySet())
+    /**
+     * Linked TVs (by id) that answer but turn down this TV's link key: reset or reinstalled, or
+     * "Stop other TVs seeing this one" was chosen on them. They show "Link again" (finding 55) and
+     * aren't looked for on the network any more; any answer with the key, or linking again, clears it.
+     */
+    val refused: StateFlow<Set<String>> = _refused
+
+    fun refuses(id: String): Boolean = id in _refused.value
+
+    /** A 401 from a TV's address, waiting for the network search to say whether a Woodruff TV is there (by TV id). */
+    private val suspects = ConcurrentHashMap<String, String>()
+    /** When each linked TV last answered; written down now and then ([SEEN_WRITE_MS]) so it outlives a restart. */
+    private val seen = ConcurrentHashMap<String, Long>()
+    private val seenWritten = ConcurrentHashMap<String, Long>()
+
+    /** When the linked TV [id] last answered; null when not since it was linked. */
+    fun seenAt(id: String): Long? = seen[id]
+
+    private fun markRefused(c: Context, id: String) {
+        suspects.remove(id)
+        if (find(id) == null) return
+        writeRefused(c, _refused.value + id)
+        recent = null
+    }
+
+    private fun clearRefused(c: Context, id: String) {
+        suspects.remove(id)
+        if (id in _refused.value) { writeRefused(c, _refused.value - id); recent = null }
+    }
+
+    @Synchronized
+    private fun writeRefused(c: Context, ids: Set<String>) {
+        _refused.value = ids
+        prefs(c).edit().putStringSet(P_REFUSED, ids).apply()
+    }
+
+    /** [tv] answered with its link key: it's there, and its link works. */
+    private fun answered(tv: LinkedTv) {
+        sawTv(tv.id)
+        val c = appContext ?: return
+        if (tv.id in _refused.value || suspects.containsKey(tv.id)) clearRefused(c, tv.id)
+    }
+
+    private fun sawTv(id: String) {
+        val now = System.currentTimeMillis()
+        seen[id] = now
+        val c = appContext ?: return
+        if (now - (seenWritten[id] ?: 0L) >= SEEN_WRITE_MS) {
+            seenWritten[id] = now
+            val o = JSONObject()
+            seen.forEach { (k, v) -> if (find(k) != null) o.put(k, v) }
+            prefs(c).edit().putString(P_SEEN, o.toString()).apply()
+        }
+    }
+
+    /** Linked TVs [ids] were unlinked or replaced: nothing about them is kept. */
+    private fun forget(c: Context, ids: Set<String>) {
+        if (ids.isEmpty()) return
+        ids.forEach { suspects.remove(it); seen.remove(it); seenWritten.remove(it) }
+        if (ids.any { it in _refused.value }) writeRefused(c, _refused.value - ids)
+        TvHealth.forget(c, ids)
+        recent = null
     }
 
     /** Whether the Woodruff at [base] is [tv]: it takes [tv]'s link key and gives [tv]'s id. */
@@ -600,7 +869,9 @@ internal suspend fun awaitAnswers(running: Map<String, Job>, heard: Set<String>,
  * Reads a message's "tvs" ([asked]): "all", "this", or TVs by id or name, where this TV's own id or
  * name counts as "this". Nothing asked: [default]. Null when it names no TV there is.
  */
-internal fun pickTargets(asked: List<String>?, default: TvTargets, meId: String, meName: String, linked: List<LinkedTv>): TvTargets? {
+internal fun pickTargets(
+    asked: List<String>?, default: TvTargets, meId: String, meName: String, linked: List<LinkedTv>, seen: Map<String, Long> = emptyMap(),
+): TvTargets? {
     val wanted = asked.orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
     if (wanted.isEmpty()) return default
     if (wanted.any { it.equals("all", ignoreCase = true) }) return TvTargets.ALL
@@ -608,10 +879,35 @@ internal fun pickTargets(asked: List<String>?, default: TvTargets, meId: String,
     val ids = LinkedHashSet<String>()
     for (w in wanted) {
         if (w.equals("this", ignoreCase = true) || w == meId || w.equals(meName, ignoreCase = true)) here = true
-        else linked.firstOrNull { it.id == w || it.name.equals(w, ignoreCase = true) }?.let { ids.add(it.id) }
+        else (linked.firstOrNull { it.id == w }
+            // Two TVs by one name (one of them reset and linked again): the one heard from last.
+            ?: linked.filter { it.name.equals(w, ignoreCase = true) }.maxByOrNull { seen[it.id] ?: 0L })?.let { ids.add(it.id) }
     }
     return if (here || ids.isNotEmpty()) TvTargets(here, ids) else null
 }
+
+/**
+ * The linked TVs after linking [tv]: it replaces its own old entry, the entry it's linked again in
+ * place of ([replacing]), and any entry that turns down its link ([refused]) and has its name or
+ * address (a TV reset and linked again), keeping the list's order. Also the ids that gave way.
+ */
+internal fun linkedAfter(list: List<LinkedTv>, tv: LinkedTv, replacing: String?, refused: Set<String>): Pair<List<LinkedTv>, Set<String>> {
+    fun replaced(t: LinkedTv) = t.id == tv.id || t.id == replacing ||
+        (t.id in refused && (sameTvName(t.name, tv.name) || t.base == tv.base))
+    val at = list.indexOfFirst(::replaced)
+    val kept = list.filterNot(::replaced)
+    val gone = list.filter(::replaced).map { it.id }.toSet()
+    return (if (at < 0) kept + tv else kept.take(at) + tv + kept.drop(at)) to gone
+}
+
+/**
+ * Which of the linked TVs [left] (by id) a TV [found] on the network shows turning down its link:
+ * the ones a 401 came from at the very address it's advertised at ([suspects]: id to address). It's
+ * a Woodruff TV there that won't take the key (reset, reinstalled, or told to stop other TVs seeing
+ * it), not some other device that took the address.
+ */
+internal fun refusedHere(found: TvLinks.Found, left: Set<String>, suspects: Map<String, String>): List<String> =
+    left.filter { suspects[it] == found.base }
 
 // ---- Finding a linked TV again (plain logic, unit-tested) -------------------------------------
 
@@ -650,7 +946,11 @@ internal fun candidatesFor(found: TvLinks.Found, lost: List<LinkedTv>): List<Lin
  */
 internal fun failure(code: Int, body: String?): IOException {
     val message = body?.trim()?.take(200)
-    return if (code == 400 && !message.isNullOrEmpty()) TvLinks.Refused(message) else IOException("HTTP $code")
+    return when {
+        code == 400 && !message.isNullOrEmpty() -> TvLinks.Refused(message)
+        code == 401 -> TvLinks.KeyRefused()
+        else -> IOException("HTTP $code")
+    }
 }
 
 internal fun refindDue(last: Long?, now: Long, everyMs: Long): Boolean =
