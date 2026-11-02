@@ -2746,7 +2746,14 @@
   function fmtTime(ms) { var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + ('0' + m).slice(-2) : m) + ':' + ('0' + (s % 60)).slice(-2); }
   function tvStatus(t) { var p = t.playing; return t.link === 'refused' ? 'Link again' : !t.online ? 'Off' : !p ? 'Nothing playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title; }
   function chosenTv() { return tvs.filter(function (t) { return t.id === tvId; })[0]; }
-  function chooseTv(id) { tvId = id; renderTvs(); loadTvs(); }
+  function chooseTv(id) { if (id !== tvId) retarget(id); tvId = id; renderTvs(); loadTvs(); pollField(); }
+  // Another TV picked (or the picked one unlinked): the keyboard starts again on that TV's own text box, and nothing
+  // typed for the last one goes to it.
+  function retarget(id) {
+    fieldSeq++; field = null; typing.next = null; clearTimeout(typeTimer);
+    $('kb-text').value = '';
+    showField(null, 'Looking for a text box on ' + tvName(id) + '…');
+  }
   // Every 5 s while the Remote, Watch or Settings › TVs is on screen; once, without polling, for the words
   // elsewhere (Send's To row, the TVs row in Settings).
   function tvsShowing() { return current === 'settings' && (topOf('settings') === PG['set-tvs'] || topOf('settings') === PG['set-tv']); }
@@ -2762,7 +2769,7 @@
   }
   function renderTvs() {
     var many = tvs.length > 1, t = chosenTv();
-    if (!t && tvs.length) { tvId = tvs[0].id; t = tvs[0]; }   // that TV was unlinked
+    if (!t && tvs.length) { retarget(tvs[0].id); tvId = tvs[0].id; t = tvs[0]; pollField(); }   // that TV was unlinked
     // The title (Remote, or the TV picker): new words cross-dissolve in place.
     var nm = t ? t.name : $('rm-tv-name').textContent, dot = t ? !playing(t) : $('rm-tv-dot').hidden;
     if ($('rm-tv').hidden !== !many || $('rm-title').hidden !== many || $('rm-tv-name').textContent !== nm || $('rm-tv-dot').hidden !== dot) {
@@ -3550,7 +3557,10 @@
   };
 
   // ---- Keyboard -----------------------------------------------------------------------------------
-  var field = null, typeTimer = null, pollTimer = null, kbOpen = false;
+  // It types into the picked TV (finding 42): this TV's text box, or a linked TV's through this one. Each change sends
+  // the whole text, one request at a time, the newest text going when the one on its way has arrived, so letters never
+  // arrive out of order. Another TV picked: its own text box, and the keyboard starts again, empty.
+  var field = null, typeTimer = null, pollTimer = null, kbOpen = false, fieldSeq = 0, typing = { busy: false, next: null };
   function openKb(focus) {
     kbOpen = true; presentSheet($('kb'));
     if (focus) $('kb-text').focus({ preventScroll: true }); // within the tap, so iOS shows the keyboard
@@ -3558,20 +3568,25 @@
   }
   function closeKb(v, from, appFrom, lead) { kbOpen = false; dismissSheet($('kb'), typeof v === 'number' ? v : 0, from, appFrom, lead); $('kb-text').blur(); pollField(); }
   sheetDrag($('kb'), closeKb);
+  // The picked TV's text box, every 2 s on the Remote (1.2 s with the keyboard open); a reply about a TV no longer
+  // picked, or older than the last ask, is dropped.
   function pollField() {
     clearTimeout(pollTimer);
     if (document.hidden || (current !== 'remote' && !kbOpen)) return;
-    api('/api/type').then(function (d) { calm('field', function () { showField(d.field); }); }, function () {})
-      .then(function () { pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
+    var id = tvId, seq = ++fieldSeq;
+    api(id === 'this' ? '/api/type' : '/api/tvs/type?id=' + q(id)).then(function (d) {
+      if (seq === fieldSeq) calm('field', function () { if (id === tvId) showField(d.field, d.note); });
+    }, function () {}).then(function () { if (seq === fieldSeq) pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
   }
-  function showField(f) {
+  // note: why a linked TV can't take typing from here ("Den needs a newer Woodruff for typing").
+  function showField(f, note) {
     var pill = !f || kbOpen;
     if ($('rm-kb-hint').hidden !== pill) {
       if (current === 'remote' && !kbOpen) flipPad(function () { $('rm-kb-hint').hidden = pill; }); else $('rm-kb-hint').hidden = pill;
     }
     var kb2 = $('kb-open2'), ready = !!f && !kbOpen;   // the keyboard button lights up (cross-fades) when there's a text box
     if (kb2 && kb2.classList.contains('ready') !== ready) dissolve(kb2, function () { kb2.classList.toggle('ready', ready); });
-    if (!f) { field = null; setClass($('kb-dot'), 'dot'); swapText($('kb-status'), 'No text box selected on the TV'); return; }
+    if (!f) { field = null; setClass($('kb-dot'), 'dot'); swapText($('kb-status'), note || 'No text box selected on ' + tvName(tvId)); return; }
     if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
     field = f;
     swapText($('rm-kb-hint-t'), 'Type into ' + f.label);
@@ -3592,12 +3607,28 @@
     tracked(pad.animate([{ transform: 'translateY(' + dy.toFixed(1) + 'px) scale(' + sc.toFixed(4) + ')' }, { transform: 'translateY(0) scale(1)' }], { duration: s.ms, easing: s.easing }));
   }
   function sendText(submit) {
-    if (!field) return toast('Select a text box on the TV first', true);
+    if (!field) return toast('Select a text box on ' + tvName(tvId) + ' first', true);
     var text = $('kb-text').value;
     if (!field.multiline) text = text.replace(/\n/g, ' ');
-    return post('/api/type', { id: field.id, text: text, submit: !!submit }).then(function () {
-      if (submit) { toast('Sent to the TV'); $('kb-text').value = ''; field = null; closeKb(); }
-    }, err);
+    var job = { tv: tvId, field: field.id, text: text, submit: !!submit };
+    if (!typing.busy) return sendTyped(job);
+    // One on its way: this waits, replacing any text still waiting (Enter, once pressed, goes with its own text).
+    if (!(typing.next && typing.next.submit)) typing.next = job;
+  }
+  function sendTyped(job) {
+    typing.busy = true;
+    var sent = job.tv === 'this' ? post('/api/type', { id: job.field, text: job.text, submit: job.submit })
+      : post('/api/tvs/type', { id: job.tv, field: job.field, text: job.text, submit: job.submit });
+    sent.then(function () {
+      if (!job.submit) return;
+      toast('Sent to ' + tvName(job.tv));
+      if (job.tv === tvId) { $('kb-text').value = ''; field = null; closeKb(); }
+    }, function (e) { err(e); pollField(); })   // (a box that closed meanwhile: the next look says so)
+      .then(function () {
+        typing.busy = false;
+        var next = typing.next; typing.next = null;
+        if (next && next.tv === tvId) sendTyped(next);
+      });
   }
   $('kb-text').addEventListener('input', function () { clearTimeout(typeTimer); typeTimer = setTimeout(function () { sendText(false); }, 120); });
   $('kb-text').addEventListener('keydown', function (e) {
