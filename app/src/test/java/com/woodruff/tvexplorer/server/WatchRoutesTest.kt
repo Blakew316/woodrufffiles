@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.EpisodeMeta
+import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FolderCache
 import com.woodruff.tvexplorer.cloud.FreshEpisode
 import com.woodruff.tvexplorer.cloud.Library
@@ -57,6 +58,7 @@ class WatchRoutesTest {
 
     @Before fun setUp() {
         WatchHome.forget()
+        EpisodeShows.clear(c)
         WatchTmdb.reset()
         routes = WatchRoutes(c) { started += it; true }
         ListingCache.write(c, DrivePlace.Movies, movies)
@@ -78,6 +80,7 @@ class WatchRoutesTest {
         Watched.unmarkAll(c, listOf("drive:m3", "drive:m1", "drive:e24", "drive:l3"))
         WatchHome.forget()
         WatchTmdb.reset()
+        EpisodeShows.clear(c)
     }
 
     /** A library's saved listing, as [ListingCache] names its file. */
@@ -351,6 +354,75 @@ class WatchRoutesTest {
         val waits = json(get("/api/library/episodes", "show" to "s1", "season" to "f1"))
         assertEquals("loading", waits.getString("state"))
         assertEquals(0, waits.getJSONArray("episodes").length())
+    }
+
+    /** What [p] says about where it starts: (resume, latest). The phone passes both on to the TV that plays it. */
+    private fun flags(p: JSONObject) = p.optBoolean("resume") to p.optBoolean("latest")
+    private val goesOn = true to true // a show's "go on": its newest episode on the TV that plays it, where the family stopped
+    private val resumes = true to false // where the family last stopped it, which the TV that plays it knows best
+    private val fromZero = false to false // Start Over, Play from the Start: at 0, wherever anyone stopped
+
+    @Test fun everyPlayThePhoneIsGivenSaysWhoPicksTheSpot() {
+        // A show with an episode to go on with: Resume S2 E4, and Play from the Start beside it.
+        val s1 = json(get("/api/library/title", "id" to "s1"))
+        assertEquals("Resume S2 E4", s1.getJSONObject("play").getString("label"))
+        assertEquals(goesOn, flags(s1.getJSONObject("play")))
+        assertEquals("Play from the Start", s1.getJSONObject("restart").getString("label"))
+        assertEquals(fromZero, flags(s1.getJSONObject("restart")))
+        // Nothing started: Play S1 E1 (another TV may have started it since this TV last heard).
+        val s2 = json(get("/api/library/title", "id" to "s2"))
+        assertEquals("Play S1 E1", s2.getJSONObject("play").getString("label"))
+        assertEquals(resumes, flags(s2.getJSONObject("play")))
+        // A film: Resume, and Start Over.
+        val m1 = json(get("/api/library/title", "id" to "m1"))
+        assertEquals(resumes, flags(m1.getJSONObject("play")))
+        assertEquals(fromZero, flags(m1.getJSONObject("restart")))
+        // Continue watching: the show's tile goes on with the show, the film's resumes, its Start Over from 0.
+        val cw = json(get("/api/watch/home")).getJSONArray("continue")
+        assertEquals("Backyard Science", cw.getJSONObject(0).getString("name"))
+        assertEquals(goesOn, flags(cw.getJSONObject(0).getJSONObject("play")))
+        assertEquals("Resume from 45m", cw.getJSONObject(1).getJSONObject("play").getString("label"))
+        assertEquals(resumes, flags(cw.getJSONObject(1).getJSONObject("play")))
+        assertEquals(fromZero, flags(cw.getJSONObject(1).getJSONObject("restart")))
+    }
+
+    @Test fun aNewEpisodesPlayResumesAsAFirstEpisodesDoes() {
+        // The Lighthouse got a third episode yesterday and nothing is in progress: Play S1 E3, from where another TV
+        // may have started it since, and Play from the Start beside it, from 0.
+        val now = System.currentTimeMillis()
+        val gale = DriveFile("l3", "The Lighthouse 1x03 Gale.mkv", "video/mp4", 100, 1, null, created = now - DAY)
+        folder("s2", listOf(ep("l1", "The Lighthouse 1x01 Arrival.mkv"), ep("l2", "The Lighthouse 1x02 Fog.mkv"), gale))
+        ListingCache.writeFresh(c, mapOf("s2" to listOf(FreshEpisode("l3", gale.name, null, null, now - DAY, 1, 3))))
+        val tile = json(get("/api/watch/home")).getJSONArray("recent").getJSONObject(0)
+        assertEquals("Play S1 E3", tile.getJSONObject("play").getString("label"))
+        assertEquals(resumes, flags(tile.getJSONObject("play")))
+        val t = json(get("/api/library/title", "id" to "s2"))
+        assertEquals("Play S1 E3", t.getJSONObject("play").getString("label"))
+        assertEquals(resumes, flags(t.getJSONObject("play")))
+        assertEquals("Play from the Start", t.getJSONObject("restart").getString("label"))
+        assertEquals(fromZero, flags(t.getJSONObject("restart")))
+    }
+
+    @Test fun aSeasonsEpisodesAreTakenForTheShowsOnlyWhenItIsASeasonOfThatShow() {
+        // Listed for the phone, each of a season's episodes is its show's, whatever its file is called (its Skip intro,
+        // audio and subtitle choices, its poster in Continue watching), as when the TV's title page starts one.
+        get("/api/library/episodes", "show" to "s1", "season" to "f2")
+        get("/api/library/episodes", "show" to "s2", "season" to WatchRoutes.INSIDE)
+        assertEquals("s1", EpisodeShows.map.value["drive:e21"])
+        assertEquals("s1", EpisodeShows.map.value["drive:e24"])
+        assertEquals("s2", EpisodeShows.map.value["drive:l1"])
+        assertEquals("s2", EpisodeShows.map.value["drive:l2"])
+        // Another show's season, or a folder in no show: turned down, and nothing in it is taken for that show's.
+        folder("elsewhere", listOf(ep("x1", "Somebody's private video.mkv")))
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, serve("/api/library/episodes", mapOf("show" to "s2", "season" to "f1")).status)
+        assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, serve("/api/library/episodes", mapOf("show" to "s1", "season" to "elsewhere")).status)
+        assertEquals(null, EpisodeShows.map.value["drive:e11"])
+        assertEquals(null, EpisodeShows.map.value["drive:x1"])
+        // Not ready yet ("loading"): nothing is taken until its episodes are listed.
+        FolderCache.clear(c)
+        folder("f1", listOf(ep("e11", "Backyard Science S01E01 Tide Pools.mkv")))
+        assertEquals("loading", json(get("/api/library/episodes", "show" to "s1", "season" to "f1")).getString("state"))
+        assertEquals(null, EpisodeShows.map.value["drive:e11"])
     }
 
     @Test fun marksAndRemovalsChangeTheStoresTheTvUses() {
