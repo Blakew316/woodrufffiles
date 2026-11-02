@@ -40,6 +40,7 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
 import com.woodruff.tvexplorer.update.Restore
+import com.woodruff.tvexplorer.util.EarlyCrashes
 import com.woodruff.tvexplorer.util.Permissions
 import com.woodruff.tvexplorer.util.Presence
 import kotlinx.coroutines.launch
@@ -57,6 +58,9 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
 
     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        // First, before anything that could fail as Woodruff starts: a close in the next 45 s counts
+        // as one while starting (EarlyCrashes).
+        EarlyCrashes.opened(this)
         super.onCreate(savedInstanceState)
         hasAccess = Permissions.hasStorageAccess(this)
         ThemeSetting.load(this)

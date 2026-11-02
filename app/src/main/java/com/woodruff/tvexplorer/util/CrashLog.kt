@@ -23,20 +23,32 @@ object CrashLog {
         val app = c.applicationContext
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
-            runCatching {
+            val text = runCatching {
                 val stamp = java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US).format(java.util.Date())
-                file(app).writeText("Version ${BuildConfig.VERSION_NAME} · $stamp · thread ${thread.name}\n" + e.stackTraceToString().take(6_000))
-            }
+                "Version ${BuildConfig.VERSION_NAME} · $stamp · thread ${thread.name}\n" + e.stackTraceToString().take(6_000)
+            }.getOrNull()
+            text?.let { runCatching { file(app).writeText(it) } }
+            // Soon after Woodruff's screen opened: one more close while starting, for self-repair.
+            runCatching { EarlyCrashes.crashed(app, text) }
             previous?.uncaughtException(thread, e)
         }
     }
 
-    /** Posts the saved crash (if any) as a notice, then forgets it. */
-    fun report(c: Context) {
+    /**
+     * Keeps the saved crash (if any) for the phone app's Settings → Last Crash on This TV, without a
+     * notice: for the recovery screen, which says what happened itself. Returns it. Not on the main thread.
+     */
+    fun keep(c: Context): String? {
         val f = file(c)
-        val text = runCatching { f.readText() }.getOrNull() ?: return
+        val text = runCatching { f.readText() }.getOrNull() ?: return null
         runCatching { reportFile(c).writeText(text) }
         f.delete()
+        return text
+    }
+
+    /** Posts the saved crash (if any) as a notice, then forgets it. */
+    fun report(c: Context) {
+        val text = keep(c) ?: return
         // The first lines say what failed and where; the full trace stays short enough to read.
         val lines = text.lines()
         // The top frames say where it failed even when that's inside a library; then our own

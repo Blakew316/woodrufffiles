@@ -12,6 +12,8 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.woodruff.tvexplorer.util.CrashLog.install(this)
+        // After this version closed while starting, every start looks for a fix at once (EarlyCrashes).
+        com.woodruff.tvexplorer.update.Updater.atStart(this)
         // Every Woodruff screen from its first one: key presses anywhere count as use, and what's up
         // can be put back after an update (OnScreen).
         com.woodruff.tvexplorer.update.OnScreen.install(this)

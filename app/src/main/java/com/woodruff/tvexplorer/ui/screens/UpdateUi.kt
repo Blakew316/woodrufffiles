@@ -35,21 +35,12 @@ import com.woodruff.tvexplorer.util.Opener
  * Only a profile that forbids installing apps from outside the Play Store stops it here, saying so.
  */
 fun startUpdate(context: Context, vm: MainViewModel, how: Updater.How = Updater.How.CHOSEN) {
-    if (installsBlockedByProfile(context)) {
+    if (Updater.installsBlockedByProfile(context)) {
         vm.say("This TV's profile doesn't allow installing apps from outside the Play Store (a kids profile, parental controls or a work setup). Switch to the main profile, then choose Install again")
         return
     }
     if (!Opener.canInstallPackages(context) && !Updater.promptWorked(context)) vm.say("Installing… If the TV asks, allow Woodruff Family to install apps")
     Updater.install(context, how)
-}
-
-/** A user restriction on this profile against apps from outside the Play Store, which no toggle in Settings lifts. */
-private fun installsBlockedByProfile(context: Context): Boolean {
-    val um = context.getSystemService(android.os.UserManager::class.java) ?: return false
-    return runCatching {
-        um.hasUserRestriction(android.os.UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES) ||
-            (android.os.Build.VERSION.SDK_INT >= 29 && um.hasUserRestriction(android.os.UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY))
-    }.getOrDefault(false)
 }
 
 /**

@@ -12,6 +12,7 @@ import android.util.Log
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.ui.Screen
+import com.woodruff.tvexplorer.util.EarlyCrashes
 import com.woodruff.tvexplorer.util.Presence
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +49,10 @@ import kotlin.math.abs
  * On Android 9+ the update brings its speed profile (a .dm file published with the release) in the
  * same install, as Play and adb do: Android compiles the new code while installing, instead of
  * running it uncompiled until the TV's overnight compile.
+ *
+ * After this version closed while starting ([EarlyCrashes]) it repairs itself: every start of
+ * Woodruff looks for a fix at once, and every few minutes after that, taking any newer build without
+ * the day's wait; a fix goes in as soon as it's there, even with someone at Woodruff ([urgentNow]).
  */
 object Updater {
     /** The newest releases, in one request (GitHub allows 60 an hour for the whole home, shared by every TV). */
@@ -79,6 +84,13 @@ object Updater {
     private const val PROMPT_WAIT_MS = 10 * 60_000L
     /** Woodruff opens again after an update only if the install started this recently. */
     private const val REOPEN_WITHIN_MS = HOUR
+    /**
+     * After an early close: how often it looks for a fix by itself (just under the phone connection's
+     * 5-minute round, so each round checks; GitHub's 60 an hour are shared by every TV in the home).
+     */
+    internal const val URGENT_EVERY_MS = 4 * 60_000L
+    /** ...and how soon again after a check that didn't go through. */
+    internal const val URGENT_RETRY_MS = 60_000L
 
     // Saved in the "updates" settings file.
     /** The build Android asked a press for when it tried to go in by itself: it's offered instead from then on. */
@@ -107,6 +119,8 @@ object Updater {
         val latest: Int? = null,
         val progress: Float = 0f,
         val message: String? = null,
+        /** A check that didn't go through ([Step.ERROR]) because this TV had no network at all. */
+        val offline: Boolean = false,
     ) {
         val latestName: String? get() = latest?.let { "2.0.$it" }
     }
@@ -118,7 +132,13 @@ object Updater {
         /** Offered as Woodruff came on screen ([offer]). */
         OFFERED(2),
         /** Someone chose Install. */
-        CHOSEN(3);
+        CHOSEN(3),
+        /**
+         * After this version closed while starting ([EarlyCrashes]): in as soon as it's ready, even with
+         * someone at Woodruff (the version they have is the one that closes). If Android asks for a
+         * press, its prompt opens while Woodruff is on screen; otherwise it's offered the next time.
+         */
+        URGENT(4);
 
         internal companion object {
             fun of(code: Int): How? = entries.firstOrNull { it.code == code }
@@ -178,7 +198,8 @@ object Updater {
      * [opening] the app); then install right away if that needs no press and nobody is using
      * Woodruff. Called by the phone-connection service's loop and when the app opens; with [offer]
      * as Woodruff comes on screen, a downloaded update that needs a press is offered first. Does
-     * nothing when automatic updates are off.
+     * nothing when automatic updates are off. After this version closed while starting, it looks
+     * for a fix and puts it in sooner instead ([urgentNow]).
      */
     fun maybeAuto(c: Context, opening: Boolean = false, offer: Boolean = false) {
         val app = c.applicationContext
@@ -190,6 +211,10 @@ object Updater {
             if (_state.value.step == Step.IDLE) restoreReady(app)
             // Before checking, which can take a while: the offer belongs to the moment Woodruff opens.
             if (offer) offerIfDue(app)
+            if (EarlyCrashes.count(app) > 0) {
+                urgentNow(app, manual = false)
+                return@launch
+            }
             val every = if (opening) CHECK_ON_OPEN_MS else CHECK_EVERY_MS
             val now = System.currentTimeMillis()
             // After a failed check, try again sooner — but not on every pass: GitHub allows 60 checks
@@ -230,6 +255,113 @@ object Updater {
         else -> sinceUseMs >= IDLE_MS
     }
 
+    // ---- After an early close: self-repair ------------------------------------------------------------
+
+    /**
+     * As Woodruff starts, whatever started it (the TV turning on, the phone connection coming back, the
+     * screen opening): after this version closed while starting, it looks for a fix at once instead of
+     * waiting its turn, and puts it in as soon as it's there. Nothing otherwise, or with automatic
+     * updates off.
+     */
+    fun atStart(c: Context) {
+        val app = c.applicationContext
+        scope.launch { if (autoEnabled(app) && EarlyCrashes.count(app) > 0) urgentNow(app, manual = false) }
+    }
+
+    /**
+     * The recovery screen's look for a fix: as it opens and every few minutes while it's up (each at most
+     * every [URGENT_EVERY_MS]), and at once when someone chooses Check for a fix ([manual]). It looks
+     * even with automatic updates off, since it says so on screen; only putting the fix in by itself
+     * waits for a press then.
+     */
+    fun lookForFix(c: Context, manual: Boolean = false) {
+        val app = c.applicationContext
+        scope.launch { urgentNow(app, manual) }
+    }
+
+    /**
+     * After this version closed while starting ([EarlyCrashes]): checks for a newer build now unless it
+     * did lately ([urgentCheckDue]; [manual] always checks), taking any newer one at once rather than one
+     * the test TV has had for a day (anything newer beats a version that closes as it starts), then puts
+     * it in ([installUrgently]).
+     */
+    private suspend fun urgentNow(app: Context, manual: Boolean) {
+        if (_state.value.step == Step.IDLE) restoreReady(app)
+        if (claimUrgentCheck(manual)) {
+            checkAndDownload(app, manual = true)
+            // No network at all (just after the TV turned on): the next look, once there is one, goes at once.
+            if (_state.value.step == Step.ERROR && _state.value.offline) urgentClaim.set(0)
+        }
+        installUrgently(app)
+    }
+
+    /** When the last urgent check started (elapsedRealtime; 0: none in this run, so the first one goes at once). */
+    private val urgentClaim = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** Claims the next urgent check, so two callers at once make one request; false when one isn't due. */
+    private fun claimUrgentCheck(manual: Boolean): Boolean {
+        while (true) {
+            val last = urgentClaim.get()
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (!manual && !urgentCheckDue(last, now, failed = _state.value.step == Step.ERROR)) return false
+            if (urgentClaim.compareAndSet(last, now.coerceAtLeast(1))) return true
+        }
+    }
+
+    /**
+     * Whether an urgent check is due at [now], the last having started at [last] (0: none yet in this
+     * run): every [URGENT_EVERY_MS], or [URGENT_RETRY_MS] after one that didn't go through ([failed]).
+     * Visible for tests.
+     */
+    internal fun urgentCheckDue(last: Long, now: Long, failed: Boolean): Boolean =
+        last == 0L || now - last >= (if (failed) URGENT_RETRY_MS else URGENT_EVERY_MS)
+
+    /**
+     * After an early close, a fix that's ready goes in now: there's no waiting for nobody to be using
+     * Woodruff (the version on screen is the one that closes), and what's on screen comes back once the
+     * fix is in. Only a film that's playing or a job that mustn't be cut short holds it back
+     * ([mayInstallUrgently]); a no to Android's prompt for it, and the back-off after a try that didn't
+     * go through, are respected. Where it needs a press (Android 11 and older, a TV that asked for this
+     * build), it's offered at once if Woodruff's screen is up, else the next time it opens.
+     */
+    private suspend fun installUrgently(app: Context) {
+        val s = _state.value
+        val build = s.latest ?: return
+        if (s.step != Step.READY || !autoEnabled(app)) return
+        val now = System.currentTimeMillis()
+        val p = prefs(app)
+        val putOff = p.getInt(K_LATER_FOR, 0) == build && now < p.getLong(K_LATER_UNTIL, 0)
+        if (now < retryAt || now < p.getLong(K_PROMPT_UNTIL, 0) || putOff) return
+        if (needsPress(app, build)) {
+            if (AppVisibility.foreground && offerDue(app, s, now)) _offer.value = build
+            return
+        }
+        val moment = OnScreen.momentNow(app)
+        if (!mayInstallUrgently(moment?.film ?: OnScreen.Film.NONE, Presence.isBusy)) return
+        // A screen that didn't answer in time is up but stuck: its Home comes back.
+        val route = moment?.route ?: if (AppVisibility.foreground) Restore.App(Screen.HOME) else null
+        startInstall(app, How.URGENT, reopen = route)
+    }
+
+    /**
+     * Whether a fix after an early close may restart Woodruff now: even with someone using it, but never
+     * over a film that's playing (it goes in once the film is paused or over) nor a job that mustn't be
+     * cut short ([busy]). Visible for tests.
+     */
+    internal fun mayInstallUrgently(film: OnScreen.Film, busy: Boolean): Boolean = !busy && film != OnScreen.Film.PLAYING
+
+    /**
+     * Whether this profile forbids apps from outside the Play Store (a kids profile, parental controls, a
+     * work setup), which no toggle in Settings lifts: an update can't install here.
+     */
+    fun installsBlockedByProfile(c: Context): Boolean {
+        val um = c.getSystemService(android.os.UserManager::class.java) ?: return false
+        return runCatching {
+            um.hasUserRestriction(android.os.UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES) ||
+                (Build.VERSION.SDK_INT >= 29 && um.hasUserRestriction(android.os.UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY))
+        }.getOrDefault(false)
+    }
+
     private fun offerIfDue(c: Context) {
         val s = _state.value
         if (offerDue(c, s, System.currentTimeMillis())) _offer.value = s.latest
@@ -247,11 +379,21 @@ object Updater {
         return s.step == Step.READY && needsPress(c, build) && !putOff && now >= p.getLong(K_PROMPT_UNTIL, 0)
     }
 
-    /** Back to how a fresh run starts: the tests share this one object. */
+    /**
+     * Back to how a fresh run starts: the tests share this one object. From then on in that run,
+     * releases and downloads are stand-ins that never reach the network (a test sets its own), so a
+     * check started by Woodruff's own start in a test can't go out either.
+     */
     internal fun resetForTest() {
         _state.value = State(); _offer.value = null
         session = -1; letGoSessions.clear(); failures = 0; retryAt = 0
+        urgentClaim.set(0); lastAttempt = 0
+        listReleases = { emptyList() }
+        fetchFile = { _, _, _, _ -> throw IOException("no downloads in tests") }
     }
+
+    /** Shows [s] as the state, for tests and the UI gallery (nothing is checked or installed). */
+    internal fun showForTest(s: State) { _state.value = s }
 
     /** The offer was shown (or Android's own prompt opened for it). */
     fun offered() { _offer.value = null }
@@ -429,7 +571,7 @@ object Updater {
         lastAttempt = System.currentTimeMillis()
         _state.update { it.copy(step = Step.CHECKING, message = null) }
         try {
-            val releases = fetchReleases()
+            val releases = listReleases()
             if (releases.isEmpty()) throw UpdateProblem("Couldn't check · trying again soon")
             val p = prefs(c)
             // (behindOn/behindSince: what the 48-hour limit this replaced kept.)
@@ -452,7 +594,7 @@ object Updater {
             // Already downloaded and checked (e.g. the app was busy last time): don't fetch it again.
             if (!(file.length() == apk.size && verify(c, file) == build)) {
                 _state.value = State(Step.DOWNLOADING, build)
-                download(apk.url, file, apk.size) { f -> _state.update { it.copy(progress = f) } }
+                fetchFile(apk.url, file, apk.size) { f -> _state.update { it.copy(progress = f) } }
                 val version = verify(c, file)
                 if (version != build) { file.delete(); deleteProfiles(c); throw UpdateProblem("The download was damaged · trying again soon") }
             }
@@ -465,10 +607,21 @@ object Updater {
             // An update already downloaded and checked stays ready: a failed check (no network,
             // GitHub's hourly limit) mustn't take away its install.
             if (before.step == Step.READY && apkFile(c).exists()) _state.value = before
-            else _state.update { State(Step.ERROR, it.latest, message = plainCheckError(e)) }
+            else _state.update { State(Step.ERROR, it.latest, message = plainCheckError(e), offline = !hasNetwork(c)) }
         }
         Unit
     } }
+
+    /** Whether this TV has a network at all (true when Android can't say). */
+    private fun hasNetwork(c: Context): Boolean = runCatching {
+        c.getSystemService(android.net.ConnectivityManager::class.java)?.activeNetwork != null
+    }.getOrDefault(true)
+
+    /** Where the list of releases comes from; tests put in their own (no network in tests). */
+    @Volatile internal var listReleases: () -> List<Release> = ::fetchReleases
+
+    /** How a release's file is fetched; tests put in their own. */
+    @Volatile internal var fetchFile: (String, File, Long, (Float) -> Unit) -> Unit = ::download
 
     /** A problem worded for Settings already. */
     private class UpdateProblem(message: String) : IOException(message)
@@ -557,9 +710,10 @@ object Updater {
             if (!file.exists()) {
                 // Android can clear the app's cache, update and all: fetch it again (Install then works
                 // once it's back) rather than doing nothing. Only as a manual check when someone chose
-                // it: otherwise that would fetch the newest release at once, skipping the test TV's day.
+                // it, or for a fix after an early close: otherwise that would fetch the newest release at
+                // once, skipping the test TV's day.
                 _state.update { it.copy(step = Step.READY) }
-                checkAndDownload(app, manual = how == How.CHOSEN)
+                checkAndDownload(app, manual = how == How.CHOSEN || how == How.URGENT)
                 return@launch
             }
             // This build's speed profile goes in too (Android 9+), unless this TV already turned it down.
@@ -627,7 +781,10 @@ object Updater {
         /** About an install already let go of (or an older one): nothing to do. */
         IGNORE,
         INSTALLED,
-        /** Android wants a press for an install nobody asked for: let it go, and offer it as Woodruff next opens. */
+        /**
+         * Android wants a press for an install nobody asked for (or a fix after an early close, with
+         * Woodruff off screen by then): let it go, and offer it as Woodruff next opens.
+         */
         OFFER_LATER,
         /** Android wants a press and someone is at Woodruff: open Android's prompt. */
         PROMPT,
@@ -653,6 +810,8 @@ object Updater {
         status == PackageInstaller.STATUS_PENDING_USER_ACTION -> when {
             how == How.BY_ITSELF -> Next.OFFER_LATER
             canPrompt -> Next.PROMPT
+            // A fix after an early close, with Woodruff no longer on screen: offered as it next opens.
+            how == How.URGENT -> Next.OFFER_LATER
             else -> Next.LET_GO
         }
         status == PackageInstaller.STATUS_FAILURE_ABORTED && how != How.BY_ITSELF -> Next.DECLINED
@@ -692,8 +851,9 @@ object Updater {
             }
             Next.OFFER_LATER -> {
                 // Android wants a press for this build after all (some TVs ask for every update). Nobody
-                // chose to install it and nobody may be watching, so no prompt now: the waiting install is
-                // let go of, and the build is offered the next time someone opens Woodruff.
+                // chose to install it and nobody may be watching (or, for a fix after an early close,
+                // Woodruff is off screen by now), so no prompt now: the waiting install is let go of, and
+                // the build is offered the next time someone opens Woodruff.
                 p.edit().putInt(K_ASKED, build).putBoolean(K_ASKS, true).apply()
                 clearReopen(app)
                 letGoLater(app, answered)
