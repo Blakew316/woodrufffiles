@@ -153,9 +153,21 @@ object TvLinks {
     private fun savedSecretly(c: Context, name: String) =
         c.applicationContext.getSharedPreferences("secrets", Context.MODE_PRIVATE).contains(name)
 
-    /** What other TVs use to reach this one. Only accepted for [LINK_ROUTES]. */
+    /**
+     * What other TVs use to reach this one. Only accepted for [LINK_ROUTES]. Null while the Keystore
+     * can't read the saved one yet (some TVs, just after turning on): a new key made then would turn
+     * down every hub's key, and each hub would say "Link again" for a TV that was never reset.
+     */
+    private fun linkKeyOrNull(c: Context): String? {
+        val store = SecretStore.get(c)
+        store.get(K_LINK_KEY)?.let { return it }
+        if (savedSecretly(c, K_LINK_KEY)) return null
+        return TransferServer.randomToken().also { store.put(K_LINK_KEY, it) }
+    }
+
+    /** [linkKeyOrNull], for giving it to a TV that links: that waits for the Keystore rather than hand out a key that won't last. */
     private fun linkKey(c: Context): String =
-        SecretStore.get(c).get(K_LINK_KEY) ?: TransferServer.randomToken().also { SecretStore.get(c).put(K_LINK_KEY, it) }
+        linkKeyOrNull(c) ?: throw IOException("This TV can’t read its link key just now. Try again in a moment.")
 
     /** The linked TV [tv] now calls itself [name]: saved in this TV's list (nothing happens when it's the same). */
     private fun renamed(tv: LinkedTv, name: String) {
@@ -180,8 +192,15 @@ object TvLinks {
         "/api/health", "/api/update/check", "/api/media",
     )
 
-    fun isLinkKey(c: Context, k: String?): Boolean =
-        k != null && MessageDigest.isEqual(k.toByteArray(), linkKey(c).toByteArray())
+    /**
+     * Whether [k] is this TV's link key. False (never an error) while the key can't be read, so the
+     * request goes on to the phone's pairing-key check as any other would.
+     */
+    fun isLinkKey(c: Context, k: String?): Boolean {
+        if (k == null) return false
+        val mine = runCatching { linkKeyOrNull(c) }.getOrNull() ?: return false
+        return MessageDigest.isEqual(k.toByteArray(), mine.toByteArray())
+    }
 
     /**
      * What this TV tells its hub every few seconds: who it is, what it plays, its health in a few
@@ -220,8 +239,10 @@ object TvLinks {
             if (++wrongTries >= 5) code = null
             return null
         }
+        // The key first: while the Keystore can't read it, the code stays good for another try.
+        val key = linkKey(c)
         code = null
-        return JSONObject().put("id", id(c)).put("name", name(c)).put("key", linkKey(c))
+        return JSONObject().put("id", id(c)).put("name", name(c)).put("key", key)
     }
 
     // ---- The hub's list --------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -39,6 +40,29 @@ class TvIdentityTest {
         val interim = TvLinks.id(c)
         assertNull(c.getSharedPreferences("tvs", Context.MODE_PRIVATE).getString("id", null))
         assertEquals(interim, TvLinks.id(c)) // the same for the whole run
+    }
+
+    @Test fun aLinkKeyTheKeystoreCantReadYetIsNeverReplaced() {
+        // Saved, encrypted, and the Keystore isn't ready: no hub's key is taken (it goes on to the pairing-key check,
+        // without an error), and no new key is made, which would turn down every hub for good ("Link again").
+        val secrets = c.getSharedPreferences("secrets", Context.MODE_PRIVATE)
+        secrets.edit().putString("tvs.linkkey", "c2VjcmV0").commit()
+        assertFalse(TvLinks.isLinkKey(c, "c2VjcmV0"))
+        assertFalse(TvLinks.isLinkKey(c, null))
+        assertEquals("c2VjcmV0", secrets.getString("tvs.linkkey", null))
+    }
+
+    @Test fun aCodeIsntUsedUpWhileTheLinkKeyCantBeRead() {
+        c.getSharedPreferences("secrets", Context.MODE_PRIVATE).edit().putString("tvs.linkkey", "c2VjcmV0").commit()
+        val code = TvLinks.newCode()
+        try {
+            // The hub hears it didn't work; the code shown on screen still does once the key can be read.
+            assertThrows(java.io.IOException::class.java) { TvLinks.redeem(c, code) }
+            assertThrows(java.io.IOException::class.java) { TvLinks.redeem(c, code) } // not "wrong or expired" (null)
+        } finally {
+            TvLinks.cancelCode()
+        }
+        assertNull(TvLinks.redeem(c, code))
     }
 
     @Test fun aTvsNameIsKeptInPlainSettingsToo() {
