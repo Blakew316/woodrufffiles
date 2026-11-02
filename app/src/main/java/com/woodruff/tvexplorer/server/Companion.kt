@@ -244,10 +244,11 @@ class CompanionRoutes(private val ctx: Context) {
         s.uri == "/api/status" && s.method == Method.GET -> json(TvLinks.status(ctx))
         // This TV's health report (also for a linked hub, with its link key): words and facts, no secrets.
         s.uri == "/api/health" && s.method == Method.GET -> json(Health.report(ctx, probe = true).toJson())
-        // Check for an update now (also for a linked hub): as Settings → Updates → Check for updates does.
+        // Check for an update now, for the phone or a linked hub: it follows the test TV's day, as this TV's own checks
+        // do (only Settings → Updates → Check for updates, on the TV itself, skips that).
         s.uri == "/api/update/check" && s.method == Method.POST -> {
             body(s)
-            com.woodruff.tvexplorer.update.Updater.checkNow(ctx)
+            com.woodruff.tvexplorer.update.Updater.checkNow(ctx, eager = false)
             ok()
         }
         s.uri == "/api/tvs" && s.method == Method.GET -> {
@@ -280,7 +281,7 @@ class CompanionRoutes(private val ctx: Context) {
         }
         s.uri == "/api/tvs/update/check" && s.method == Method.POST -> {
             val id = body(s).optString("id")
-            if (id == "this") com.woodruff.tvexplorer.update.Updater.checkNow(ctx)
+            if (id == "this") com.woodruff.tvexplorer.update.Updater.checkNow(ctx, eager = false)
             else {
                 val tv = TvLinks.find(id) ?: throw IllegalArgumentException("Unknown TV")
                 try {
