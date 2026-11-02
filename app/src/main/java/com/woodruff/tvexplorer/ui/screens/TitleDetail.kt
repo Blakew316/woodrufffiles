@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -65,6 +66,7 @@ import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.MediaRef
+import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.Watched
@@ -163,10 +165,14 @@ private fun TitlePage(
     // Bumped when a ✓ is changed here (an episode, a whole season): the ✓s, the progress bars and
     // the show's Resume are read again.
     var marks by remember { mutableIntStateOf(0) }
-    // What's been played, read once for the page (and again when a ✓ changes here): the places to
-    // resume from and the lengths below all come from this one read.
-    val recent = remember(marks) { RecentStore(context).all() }
-    val resumeMs = remember { if (f.isFolder) 0L else resumeAt(recent, MediaRef.Drive(f.id).key) }
+    // The other TVs' latest progress, fetched as the page opens (unless it was just now), so by the
+    // time Resume is pressed it's in; and merged in while the page is open, it's read again.
+    LaunchedEffect(Unit) { FamilySync.pullFresh(context) }
+    val synced by FamilySync.updates.collectAsState()
+    // What's been played, read once for the page (and again when a ✓ changes here or another TV's
+    // progress comes in): the places to resume from and the lengths below all come from this one read.
+    val recent = remember(marks, synced) { RecentStore(context).all() }
+    val resumeMs = remember(recent) { if (f.isFolder) 0L else resumeAt(recent, MediaRef.Drive(f.id).key) }
     // What's in the folder: a show's seasons (or its episodes), or the film kept in it. The last
     // listing shows at once (from memory, or from disk a moment later, even after a restart) while
     // a fresh one loads behind it.
@@ -186,12 +192,13 @@ private fun TitlePage(
     // ([EpisodeShows], or listed in its folders) when its name doesn't say ("S01E013_Pilot").
     // Remembered keys (matchKeyOf): the names in progress were worked out off the main thread already.
     val showKey = remember { matchKeyOf(f.name) }
+    // Whether something played is this show's (EpisodeShows is loaded first).
+    val ofThisShow: (RecentItem) -> Boolean = remember { { r -> EpisodeShows.map.value[r.key] == f.id || r.key in listedAtOpen || matchKeyOf(r.title) == showKey } }
     val resumeEpisode = remember(recent) {
         if (!isShow) null
         else {
             EpisodeShows.load(context)
-            val known = EpisodeShows.map.value
-            showResume(recent) { r -> known[r.key] == f.id || r.key in listedAtOpen || matchKeyOf(r.title) == showKey }
+            showResume(recent, ofThisShow)
         }
     }
     // TMDB's details (length, age rating, collection, cast), from its disk cache after the first time.
@@ -280,7 +287,7 @@ private fun TitlePage(
     val film = remember(inside) {
         if (isShow || !f.isFolder) null else inside?.let(::folderFilm)
     }
-    val filmResumeMs = remember(film) { film?.let { resumeAt(recent, MediaRef.Drive(it.id).key) } ?: 0L }
+    val filmResumeMs = remember(film, recent) { film?.let { resumeAt(recent, MediaRef.Drive(it.id).key) } ?: 0L }
     // A film's collection ("The Lord of the Rings Collection"): its other films the family has, in
     // release order.
     val collection by produceState<Pair<String, List<DriveFile>>?>(null, details) {
@@ -334,6 +341,8 @@ private fun TitlePage(
     var seasonMenu by remember { mutableStateOf<Pair<String, List<DriveFile>>?>(null) }
     val primary = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
+    // Resumes start where anyone in the family last stopped (see rememberResume); from the start, at once.
+    val resume = rememberResume()
     val page = rememberScrollState()
     val scope = rememberCoroutineScope()
     // Marks episodes watched or not (done even if the page closes meanwhile), then reads the ✓s (and
@@ -413,44 +422,57 @@ private fun TitlePage(
                             color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    // The buttons, all on one row.
-                    Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        when {
-                            isShow && f.isFolder -> {
-                                if (resumeEpisode != null) {
-                                    val code = episodeCode(resumeEpisode.title)
-                                    // Up next (the episode after one just finished) plays from its start.
-                                    val label = if (resumeEpisode.upNext) code?.let { "Play $it" } ?: "Play next episode" else code?.let { "Resume $it" } ?: "Resume"
-                                    DetailButton(Sym.PlayArrow, label, primary = true, Modifier.focusRequester(primary)) {
+                    // The buttons, all on one row; the first is the main one. Each keeps its place by what
+                    // it is, so when another TV's progress comes in and "Play" becomes "Resume from 40m"
+                    // (and Start over appears), the focus stays on the button it was on.
+                    val buttons: List<PageButton> = when {
+                        isShow && f.isFolder -> buildList {
+                            if (resumeEpisode != null) {
+                                val code = episodeCode(resumeEpisode.title)
+                                // Up next (the episode after one just finished) plays from its start.
+                                val label = if (resumeEpisode.upNext) code?.let { "Play $it" } ?: "Play next episode" else code?.let { "Resume $it" } ?: "Resume"
+                                add(PageButton(MAIN, Sym.PlayArrow, label) {
+                                    resume {
+                                        // Where the show is now, the other TVs' latest included: it may have gone on.
+                                        EpisodeShows.load(context)
+                                        val r = showResume(RecentStore(context).all(), ofThisShow) ?: resumeEpisode
                                         // From its season when that's listed here, so the rest of the season follows it.
-                                        val found = seasonEps.values.firstNotNullOfOrNull { eps -> eps.firstOrNull { MediaRef.Drive(it.id).key == resumeEpisode.key }?.let { it to eps } }
-                                        if (found != null) onPlayEpisode(found.first, found.second, resumeEpisode.upNext)
-                                        else onPlayKey(resumeEpisode.key, resumeEpisode.title)
+                                        val found = seasonEps.values.firstNotNullOfOrNull { eps -> eps.firstOrNull { MediaRef.Drive(it.id).key == r.key }?.let { it to eps } }
+                                        if (found != null) onPlayEpisode(found.first, found.second, r.upNext)
+                                        else onPlayKey(r.key, r.title)
                                     }
-                                    if (firstEpisode != null) DetailButton(Sym.Replay, "Play from the start", primary = false) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
-                                } else if (firstEpisode != null) {
-                                    DetailButton(Sym.PlayArrow, "Play " + (episodeCode(firstEpisode.name) ?: "first episode"), primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) }
-                                }
-                                // The folders only when no episode was found to play (never beside Play).
-                                if (resumeEpisode == null && firstEpisode == null && (firstEps != null || seasons?.isEmpty() == true)) {
-                                    DetailButton(Sym.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
-                                }
+                                })
+                                if (firstEpisode != null) add(PageButton(RESTART, Sym.Replay, "Play from the start") { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
+                            } else if (firstEpisode != null) {
+                                add(PageButton(MAIN, Sym.PlayArrow, "Play " + (episodeCode(firstEpisode.name) ?: "first episode")) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
                             }
-                            film != null -> {
-                                if (filmResumeMs > 60_000) {
-                                    DetailButton(Sym.PlayArrow, "Resume from ${Format.duration(filmResumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(film, listOf(film), false) }
-                                    DetailButton(Sym.Replay, "Start over", primary = false) { onPlayEpisode(film, listOf(film), true) }
-                                } else {
-                                    DetailButton(Sym.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlayEpisode(film, listOf(film), false) }
-                                }
-                                DetailButton(Sym.FolderOpen, openLabel, primary = false, Modifier, onOpen)
+                            // The folders only when no episode was found to play (never beside Play).
+                            if (resumeEpisode == null && firstEpisode == null && (firstEps != null || seasons?.isEmpty() == true)) {
+                                add(PageButton(MAIN, Sym.FolderOpen, openLabel, onOpen))
                             }
-                            f.isFolder -> DetailButton(Sym.FolderOpen, openLabel, primary = true, Modifier.focusRequester(primary), onOpen)
-                            resumeMs > 60_000 -> {
-                                DetailButton(Sym.PlayArrow, "Resume from ${Format.duration(resumeMs)}", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
-                                DetailButton(Sym.Replay, "Start over", primary = false) { onPlay(true) }
+                        }
+                        film != null -> buildList {
+                            if (filmResumeMs > 60_000) {
+                                add(PageButton(MAIN, Sym.PlayArrow, "Resume from ${Format.duration(filmResumeMs)}") { resume { onPlayEpisode(film, listOf(film), false) } })
+                                add(PageButton(RESTART, Sym.Replay, "Start over") { onPlayEpisode(film, listOf(film), true) })
+                            } else {
+                                add(PageButton(MAIN, Sym.PlayArrow, "Play") { resume { onPlayEpisode(film, listOf(film), false) } })
                             }
-                            else -> DetailButton(Sym.PlayArrow, "Play", primary = true, Modifier.focusRequester(primary)) { onPlay(false) }
+                            add(PageButton(OPEN, Sym.FolderOpen, openLabel, onOpen))
+                        }
+                        f.isFolder -> listOf(PageButton(MAIN, Sym.FolderOpen, openLabel, onOpen))
+                        resumeMs > 60_000 -> listOf(
+                            PageButton(MAIN, Sym.PlayArrow, "Resume from ${Format.duration(resumeMs)}") { resume { onPlay(false) } },
+                            PageButton(RESTART, Sym.Replay, "Start over") { onPlay(true) },
+                        )
+                        else -> listOf(PageButton(MAIN, Sym.PlayArrow, "Play") { resume { onPlay(false) } })
+                    }
+                    Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        buttons.forEach { b ->
+                            key(b.id) {
+                                val main = b.id == MAIN
+                                DetailButton(b.icon, b.label, primary = main, if (main) Modifier.focusRequester(primary) else Modifier, b.onClick)
+                            }
                         }
                     }
                 }
@@ -510,7 +532,7 @@ private fun TitlePage(
                                         watched = seen,
                                         fg = Color.White,
                                         onLongClick = { episodeMenu = ep },
-                                    ) { onPlayEpisode(ep, eps, false) }
+                                    ) { resume { onPlayEpisode(ep, eps, false) } }
                                 }
                             }
                         }
@@ -843,6 +865,16 @@ internal fun EpisodeCard(
 
 private val EpisodeShape = RoundedCornerShape(18.dp)
 private val EpisodeGlass = Color.White.copy(alpha = 0.1f)
+
+/** One of a title page's buttons: which it is ([MAIN], [RESTART] or [OPEN]), its symbol, its words and what OK does. */
+private class PageButton(val id: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val onClick: () -> Unit)
+
+/** The page's main button (Play, Resume, the folders): first, white when focused, where the focus starts. */
+private const val MAIN = "main"
+/** Start over / Play from the start. */
+private const val RESTART = "restart"
+/** The folder itself, beside a film kept in one. */
+private const val OPEN = "open"
 
 /** Apple TV buttons: frosted glass, turning solid white with dark text when focused. */
 @Composable

@@ -72,8 +72,8 @@ object NestApi {
     }
 
     private fun call(c: Context, method: String, path: String, body: JSONObject?): JSONObject {
-        val token = GoogleAuth.blockingToken(c, GoogleAuth.Grant.NEST)
-            ?: throw IOException("Connect your cameras again (Google sign-in expired)")
+        // No network (a TV just woken) is GoogleAuth.AuthException.Offline, never "sign-in expired".
+        val token = GoogleAuth.requireToken(c, GoogleAuth.Grant.NEST, signedOut = "Connect your cameras again.")
         val conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000
@@ -90,6 +90,9 @@ object NestApi {
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             val json = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
             if (code in 200..299) return json
+            // A token Google won't take (the TV's clock was off, or access just revoked): the next
+            // try renews it, which also finds out whether the sign-in really ended.
+            if (code == 401) GoogleAuth.forgetAccess(c, GoogleAuth.Grant.NEST)
             val msg = json.optJSONObject("error")?.optString("message").orEmpty()
             throw IOException(
                 when (code) {

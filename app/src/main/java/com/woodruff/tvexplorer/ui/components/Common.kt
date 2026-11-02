@@ -168,6 +168,26 @@ fun Chip(text: String, color: Color = Palette.accent, modifier: Modifier = Modif
     )
 }
 
+/** What a [StatusBadge] says about its picture, in fixed colours: badges sit on artwork, the same in both themes. */
+enum class BadgeKind(val fill: Color, val text: Color) {
+    /** A camera streaming now: white on red (4.5:1). */
+    LIVE(Color(0xFFD93A40), Color.White),
+    /** Something new: navy on the art blue (7.3:1). */
+    NEW(Color(0xFF6FB3E6), Color(0xFF06203A)),
+    /** Can't be reached now: white 85 % on black 60 % (4.7:1, even over a white picture). */
+    OFFLINE(Color.Black.copy(alpha = 0.6f), Color.White.copy(alpha = 0.85f)),
+}
+
+/** A small word on a picture's corner ("LIVE", "NEW", "OFFLINE"): one line, upper case, in [kind]'s colours. */
+@Composable
+fun StatusBadge(text: String, kind: BadgeKind, modifier: Modifier = Modifier) {
+    Text(
+        text.uppercase(), color = kind.text, maxLines = 1,
+        style = androidx.tv.material3.MaterialTheme.typography.labelSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+        modifier = modifier.clip(RoundedCornerShape(5.dp)).background(kind.fill).padding(horizontal = 6.dp, vertical = 1.dp),
+    )
+}
+
 /** Section heading used on Home and the cloud screens. */
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {

@@ -8,17 +8,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import com.woodruff.tvexplorer.ui.motion.FocusColor
 import com.woodruff.tvexplorer.ui.motion.TintIcon
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 
 /**
@@ -96,9 +100,13 @@ fun TopTabs(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modif
  * A search field you can see: a wide pill with a magnifier and the words searched for (or a hint).
  * OK opens the keyboard; a field that took typing on focus would pop the TV's keyboard up just from
  * passing over it.
+ *
+ * [status]: why what it searches is the saved copy ("Offline", "Back online"), at the field's end,
+ * part of the field rather than a control of its own. It fades in and out in its own layer; the field
+ * never changes size for it, and the hint gives up its room first (the status is never cut short).
  */
 @Composable
-fun SearchBar(query: String, hint: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun SearchBar(query: String, hint: String, onClick: () -> Unit, modifier: Modifier = Modifier, status: FieldStatus? = null) {
     val pill = com.woodruff.tvexplorer.ui.theme.Shapes.pill
     FocusButton(
         onClick = onClick,
@@ -111,14 +119,45 @@ fun SearchBar(query: String, hint: String, onClick: () -> Unit, modifier: Modifi
         // A hint is the words at 60 %, focused or not.
         val a = if (query.isEmpty()) 0.6f else 1f
         val words = remember(tint, a) { FocusColor(tint.motion, tint.rest.copy(alpha = tint.rest.alpha * a), tint.focused.copy(alpha = tint.focused.alpha * a)) }
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             TintIcon(Sym.Search, tint.color, size = 22.dp)
             RowText(
-                query.ifEmpty { hint }, words, Modifier.padding(start = 12.dp),
+                query.ifEmpty { hint }, words, Modifier.weight(1f).padding(start = 12.dp),
                 style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
+            FieldStatusSlot(status, tint)
         }
         // The lit rim, focused or not.
         Spacer(Modifier.matchParentSize().border(1.5.dp, Palette.rim, pill))
+    }
+}
+
+/**
+ * The search field's end: [status]'s symbol and words in the field's quiet colour (muted, or the dark
+ * words' colour at 70 % on the white of a focused field), the symbol green for good news. Fades in
+ * over [TvMotion.PresentFadeMs] and out over [TvMotion.DismissMs] as a layer (ModulateAlpha), keeping
+ * its last words while it fades; new words replace the old in place.
+ */
+@Composable
+private fun FieldStatusSlot(status: FieldStatus?, tint: RowTint) {
+    val kept = remember { arrayOfNulls<FieldStatus>(1) }
+    status?.let { kept[0] = it }
+    val shown = androidx.compose.animation.core.animateFloatAsState(
+        if (status != null) 1f else 0f,
+        androidx.compose.animation.core.tween(if (status != null) TvMotion.PresentFadeMs else TvMotion.DismissMs),
+        label = "fieldStatus",
+    )
+    val s = status ?: kept[0] ?: return
+    // Gone: nothing laid out (the hint gets its room back).
+    if (status == null && shown.value == 0f) return
+    val focusedQuiet = Palette.background.copy(alpha = 0.7f)
+    val words = remember(tint, focusedQuiet) { FocusColor(tint.motion, Palette.muted, focusedQuiet) }
+    val symbol = if (s.good) remember(tint, focusedQuiet) { FocusColor(tint.motion, Palette.success, focusedQuiet) } else words
+    Row(
+        Modifier.padding(start = 16.dp).graphicsLayer { alpha = shown.value; compositingStrategy = CompositingStrategy.ModulateAlpha },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TintIcon(s.icon, symbol, size = 18.dp)
+        RowText(s.words, words, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false)
     }
 }

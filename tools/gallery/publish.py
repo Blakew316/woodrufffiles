@@ -17,6 +17,12 @@ TITLES = {
     'settings-drive': 'Settings › Connections › Google Drive',
     'tv-screen': 'Settings › TVs › TV Screen', 'settings-tvs': 'Settings › TVs', 'send-to': 'Send › To',
     'player': 'Player', 'player-menu': 'Player › Subtitles menu', 'player-up-next': 'Player › Up next',
+    'movies-offline': 'Movies · offline', 'movies-cant-reach': 'Movies · can’t reach Google (search field focused)',
+    'tv-shows-back-online': 'TV Shows · back online', 'movies-offline-empty': 'Movies · offline, nothing saved',
+    'tv-shows-trying': 'TV Shows · can’t reach Google, trying again', 'movies-keys': 'Movies · keys not accepted',
+    'drive-signin-again': 'Google Drive · sign in again', 'home-offline': 'Home · offline',
+    'command-center-offline': 'Command center · offline', 'home-signin-notice': 'Home · sign-in ended notice',
+    'movies-truncated': 'Movies · very large library', 'settings-accounts-ended': 'Settings › Accounts · sign-ins ended',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -30,7 +36,9 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     im.save(os.path.join(img_dir, out), 'WEBP', quality=82, method=6)
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
-ORDER = ['home', 'home-menu', 'home-notice', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
+ORDER = ['home', 'home-menu', 'home-notice', 'home-offline', 'home-signin-notice', 'movies', 'tv-shows', 'movies-offline', 'movies-cant-reach',
+         'tv-shows-back-online', 'movies-offline-empty', 'tv-shows-trying', 'movies-keys', 'drive-signin-again', 'movies-truncated',
+         'command-center', 'command-center-offline', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings', 'settings-accounts-ended',
          'player', 'player-menu', 'player-up-next', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])

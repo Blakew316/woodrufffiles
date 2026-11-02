@@ -72,14 +72,26 @@ object Notices {
         }
     }
 
-    /** [chime]: also play that sound (announcements and the doorbell; never mail). */
-    fun post(context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null) {
+    /**
+     * [chime]: also play that sound (announcements and the doorbell; never mail). [quiet]: calm,
+     * non-urgent news (a sign-in that ended): kept unread here (Notifications, Home's At a glance) and
+     * shown in Woodruff's own banner only while Woodruff's main screen is in front; never over its
+     * player, slideshow or photo viewer, never over other apps, never as a system notification, never
+     * with a sound.
+     */
+    fun post(context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null, quiet: Boolean = false) {
         load(context)
-        val sound = chime.takeIf { source != NoticeSource.MAIL }
+        val sound = chime.takeIf { source != NoticeSource.MAIL && !quiet }
         val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link, chime = sound)
         _items.update { (listOf(n) + it).take(MAX) }
+        if (quiet && !AppVisibility.foreground) {
+            // Stored, unread, for when someone next looks: nothing pops up now.
+            save(context)
+            return
+        }
         _latest.value = n
         save(context)
+        if (quiet) return
         // Wherever the viewer is: in Woodruff, in its player or in another app.
         if (sound != null) Chime.play(context, sound)
         // Woodruff's own player shows the doorbell in its own card (with OK to look): not twice.
@@ -128,7 +140,8 @@ object Notices {
         runCatching { nm.notify((n.id % Int.MAX_VALUE).toInt(), notif) }
     }
 
-    private fun prefs(c: Context) = c.applicationContext.getSharedPreferences("notices", Context.MODE_PRIVATE)
+    /** The notices' own settings file (also where [SignInNotice] remembers which endings it told of). */
+    internal fun prefs(c: Context) = c.applicationContext.getSharedPreferences("notices", Context.MODE_PRIVATE)
 
     private fun save(context: Context) {
         val arr = JSONArray()

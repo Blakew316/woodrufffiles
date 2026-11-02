@@ -68,6 +68,7 @@ import com.woodruff.tvexplorer.calendar.TodayCalendar
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveViewModel
 import com.woodruff.tvexplorer.cloud.FamilySync
+import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.nest.CameraStills
 import com.woodruff.tvexplorer.nest.CameraStreams
@@ -90,11 +91,14 @@ import com.woodruff.tvexplorer.tvs.TvStatus
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.ActionMenu
+import com.woodruff.tvexplorer.ui.components.BadgeKind
 import com.woodruff.tvexplorer.ui.components.FilterPill
 import com.woodruff.tvexplorer.ui.components.FocusButton
 import com.woodruff.tvexplorer.ui.components.MenuAction
 import com.woodruff.tvexplorer.ui.components.RowText
+import com.woodruff.tvexplorer.ui.components.StatusBadge
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.rememberOfflineShown
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.icons.Sym
@@ -126,10 +130,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Sample TVs and cameras for the UI gallery, which has no network or cameras. Never set in the app. */
+/** Sample TVs, cameras and calendar for the UI gallery, which has no network or cameras. Never set in the app. */
 internal object DashboardSamples {
     var tvs: List<TvStatus>? = null
     var cameras: List<String>? = null
+    /** The sample cameras can't be reached (their last pictures are in [CameraStills], by name). */
+    var camerasOffline = false
+    var calendar: com.woodruff.tvexplorer.calendar.CalendarState? = null
+    /** The Command Center's cameras, in place of [Nest]'s. */
+    var nest: com.woodruff.tvexplorer.nest.NestState? = null
 }
 
 /**
@@ -155,11 +164,20 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     var removeFor by remember { mutableStateOf<RecentItem?>(null) }
     // Coming back from the player: pick up the position it just saved (and a fresh token for the
     // Google-hosted posters: the one from start-up lasts an hour), and what the other TVs watched.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context) }
+    // And today's calendar, if it's been a while (the TV woken in the morning: today's, not last night's).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context); TodayCalendar.refreshSoon() }
     // Another TV's progress merged in while Home is up: show it.
     val syncSeen = remember { FamilySync.updates.value }
     LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) reloads.trySend(Unit) } }
-    val play = { r: RecentItem -> context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key)) }
+    // Resumed where anyone in the family last stopped: the other TVs' latest is fetched first (half
+    // a second at most, usually already in), and a show another TV went on with plays its next episode.
+    val resume = rememberResume()
+    val play = { r: RecentItem ->
+        resume {
+            val now = latestOf(r, store.continueWatching())
+            context.startActivity(PlayerActivity.intent(context, listOf(now.key), listOf(now.title), now.key))
+        }
+    }
     // Recently added movies and shows, after what's in progress.
     val added by drive.recentlyAdded.collectAsStateWithLifecycle()
     // Posters for what's in progress, from the Movies / TV Shows entries they belong to.
@@ -173,7 +191,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     val driveToken by remember(drive) { drive.state.map { it.token }.distinctUntilChanged() }.collectAsStateWithLifecycle(drive.state.value.token)
     val openAdded = { (place, f): Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile> ->
         if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
-        else { val key = MediaRef.Drive(f.id).key; context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(f.name), key)) }
+        else resume { val key = MediaRef.Drive(f.id).key; context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(f.name), key)) }
     }
     val scope = rememberCoroutineScope()
     val linked by TvLinks.linked.collectAsStateWithLifecycle()
@@ -210,9 +228,12 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
                 // Same Drive video on every linked TV, from the same spot.
                 if (linked.isNotEmpty() && MediaRef.parse(r.key) is MediaRef.Drive) MenuAction("Watch together on all TVs", Sym.Groups) {
                     scope.launch {
-                        withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, r.key, r.title, r.positionMs) } }
+                        // From where anyone last stopped, as Play does.
+                        FamilySync.awaitFresh(context)
+                        val now = latestOf(r, store.continueWatching())
+                        withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, now.key, now.title, now.positionMs) } }
                         // This TV leads: pause, seek and its position keep the others in step.
-                        context.startActivity(PlayerActivity.intent(context, listOf(r.key), listOf(r.title), r.key, r.positionMs, together = true))
+                        context.startActivity(PlayerActivity.intent(context, listOf(now.key), listOf(now.title), now.key, now.positionMs, together = true))
                     }
                 } else null,
                 // As finishing it in the player does: off Continue watching, with a ✓ on its poster
@@ -311,7 +332,8 @@ private fun Header() {
     // A new line each hour, the same one all hour (no flicker when the clock ticks).
     val lines = when (hour) { in 5..11 -> MORNING; in 12..16 -> AFTERNOON; in 17..23 -> EVENING; else -> LATE }
     // Mornings: a briefing (weather and today's calendar) instead of the playful line.
-    val line = if (hour in 4..9 && (weather != null || cal.connected)) briefing(weather, cal) else lines[(day * 24 + hour) % lines.size]
+    // (The playful line when the briefing has nothing to say: no weather yet, and the calendar offline.)
+    val line = (if (hour in 4..9) briefing(weather, cal) else "").ifEmpty { lines[(day * 24 + hour) % lines.size] }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -338,14 +360,23 @@ private fun briefing(w: Weather.Now?, cal: com.woodruff.tvexplorer.calendar.Cale
         parts += "high ${w.highF}°, low ${w.lowF}°"
         if (w.rainChance >= 20) parts += "${w.rainChance}% chance of rain"
     }
-    if (cal.connected) {
-        val n = cal.events.size
-        parts += when (n) {
-            0 -> "nothing on the calendar"
-            else -> "$n event${if (n == 1) "" else "s"} today, first ${cal.events.first().title} ${eventTime(cal.events.first())}"
-        }
-    }
+    calendarBriefing(cal)?.let { parts += it }
     return parts.joinToString("  ·  ")
+}
+
+/**
+ * The calendar's part of the morning briefing; null when there's nothing true to say: not connected,
+ * or offline before today's events could be fetched (not "nothing on the calendar").
+ */
+internal fun calendarBriefing(cal: com.woodruff.tvexplorer.calendar.CalendarState): String? {
+    // Not until today's events are in: before the first answer, "nothing on the calendar" isn't known.
+    if (!cal.connected || !cal.loaded) return null
+    val n = cal.events.size
+    return when {
+        n > 0 -> "$n event${if (n == 1) "" else "s"} today, first ${cal.events.first().title} ${eventTime(cal.events.first())}"
+        cal.offline -> null
+        else -> "nothing on the calendar"
+    }
 }
 
 private val MORNING = listOf(
@@ -675,22 +706,45 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     // When it moves on, the camera it was showing closes now instead of staying up for another
     // screen, so one at a time really is one (as are any still up from the Command center).
     LaunchedEffect(rotating) { if (rotating != null) CameraStreams.closeIdle() }
+    // Offline (no working network, or Google unreachable listing them) for longer than the grace:
+    // the tiles keep their last pictures with OFFLINE, and no stream is started that can't connect.
+    val networkUp by com.woodruff.tvexplorer.util.NetworkWatch.online.collectAsStateWithLifecycle()
+    val offline = rememberOfflineShown(samples == null && state.step == NestStep.CONNECTED && (state.offline || !networkUp)) || DashboardSamples.camerasOffline
+    // Whether Google ended the cameras' sign-in (read off the main thread when it stops being connected).
+    val ended by produceState(false, state.step) {
+        value = state.step != NestStep.CONNECTED && withContext(Dispatchers.IO) { GoogleAuth.endedAt(context, GoogleAuth.Grant.NEST) != null }
+    }
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
             // Four at a glance in a 2×2 grid; the rest are in the Command center.
-            samples != null -> CameraGrid4(samples.take(4)) { _, name -> CameraTile(name, null, live = false, onClick = {}) }
+            samples != null -> CameraGrid4(samples.take(4)) { _, name -> CameraTile(name, null, live = false, offline = offline, onClick = {}) }
             state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4(shown) { i, cam ->
                 // Play live on their own, like the Command center.
                 key(cam.name) {
                     CameraTile(
                         cam.label, cam,
-                        live = liveTiles && cam.webRtc && (!rotate || rotating == cam.name),
+                        live = liveTiles && !offline && cam.webRtc && (!rotate || rotating == cam.name),
+                        offline = offline,
                         onFocus = { f -> if (f) focusRaw.value = cam.name else if (focusRaw.value == cam.name) focusRaw.value = null },
                         onClick = { openCameraAt = i; vm.show(Screen.CAMERAS) },
                     )
                 }
             }
-            state.step == NestStep.CONNECTED -> Text(if (state.loading) "Loading cameras…" else "No cameras found", color = Palette.muted)
+            state.step == NestStep.CONNECTED -> Text(
+                when {
+                    // Never listed, and offline: they come back by themselves.
+                    offline -> "Cameras will show when the TV is back online."
+                    state.loading || state.offline -> "Loading cameras…"
+                    else -> "No cameras found"
+                },
+                color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
+            )
+            // Google ended the cameras' sign-in: where to connect them again.
+            ended -> {
+                Text("Connect your cameras again.", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(10.dp))
+                PanelButton("Open Command Center", Sym.Videocam) { vm.show(Screen.CAMERAS) }
+            }
             else -> {
                 Text("Google Home cameras aren't connected.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(10.dp))
@@ -727,8 +781,12 @@ private fun <T> CameraGrid4(items: List<T>, tile: @Composable (Int, T) -> Unit) 
     }
 }
 
+/**
+ * A camera on Home: live, or its last picture (with OFFLINE over it when the cameras can't be
+ * reached: [offline]), or its symbol. Its name on a chip; LIVE while it streams.
+ */
 @Composable
-private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, onFocus: (Boolean) -> Unit = {}, onClick: () -> Unit) {
+private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, offline: Boolean = false, onFocus: (Boolean) -> Unit = {}, onClick: () -> Unit) {
     // Whether this tile has the focus, read only by its video (the focused tile plays smoothest).
     val focused = remember { mutableStateOf(false) }
     TvCard(
@@ -742,24 +800,29 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
         // CardStyle's lit rim.
         Box(Modifier.fillMaxSize().background(Color(0xFF0B0E13)).border(1.dp, Palette.rim, Shapes.card)) {
             val stills by CameraStills.stills.collectAsStateWithLifecycle()
-            val still = cam?.let { stills[it.name] }
+            // The gallery's sample tiles have no camera: their pictures are kept by name.
+            val still = stills[cam?.name ?: label]
             val stillImage = remember(still) { still?.bitmap?.asImageBitmap() }
             if (live && cam != null) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
             else if (stillImage != null) Image(stillImage, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 TvIcon(Sym.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))
-                // Older Nest models only stream over RTSP, which Google's API doesn't offer to apps.
-                if (cam != null && !cam.webRtc) Text("No live view for this model", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall)
+                when {
+                    offline -> Text("Offline", color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+                    // Older Nest models only stream over RTSP, which Google's API doesn't offer to apps.
+                    cam != null && !cam.webRtc -> Text("No live view for this model", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall)
+                }
             }
             Text(
                 label, color = Color.White, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(6.dp))
                     .background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 8.dp, vertical = 2.dp),
             )
-            if (live) Text(
-                "LIVE", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(RoundedCornerShape(5.dp)).background(Color(0xFFE5484D)).padding(horizontal = 6.dp, vertical = 1.dp),
-            )
+            when {
+                live -> StatusBadge("LIVE", BadgeKind.LIVE, Modifier.align(Alignment.TopEnd).padding(6.dp))
+                // Its last picture, as it was: OFFLINE says it isn't live (a tile with no picture says it in its middle).
+                offline && stillImage != null -> StatusBadge("OFFLINE", BadgeKind.OFFLINE, Modifier.align(Alignment.TopEnd).padding(6.dp))
+            }
         }
     }
 }
@@ -774,8 +837,11 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Notes.load(context) } }
     val notices by Notices.items.collectAsStateWithLifecycle()
     val notes by Notes.items.collectAsStateWithLifecycle()
-    val cal by TodayCalendar.state.collectAsStateWithLifecycle()
+    val liveCal by TodayCalendar.state.collectAsStateWithLifecycle()
+    val cal = DashboardSamples.calendar ?: liveCal
     val now = System.currentTimeMillis()
+    // Offline words for the calendar only after the grace (a TV waking reconnects within it).
+    val calOffline = rememberOfflineShown(cal.offline) || (DashboardSamples.calendar?.offline == true)
     val memories by produceState(0) {
         value = withContext(Dispatchers.IO) { runCatching { Memories.forToday(context) { Appearance.photos(context) }.size }.getOrDefault(0) }
     }
@@ -783,9 +849,8 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
         if (memories > 0) add(GlanceItem(Sym.PhotoLibrary, "On this day", "$memories photo${if (memories == 1) "" else "s"} from earlier years", false) {
             com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(context, memories = true)
         })
-        if (cal.connected) {
-            val next = cal.events.firstOrNull { (it.end ?: it.start ?: Long.MAX_VALUE) > now }
-            add(GlanceItem(Sym.Event, next?.title ?: "Nothing else today", next?.let { eventTime(it) } ?: "Calendar", false, null))
+        calendarGlance(cal, now, calOffline)?.let { row ->
+            add(GlanceItem(Sym.Event, row.title, row.sub, false, if (row.opensSettings) ({ openSettingsAt(vm, SettingsAt.ACCOUNTS) }) else null))
         }
         notices.take(2).forEach { n ->
             val icon = when (n.source) { NoticeSource.PHONE -> Sym.PhoneIphone; NoticeSource.MAIL -> Sym.Email; NoticeSource.SYSTEM -> Sym.Notifications }
@@ -809,6 +874,31 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
 
 /** A glance row's corners, and its highlight's. */
 private val GlanceRowShape = RoundedCornerShape(10.dp)
+
+/** The calendar's row in At a glance: its two lines, and whether OK opens Settings → Accounts (to connect it again). */
+internal data class CalendarGlance(val title: String, val sub: String, val opensSettings: Boolean = false)
+
+/**
+ * The calendar's row at [now] (null: not connected, no row). Today's events stay, offline or not;
+ * offline before any came in today ([offlineShown]: past the grace) it says so calmly ("Offline",
+ * or "Can't reach Google right now" when the network is fine); before the first answer, or within the
+ * grace, it claims nothing. Only a sign-in Google ended asks to connect again, and OK goes where.
+ */
+internal fun calendarGlance(cal: com.woodruff.tvexplorer.calendar.CalendarState, now: Long, offlineShown: Boolean): CalendarGlance? {
+    if (cal.ended && !cal.connected) return CalendarGlance("Connect Google Calendar again", "Settings → Accounts", opensSettings = true)
+    if (!cal.connected) return null
+    val next = cal.events.firstOrNull { (it.end ?: it.start ?: Long.MAX_VALUE) > now }
+    return when {
+        next != null -> CalendarGlance(next.title, eventTime(next))
+        // Today's (all over by now), or loaded and nothing on: as it is, offline or not.
+        cal.events.isNotEmpty() || (cal.loaded && !cal.offline) -> CalendarGlance("Nothing else today", "Calendar")
+        cal.offline && offlineShown -> CalendarGlance(
+            "Calendar", if (cal.noNetwork) "Offline · updates when the TV reconnects" else com.woodruff.tvexplorer.ui.components.OfflineWords.full(google = true),
+        )
+        // Not known yet: nothing claimed.
+        else -> CalendarGlance("Calendar", "Today")
+    }
+}
 
 @Composable
 private fun GlanceRow(g: GlanceItem, platter: FocusPlatter) {

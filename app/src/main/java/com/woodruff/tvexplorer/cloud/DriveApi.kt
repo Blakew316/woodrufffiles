@@ -4,7 +4,12 @@ import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.data.FileTypes
 import com.woodruff.tvexplorer.data.OpProgress
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -69,6 +74,45 @@ sealed interface DrivePlace {
 }
 
 /**
+ * Google Drive answered with an error. [code] is its HTTP status: 401 means it didn't take the
+ * access token (see [GoogleAuth.forgetAccess]), which a network failure never is. [busy]: Drive said
+ * it's limiting requests just now (a 403 for a rate limit).
+ */
+class DriveHttpException(val code: Int, message: String, val busy: Boolean = false) : IOException(message) {
+    /**
+     * Google isn't answering properly, which clears by itself: busy or failing (408, 429, 5xx, a rate
+     * limit), or still refusing a token it has just renewed (401). Tried again like a network failure.
+     */
+    val unreachable: Boolean get() = code == 401 || code == 408 || code == 429 || code >= 500 || busy
+}
+
+/**
+ * What a listing came to: its entries, and [cutAt], the limit it stopped at because Drive had more
+ * (0: this is all of it), so the screen can say so instead of quietly leaving the rest out.
+ */
+data class DriveListing(val files: List<DriveFile>, val cutAt: Int = 0)
+
+/** One page of a listing: its entries, and the token for the next page (null: that was the last). */
+internal class DrivePage(val files: List<DriveFile>, val next: String?)
+
+/**
+ * Reads pages from [fetch] (given null for the first, then each page's token) until the last one,
+ * or until [limit] entries are in: then exactly [limit] of them, and the listing says where it was
+ * cut. Visible for tests.
+ */
+internal inline fun pageAll(limit: Int, fetch: (pageToken: String?) -> DrivePage): DriveListing {
+    val out = ArrayList<DriveFile>()
+    var next: String? = null
+    do {
+        val page = fetch(next)
+        out += page.files
+        next = page.next
+    } while (next != null && out.size < limit)
+    val cut = next != null || out.size > limit
+    return DriveListing(if (out.size > limit) ArrayList(out.subList(0, limit)) else out, if (cut) limit else 0)
+}
+
+/**
  * Minimal Drive v3 REST client over HttpURLConnection; read-only, matching the drive.readonly
  * scope. Streaming playback doesn't go through here: the player fetches [mediaUrl] itself with
  * a bearer token, using HTTP range requests so seeking works.
@@ -77,6 +121,8 @@ object DriveApi {
     private const val BASE = "https://www.googleapis.com/drive/v3/files"
     private const val FOLDER = "application/vnd.google-apps.folder"
     private const val FIELDS = "nextPageToken,files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink)"
+    /** Entries per request: Drive's most. A library of 1,000 films is one request instead of five. */
+    private const val PAGE_SIZE = 1000
 
     fun mediaUrl(id: String) = "$BASE/${enc(id)}?alt=media&supportsAllDrives=true"
 
@@ -86,41 +132,63 @@ object DriveApi {
     /** Signing out: another account's Movies / TV Shows folders are found afresh. */
     fun forgetFolders() = namedIds.clear()
 
-    suspend fun list(token: String, place: DrivePlace): List<DriveFile> = withContext(Dispatchers.IO) {
+    /**
+     * A library folder (Movies, TV Shows) lists this many entries at most: far more than a family's
+     * collection (a loose film is two or three entries with its poster and subtitles), yet a bound on
+     * the memory and time one listing takes on a TV with 1.5 GB. It used to stop at 2,000, silently,
+     * leaving out the titles last in the alphabet, newly added ones included.
+     */
+    const val LIBRARY_LIMIT = 20_000
+
+    /**
+     * Everywhere else: All videos (newest first, so a cut leaves out the oldest), Shared with me and
+     * plain folders.
+     */
+    const val LIST_LIMIT = 2_000
+
+    /** [place]'s entries (see [listing]), for callers that don't need to know where it was cut. */
+    suspend fun list(token: String, place: DrivePlace): List<DriveFile> = listing(token, place).files
+
+    /**
+     * Lists [place]: a library folder up to [LIBRARY_LIMIT] entries, anything else up to
+     * [LIST_LIMIT], and where it was cut when Drive had more.
+     */
+    suspend fun listing(token: String, place: DrivePlace): DriveListing = withContext(Dispatchers.IO) {
         val (q, order) = when (place) {
             is DrivePlace.Named -> {
                 val id = namedIds[place.title] ?: findFolder(token, place.names)?.also { namedIds[place.title] = it }
-                    ?: throw IOException("There's no \"${place.names.first()}\" folder in your Google Drive yet. Create one and put your ${place.title.lowercase()} in it.")
+                    ?: throw IOException("There’s no “${place.names.first()}” folder in your Google Drive yet. Create one and put your ${place.title.lowercase()} in it.")
                 "'${id.replace("'", "\\'")}' in parents and trashed = false" to "folder,name_natural"
             }
             is DrivePlace.Folder -> "'${place.id.replace("'", "\\'")}' in parents and trashed = false" to "folder,name_natural"
             DrivePlace.SharedWithMe -> "sharedWithMe = true and trashed = false" to "folder,name_natural"
             is DrivePlace.Videos -> "mimeType contains 'video/' and trashed = false" to "modifiedTime desc"
         }
-        val out = ArrayList<DriveFile>()
-        var pageToken: String? = null
-        do {
+        // One for the whole listing: a new one for every date (two per file) was most of the time
+        // spent reading a big library's answer.
+        val times = Rfc3339()
+        pageAll(if (place is DrivePlace.Named) LIBRARY_LIMIT else LIST_LIMIT) { pageToken ->
             ensureActive()
-            val url = "$BASE?q=${enc(q)}&orderBy=${enc(order)}&pageSize=200&fields=${enc(FIELDS)}" +
+            val url = "$BASE?q=${enc(q)}&orderBy=${enc(order)}&pageSize=$PAGE_SIZE&fields=${enc(FIELDS)}" +
                 "&includeItemsFromAllDrives=true&supportsAllDrives=true" +
                 (pageToken?.let { "&pageToken=${enc(it)}" } ?: "")
             val json = JSONObject(get(token, url))
             val files = json.optJSONArray("files")
+            val page = ArrayList<DriveFile>(files?.length() ?: 0)
             for (i in 0 until (files?.length() ?: 0)) {
                 val f = files!!.getJSONObject(i)
-                out += DriveFile(
+                page += DriveFile(
                     id = f.getString("id"),
                     name = f.optString("name"),
                     mimeType = f.optString("mimeType"),
                     size = f.optString("size").toLongOrNull() ?: 0L,
-                    modified = parseTime(f.optString("modifiedTime")),
+                    modified = times.parse(f.optString("modifiedTime")),
                     thumbnailLink = f.optString("thumbnailLink").ifEmpty { null },
-                    created = parseTime(f.optString("createdTime")),
+                    created = times.parse(f.optString("createdTime")),
                 )
             }
-            pageToken = json.optString("nextPageToken").ifEmpty { null }
-        } while (pageToken != null && out.size < 2000)
-        out
+            DrivePage(page, json.optString("nextPageToken").ifEmpty { null })
+        }
     }
 
     /** The files in the same folder as file [id] (its first parent), in Drive's natural name order. */
@@ -136,33 +204,43 @@ object DriveApi {
     }
 
     private val POSTER_NAMES = setOf("poster", "folder", "cover")
+    /** Poster lookups at once: a big library's folders are found three times as fast, and Drive isn't flooded. */
+    private const val POSTER_LANES = 3
 
     /**
      * Poster art, Plex/Kodi style: a folder's poster is a poster/folder/cover image inside it; a
      * loose video's poster is an image with the same name next to it (Inception.mp4 + Inception.jpg).
-     * Those images are then hidden from the grid. Costs one extra request per 25 folders.
+     * Those images are then hidden from the grid. Costs one extra request per 25 folders, three at a
+     * time (one after another, a library of 1,000 shows waited on 40 of them in a row).
      */
     suspend fun withPosters(token: String, files: List<DriveFile>): List<DriveFile> = withContext(Dispatchers.IO) {
         val images = files.filter { it.kind == FileKind.IMAGE }
         val byStem = images.associateBy { it.name.substringBeforeLast('.').lowercase() }
         val used = HashSet<String>()
-        val folderPosters = HashMap<String, String>()
-        files.filter { it.isFolder }.chunked(25).forEach { chunk ->
-            ensureActive()
-            val parents = chunk.joinToString(" or ") { "'${it.id.replace("'", "\\'")}' in parents" }
-            val q = "mimeType contains 'image/' and trashed = false and " +
-                "(name contains 'poster' or name contains 'folder' or name contains 'cover') and ($parents)"
-            val url = "$BASE?q=${enc(q)}&pageSize=200&fields=${enc("files(name,parents,thumbnailLink)")}" +
-                "&includeItemsFromAllDrives=true&supportsAllDrives=true"
-            val found = runCatching { JSONObject(get(token, url)).optJSONArray("files") }.getOrNull() ?: return@forEach
-            for (i in 0 until found.length()) {
-                val f = found.getJSONObject(i)
-                val stem = f.optString("name").substringBeforeLast('.').lowercase()
-                val link = f.optString("thumbnailLink").ifEmpty { null } ?: continue
-                if (stem !in POSTER_NAMES) continue
-                val parentsArr = f.optJSONArray("parents") ?: continue
-                for (j in 0 until parentsArr.length()) folderPosters.putIfAbsent(parentsArr.getString(j), big(link))
-            }
+        val folderPosters = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val lanes = Semaphore(POSTER_LANES)
+        coroutineScope {
+            files.filter { it.isFolder }.chunked(25).map { chunk ->
+                async {
+                    lanes.withPermit {
+                        ensureActive()
+                        val parents = chunk.joinToString(" or ") { "'${it.id.replace("'", "\\'")}' in parents" }
+                        val q = "mimeType contains 'image/' and trashed = false and " +
+                            "(name contains 'poster' or name contains 'folder' or name contains 'cover') and ($parents)"
+                        val url = "$BASE?q=${enc(q)}&pageSize=200&fields=${enc("files(name,parents,thumbnailLink)")}" +
+                            "&includeItemsFromAllDrives=true&supportsAllDrives=true"
+                        val found = runCatching { JSONObject(get(token, url)).optJSONArray("files") }.getOrNull() ?: return@withPermit
+                        for (i in 0 until found.length()) {
+                            val f = found.getJSONObject(i)
+                            val stem = f.optString("name").substringBeforeLast('.').lowercase()
+                            val link = f.optString("thumbnailLink").ifEmpty { null } ?: continue
+                            if (stem !in POSTER_NAMES) continue
+                            val parentsArr = f.optJSONArray("parents") ?: continue
+                            for (j in 0 until parentsArr.length()) folderPosters.putIfAbsent(parentsArr.getString(j), big(link))
+                        }
+                    }
+                }
+            }.awaitAll()
         }
         files.mapNotNull { f ->
             when {
@@ -249,21 +327,31 @@ object DriveApi {
         val code = conn.responseCode
         if (code in 200..299) return
         val body = runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull().orEmpty()
-        val reason = runCatching { JSONObject(body).getJSONObject("error").getString("message") }.getOrNull()
-        throw IOException(
+        // Why, in Google's words ("userRateLimitExceeded", "accessNotConfigured"…): never shown, only read.
+        val reason = runCatching { JSONObject(body).getJSONObject("error").getJSONArray("errors").getJSONObject(0).getString("reason") }.getOrNull()
+        throw DriveHttpException(
+            code,
             when (code) {
-                401 -> "Google sign-in expired. Choose Google Drive again to reconnect."
-                403 -> reason ?: "Google Drive refused access (403). Check the Drive API is enabled in your Google Cloud project."
                 404 -> "That file is no longer in Google Drive."
-                else -> "Google Drive error $code${reason?.let { ": $it" } ?: ""}"
+                // No codes or Google's own messages: a 401 here comes after a fresh token, so it isn't a
+                // sign-in that ended (renewing would have said so).
+                else -> CANT_REACH
             },
+            busy = code == 403 && reason?.contains("ratelimit", ignoreCase = true) == true,
         )
     }
 
-    /** RFC 3339 as Drive sends it (e.g. 2026-10-14T00:48:23.123Z); java.time needs API 26. */
-    private fun parseTime(s: String): Long = runCatching {
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(s)!!.time
-    }.getOrDefault(0L)
+    /** What any other answer from Drive says on screen. */
+    internal const val CANT_REACH = "Can’t reach Google Drive right now. Try again in a moment."
+
+    /**
+     * Reads times as Drive sends them, RFC 3339 in UTC (2026-10-14T00:48:23.123Z); java.time needs
+     * API 26. One per listing: it isn't safe to share between threads. 0 for a time it can't read.
+     */
+    internal class Rfc3339 {
+        private val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        fun parse(s: String): Long = if (s.isEmpty()) 0L else runCatching { format.parse(s)!!.time }.getOrDefault(0L)
+    }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 }

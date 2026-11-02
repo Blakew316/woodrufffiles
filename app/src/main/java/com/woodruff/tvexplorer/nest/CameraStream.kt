@@ -109,6 +109,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
     private suspend fun run() {
         var failures = 0
         while (true) {
+            val mark = com.woodruff.tvexplorer.util.NetworkWatch.comebacks.value
             try {
                 Gate.awaitTurn()
                 connect()
@@ -129,8 +130,9 @@ class CameraStream(private val context: Context, private val camera: Camera) {
                 _status.value = Status.Failed(e.message ?: "Couldn't connect")
             }
             teardown()
-            // Back off: 5 s, 10 s, … up to two minutes, so an offline camera doesn't spam Google.
-            delay(minOf(120_000L, 5_000L * failures.coerceAtLeast(1)))
+            // Back off: 5 s, 10 s, … up to two minutes, so an offline camera doesn't spam Google; but
+            // at once when the TV's network comes back (woken from standby), not minutes later.
+            com.woodruff.tvexplorer.util.NetworkWatch.awaitComeback(mark, minOf(120_000L, 5_000L * failures.coerceAtLeast(1)))
             _status.value = Status.Connecting
         }
     }

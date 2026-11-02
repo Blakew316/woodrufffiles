@@ -156,7 +156,8 @@ object GooglePhotos {
                 throw e
             } catch (e: Exception) {
                 Log.w("GooglePhotos", "pick failed", e)
-                _state.update { it.copy(error = e.message ?: "Couldn't get photos") }
+                // No network, or Google not answering: never "sign-in expired".
+                _state.update { it.copy(error = if (com.woodruff.tvexplorer.util.isNetworkFailure(e)) CANT_REACH else e.message ?: "Couldn't get photos") }
             } finally {
                 endSession()
             }
@@ -381,8 +382,8 @@ object GooglePhotos {
     }
 
     private fun open(url: String, method: String): HttpURLConnection {
-        val token = GoogleAuth.blockingToken(app, GoogleAuth.Grant.PHOTOS)
-            ?: throw IOException("Google Photos sign-in expired. Connect again.")
+        // No network is "Can't reach Google right now", never "sign-in expired".
+        val token = GoogleAuth.requireToken(app, GoogleAuth.Grant.PHOTOS, signedOut = "Connect Google Photos again.")
         return (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000
@@ -402,12 +403,13 @@ object GooglePhotos {
             val code = conn.responseCode
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code in 200..299) return if (text.isBlank()) JSONObject() else JSONObject(text)
-            val msg = runCatching { JSONObject(text).optJSONObject("error")?.optString("message") }.getOrNull().orEmpty()
+            // A token Google won't take: the next try renews it (and finds out if it really ended).
+            if (code == 401) GoogleAuth.forgetAccess(app, GoogleAuth.Grant.PHOTOS)
             throw IOException(
                 when (code) {
-                    401 -> "Google Photos sign-in expired. Connect again."
-                    403 -> "Google refused ($msg). Enable the Google Photos Picker API in Google Cloud."
-                    else -> "Google Photos error $code${if (msg.isNotBlank()) ": $msg" else ""}"
+                    // A 401 here comes after a fresh token (renewing would have said if it really ended).
+                    403 -> "Google didn’t allow Google Photos. Turn on the Google Photos Picker API in Google Cloud, then connect again."
+                    else -> CANT_REACH
                 },
             )
         } finally {
@@ -416,6 +418,8 @@ object GooglePhotos {
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
+
+    private const val CANT_REACH = "Can’t reach Google Photos right now. Try again in a moment."
 }
 
 /**
