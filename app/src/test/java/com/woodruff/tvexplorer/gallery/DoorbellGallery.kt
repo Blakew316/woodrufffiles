@@ -74,6 +74,10 @@ class DoorbellGallery {
             Page("doorbell-ring-home", "Back to Home"),
             Page("doorbell-offline", "Back to the slideshow", message = "Offline · reconnecting…"),
             Page("doorbell-long-name", "Back to Home", title = "The Covered Side Porch Doorbell Beside the Garden Gate Path", dir = checks),
+            // The other words in place of the picture (doorbell.md §5), laid out as offline is.
+            Page("doorbell-connecting", "Back to keep watching", message = "Connecting…", dir = checks),
+            Page("doorbell-no-live-view", "Back to close", message = "This camera model doesn’t support live view here", dir = checks),
+            Page("doorbell-not-connected", "Back to Home", message = "Connect your cameras in the Command Center first", dir = checks),
         )
         var page by mutableStateOf(pages.first())
         compose.setContent {

@@ -33,7 +33,7 @@ class DoorbellRingTest {
         Doorbell.ring(app, camera(), "Garage", relay = false, kind = "motion", session = "v2")
         assertEquals("Motion seen" to "Garage", latest())
         Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v3")
-        assertEquals("Someone's at the door" to "Front Door", latest())
+        assertEquals("Someone’s at the door" to "Front Door", latest())
     }
 
     @Test fun aCameraNobodyNamedIsNeverCalledTheDoorbell() {
@@ -41,7 +41,7 @@ class DoorbellRingTest {
         Doorbell.ring(app, camera(), "", relay = false, kind = "person", session = "v1")
         assertEquals("Person seen" to "One of your cameras", latest())
         Doorbell.ring(app, camera(), " ", relay = false, session = "v2")
-        assertEquals("Someone's at the door" to "Doorbell", latest())
+        assertEquals("Someone’s at the door" to "Doorbell", latest())
     }
 
     @Test fun oneVisitRingsOnceHoweverItArrives() {

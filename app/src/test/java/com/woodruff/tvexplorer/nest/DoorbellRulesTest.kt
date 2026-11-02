@@ -180,7 +180,7 @@ class DoorbellRulesTest {
         val a = alerts(from = "Living Room", listening = DoorbellListening.Refused)
         assertEquals(DoorbellAlerts.State.FAILING, a.state)
         assertEquals("Google refused", a.value)
-        assertEquals("Google's project doesn't let this TV listen on its own; it hears the doorbell through Living Room instead.", a.about)
+        assertEquals("Google’s project doesn’t let this TV listen on its own; it hears the doorbell through Living Room instead.", a.about)
         assertTrue(a.attention)
     }
 

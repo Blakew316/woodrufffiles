@@ -152,7 +152,7 @@ object Doorbell {
     private var job: Job? = null
 
     private val _rings = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    /** Camera resource names that just rang (for the player's "Someone's at the door" card). */
+    /** Camera resource names that just rang (for the player's "Someone’s at the door" card). */
     val rings: SharedFlow<String> = _rings.asSharedFlow()
 
     /** The screens a ring's camera opens on (doorbell.md §2). */
@@ -364,7 +364,7 @@ object Doorbell {
             views = views.get(), slideshows = slideshows.get(), inApp = AppVisibility.foreground,
         )
         // The camera opening is the notice: no card over it (it's kept in Notifications all the same).
-        val notice = Notices.post(app, NoticeSource.SYSTEM, "Someone's at the door", name, chime = Chime.Sound.DOORBELL, popUp = host == null)
+        val notice = Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", name, chime = Chime.Sound.DOORBELL, popUp = host == null)
         if (host != null) {
             val ring = Ring(ringIds.incrementAndGet(), camera, at, host)
             _opens.tryEmit(ring)
@@ -465,7 +465,7 @@ object Doorbell {
             setListening(app, DoorbellListening.Idle)
             Next.After(IDLE_CHECK_MS)
         } catch (e: GoogleAuth.AuthException.Rejected) {
-            setListening(app, DoorbellListening.Failing("Keys not accepted", "Google doesn't accept the Client ID or secret. Fix them in the phone app: Settings → Connections → Google Drive."))
+            setListening(app, DoorbellListening.Failing("Keys not accepted", "Google doesn’t accept the Client ID or secret. Fix them in the phone app: Settings → Connections → Google Drive."))
             Next.After(FAILING_RETRY_MS)
         } catch (e: PubSub.Answer) {
             answered(app, e)
@@ -483,11 +483,11 @@ object Doorbell {
             // A token Google won't take (the TV's clock was off, or access just revoked): renewed on the next try.
             401 -> { GoogleAuth.forgetAccess(app, GoogleAuth.Grant.NEST); Next.After(5_000) }
             403 -> {
-                setListening(app, DoorbellListening.Failing("Google refused", "Google turned down this TV's doorbell subscription. Connect the cameras again on this TV, and check the subscription in the phone app: Settings → Connections → Cameras."))
+                setListening(app, DoorbellListening.Failing("Google refused", "Google turned down this TV’s doorbell subscription. Connect the cameras again on this TV, and check the subscription in the phone app: Settings → Connections → Cameras."))
                 Next.After(FAILING_RETRY_MS)
             }
             404 -> {
-                setListening(app, DoorbellListening.Failing("Subscription not found", "Google can't find the doorbell's subscription. Check its name in the phone app: Settings → Connections → Cameras."))
+                setListening(app, DoorbellListening.Failing("Subscription not found", "Google can’t find the doorbell’s subscription. Check its name in the phone app: Settings → Connections → Cameras."))
                 Next.After(FAILING_RETRY_MS)
             }
             429 -> Next.After(60_000)

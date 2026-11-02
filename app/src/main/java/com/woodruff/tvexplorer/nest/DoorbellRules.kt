@@ -184,7 +184,7 @@ internal fun doorbellAlerts(
             is DoorbellListening.Failing -> DoorbellAlerts(DoorbellAlerts.State.FAILING, listening.value, listening.about)
             DoorbellListening.Refused -> DoorbellAlerts(
                 DoorbellAlerts.State.FAILING, "Google refused",
-                "Google's project doesn't let this TV listen on its own; it hears the doorbell through $from instead.",
+                "Google’s project doesn’t let this TV listen on its own; it hears the doorbell through $from instead.",
             )
             else -> DoorbellAlerts(DoorbellAlerts.State.WATCHING, "Watching", "Doorbell presses pop up on this TV, even when the other TVs are off.")
         }

@@ -204,7 +204,7 @@ class DoorbellActivity : ComponentActivity() {
                 message = when {
                     // (It only opens with the cameras connected; this is in case they were signed out meanwhile.)
                     state.step != NestStep.CONNECTED -> "Connect your cameras in the Command Center first"
-                    cam != null && !cam.webRtc -> "This camera model doesn't support live view here"
+                    cam != null && !cam.webRtc -> "This camera model doesn’t support live view here"
                     offline -> "Offline · reconnecting…"
                     cam == null -> "Connecting…"
                     else -> null
