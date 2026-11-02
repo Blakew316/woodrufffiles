@@ -381,8 +381,8 @@ object GooglePhotos {
     }
 
     private fun open(url: String, method: String): HttpURLConnection {
-        val token = GoogleAuth.blockingToken(app, GoogleAuth.Grant.PHOTOS)
-            ?: throw IOException("Google Photos sign-in expired. Connect again.")
+        // No network is "Can't reach Google right now", never "sign-in expired".
+        val token = GoogleAuth.requireToken(app, GoogleAuth.Grant.PHOTOS, signedOut = "Google Photos sign-in expired. Connect again.")
         return (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000
@@ -402,6 +402,8 @@ object GooglePhotos {
             val code = conn.responseCode
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code in 200..299) return if (text.isBlank()) JSONObject() else JSONObject(text)
+            // A token Google won't take: the next try renews it (and finds out if it really ended).
+            if (code == 401) GoogleAuth.forgetAccess(app, GoogleAuth.Grant.PHOTOS)
             val msg = runCatching { JSONObject(text).optJSONObject("error")?.optString("message") }.getOrNull().orEmpty()
             throw IOException(
                 when (code) {

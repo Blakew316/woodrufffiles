@@ -191,13 +191,25 @@ fun CommandCenterScreen(vm: MainViewModel) {
                 ) { Button(onClick = { askProject = true }) { Text("Enter Project ID") } }
                 NestStep.SIGN_IN -> SignInPanel(state)
                 NestStep.CONNECTED -> {
+                    // Offline before any camera was listed: say so calmly; they appear by themselves.
+                    val networkUp by com.woodruff.tvexplorer.util.NetworkWatch.online.collectAsStateWithLifecycle()
+                    val offlinePage: @Composable (Modifier) -> Unit = { m ->
+                        com.woodruff.tvexplorer.ui.components.OfflinePage(
+                            com.woodruff.tvexplorer.ui.components.OfflineWords.title(networkUp, "Google Home"),
+                            com.woodruff.tvexplorer.ui.components.OfflineWords.body(networkUp, "Your cameras", "Google Home"),
+                            modifier = m, onAction = { Nest.refresh() },
+                        )
+                    }
                     if (state.loading && cams.isEmpty()) {
                         EmptyState("Loading cameras…")
                     } else if (Appearance.allInOne) {
                         Row(Modifier.fillMaxSize().padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                            CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull, covered = isFull) { full = it }
+                            if (state.offline && cams.isEmpty()) offlinePage(Modifier.weight(2.2f))
+                            else CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull, covered = isFull) { full = it }
                             SidePanel(Modifier.weight(1f).fillMaxHeight())
                         }
+                    } else if (state.offline && cams.isEmpty()) {
+                        offlinePage(Modifier)
                     } else {
                         CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp), focusOn = lastFull, covered = isFull) { full = it }
                     }

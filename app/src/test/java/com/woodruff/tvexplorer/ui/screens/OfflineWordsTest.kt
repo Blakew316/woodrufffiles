@@ -1,6 +1,8 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.woodruff.tvexplorer.calendar.CalendarState
+import com.woodruff.tvexplorer.calendar.DayEvent
 import com.woodruff.tvexplorer.cloud.DriveStatus
 import com.woodruff.tvexplorer.ui.components.OfflineWords
 import com.woodruff.tvexplorer.ui.icons.Sym
@@ -40,5 +42,13 @@ class OfflineWordsTest {
         // Keys to check is something to fix, not to wait out (and, with nothing on screen, the page says it).
         assertTrue(driveHeaderStatus(DriveStatus.Refused("Check the keys"), networkUp = true, hasFiles = true, library = true)!!.alert)
         assertNull(driveHeaderStatus(DriveStatus.Refused("Check the keys"), networkUp = true, hasFiles = false, library = true))
+    }
+
+    @Test fun theMorningBriefingNeverClaimsAnEmptyCalendarWhileOffline() {
+        val event = DayEvent("Dentist", null, null, null, 0xFF5592BF)
+        assertNull(calendarBriefing(CalendarState(connected = false)))
+        assertNull(calendarBriefing(CalendarState(connected = true, offline = true)))
+        assertEquals("nothing on the calendar", calendarBriefing(CalendarState(connected = true, loaded = true)))
+        assertEquals("1 event today, first Dentist All day", calendarBriefing(CalendarState(connected = true, offline = true, events = listOf(event))))
     }
 }

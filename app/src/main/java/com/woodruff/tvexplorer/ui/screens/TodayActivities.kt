@@ -56,7 +56,8 @@ fun TodayActivities() {
         when {
             !cal.loaded -> Text("Loading…", color = Palette.muted, modifier = Modifier.padding(start = 48.dp))
             cal.events.isEmpty() -> Text(
-                cal.error ?: "Nothing on the calendar today.", color = Palette.muted, modifier = Modifier.padding(start = 48.dp),
+                cal.error ?: if (cal.offline) "Offline. Today's events will show once the TV is back online." else "Nothing on the calendar today.",
+                color = Palette.muted, modifier = Modifier.padding(start = 48.dp),
             )
             else -> LazyRow(contentPadding = PaddingValues(horizontal = 48.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(cal.events) { EventCard(it) }

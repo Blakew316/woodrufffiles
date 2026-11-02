@@ -155,7 +155,8 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     var removeFor by remember { mutableStateOf<RecentItem?>(null) }
     // Coming back from the player: pick up the position it just saved (and a fresh token for the
     // Google-hosted posters: the one from start-up lasts an hour), and what the other TVs watched.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context) }
+    // And today's calendar, if it's been a while (the TV woken in the morning: today's, not last night's).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context); TodayCalendar.refreshSoon() }
     // Another TV's progress merged in while Home is up: show it.
     val syncSeen = remember { FamilySync.updates.value }
     LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) reloads.trySend(Unit) } }
@@ -311,7 +312,8 @@ private fun Header() {
     // A new line each hour, the same one all hour (no flicker when the clock ticks).
     val lines = when (hour) { in 5..11 -> MORNING; in 12..16 -> AFTERNOON; in 17..23 -> EVENING; else -> LATE }
     // Mornings: a briefing (weather and today's calendar) instead of the playful line.
-    val line = if (hour in 4..9 && (weather != null || cal.connected)) briefing(weather, cal) else lines[(day * 24 + hour) % lines.size]
+    // (The playful line when the briefing has nothing to say: no weather yet, and the calendar offline.)
+    val line = (if (hour in 4..9) briefing(weather, cal) else "").ifEmpty { lines[(day * 24 + hour) % lines.size] }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -338,14 +340,22 @@ private fun briefing(w: Weather.Now?, cal: com.woodruff.tvexplorer.calendar.Cale
         parts += "high ${w.highF}°, low ${w.lowF}°"
         if (w.rainChance >= 20) parts += "${w.rainChance}% chance of rain"
     }
-    if (cal.connected) {
-        val n = cal.events.size
-        parts += when (n) {
-            0 -> "nothing on the calendar"
-            else -> "$n event${if (n == 1) "" else "s"} today, first ${cal.events.first().title} ${eventTime(cal.events.first())}"
-        }
-    }
+    calendarBriefing(cal)?.let { parts += it }
     return parts.joinToString("  ·  ")
+}
+
+/**
+ * The calendar's part of the morning briefing; null when there's nothing true to say: not connected,
+ * or offline before today's events could be fetched (not "nothing on the calendar").
+ */
+internal fun calendarBriefing(cal: com.woodruff.tvexplorer.calendar.CalendarState): String? {
+    if (!cal.connected) return null
+    val n = cal.events.size
+    return when {
+        n > 0 -> "$n event${if (n == 1) "" else "s"} today, first ${cal.events.first().title} ${eventTime(cal.events.first())}"
+        cal.offline -> null
+        else -> "nothing on the calendar"
+    }
 }
 
 private val MORNING = listOf(
@@ -690,7 +700,18 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
                     )
                 }
             }
-            state.step == NestStep.CONNECTED -> Text(if (state.loading) "Loading cameras…" else "No cameras found", color = Palette.muted)
+            state.step == NestStep.CONNECTED -> {
+                val networkUp by com.woodruff.tvexplorer.util.NetworkWatch.online.collectAsStateWithLifecycle()
+                Text(
+                    when {
+                        state.loading -> "Loading cameras…"
+                        // Offline (the TV just woken, say): they come back by themselves.
+                        state.offline -> if (networkUp) "Reconnecting to Google Home…" else "Offline. Your cameras will show once the TV is back online."
+                        else -> "No cameras found"
+                    },
+                    color = Palette.muted,
+                )
+            }
             else -> {
                 Text("Google Home cameras aren't connected.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(10.dp))
@@ -785,7 +806,14 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
         })
         if (cal.connected) {
             val next = cal.events.firstOrNull { (it.end ?: it.start ?: Long.MAX_VALUE) > now }
-            add(GlanceItem(Sym.Event, next?.title ?: "Nothing else today", next?.let { eventTime(it) } ?: "Calendar", false, null))
+            add(
+                when {
+                    next != null -> GlanceItem(Sym.Event, next.title, eventTime(next), false, null)
+                    // Offline before today's events came in: not "Nothing else today".
+                    cal.offline && cal.events.isEmpty() -> GlanceItem(Sym.Event, "Today's calendar", "Offline · updates once back online", false, null)
+                    else -> GlanceItem(Sym.Event, "Nothing else today", "Calendar", false, null)
+                },
+            )
         }
         notices.take(2).forEach { n ->
             val icon = when (n.source) { NoticeSource.PHONE -> Sym.PhoneIphone; NoticeSource.MAIL -> Sym.Email; NoticeSource.SYSTEM -> Sym.Notifications }

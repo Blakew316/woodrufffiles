@@ -4,6 +4,10 @@ import android.content.Context
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.server.CompanionHub
 import com.woodruff.tvexplorer.server.TransferService
+import com.woodruff.tvexplorer.util.NetworkWatch
+import com.woodruff.tvexplorer.util.backoffMs
+import com.woodruff.tvexplorer.util.isNetworkFailure
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +35,12 @@ data class NestState(
     val loading: Boolean = false,
     val qrUrl: String? = null,
     val error: String? = null,
+    /**
+     * The camera list couldn't reach Google (no network yet, Google unreachable). The sign-in is
+     * fine: [cameras] are the last ones listed, if any, and it lists them again by itself as soon as
+     * the network is back.
+     */
+    val offline: Boolean = false,
 )
 
 /**
@@ -46,6 +56,13 @@ object Nest {
 
     fun init(c: Context) {
         app = c.applicationContext
+        NetworkWatch.start(app)
+        // Google ended the cameras' sign-in (found out by any renewal, the doorbell's included).
+        scope.launch {
+            GoogleAuth.expirations.collect { grant ->
+                if (grant == GoogleAuth.Grant.NEST) _state.update { it.copy(step = step(), offline = false) }
+            }
+        }
         // Reading the encrypted settings goes through the Keystore; keep it off the main thread at
         // launch. This also warms the settings cache, so Settings and Drive open instantly later.
         scope.launch {
@@ -97,14 +114,35 @@ object Nest {
         if (s == NestStep.CONNECTED && _state.value.cameras.isEmpty() && !_state.value.loading) refresh()
     }
 
+    private var refreshJob: Job? = null
+
+    /**
+     * Lists the cameras. Offline (no network yet, Google unreachable), it keeps what it had and
+     * lists them again the moment the network is back, or after a growing pause (10 s up to 5 min).
+     */
     fun refresh() {
-        scope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            try {
-                val cams = NestApi.cameras(app)
-                _state.update { it.copy(cameras = cams, loading = false, error = if (cams.isEmpty()) "No cameras were shared. Connect again and turn on your cameras on Google's sharing page." else null) }
-            } catch (e: Exception) {
-                _state.update { it.copy(loading = false, error = e.message ?: "Couldn't load cameras", step = step()) }
+        refreshJob?.cancel()
+        refreshJob = scope.launch {
+            var tries = 0
+            while (true) {
+                val mark = NetworkWatch.comebacks.value
+                // Retries keep the offline state up rather than flashing "Loading".
+                _state.update { if (it.offline) it.copy(error = null) else it.copy(loading = true, error = null) }
+                try {
+                    val cams = NestApi.cameras(app)
+                    _state.update { it.copy(cameras = cams, loading = false, offline = false, error = if (cams.isEmpty()) "No cameras were shared. Connect again and turn on your cameras on Google's sharing page." else null) }
+                    return@launch
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (!isNetworkFailure(e)) {
+                        _state.update { it.copy(loading = false, offline = false, error = e.message ?: "Couldn't load cameras", step = step()) }
+                        return@launch
+                    }
+                    _state.update { it.copy(loading = false, offline = true, error = null) }
+                }
+                val cameBack = NetworkWatch.awaitComeback(mark, backoffMs(tries, 10_000, 5 * 60_000))
+                tries = if (cameBack) 0 else tries + 1
             }
         }
     }
@@ -140,6 +178,7 @@ object Nest {
     }
 
     fun signOut(done: () -> Unit = {}) {
+        refreshJob?.cancel()
         scope.launch {
             GoogleAuth.signOut(app, GoogleAuth.Grant.NEST)
             _state.update { NestState(step = step()) }

@@ -130,8 +130,8 @@ object Doorbell {
 
     /** One pull: handles any rings, acknowledges everything. Returns how long to wait before the next. */
     private fun pullOnce(c: Context, sub: String): Long {
-        val token = GoogleAuth.blockingToken(c, GoogleAuth.Grant.NEST)
-            ?: throw IOException("Connect your cameras first")
+        // No network is "Can't reach Google right now" (retried shortly), never "connect first".
+        val token = GoogleAuth.requireToken(c, GoogleAuth.Grant.NEST, signedOut = "Connect your cameras first")
         val res = post(token, "https://pubsub.googleapis.com/v1/$sub:pull", JSONObject().put("maxMessages", 10))
         val messages = res.optJSONArray("receivedMessages") ?: JSONArray()
         _status.value = null
