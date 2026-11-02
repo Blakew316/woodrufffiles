@@ -70,10 +70,22 @@ class SecretStore internal constructor(
             // A put() meanwhile wins over the value read from disk.
             cache.putIfAbsent(name, value) ?: value
         } catch (e: Exception) {
-            // Saved with a key that's gone (data restored onto another device): unset.
+            // Saved with a key that's gone (data restored onto another device): unset, for good, so
+            // not "unreadable for now" either (see [isUnreadableNow]).
+            unreadable.remove(name)
             null
         }
     }
+
+    /**
+     * Whether [name] has a saved value this run hasn't been able to read yet, because the Keystore
+     * hadn't found the key (see [key]): [get] said unset, but it isn't. Whatever would "get or make" a
+     * value (the phone pairing key) should ask again later instead of making a new one, and a
+     * sign-in that reads as missing for this reason hasn't ended. Stays true after the key turns up
+     * until [get] is asked again (which then reads it), so a key found in between can never let a
+     * made-up value replace the saved one.
+     */
+    fun isUnreadableNow(name: String): Boolean = name in unreadable && !cache.containsKey(name) && prefs.contains(name)
 
     /**
      * Decrypts every stored value into the cache. Run once in the background at app start, so the

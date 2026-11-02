@@ -224,4 +224,46 @@ class SecretStoreTest {
         vault.missingFor = 0
         assertEquals("r-token", run(vault).get("google.refresh"))
     }
+
+    @Test fun aValueTheKeyCantReachYetIsUnreadableNotUnset() {
+        val vault = saved("pair.token" to "the-real-pairing-key")
+        vault.missingFor = 1_000
+        val next = run(vault)
+        assertNull(next.get("pair.token"))
+        // Saved, just not readable yet: whatever would "get or make" it waits instead.
+        assertTrue(next.isUnreadableNow("pair.token"))
+        // Never saved, or not asked about yet: plainly unset / unknown.
+        assertTrue(!next.isUnreadableNow("never.saved"))
+        // The key turns up for another read; until this value is asked for again it still counts as
+        // unreadable, so nothing can be made up in between and replace it.
+        vault.missingFor = 0
+        now += SecretStore.LOOK_AGAIN_MS
+        next.put("tmdb.key", "abc123")
+        assertTrue(next.isUnreadableNow("pair.token"))
+        assertEquals("the-real-pairing-key", next.get("pair.token"))
+        assertTrue(!next.isUnreadableNow("pair.token"))
+    }
+
+    @Test fun aValueNoKeyCanDecryptIsUnsetNotUnreadable() {
+        val vault = saved("pair.token" to "the-real-pairing-key")
+        // A key that's there but isn't the one it was saved with (data restored onto another TV).
+        vault.create()
+        val next = run(vault)
+        assertNull(next.get("pair.token"))
+        assertTrue(!next.isUnreadableNow("pair.token"))
+    }
+
+    @Test fun aValueMissedThenUndecryptableIsNotUnreadableForever() {
+        val vault = saved("pair.token" to "the-real-pairing-key")
+        vault.missingFor = 1_000
+        val next = run(vault)
+        assertNull(next.get("pair.token"))
+        assertTrue(next.isUnreadableNow("pair.token"))
+        // The key that turns up can't decrypt it: unset for good, so a new one may be made.
+        vault.missingFor = 0
+        vault.create()
+        now += SecretStore.LOOK_AGAIN_MS
+        assertNull(next.get("pair.token"))
+        assertTrue(!next.isUnreadableNow("pair.token"))
+    }
 }

@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import com.woodruff.tvexplorer.MainActivity
@@ -92,6 +93,8 @@ class TransferService : Service() {
     @Volatile private var announced: String? = null
     /** The port last opened: opened again first, so phones' saved links keep working. */
     @Volatile private var lastPort: Int? = null
+    /** Since when (elapsedRealtime) the pairing key has been unreadable; null while it's fine. */
+    @Volatile private var keyUnreadableSince: Long? = null
     // Main thread only.
     private var inForeground = false
     private var started = false
@@ -192,6 +195,10 @@ class TransferService : Service() {
             NextStep.MOVE -> { if (address != null) showAt(address); true }
             NextStep.STAY -> true
         }
+    } catch (e: PairingKey.NotReadyYet) {
+        // Some TVs' Keystore needs a while after they turn on; a made-up key would turn every phone away.
+        Log.i(TAG, "waiting for the pairing key to be readable")
+        false
     } catch (e: Exception) {
         Log.w(TAG, "couldn't open the phone connection", e)
         false
@@ -201,7 +208,7 @@ class TransferService : Service() {
         // A server whose socket Android closed: let it go first (its port is free again).
         server?.let { old -> server = null; runCatching { old.stop() } }
         val app = applicationContext
-        val token = pairingKey(app)
+        val token = token(app)
         val page = assets.open("web/index.html").bufferedReader().use { it.readText() }
         val storage = StorageRepository(app)
         val routes = CompanionRoutes(app)
@@ -222,6 +229,22 @@ class TransferService : Service() {
             return true
         }
         return false
+    }
+
+    /**
+     * The pairing key phones were paired with; [PairingKey.NotReadyYet] while the TV's Keystore can't
+     * read it yet, so opening waits. Only if that lasts far longer than any hiccup does it open with a
+     * key for this run ([PairingKey.forThisRun]): phones then scan again, but the phone connection
+     * is never off for good because of a Keystore that keeps failing.
+     */
+    private fun token(app: Context): String = try {
+        pairingKey(app).also { keyUnreadableSince = null }
+    } catch (e: PairingKey.NotReadyYet) {
+        val now = SystemClock.elapsedRealtime()
+        val since = keyUnreadableSince ?: now.also { keyUnreadableSince = it }
+        if (now - since < PAIRING_KEY_PATIENCE_MS) throw e
+        Log.w(TAG, "the pairing key stayed unreadable: a key for this run only")
+        PairingKey.forThisRun(app)
     }
 
     /** Phones reach the server at [address] now: say so, and announce it to the other TVs if it's new. */
@@ -344,6 +367,11 @@ class TransferService : Service() {
         private const val LOOK_AGAIN_WAITING_MS = 30_000L
         /** How often to look by itself while open (an address change nobody reported, a socket Android closed). */
         private const val LOOK_AGAIN_OPEN_MS = 5 * 60_000L
+        /**
+         * How long to wait for an unreadable pairing key before opening with one for this run: as
+         * long as [com.woodruff.tvexplorer.settings.SecretStore] takes to decide a missing key is gone.
+         */
+        private const val PAIRING_KEY_PATIENCE_MS = 10 * 60_000L
 
         /** Said wherever the phone connection is needed and it gave up. */
         const val COULDNT_START = "The phone connection couldn’t start."
@@ -357,7 +385,7 @@ class TransferService : Service() {
         /** Where the service finds this TV's home-network address. Tests put in their own. */
         @Volatile internal var addressNow: () -> String? = { lanAddress() }
 
-        /** The phone pairing key ([PairingKey]). Tests use their own, apart from the Keystore. */
+        /** The phone pairing key ([PairingKey]; throws [PairingKey.NotReadyYet] while unreadable). Tests use their own, apart from the Keystore. */
         @Volatile internal var pairingKey: (Context) -> String = { PairingKey.get(it) }
 
         /** How the service enters the foreground. Tests make Android refuse. */

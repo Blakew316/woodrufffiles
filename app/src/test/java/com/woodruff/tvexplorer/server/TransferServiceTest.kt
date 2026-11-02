@@ -24,6 +24,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowNetwork
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The phone connection as a service: it waits for the network for as long as it takes and opens the
@@ -128,6 +129,24 @@ class TransferServiceTest {
         assertFalse(state.on)
         assertFalse(state.running)
         assertTrue("stopped listening to the network", shadowOf(cm).networkCallbacks.isEmpty())
+    }
+
+    @Test fun waitsForThePairingKeyWhenTheKeystoreIsSlowAfterTheTvTurnsOn() {
+        val readable = AtomicBoolean(false)
+        TransferService.pairingKey = { if (readable.get()) "the-saved-key" else throw PairingKey.NotReadyYet() }
+        address = "192.0.2.10"
+        service().onStartCommand(start, 0, 1)
+        Thread.sleep(1_500)
+        // Still starting: there is a network, so not "waiting"; nothing opened with a made-up key,
+        // and nobody waiting for it is told to give up.
+        assertTrue(state.on)
+        assertFalse(state.running)
+        assertFalse(state.waiting)
+        assertNull(state.error)
+        // The Keystore finds its key: it opens by itself, with the key the phones were paired with.
+        readable.set(true)
+        waitFor("open") { state.running }
+        assertTrue(state.url!!.endsWith("/?k=the-saved-key"))
     }
 
     @Test fun startsAgainWhileRunningChangeNothing() {
