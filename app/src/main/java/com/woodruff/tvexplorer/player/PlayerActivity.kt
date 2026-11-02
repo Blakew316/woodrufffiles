@@ -122,6 +122,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             savedIndex = k.index
             savedPosition = k.positionMs
             savedPlayWhenReady = k.playing
+            stoppedAt = k.stoppedAt
         }
         recent = RecentStore(this)
         com.woodruff.tvexplorer.cloud.EpisodeShows.load(this) // which show name-less episodes belong to
@@ -270,6 +271,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
      * show's next episode offered there instead.
      */
     private fun finished(key: String) {
+        // This player says where the family is with it now: it no longer follows them (catchUp).
+        stopCatchingUp()
         recent.remove(key)
         Watched.mark(this, key)
         upNextAfter(key)
@@ -1227,6 +1230,43 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         leftByChoice = false
     }
 
+    /**
+     * When the player last stopped, by the wall clock Continue watching keeps time by (kept with the
+     * rest, [PlayerKeep]): coming back, the family's progress newer than that wins ([PlayerKeep.comeBack]).
+     */
+    private var stoppedAt: Long? = null
+    /** The item and spot this player started on, or was moved to as it came back ([catchUp]): see [PlayerKeep.touched]. */
+    private var startSpot: Pair<String, Long>? = null
+    /** It has played since it started. */
+    private var playedSinceStart = false
+    /** Back to a film: Continue watching watched for the family's progress until anything is done with it here ([catchUp]). */
+    private var familyWatch: AutoCloseable? = null
+
+    /**
+     * Back to a film, nothing done with it yet, and the family's progress changed (the other TVs',
+     * fetched as it came back): it goes to where the family has got to with it, or, finished on another
+     * TV since, it pauses, as it would have come back had that been known then ([PlayerKeep.comeBack]).
+     */
+    private fun catchUp() {
+        val p = player ?: return
+        val key = p.currentMediaItem?.mediaId ?: return
+        if (timeBar.isScrubbing || PlayerKeep.touched(playedSinceStart, startSpot, key, p.currentPosition)) return
+        when (val back = PlayerKeep.comeBack(key, stoppedAt, recent.all(), recent.removals())) {
+            is PlayerKeep.ComeBack.At -> if (kotlin.math.abs(back.positionMs - p.currentPosition) > PlayerKeep.MOVED_MS) {
+                startSpot = key to back.positionMs
+                p.seekTo(back.positionMs)
+            }
+            PlayerKeep.ComeBack.Finished -> p.playWhenReady = false
+            PlayerKeep.ComeBack.AsItWas -> Unit
+        }
+    }
+
+    /** No more following the family's progress ([catchUp]): the player stopped, or keeps its own now. */
+    private fun stopCatchingUp() {
+        familyWatch?.close()
+        familyWatch = null
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         // So it still comes back paused if Android closed Woodruff meanwhile, to free memory...
@@ -1236,12 +1276,13 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val p = player
         if (p != null && p.mediaItemCount > 0) {
             val items = (0 until p.mediaItemCount).map { p.getMediaItemAt(it) }
+            // Still up (before Android 9): it stops straight after this.
             PlayerKeep.save(
                 outState, items.map { it.mediaId }, items.map { it.mediaMetadata.title?.toString() ?: "" },
-                p.currentMediaItemIndex, p.currentPosition, playing = p.playWhenReady || heldForRate,
+                p.currentMediaItemIndex, p.currentPosition, playing = p.playWhenReady || heldForRate, stoppedAt = System.currentTimeMillis(),
             )
         } else savedQueue?.let { (keys, titles) ->
-            PlayerKeep.save(outState, keys, titles, savedIndex ?: 0, savedPosition ?: 0L, playing = savedPlayWhenReady ?: true)
+            PlayerKeep.save(outState, keys, titles, savedIndex ?: 0, savedPosition ?: 0L, playing = savedPlayWhenReady ?: true, stoppedAt = stoppedAt)
         }
     }
 
@@ -1277,7 +1318,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         rateMatchedFor = null
         nextSeasonFor = null
         matchRate = FrameRateMatch.enabled(this)
-        val startPos = savedPosition ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
+        // Back to a film left a while ago (Home and then the app row, standby, or made again after
+        // Android closed Woodruff): at its spot, unless the family has moved on with it since, on
+        // another TV; finished there since, it's back at its spot, paused (PlayerKeep.comeBack).
+        val back = savedPosition?.let { PlayerKeep.comeBack(keys[start], stoppedAt, recent.all(), recent.removals()) }
+        if (back == PlayerKeep.ComeBack.Finished) savedPlayWhenReady = false
+        val startPos = (back as? PlayerKeep.ComeBack.At)?.positionMs ?: savedPosition
+            ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
+        // Nothing done with it yet: left as it is, it keeps nothing (keepPlace).
+        startSpot = keys[start] to startPos
+        playedSinceStart = false
 
         // Each with the subtitle files known to sit beside it (the first film's are looked for as it
         // starts, the rest's in the background: prepareWithSidecars).
@@ -1356,6 +1406,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (isPlaying) { retriedKey = null; clearStall() }
                     updateLoading()
+                    // Watched from here: where it stops is worth keeping (keepPlace), and the family's
+                    // progress no longer moves it (catchUp).
+                    if (isPlaying) playedSinceStart = true
                     if (leader) sendSync()
                 }
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -1478,6 +1531,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             if (items.size == 1) fillQueueFromFolder(p)
         }
         updateScreenOn()
+        // Back to a film: the other TVs' latest progress is fetched, and taken up if it comes in before
+        // anything is done with the film here (catchUp).
+        if (back != null) {
+            familyWatch = recent.onChange(::catchUp)
+            if (com.woodruff.tvexplorer.cloud.FamilySync.isShared(keys[start])) com.woodruff.tvexplorer.cloud.FamilySync.pullFresh(this)
+        }
         reporter.post(report)
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
         doorbellJob = lifecycleScope.launch { com.woodruff.tvexplorer.nest.Doorbell.rings.collect { showDoorbell(it) } }
@@ -1486,6 +1545,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     override fun onStop() {
         com.woodruff.tvexplorer.util.FrameStats.detach(this)
+        stopCatchingUp()
         preview?.release(); preview = null
         // Off the screen: the preview, the options and any message go at once, as the cards below do.
         if (::previewCard.isInitialized) previewCard.hide(animate = false)
@@ -1518,6 +1578,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             p.currentMediaItem?.let { item ->
                 keepPlace(RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0))
             }
+            // After what it kept: the spot it saves as it stops is never newer than its stop (PlayerKeep.comeBack).
+            stoppedAt = System.currentTimeMillis()
             // The family's other TVs get where it stopped now, before this TV may go to sleep.
             com.woodruff.tvexplorer.cloud.FamilySync.pushNow(this)
             p.release()
@@ -1550,6 +1612,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
      * 5 %, or the last few seconds) — finished, so it's marked ✓ instead of offered again from there.
      */
     private fun keepPlace(item: RecentItem) {
+        // Opened and left again as it was (a film come back to from the app row, and out again):
+        // nothing to keep. Its spot saved again would be the family's newest, over where another TV
+        // has got to with it since, and would bring back one finished there.
+        if (!PlayerKeep.touched(playedSinceStart, startSpot, item.key, item.positionMs)) return
+        stopCatchingUp()
         val pos = item.positionMs
         // Left before its length was known (Back while it was still opening): keep the length saved
         // before, or it was saved as 0 % watched and dropped from the show's "Resume".

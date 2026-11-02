@@ -113,6 +113,17 @@ class RecentStore(context: Context) {
         changed
     }
 
+    /**
+     * Calls [changed] on the main thread whenever this TV's Continue watching changes (a save here, or
+     * the other TVs' progress merged in), until the answer is closed.
+     */
+    fun onChange(changed: () -> Unit): AutoCloseable {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> changed() }
+        // Held by the answer: the preferences hold their listeners only weakly.
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return AutoCloseable { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     private fun write(items: List<RecentItem>, gone: Map<String, Long>) {
         val arr = JSONArray()
         items.forEach {
@@ -135,7 +146,8 @@ class RecentStore(context: Context) {
         internal const val MAX = 30
         /** Removals remembered for the other TVs: weeks of finished episodes. */
         internal const val MAX_GONE = 200
-        private const val FINISHED = 0.95f
+        /** Watched this far, it's finished: not offered again from there. */
+        internal const val FINISHED = 0.95f
         // RecentStore is made wherever it's needed, so every instance shares one lock.
         private val LOCK = Any()
     }
