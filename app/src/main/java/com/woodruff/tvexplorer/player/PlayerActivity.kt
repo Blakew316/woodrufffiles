@@ -101,6 +101,14 @@ class PlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         leftByChoice = savedInstanceState?.getBoolean(KEY_LEFT_BY_CHOICE) == true
+        // Made again after Android closed Woodruff to free memory: the queue, item and spot it had
+        // (as a stop and start in the same process keeps them), not the intent it first opened with.
+        PlayerKeep.restore(savedInstanceState)?.let { k ->
+            savedQueue = k.keys to k.titles
+            savedIndex = k.index
+            savedPosition = k.positionMs
+            savedPlayWhenReady = k.playing
+        }
         recent = RecentStore(this)
         com.woodruff.tvexplorer.cloud.EpisodeShows.load(this) // which show name-less episodes belong to
         val root = android.widget.FrameLayout(this)
@@ -821,8 +829,20 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        // So it still comes back paused if Android closed Woodruff meanwhile, to free memory.
+        // So it still comes back paused if Android closed Woodruff meanwhile, to free memory...
         outState.putBoolean(KEY_LEFT_BY_CHOICE, leftByChoice)
+        // ...on the same item, at the same spot (PlayerKeep). Before Android 9 this comes before
+        // onStop, with the player still up; from Android 9 on, after onStop has kept where it was.
+        val p = player
+        if (p != null && p.mediaItemCount > 0) {
+            val items = (0 until p.mediaItemCount).map { p.getMediaItemAt(it) }
+            PlayerKeep.save(
+                outState, items.map { it.mediaId }, items.map { it.mediaMetadata.title?.toString() ?: "" },
+                p.currentMediaItemIndex, p.currentPosition, playing = p.playWhenReady || heldForRate,
+            )
+        } else savedQueue?.let { (keys, titles) ->
+            PlayerKeep.save(outState, keys, titles, savedIndex ?: 0, savedPosition ?: 0L, playing = savedPlayWhenReady ?: true)
+        }
     }
 
     override fun onStart() {
