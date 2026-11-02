@@ -23,6 +23,11 @@ TITLES = {
     'drive-signin-again': 'Google Drive · sign in again', 'home-offline': 'Home · offline',
     'command-center-offline': 'Command center · offline', 'home-signin-notice': 'Home · sign-in ended notice',
     'movies-truncated': 'Movies · very large library', 'settings-accounts-ended': 'Settings › Accounts · sign-ins ended',
+    'title-show': 'Title page · show', 'title-show-episodes': 'Title page · show, on a new episode',
+    'title-show-plain': 'Title page · show without TMDB', 'title-show-offline': 'Title page · a season not listed yet, offline',
+    'tv-shows-season': 'TV Shows › a season’s folder',
+    'home-new-episodes': 'Home · new episodes', 'home-new-episodes-poster': 'Home · new episodes, a poster focused',
+    'tv-shows-rows': 'TV Shows · Overview',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -36,7 +41,8 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     im.save(os.path.join(img_dir, out), 'WEBP', quality=82, method=6)
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
-ORDER = ['home', 'home-menu', 'home-notice', 'home-offline', 'home-signin-notice', 'movies', 'tv-shows', 'movies-offline', 'movies-cant-reach',
+ORDER = ['home', 'home-menu', 'home-notice', 'home-new-episodes', 'home-new-episodes-poster', 'home-offline', 'home-signin-notice',
+         'movies', 'tv-shows', 'tv-shows-rows', 'title-show', 'title-show-episodes', 'title-show-plain', 'title-show-offline', 'tv-shows-season', 'movies-offline', 'movies-cant-reach',
          'tv-shows-back-online', 'movies-offline-empty', 'tv-shows-trying', 'movies-keys', 'drive-signin-again', 'movies-truncated',
          'command-center', 'command-center-offline', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings', 'settings-accounts-ended',
          'player', 'player-menu', 'player-up-next', 'files', 'tv', 'keyboard', 'send']
