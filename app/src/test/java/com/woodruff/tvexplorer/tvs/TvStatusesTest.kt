@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
@@ -56,6 +57,19 @@ class TvStatusesTest {
         val last = TvStatus("kids-id", "Old name", online = true, onScreen = true, playing = null, version = "2.0.40")
         val list = lastKnown(listOf(kids), mapOf("kids-id" to last))
         assertEquals(listOf(last.copy(name = "Kids Room")), list)
+    }
+
+    @Test fun aTvRenamedOnItselfIsRenamedInTheList() {
+        val renamed = renamedIn(listOf(kids, bedroom), "kids-id", "  Kyler's Room ")!!
+        assertEquals(listOf("Kyler's Room", "Bedroom"), renamed.map { it.name })
+        assertEquals(listOf(kids.key, bedroom.key), renamed.map { it.key })
+        // The same name, a blank one, or a TV that isn't linked: nothing to change.
+        assertNull(renamedIn(listOf(kids), "kids-id", "Kids Room"))
+        assertNull(renamedIn(listOf(kids), "kids-id", "   "))
+        assertNull(renamedIn(listOf(kids), "kids-id", null))
+        assertNull(renamedIn(listOf(kids), "gone-id", "Elliott's Room"))
+        // At most 40 characters, as on the TV.
+        assertEquals(40, renamedIn(listOf(kids), "kids-id", "x".repeat(60))!!.single().name.length)
     }
 
     @Test fun aTvNeverHeardFromIsOff() {

@@ -94,6 +94,13 @@ object TvLinks {
     private fun linkKey(c: Context): String =
         SecretStore.get(c).get(K_LINK_KEY) ?: TransferServer.randomToken().also { SecretStore.get(c).put(K_LINK_KEY, it) }
 
+    /** The linked TV [tv] now calls itself [name]: saved in this TV's list (nothing happens when it's the same). */
+    private fun renamed(tv: LinkedTv, name: String) {
+        val c = appContext ?: return
+        if (renamedIn(_linked.value, tv.id, name) == null) return
+        edit(c) { list -> renamedIn(list, tv.id, name) ?: list }
+    }
+
     /** Unlinks every TV that can see this one; they'd need a new code. */
     fun resetLinkKey(c: Context) { SecretStore.get(c).put(K_LINK_KEY, TransferServer.randomToken()) }
 
@@ -196,7 +203,11 @@ object TvLinks {
     @Volatile private var recent: Pair<Long, List<TvStatus>>? = null
     private val checks = StatusChecks(scope) { tv ->
         try {
-            parse(JSONObject(request("${tv.base}/api/status?k=${enc(tv.key)}", "GET", null)), true).copy(id = tv.id, name = tv.name)
+            val status = parse(JSONObject(request("${tv.base}/api/status?k=${enc(tv.key)}", "GET", null)), true)
+            // Renamed on that TV (Settings → This TV's name): the list here takes its new name, so the
+            // TV list, the phone's TV picker and messages by name all follow it.
+            renamed(tv, status.name)
+            status.copy(id = tv.id, name = cleanName(status.name) ?: tv.name)
         } catch (e: Exception) {
             // Off, or at a new address: look for it on the network (in the background).
             lost(tv)
@@ -556,6 +567,16 @@ internal class StatusChecks(private val scope: CoroutineScope, private val ask: 
             d.invokeOnCompletion { synchronized(running) { if (running[tv.id] === d) running.remove(tv.id) } }
         }
     }
+}
+
+/** A TV's name as it reports it, trimmed to what a TV can be called (40 characters); null when blank. */
+internal fun cleanName(name: String?): String? = name?.trim()?.take(40)?.takeIf { it.isNotEmpty() }
+
+/** [list] with the linked TV [id] called [name] (it was renamed on that TV); null when nothing changes. */
+internal fun renamedIn(list: List<LinkedTv>, id: String, name: String?): List<LinkedTv>? {
+    val clean = cleanName(name) ?: return null
+    if (list.none { it.id == id && it.name != clean }) return null
+    return list.map { if (it.id == id) it.copy(name = clean) else it }
 }
 
 /** A linked TV that didn't answer. */
