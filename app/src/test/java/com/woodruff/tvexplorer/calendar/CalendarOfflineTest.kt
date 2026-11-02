@@ -21,6 +21,13 @@ class CalendarOfflineTest {
         assertTrue(s.loaded)
     }
 
+    @Test fun offlineSaysWhyItCouldntGetThrough() {
+        val today = 2026_306
+        assertTrue(CalendarState(connected = true).offlineOn(today, noNetwork = true).noNetwork)
+        // The network is fine and Google didn't answer: "Can't reach Google right now", not "Offline".
+        assertEquals(false, CalendarState(connected = true, noNetwork = true).offlineOn(today, noNetwork = false).noNetwork)
+    }
+
     @Test fun offlineSinceYesterdayShowsNoneOfYesterdays() {
         // The TV slept through the night; it wakes before its Wi-Fi.
         val s = CalendarState(connected = true, events = listOf(dentist), loaded = true, day = 2026_305).offlineOn(2026_306)

@@ -113,8 +113,12 @@ class LibraryRefreshesTest {
         // Refresh in Filter.
         assertTrue(needsListing(force = true, DriveStatus.Online, listed, soon))
         // The header says offline (a folder failed meanwhile): tried again, so the note can go.
-        assertTrue(needsListing(force = false, DriveStatus.Offline, listed, soon))
+        assertTrue(needsListing(force = false, DriveStatus.Offline(since = listed, google = false), listed, soon))
+        assertTrue(needsListing(force = false, DriveStatus.Offline(since = listed, google = true, shown = true), listed, soon))
+        assertTrue(needsListing(force = false, DriveStatus.Reconnecting(DriveStatus.Offline(listed, google = false, shown = true)), listed, soon))
         assertTrue(needsListing(force = false, DriveStatus.Refused("Check the keys"), listed, soon))
+        // "Back online" was the good news: a fresh listing is just shown.
+        assertFalse(needsListing(force = false, DriveStatus.BackOnline(listed), listed, soon))
         // Old, or never listed this run.
         assertTrue(needsListing(force = false, DriveStatus.Online, listed, listed + FRESH_MS))
         assertTrue(needsListing(force = false, DriveStatus.Online, null, soon))

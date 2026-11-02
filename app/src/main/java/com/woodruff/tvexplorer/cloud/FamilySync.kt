@@ -63,7 +63,7 @@ object FamilySync {
     const val RESUME_WAIT_MS = 500L
     private const val SIGN_IN = "Sign in to Google Drive to share progress between TVs."
     private const val SIGN_IN_AGAIN = "Sign in to Google Drive again to share progress between TVs."
-    private const val OFFLINE = "Couldn't reach Google Drive. Trying again soon."
+    private const val OFFLINE = "Can’t reach Google Drive right now. Trying again soon."
 
     // Outlives every screen: a push started as playback stops must finish after the player has gone.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

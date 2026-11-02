@@ -73,7 +73,7 @@ object NestApi {
 
     private fun call(c: Context, method: String, path: String, body: JSONObject?): JSONObject {
         // No network (a TV just woken) is GoogleAuth.AuthException.Offline, never "sign-in expired".
-        val token = GoogleAuth.requireToken(c, GoogleAuth.Grant.NEST, signedOut = "Connect your cameras again (Google sign-in expired)")
+        val token = GoogleAuth.requireToken(c, GoogleAuth.Grant.NEST, signedOut = "Connect your cameras again.")
         val conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 15_000

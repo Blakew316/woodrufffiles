@@ -81,13 +81,8 @@ import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveState
-import com.woodruff.tvexplorer.cloud.DriveStatus
 import com.woodruff.tvexplorer.cloud.DriveViewModel
-import com.woodruff.tvexplorer.ui.components.HeaderStatus
-import com.woodruff.tvexplorer.ui.components.OfflinePage
-import com.woodruff.tvexplorer.ui.components.OfflineWords
-import com.woodruff.tvexplorer.ui.components.StatusNote
-import com.woodruff.tvexplorer.util.NetworkWatch
+import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.cloud.FolderCache
@@ -164,11 +159,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         return
     }
 
-    // Offline: "Offline" with no network at all, "Reconnecting to Google Drive…" once there is one.
-    val networkUp by NetworkWatch.online.collectAsStateWithLifecycle()
-    // A quiet note in the header while what's shown is the saved copy (with nothing to show, the
-    // offline page below says it instead).
-    val headerStatus = driveHeaderStatus(state.status, networkUp, hasFiles = state.files.isNotEmpty(), library = state.library)
+    // Offline over a saved library: said at the search field's end; with nothing saved (or keys
+    // Google refuses), a calm page in place of the posters.
+    val hasFiles = state.files.isNotEmpty()
+    val page = libraryPage(state.status, hasFiles)
+    // A page appearing takes the focus from the header the screen started on, before anyone pressed a
+    // key, or when what had the focus under the header has just gone with the posters; never from the
+    // side menu, or from someone choosing in the header.
+    val enteredAt = remember { System.currentTimeMillis() }
+    val screenFocused = remember { mutableStateOf(false) }
+    val contentFocus = remember { ContentFocus() }
 
     val filter = state.filter
     // Read once here and handed down: the tiles don't read the screen's state themselves, so a
@@ -263,8 +263,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         if (watched) { RecentStore(context).remove(key); Watched.mark(context, key) } else Watched.unmark(context, key)
         marks.intValue++
     }
+    // A page in place of the posters sits on the calm backdrop: no poster behind its words.
+    LaunchedEffect(page != null) { if (page != null) focusedArt.value = null }
     if (library) PosterBackdrop(focusedArt, token)
-    Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = if (library) 18.dp else 32.dp)) {
+    Column(Modifier.fillMaxSize().onFocusChanged { screenFocused.value = it.hasFocus }.padding(start = 40.dp, end = 40.dp, top = if (library) 18.dp else 32.dp)) {
         if (library) {
             // Movies / TV Shows: title, filters and the Drive buttons share one short row, so the
             // posters start near the top of the screen.
@@ -280,7 +282,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                                 onSelect = { i -> drive.openRoot(if (i == 0) DrivePlace.Movies else DrivePlace.TvShows) },
                             )
                         },
-                        status = headerStatus,
+                        hint = librarySearchHint(state.place.title, state.status, hasFiles),
+                        status = libraryFieldStatus(state.status, hasFiles),
                         cutAt = state.cutAt,
                     )
                 }
@@ -291,7 +294,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     state.place.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(end = 18.dp).weight(1f),
                 )
-                StatusNote(headerStatus, Modifier.padding(end = 8.dp))
+                // Inside a show's folders a saved listing shows without words: the library's field says it.
                 ToolButton(Sym.MoreHoriz, null, { moreOpen = true }, modifier = Modifier.padding(start = 10.dp))
             }
         } else {
@@ -301,7 +304,6 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     state.place.title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 14.dp, end = 18.dp).weight(1f),
                 )
-                StatusNote(headerStatus)
             }
             Text(
                 // Cut short by the listing limit: says so ("All videos · newest 2,000 shown").
@@ -323,22 +325,20 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 ToolButton(Sym.Logout, null, drive::signOut)
             }
         }
-        Box(Modifier.fillMaxSize()) {
-            val status = state.status
+        Box(Modifier.fillMaxSize().onFocusChanged { contentFocus.changed(it.hasFocus) }) {
             when {
+                // Nothing saved to show while Google can't be reached (it loads by itself once Google
+                // answers), or keys Google won't take (signing in again wouldn't help; new keys will).
+                page != null -> LibraryPagePanel(
+                    page, libraryPageSubject(state.place, top = filterable),
+                    onTryAgain = drive::refresh,
+                    onOpenKeys = { openSettingsAt(vm, SettingsAt.KEYS) },
+                    takeFocus = {
+                        contentFocus.justLost() ||
+                            (screenFocused.value && (!headerFocused.value || AppVisibility.lastInput < enteredAt))
+                    },
+                )
                 state.busy -> EmptyState("Loading from Google Drive…")
-                // Nothing saved to show: say so calmly. It loads by itself once Google answers.
-                state.files.isEmpty() && status == DriveStatus.Offline -> OfflinePage(
-                    OfflineWords.title(networkUp, "Google Drive"),
-                    OfflineWords.body(networkUp, if (library) "Your library" else "What's in this folder", "Google Drive"),
-                    onAction = drive::refresh,
-                )
-                // Keys Google won't take: signing in again wouldn't help, Settings will.
-                state.files.isEmpty() && status is DriveStatus.Refused -> OfflinePage(
-                    "Google Drive needs attention", status.message,
-                    icon = Sym.Key, action = "Open Settings", actionIcon = Sym.Settings,
-                    onAction = { vm.show(Screen.SETTINGS) },
-                )
                 state.error != null -> EmptyState(state.error!!)
                 state.files.isEmpty() -> EmptyState("Nothing here")
                 shown.isEmpty() -> EmptyState("No matches")
@@ -512,26 +512,6 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             },
         )
     }
-}
-
-/**
- * The header's note for Drive's [status] while a saved copy is on screen ([hasFiles]; with nothing
- * to show, the page in its place says it): offline, or keys to check. With no network at all ([networkUp]
- * false) it says what's shown is the saved copy ([library]: Movies / TV Shows, saved on the TV);
- * with one, it's moments from loading, and "Reconnecting to Google Drive…" says enough (and leaves
- * the search field its room).
- */
-internal fun driveHeaderStatus(status: DriveStatus, networkUp: Boolean, hasFiles: Boolean, library: Boolean): HeaderStatus? = when (status) {
-    DriveStatus.Online -> null
-    DriveStatus.Offline -> if (!hasFiles) null else HeaderStatus(
-        Sym.CloudOff, OfflineWords.note(networkUp, "Google Drive"),
-        when {
-            networkUp -> null
-            library -> "Showing your saved library"
-            else -> "Showing what was here last time"
-        },
-    )
-    is DriveStatus.Refused -> if (!hasFiles) null else HeaderStatus(Sym.Key, "Google keys need checking", "See Settings", alert = true)
 }
 
 /** Asks the image loader for [count] posters from [from] on, at the tiles' size (so they land in the memory cache). */
@@ -763,7 +743,7 @@ private fun Modifier.fadeWithFocus(motion: FocusMotionState): Modifier = graphic
  * settle for a moment first, so fast scrolling doesn't keep swapping it.
  */
 @Composable
-private fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: String?) {
+internal fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: String?) {
     val context = LocalContext.current
     var shown by remember { mutableStateOf<String?>(null) }
     // Keyed by the State: each place has its own (keyed on Unit, it kept watching the first one and
@@ -959,13 +939,15 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
 /**
  * Phone sign-in screen. TVs give apps only ~960x540dp, so the QR code is laid out first at a
  * fixed size and the text takes whatever width is left (scrolling if needed). Never the reverse,
- * or the QR gets squeezed off-screen.
+ * or the QR gets squeezed off-screen. When Google ended the sign-in ([DriveState.ended]) it asks to
+ * sign in again, and says the library and progress are kept; never for a network failure.
  */
 @Composable
-private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
+internal fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
     val setup = state.step == SignInStep.SETUP
+    val again = !setup && state.ended
     Row(
-        Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp),
+        Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(32.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -978,7 +960,7 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
                 val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
                 Image(qr, contentDescription = "QR code", modifier = Modifier.fillMaxSize())
             } else {
-                Text(if (state.error != null) "No QR code:\nsee the message" else "Preparing…", color = Color.Black)
+                Text(if (state.error != null) "No code yet" else "Preparing…", color = Color.Black)
             }
         }
         Column(
@@ -988,15 +970,21 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TvIcon(Sym.AddToDrive, size = 32.dp) // a plain symbol, not the colored logo
                 Text(
-                    if (setup) "Set up Google Drive" else "Sign in with your phone",
+                    when { setup -> "Set up Google Drive"; again -> "Sign in to Google Drive again"; else -> "Sign in with your phone" },
                     style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 12.dp),
                 )
             }
-            Text(if (setup) "Step 1 of 2" else "Step 2 of 2", color = Palette.accent, style = MaterialTheme.typography.labelLarge)
             Text(
-                if (setup) "Scan the QR code with your phone (same Wi-Fi as this TV). It opens Settings, where you paste the Client ID " +
-                    "and Client secret of your Google Cloud \"Web application\" OAuth client. You can also type them in Settings on the TV."
-                else "Scan the QR code with your phone and sign in to Google. Keep the phone on the same Wi-Fi as this TV.",
+                when { setup -> "Step 1 of 2"; again -> "Google ended this TV’s sign-in"; else -> "Step 2 of 2" },
+                color = Palette.accent, style = MaterialTheme.typography.labelLarge,
+            )
+            Text(
+                when {
+                    setup -> "Scan the QR code with your phone (same Wi-Fi as this TV). It opens Settings, where you paste the Client ID " +
+                        "and Client secret of your Google Cloud \"Web application\" OAuth client. You can also type them in Settings on the TV."
+                    again -> "Scan the code with your phone and sign in with the same Google account. Your library, Continue watching and ✓s are kept."
+                    else -> "Scan the QR code with your phone and sign in to Google. Keep the phone on the same Wi-Fi as this TV."
+                },
                 color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
             )
             if (setup) state.setupAddress?.let {
@@ -1016,6 +1004,23 @@ private fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
 }
 
 private val QR_SIZE = 250.dp
+
+/**
+ * Whether the focus was under a screen's header a moment ago: a page replacing the posters it was on
+ * takes it over, rather than leaving the focus nowhere.
+ */
+private class ContentFocus {
+    private var had = false
+    private var lostAt = 0L
+
+    fun changed(has: Boolean) {
+        if (had && !has) lostAt = android.os.SystemClock.uptimeMillis()
+        had = has
+    }
+
+    /** The focus left in the last half second (with what it was on). */
+    fun justLost(): Boolean = !had && android.os.SystemClock.uptimeMillis() - lostAt < 500
+}
 
 /** Last focused item per Drive list (by place), for coming back to it with Back. */
 private val driveFocus = java.util.concurrent.ConcurrentHashMap<String, String>()

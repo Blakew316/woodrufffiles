@@ -32,11 +32,11 @@ class NetworkWatchTest {
         t.reset(wifi, validated = true)
         // Standby: the Wi-Fi goes.
         assertEquals(NetworkTracker.Change(online = false, cameBack = false), t.lost(wifi))
-        // It joins again (names may not resolve yet)...
-        assertEquals(NetworkTracker.Change(online = true, cameBack = true), t.available(wifi))
-        assertFalse(t.capabilities(wifi, validated = false).cameBack)
-        // ...then Android's check passes: worth another try.
-        assertTrue(t.capabilities(wifi, validated = true).cameBack)
+        // It joins again (names may not resolve yet): worth a try, but not online until checked...
+        assertEquals(NetworkTracker.Change(online = false, cameBack = true), t.available(wifi))
+        assertEquals(NetworkTracker.Change(online = false, cameBack = false), t.capabilities(wifi, validated = false))
+        // ...then Android's check passes: online, and worth another try.
+        assertEquals(NetworkTracker.Change(online = true, cameBack = true), t.capabilities(wifi, validated = true))
         // Nothing new after that.
         assertFalse(t.capabilities(wifi, validated = true).cameBack)
     }
@@ -51,8 +51,18 @@ class NetworkWatchTest {
         val t = NetworkTracker()
         t.reset(wifi, validated = true)
         assertTrue(t.available(ethernet).cameBack)
-        // The old one going afterwards doesn't take the new one with it.
+        // The old one going afterwards doesn't take the new one with it (not checked yet, so not online yet).
+        assertEquals(NetworkTracker.Change(online = false, cameBack = false), t.lost(wifi))
+        assertEquals(NetworkTracker.Change(online = true, cameBack = true), t.capabilities(ethernet, validated = true))
         assertEquals(NetworkTracker.Change(online = true, cameBack = false), t.lost(wifi))
+    }
+
+    @Test fun aNetworkThatNeverPassesTheCheckIsNotOnline() {
+        // A Wi-Fi with no internet behind it (the router's line down): joined, but offline.
+        val t = NetworkTracker()
+        t.reset(null, validated = false)
+        assertEquals(NetworkTracker.Change(online = false, cameBack = true), t.available(wifi))
+        assertEquals(NetworkTracker.Change(online = false, cameBack = false), t.capabilities(wifi, validated = false))
     }
 
     @Test fun aNetworkReportedWithoutBeingAnnouncedCounts() {
@@ -65,8 +75,9 @@ class NetworkWatchTest {
     @Test fun losingTheCheckAndPassingItAgainIsAComeback() {
         val t = NetworkTracker()
         t.reset(wifi, validated = true)
-        assertFalse(t.capabilities(wifi, validated = false).cameBack) // the router lost its internet
-        assertTrue(t.capabilities(wifi, validated = true).cameBack) // and got it back
+        // The router lost its internet: offline, though the Wi-Fi is still joined.
+        assertEquals(NetworkTracker.Change(online = false, cameBack = false), t.capabilities(wifi, validated = false))
+        assertEquals(NetworkTracker.Change(online = true, cameBack = true), t.capabilities(wifi, validated = true)) // and got it back
     }
 
     @Test fun theNetworkFailingIsToldApartFromAServersAnswer() {

@@ -42,7 +42,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -76,6 +78,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
+import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.nest.Camera
 import com.woodruff.tvexplorer.nest.CameraStream
 import com.woodruff.tvexplorer.nest.Nest
@@ -90,6 +93,7 @@ import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.rememberOfflineShown
 import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.components.FocusButton
 import com.woodruff.tvexplorer.ui.components.RowText
@@ -100,8 +104,10 @@ import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
 import com.woodruff.tvexplorer.util.Qr
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import org.webrtc.EglRenderer
 import org.webrtc.RendererCommon
@@ -131,13 +137,15 @@ internal val cameraRequests = kotlinx.coroutines.flow.MutableSharedFlow<Int>(ext
  */
 @Composable
 fun CommandCenterScreen(vm: MainViewModel) {
-    val state by Nest.state.collectAsStateWithLifecycle()
+    val live by Nest.state.collectAsStateWithLifecycle()
+    // The UI gallery's sample cameras (no network there), else the real ones.
+    val state = DashboardSamples.nest ?: live
     // Opened from a Home camera tile: go straight to that camera full screen.
     var full by remember { mutableStateOf(openCameraAt.also { openCameraAt = null }) }
     // The camera last shown full screen: back in the grid it takes the focus, not camera 1.
     var lastFull by remember { mutableIntStateOf(0) }
     var askProject by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { Nest.open() }
+    LaunchedEffect(Unit) { if (DashboardSamples.nest == null) Nest.open() }
     LaunchedEffect(Unit) { cameraRequests.collect { full = it } }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
     BackHandler {
@@ -146,6 +154,16 @@ fun CommandCenterScreen(vm: MainViewModel) {
     }
 
     val cams = state.cameras
+    // Offline (no working network, or Google unreachable listing them) past the grace: a muted line
+    // under the title, the tiles' last pictures with OFFLINE, and no stream started that can't connect.
+    val networkUp by com.woodruff.tvexplorer.util.NetworkWatch.online.collectAsStateWithLifecycle()
+    val offline = rememberOfflineShown(state.step == NestStep.CONNECTED && (state.offline || !networkUp)) ||
+        (DashboardSamples.nest?.offline == true)
+    // Whether Google ended the cameras' sign-in (read off the main thread when it isn't connected).
+    val context = LocalContext.current
+    val ended by produceState(false, state.step) {
+        value = state.step == NestStep.SIGN_IN && withContext(Dispatchers.IO) { GoogleAuth.endedAt(context, GoogleAuth.Grant.NEST) != null }
+    }
     val fullIndex = full
     // Full screen: it glides in over the grid, and the Command Center's tabs step aside under it.
     val isFull = state.step == NestStep.CONNECTED && fullIndex != null && cams.isNotEmpty()
@@ -176,7 +194,19 @@ fun CommandCenterScreen(vm: MainViewModel) {
                     HubTile(Sym.Home, "Home", Modifier.weight(1f)) { vm.show(Screen.HOME) }
                 }
             }
-            state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
+            when {
+                // Calm, never red: they come back by themselves.
+                offline -> Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TvIcon(Sym.CloudOff, size = 18.dp, tint = Palette.muted)
+                    Text(
+                        cameraOfflineLine(google = networkUp), color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+                // A sign-in Google ended: the panel below says it all.
+                ended -> Unit
+                else -> state.error?.let { Text(it, color = Palette.danger, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
+            }
 
             when (state.step) {
                 NestStep.NEED_GOOGLE -> SetupText(
@@ -189,36 +219,29 @@ fun CommandCenterScreen(vm: MainViewModel) {
                         "3.  Create project: any name; for OAuth client ID paste the same Client ID you use for Drive; skip events.\n" +
                         "4.  Copy the Project ID it shows and enter it here (or in the phone's Settings tab).",
                 ) { Button(onClick = { askProject = true }) { Text("Enter Project ID") } }
-                NestStep.SIGN_IN -> SignInPanel(state)
+                NestStep.SIGN_IN -> SignInPanel(state, ended)
                 NestStep.CONNECTED -> {
-                    // Offline before any camera was listed: say so calmly; they appear by themselves.
-                    val networkUp by com.woodruff.tvexplorer.util.NetworkWatch.online.collectAsStateWithLifecycle()
-                    val offlinePage: @Composable (Modifier) -> Unit = { m ->
-                        com.woodruff.tvexplorer.ui.components.OfflinePage(
-                            com.woodruff.tvexplorer.ui.components.OfflineWords.title(networkUp, "Google Home"),
-                            com.woodruff.tvexplorer.ui.components.OfflineWords.body(networkUp, "Your cameras", "Google Home"),
-                            modifier = m, onAction = { Nest.refresh() },
-                        )
+                    // Offline before any camera was listed: said calmly; they appear by themselves.
+                    val neverListed: @Composable (Modifier) -> Unit = { m ->
+                        Box(m.fillMaxSize()) { EmptyState(if (offline) NO_CAMERAS_OFFLINE else "Loading cameras…") }
                     }
-                    if (state.loading && cams.isEmpty()) {
-                        EmptyState("Loading cameras…")
+                    if ((state.loading || state.offline) && cams.isEmpty() && !Appearance.allInOne) {
+                        neverListed(Modifier)
                     } else if (Appearance.allInOne) {
                         Row(Modifier.fillMaxSize().padding(top = 4.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                            if (state.offline && cams.isEmpty()) offlinePage(Modifier.weight(2.2f))
-                            else CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull, covered = isFull) { full = it }
+                            if ((state.loading || state.offline) && cams.isEmpty()) neverListed(Modifier.weight(2.2f))
+                            else CameraGrid(cams, columns = if (cams.size <= 1) 1 else 2, Modifier.weight(2.2f), focusOn = lastFull, covered = isFull, offline = offline) { full = it }
                             SidePanel(Modifier.weight(1f).fillMaxHeight())
                         }
-                    } else if (state.offline && cams.isEmpty()) {
-                        offlinePage(Modifier)
                     } else {
-                        CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp), focusOn = lastFull, covered = isFull) { full = it }
+                        CameraGrid(cams, columns = if (cams.size <= 1) 1 else if (cams.size <= 4) 2 else 3, Modifier.padding(top = 4.dp), focusOn = lastFull, covered = isFull, offline = offline) { full = it }
                     }
                 }
             }
         }
         // The camera full screen, over the grid and the pills, while it shows or glides in or out.
         if (glide.shown && cams.isNotEmpty()) {
-            FullCamera(cams, (fullIndex ?: lastFull).coerceIn(0, cams.size - 1), glide, open = isFull, onChange = { full = it })
+            FullCamera(cams, (fullIndex ?: lastFull).coerceIn(0, cams.size - 1), glide, open = isFull, offline = offline, onChange = { full = it })
         }
     }
 
@@ -237,9 +260,22 @@ private fun SetupText(text: String, action: @Composable () -> Unit) {
     }
 }
 
-/** Same layout rule as Drive: the QR code first at a fixed size, so a 960dp-wide TV can't squeeze it away. */
+/**
+ * The words under the Command Center's title while the cameras can't be reached: "Offline", or
+ * "Can't reach Google right now" when the TV's network is fine ([google]).
+ */
+internal fun cameraOfflineLine(google: Boolean) =
+    "${com.woodruff.tvexplorer.ui.components.OfflineWords.full(google)} · the cameras reconnect by themselves"
+
+/** Where the cameras would be, when they were never listed and can't be now. */
+internal const val NO_CAMERAS_OFFLINE = "Cameras will show when the TV is back online."
+
+/**
+ * Same layout rule as Drive: the QR code first at a fixed size, so a 960dp-wide TV can't squeeze it
+ * away. [ended]: Google ended the cameras' sign-in, so it asks to connect them again.
+ */
 @Composable
-private fun SignInPanel(state: NestState) {
+private fun SignInPanel(state: NestState, ended: Boolean) {
     Row(Modifier.fillMaxSize().padding(vertical = 20.dp), horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(250.dp).clip(RoundedCornerShape(16.dp)).background(Color.White), contentAlignment = Alignment.Center) {
             val url = state.qrUrl
@@ -249,9 +285,11 @@ private fun SignInPanel(state: NestState) {
             } else Text("Preparing…", color = Color.Black)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Connect your cameras", style = MaterialTheme.typography.headlineSmall)
+            Text(if (ended) "Connect your cameras again" else "Connect your cameras", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Scan with your phone (same Wi-Fi as this TV) and sign in to Google. On Google's page, choose your home and " +
+                if (ended) "Google ended this TV’s camera sign-in. Scan with your phone (same Wi-Fi as this TV), sign in to Google, " +
+                    "and turn on every camera and doorbell again on Google’s page."
+                else "Scan with your phone (same Wi-Fi as this TV) and sign in to Google. On Google's page, choose your home and " +
                     "turn on every camera and doorbell you want here, then allow access.",
                 color = Palette.muted,
             )
@@ -263,10 +301,11 @@ private fun SignInPanel(state: NestState) {
 /**
  * [focusOn]: the camera that takes the focus (the last if there are fewer now). [covered]: a camera
  * full screen is over it (still gliding in): the focus is that camera's then, and comes back here as
- * it closes.
+ * it closes. [offline]: the cameras can't be reached, so each shows its last picture with OFFLINE
+ * (or "Offline" without one) and no stream is started; they go live again by themselves.
  */
 @Composable
-private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, focusOn: Int, covered: Boolean, onOpen: (Int) -> Unit) {
+private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, focusOn: Int, covered: Boolean, offline: Boolean = false, onOpen: (Int) -> Unit) {
     val focus = remember { FocusRequester() }
     val focusAt = minOf(focusOn, cams.lastIndex)
     // Plain scrolling rows, not a lazy grid: live video is an Android view, and Android views in
@@ -293,7 +332,8 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, foc
                         // focus ring; a SurfaceView sat letterboxed in an inset and didn't follow the focus
                         // scale). CardStyle's lit rim over it.
                         Box(Modifier.fillMaxSize().border(1.dp, Palette.rim, Shapes.card)) {
-                            if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
+                            if (offline) OfflineTile(cam)
+                            else if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
                             else Placeholder(if (cam.webRtc) "Select to watch" else "This camera model doesn't support live view here")
                             CameraLabel(cam, Modifier.align(Alignment.BottomStart))
                         }
@@ -309,11 +349,27 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, foc
 }
 
 /**
- * A camera full screen, over the whole window (the Command center's pills too). It comes and goes as
- * [glide] moves it; [open]: it's opening or open, not closing.
+ * A camera that can't be reached, in a tile: its last picture as it was, with OFFLINE where LIVE
+ * would be, or its symbol with "Offline" when no picture was seen this run.
  */
 @Composable
-private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, open: Boolean, onChange: (Int) -> Unit) {
+private fun OfflineTile(cam: Camera) {
+    val stills by CameraStills.stills.collectAsStateWithLifecycle()
+    val still = remember(stills[cam.name]) { stills[cam.name]?.bitmap?.asImageBitmap() }
+    if (still == null) { Placeholder("Offline"); return }
+    Box(Modifier.fillMaxSize().background(Color(0xFF0B0E13))) {
+        Image(still, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        com.woodruff.tvexplorer.ui.components.StatusBadge("OFFLINE", com.woodruff.tvexplorer.ui.components.BadgeKind.OFFLINE, Modifier.align(Alignment.TopEnd).padding(10.dp))
+    }
+}
+
+/**
+ * A camera full screen, over the whole window (the Command center's pills too). It comes and goes as
+ * [glide] moves it; [open]: it's opening or open, not closing. [offline]: the cameras can't be
+ * reached: "Offline · reconnecting…" in place of the picture, and no stream until they can.
+ */
+@Composable
+private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, open: Boolean, offline: Boolean, onChange: (Int) -> Unit) {
     val cam = cams[index]
     val focus = remember { FocusRequester() }
     Box(
@@ -345,7 +401,7 @@ private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, o
                 alpha = if (glide.live) 1f else 0f
                 compositingStrategy = CompositingStrategy.ModulateAlpha
             },
-        ) { LiveVideo(cam, audio = glide.live) }
+        ) { if (offline) Placeholder("Offline · reconnecting…") else LiveVideo(cam, audio = glide.live) }
         // The page: black over the picture until it shows (then cleared), and the camera's name. It
         // grows into place as it fades in, as a screen does, and shrinks away going.
         Box(
@@ -580,16 +636,42 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -
             delay(20_000)
         }
     }
+    // Since when this view's stream has been failing (0: it hasn't, or it's live again), and whether
+    // that's been long enough to say so: "Reconnecting…", then after 30 s "Can't reach this camera
+    // right now" (never Google's raw words).
+    var troubleSince by remember(stream) { mutableLongStateOf(0L) }
+    var longTrouble by remember(stream) { mutableStateOf(false) }
+    LaunchedEffect(status) {
+        if (status == CameraStream.Status.Live) troubleSince = 0L
+        else if (status is CameraStream.Status.Failed && troubleSince == 0L) troubleSince = System.currentTimeMillis()
+    }
+    LaunchedEffect(troubleSince) {
+        longTrouble = false
+        if (troubleSince == 0L) return@LaunchedEffect
+        delay(troubleSince + CAMERA_TROUBLE_MS - System.currentTimeMillis())
+        longTrouble = true
+    }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // A tile's video in a layer of its own: each frame redraws just the video, not the tile's
         // label and frame around it.
         AndroidView(factory = { renderer.view }, modifier = if (fill) Modifier.fillMaxSize().graphicsLayer() else Modifier.fillMaxSize())
-        when (status) {
-            CameraStream.Status.Live -> Unit
-            CameraStream.Status.Connecting -> Placeholder("Connecting…")
-            is CameraStream.Status.Failed -> Placeholder(status.message + "\nRetrying…")
-        }
+        streamWords(status, troubleSince > 0, longTrouble)?.let { Placeholder(it) }
     }
+}
+
+/** How long a dropped stream says "Reconnecting…" before "Can't reach this camera right now". */
+private const val CAMERA_TROUBLE_MS = 30_000L
+
+/**
+ * What a camera view says over its picture: nothing while live; "Connecting…" the first time;
+ * "Reconnecting…" once it has dropped ([dropped]), and "Can't reach this camera right now" when that
+ * has gone on for [CAMERA_TROUBLE_MS] ([long]).
+ */
+internal fun streamWords(status: CameraStream.Status, dropped: Boolean, long: Boolean): String? = when {
+    status == CameraStream.Status.Live -> null
+    !dropped -> "Connecting…"
+    long -> "Can’t reach this camera right now"
+    else -> com.woodruff.tvexplorer.ui.components.OfflineWords.RECONNECTING
 }
 
 @Composable

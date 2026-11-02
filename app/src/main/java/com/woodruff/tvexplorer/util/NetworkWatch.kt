@@ -28,8 +28,10 @@ object NetworkWatch {
     @Volatile private var started = false
 
     /**
-     * Whether the TV has a network at all (Wi-Fi or Ethernet up). Unknown counts as online. Only for
-     * choosing words ("Offline" or "Reconnecting…"): what to retry, and when, goes by [comebacks].
+     * Whether the TV has a network Android has checked reaches the internet (its default network,
+     * validated). Unknown counts as online. For telling "Offline" (no such network) from "Can't reach
+     * Google" (the network is fine, Google didn't answer), and for not starting what can't work
+     * offline (a camera stream): what to retry, and when, goes by [comebacks].
      */
     val online: StateFlow<Boolean> = _online.asStateFlow()
 
@@ -92,7 +94,10 @@ object NetworkWatch {
  * so it can be tested. A network is identified by anything with equals (Android's [Network]).
  */
 internal class NetworkTracker {
-    /** [online]: there's a default network. [cameBack]: worth trying again now. */
+    /**
+     * [online]: there's a default network and Android's internet check passed on it (a Wi-Fi that has
+     * only just joined isn't online yet). [cameBack]: worth trying again now.
+     */
     data class Change(val online: Boolean, val cameBack: Boolean)
 
     private var current: Any? = null
@@ -102,14 +107,17 @@ internal class NetworkTracker {
     @Synchronized fun reset(network: Any?, validated: Boolean): Change {
         current = network
         this.validated = network != null && validated
-        return Change(online = network != null, cameBack = false)
+        return Change(online = this.validated, cameBack = false)
     }
 
-    /** A network became the default: a comeback, unless it's the one already known. */
+    /**
+     * A network became the default: a comeback, unless it's the one already known. A new one isn't
+     * online until Android's check passes on it ([capabilities]).
+     */
     @Synchronized fun available(network: Any): Change {
         val fresh = network != current
         if (fresh) { current = network; validated = false }
-        return Change(online = true, cameBack = fresh)
+        return Change(online = validated, cameBack = fresh)
     }
 
     /**
@@ -122,13 +130,13 @@ internal class NetworkTracker {
         if (fresh) { current = network; this.validated = false }
         val gained = validated && !this.validated
         this.validated = validated
-        return Change(online = true, cameBack = fresh || gained)
+        return Change(online = validated, cameBack = fresh || gained)
     }
 
     /** The default network went away (standby, the router restarting, Wi-Fi switched off). */
     @Synchronized fun lost(network: Any): Change {
         if (network == current) { current = null; validated = false }
-        return Change(online = current != null, cameBack = false)
+        return Change(online = current != null && validated, cameBack = false)
     }
 }
 

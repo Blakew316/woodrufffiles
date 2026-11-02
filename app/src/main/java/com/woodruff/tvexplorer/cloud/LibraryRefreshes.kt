@@ -20,11 +20,12 @@ internal fun isFresh(listedAt: Long?, now: Long): Boolean = listedAt != null && 
 
 /**
  * Whether opening a library lists it from Drive: Refresh asked for it ([force]), it isn't fresh
- * (listed in full at [listedAt]), or the last try said offline or refused ([status]): then it's
- * tried again, so the header's note goes as soon as Google answers rather than staying up.
+ * (listed in full at [listedAt]), or the last try didn't get through or had its keys refused
+ * ([status]): then it's tried again, so the offline words go as soon as Google answers rather than
+ * staying up.
  */
 internal fun needsListing(force: Boolean, status: DriveStatus, listedAt: Long?, now: Long): Boolean =
-    force || status != DriveStatus.Online || !isFresh(listedAt, now)
+    force || status.down || status is DriveStatus.Refused || !isFresh(listedAt, now)
 
 /**
  * Each library's refresh, one at a time and shared: whoever asks while one is under way (the

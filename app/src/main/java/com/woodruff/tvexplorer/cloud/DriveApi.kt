@@ -75,9 +75,16 @@ sealed interface DrivePlace {
 
 /**
  * Google Drive answered with an error. [code] is its HTTP status: 401 means it didn't take the
- * access token (see [GoogleAuth.forgetAccess]), which a network failure never is.
+ * access token (see [GoogleAuth.forgetAccess]), which a network failure never is. [busy]: Drive said
+ * it's limiting requests just now (a 403 for a rate limit).
  */
-class DriveHttpException(val code: Int, message: String) : IOException(message)
+class DriveHttpException(val code: Int, message: String, val busy: Boolean = false) : IOException(message) {
+    /**
+     * Google isn't answering properly, which clears by itself: busy or failing (408, 429, 5xx, a rate
+     * limit), or still refusing a token it has just renewed (401). Tried again like a network failure.
+     */
+    val unreachable: Boolean get() = code == 401 || code == 408 || code == 429 || code >= 500 || busy
+}
 
 /**
  * What a listing came to: its entries, and [cutAt], the limit it stopped at because Drive had more
@@ -150,7 +157,7 @@ object DriveApi {
         val (q, order) = when (place) {
             is DrivePlace.Named -> {
                 val id = namedIds[place.title] ?: findFolder(token, place.names)?.also { namedIds[place.title] = it }
-                    ?: throw IOException("There's no \"${place.names.first()}\" folder in your Google Drive yet. Create one and put your ${place.title.lowercase()} in it.")
+                    ?: throw IOException("There’s no “${place.names.first()}” folder in your Google Drive yet. Create one and put your ${place.title.lowercase()} in it.")
                 "'${id.replace("'", "\\'")}' in parents and trashed = false" to "folder,name_natural"
             }
             is DrivePlace.Folder -> "'${place.id.replace("'", "\\'")}' in parents and trashed = false" to "folder,name_natural"
@@ -320,17 +327,22 @@ object DriveApi {
         val code = conn.responseCode
         if (code in 200..299) return
         val body = runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull().orEmpty()
-        val reason = runCatching { JSONObject(body).getJSONObject("error").getString("message") }.getOrNull()
+        // Why, in Google's words ("userRateLimitExceeded", "accessNotConfigured"…): never shown, only read.
+        val reason = runCatching { JSONObject(body).getJSONObject("error").getJSONArray("errors").getJSONObject(0).getString("reason") }.getOrNull()
         throw DriveHttpException(
             code,
             when (code) {
-                401 -> "Google sign-in expired. Choose Google Drive again to reconnect."
-                403 -> reason ?: "Google Drive refused access (403). Check the Drive API is enabled in your Google Cloud project."
                 404 -> "That file is no longer in Google Drive."
-                else -> "Google Drive error $code${reason?.let { ": $it" } ?: ""}"
+                // No codes or Google's own messages: a 401 here comes after a fresh token, so it isn't a
+                // sign-in that ended (renewing would have said so).
+                else -> CANT_REACH
             },
+            busy = code == 403 && reason?.contains("ratelimit", ignoreCase = true) == true,
         )
     }
+
+    /** What any other answer from Drive says on screen. */
+    internal const val CANT_REACH = "Can’t reach Google Drive right now. Try again in a moment."
 
     /**
      * Reads times as Drive sends them, RFC 3339 in UTC (2026-10-14T00:48:23.123Z); java.time needs

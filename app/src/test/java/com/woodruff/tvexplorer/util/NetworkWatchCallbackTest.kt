@@ -41,12 +41,15 @@ class NetworkWatchCallbackTest {
         assertFalse(NetworkWatch.online.value)
         assertEquals(before, NetworkWatch.comebacks.value)
 
-        // Wake: it joins again, then passes Android's internet check: two chances to try again.
+        // Wake: it joins again, then passes Android's internet check: two chances to try again, and
+        // online only once the check has passed.
         cb.onAvailable(wifi)
-        assertTrue(NetworkWatch.online.value)
+        assertFalse(NetworkWatch.online.value)
         assertEquals(before + 1, NetworkWatch.comebacks.value)
         cb.onCapabilitiesChanged(wifi, ShadowNetworkCapabilities.newInstance())
+        assertFalse(NetworkWatch.online.value)
         cb.onCapabilitiesChanged(wifi, validated)
+        assertTrue(NetworkWatch.online.value)
         assertEquals(before + 2, NetworkWatch.comebacks.value)
     }
 }

@@ -48,6 +48,10 @@ data class CalendarState(
     val offline: Boolean = false,
     /** The day [events] are for ([dayKey]), so a TV offline since yesterday never shows yesterday's. */
     val day: Int = 0,
+    /** Offline because the TV had no working network ("Offline"), rather than Google not answering ("Can't reach Google"). */
+    val noNetwork: Boolean = false,
+    /** Google ended the calendar's sign-in (not signed out on the TV): Home asks to connect it again. */
+    val ended: Boolean = false,
 )
 
 /** A day as one number (year and day of the year), to tell days apart. */
@@ -57,8 +61,8 @@ internal fun dayKey(at: Calendar = Calendar.getInstance()): Int = at.get(Calenda
  * This state after a refresh that couldn't reach Google on day [today]: offline, with no error (the
  * sign-in is fine), keeping today's events and dropping any from an earlier day.
  */
-internal fun CalendarState.offlineOn(today: Int): CalendarState =
-    copy(loaded = true, offline = true, error = null, events = if (day == today) events else emptyList(), day = today)
+internal fun CalendarState.offlineOn(today: Int, noNetwork: Boolean = false): CalendarState =
+    copy(loaded = true, offline = true, error = null, events = if (day == today) events else emptyList(), day = today, noNetwork = noNetwork)
 
 /**
  * Today's Activities from Google Calendar (read-only). Lists every calendar the owner has turned
@@ -69,7 +73,8 @@ internal fun CalendarState.offlineOn(today: Int): CalendarState =
 object TodayCalendar {
     private const val API = "https://www.googleapis.com/calendar/v3/"
     private const val REFRESH_MS = 10 * 60_000L
-    private const val EXPIRED = "Google Calendar sign-in expired. Connect again in Settings."
+    /** For a sign-in Google ended (then Home's calendar row says what to do: never shown as an error). */
+    private const val ENDED = "Connect Google Calendar again."
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val _state = MutableStateFlow(CalendarState())
     val state: StateFlow<CalendarState> = _state
@@ -86,7 +91,7 @@ object TodayCalendar {
                 if (attempt.grant != GoogleAuth.Grant.CALENDAR) return@collect
                 try {
                     GoogleAuth.exchange(app, code, attempt)
-                    _state.update { it.copy(connected = true, qrUrl = null, error = null) }
+                    _state.update { it.copy(connected = true, ended = false, qrUrl = null, error = null) }
                     startLoop()
                 } catch (e: Exception) {
                     _state.update { it.copy(error = e.message ?: "Sign-in failed") }
@@ -96,12 +101,14 @@ object TodayCalendar {
         // Google ended the sign-in (expired or revoked), found out by any renewal: say so at once.
         scope.launch {
             GoogleAuth.expirations.collect { grant ->
-                if (grant == GoogleAuth.Grant.CALENDAR) _state.update { it.copy(connected = false, offline = false, error = EXPIRED) }
+                if (grant == GoogleAuth.Grant.CALENDAR) _state.update { it.copy(connected = false, offline = false, ended = true, error = null) }
             }
         }
         scope.launch {
-            val connected = withContext(Dispatchers.IO) { GoogleAuth.isConnected(app, GoogleAuth.Grant.CALENDAR) }
-            _state.update { it.copy(connected = connected) }
+            val (connected, ended) = withContext(Dispatchers.IO) {
+                GoogleAuth.isConnected(app, GoogleAuth.Grant.CALENDAR) to (GoogleAuth.endedAt(app, GoogleAuth.Grant.CALENDAR) != null)
+            }
+            _state.update { it.copy(connected = connected, ended = ended && !connected) }
             if (connected) startLoop()
         }
     }
@@ -145,12 +152,20 @@ object TodayCalendar {
             Log.w("TodayCalendar", "refresh failed: ${e.message}")
             if (isNetworkFailure(e)) {
                 // No network yet (a TV just woken), or Google unreachable: not "sign-in expired".
-                _state.update { it.offlineOn(dayKey()) }
+                _state.update { it.offlineOn(dayKey(), noNetwork = !NetworkWatch.online.value) }
                 false
             } else {
-                // Only a sign-in that's gone (Google ended it) counts as signed out.
-                val signedOut = !GoogleAuth.isConnected(app, GoogleAuth.Grant.CALENDAR)
-                _state.update { it.copy(loaded = true, offline = false, error = e.message, connected = !signedOut && it.connected) }
+                // Only a sign-in that's gone (Google ended it) counts as signed out; its words are
+                // Home's calendar row, not an error.
+                val (signedOut, ended) = withContext(Dispatchers.IO) {
+                    !GoogleAuth.isConnected(app, GoogleAuth.Grant.CALENDAR) to (GoogleAuth.endedAt(app, GoogleAuth.Grant.CALENDAR) != null)
+                }
+                _state.update {
+                    it.copy(
+                        loaded = true, offline = false, connected = !signedOut && it.connected, ended = it.ended || (signedOut && ended),
+                        error = if (e is GoogleAuth.AuthException.SignedOut) null else e.message,
+                    )
+                }
                 true
             }
         }
@@ -187,17 +202,25 @@ object TodayCalendar {
     /**
      * Today's events. A token Google won't take (401: the TV's clock was off when it was saved, or
      * access was just revoked) is renewed once and the fetch tried again; renewing then tells a
-     * revoked sign-in apart.
+     * revoked sign-in apart. Refused again with a token just renewed, it's Google not answering
+     * properly ("Can't reach Google right now"), tried again soon, never "sign-in expired".
      */
     private suspend fun fetchToday(): List<DayEvent> = try {
-        fetchToday(GoogleAuth.requireToken(app, GoogleAuth.Grant.CALENDAR, EXPIRED))
+        fetchToday(GoogleAuth.requireToken(app, GoogleAuth.Grant.CALENDAR, ENDED))
     } catch (e: Unauthorized) {
         GoogleAuth.forgetAccess(app, GoogleAuth.Grant.CALENDAR)
-        fetchToday(GoogleAuth.requireToken(app, GoogleAuth.Grant.CALENDAR, EXPIRED))
+        try {
+            fetchToday(GoogleAuth.requireToken(app, GoogleAuth.Grant.CALENDAR, ENDED))
+        } catch (again: Unauthorized) {
+            throw Unreachable()
+        }
     }
 
     /** Google Calendar answered 401: it didn't take the access token. */
-    private class Unauthorized : IOException(EXPIRED)
+    private class Unauthorized : IOException("Google Calendar didn't take the access token")
+
+    /** Google Calendar is busy or failing (5xx, 429), or still refuses a fresh token: offline, tried again soon. */
+    private class Unreachable : IOException("Can’t reach Google Calendar right now."), com.woodruff.tvexplorer.util.NetworkFailure
 
     private suspend fun fetchToday(token: String): List<DayEvent> = coroutineScope {
         val dayStart = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
@@ -246,11 +269,12 @@ object TodayCalendar {
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code in 200..299) return JSONObject(text)
             if (code == 401) throw Unauthorized()
-            val msg = runCatching { JSONObject(text).optJSONObject("error")?.optString("message") }.getOrNull().orEmpty()
+            if (code == 408 || code == 429 || code >= 500) throw Unreachable()
+            // No codes or Google's own messages on screen.
             throw IOException(
                 when (code) {
-                    403 -> "Google refused ($msg). Enable the Google Calendar API in Google Cloud."
-                    else -> "Google Calendar error $code"
+                    403 -> "Google didn’t allow Google Calendar. Turn on the Google Calendar API in Google Cloud, then connect again."
+                    else -> "Can’t reach Google Calendar right now."
                 },
             )
         } finally {
