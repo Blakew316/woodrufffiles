@@ -129,6 +129,12 @@ class DoorbellActivity : ComponentActivity() {
         armAutoClose()
     }
 
+    /** Left on purpose (the remote's Home, another app): over Woodruff's slideshow, that ends too, so Woodruff opens to itself next time. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (origin == Origin.SLIDESHOW) com.woodruff.tvexplorer.screensaver.SlideshowActivity.leftFromAbove()
+    }
+
     override fun onStop() {
         watch?.stop()
         watch = null

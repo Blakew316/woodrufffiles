@@ -278,6 +278,12 @@ class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Res
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         view = SlideshowView(this).apply { memoriesOnly = intent.getBooleanExtra(EXTRA_MEMORIES, false) }
         setContentView(view)
+        current = java.lang.ref.WeakReference(this)
+    }
+
+    override fun onDestroy() {
+        if (current?.get() === this) current = null
+        super.onDestroy()
     }
 
     /** A doorbell ring opens the camera over the slideshow; Back (or 2 minutes without a key) returns here. */
@@ -287,9 +293,18 @@ class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Res
         super.onStart()
         view.start()
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
-        doorbell = Doorbell.watchFor(Doorbell.Host.SLIDESHOW) { ring ->
-            startActivity(DoorbellActivity.intent(this, ring, DoorbellActivity.Origin.SLIDESHOW))
-        }
+        doorbell = Doorbell.watchFor(Doorbell.Host.SLIDESHOW) { ring -> startActivity(doorbellIntent(this, ring)) }
+    }
+
+    /**
+     * Left on purpose (the remote's Home, another app, a video started from the phone): the slideshow
+     * ends, so opening Woodruff again from the TV's apps shows Woodruff where it was, not its
+     * screensaver. (Woodruff's main screen opens to where it was, so the slideshow over it would come
+     * back too.) The doorbell's camera opening over it doesn't count ([doorbellIntent]).
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        finish()
     }
 
     override fun onStop() {
@@ -308,6 +323,25 @@ class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Res
 
     companion object {
         private const val EXTRA_MEMORIES = "memories"
+
+        /** The slideshow up now, if one is. Main thread. */
+        private var current: java.lang.ref.WeakReference<SlideshowActivity>? = null
+
+        /**
+         * The doorbell's camera over the slideshow: opened by the ring, not by someone leaving, so the
+         * slideshow stays under it ([onUserLeaveHint]) and Back returns to it.
+         */
+        internal fun doorbellIntent(c: Context, ring: Doorbell.Ring): Intent =
+            DoorbellActivity.intent(c, ring, DoorbellActivity.Origin.SLIDESHOW).addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+
+        /**
+         * Someone left Woodruff from the doorbell's camera over the slideshow (the remote's Home, another
+         * app): the slideshow ends as well, as it would have if it had been left itself. Main thread.
+         */
+        fun leftFromAbove() {
+            current?.get()?.takeIf { !it.isFinishing }?.finish()
+        }
+
         fun start(context: Context, memories: Boolean = false) = context.startActivity(intent(context, memories))
 
         /** [memories]: only today's "On this day" photos. */
