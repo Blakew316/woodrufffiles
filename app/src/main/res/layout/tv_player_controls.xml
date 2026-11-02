@@ -51,7 +51,7 @@
                     android:ellipsize="end"
                     android:fontFamily="@font/inter_semibold"
                     android:singleLine="true"
-                    android:textColor="#A6FFFFFF"
+                    android:textColor="#B3FFFFFF"
                     android:textSize="13sp"
                     android:visibility="gone" />
 
