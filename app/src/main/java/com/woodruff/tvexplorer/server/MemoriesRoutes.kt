@@ -7,6 +7,7 @@ import com.woodruff.tvexplorer.photos.FamilyMemories
 import com.woodruff.tvexplorer.player.ImageViewerActivity
 import com.woodruff.tvexplorer.player.PlayerActivity
 import com.woodruff.tvexplorer.screensaver.Appearance
+import com.woodruff.tvexplorer.util.Opener
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
@@ -42,10 +43,26 @@ internal class MemoriesRoutes(private val ctx: Context, private val launch: (Int
         else -> null
     }
 
+    /** The listing as last read, kept for [FRESH_MS] while nothing was added or deleted from the phone ([FamilyMemories.changes]). */
+    private class Listed(val changes: Int, val at: Long, val items: List<FamilyMemories.Item>)
+    @Volatile private var listed: Listed? = null
+
+    /**
+     * What's in Family Memories: read again only when the phone added or deleted something, or after a few seconds
+     * (so a Google Photos pick shows up). Show on TV follows each swipe on the phone, and listing both folders (a stat
+     * and a date for every file, through Android 11+'s storage layer) for each one made the TV lag behind (finding 47).
+     */
+    private fun items(): List<FamilyMemories.Item> {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val changes = FamilyMemories.changes.value
+        listed?.let { if (it.changes == changes && now - it.at in 0..FRESH_MS) return it.items }
+        return FamilyMemories.list(ctx).also { listed = Listed(changes, now, it) }
+    }
+
     private fun listJson(): JSONObject {
         val (w, h) = FamilyMemories.fit(ctx)
         return JSONObject()
-            .put("items", JSONArray().apply { FamilyMemories.list(ctx).forEach { put(itemJson(it)) } })
+            .put("items", JSONArray().apply { items().forEach { put(itemJson(it)) } })
             .put("folder", FamilyMemories.photos.path)
             // The size photos are kept at: the phone shrinks what it sends to fit it.
             .put("fit", JSONArray().put(w).put(h))
@@ -79,18 +96,40 @@ internal class MemoriesRoutes(private val ctx: Context, private val launch: (Int
 
     /**
      * A photo opens in the photo viewer with the other photos either side of it, in the phone's order (left and
-     * right on the remote go through them); while it's up, showing another from the phone changes the photo in
-     * it rather than opening another viewer over it. A video plays.
+     * right on the remote go through them), at most Opener's 300 (an intent's extras cross a ~1 MB binder buffer).
+     * While the viewer is up with this photo among its own, the phone's next photo is only where to go: a tiny intent,
+     * no listing (finding 47). A video plays.
      */
     private fun show(f: File) {
         if (FamilyMemories.kindOf(f.name) == FileKind.VIDEO) {
             launch(PlayerActivity.intent(ctx, listOf(f.path), listOf(f.name), f.path))
             return
         }
-        val photos = FamilyMemories.list(ctx).filter { !it.video }.map { it.file.path }
-        val start = photos.firstOrNull { File(it).canonicalFile == f } ?: f.path
-        launch(ImageViewerActivity.intent(ctx, if (start in photos) photos else listOf(start) + photos, start).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        if (ImageViewerActivity.shows(f.path)) {
+            // It's on screen, so Woodruff may bring it forward itself (it has a window showing), pop-ups allowed or not.
+            val next = ImageViewerActivity.follow(ctx, f.path)
+            if (runCatching { ctx.startActivity(next) }.isFailure) launch(next)
+            return
+        }
+        val start = f.path   // (found in Family Memories: its real path, as photoPaths gives them)
+        val photos = photoPaths(items())
+        launch(ImageViewerActivity.intent(ctx, Opener.window(if (start in photos) photos else listOf(start) + photos, start), start)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP))
+    }
+
+    /** The photos' real paths (each folder resolved once, not each file), as [FamilyMemories.find] gives one. */
+    private fun photoPaths(items: List<FamilyMemories.Item>): List<String> {
+        val real = HashMap<String, String>()
+        return items.filter { !it.video }.map { i ->
+            val dir = i.file.parent.orEmpty()
+            File(real.getOrPut(dir) { runCatching { File(dir).canonicalPath }.getOrDefault(dir) }, i.file.name).path
+        }
     }
 
     private fun json(o: JSONObject) = NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "application/json", o.toString())
+
+    private companion object {
+        /** How long a listing is reused while nothing changed from the phone. */
+        const val FRESH_MS = 5_000L
+    }
 }

@@ -60,20 +60,28 @@ class ImageViewerActivity : ComponentActivity() {
 
     /** Takes what [intent] asks to show; false when it names no photo. */
     private fun take(intent: Intent): Boolean {
-        val p = intent.getStringArrayListExtra(EXTRA_PATHS).orEmpty()
-        if (p.isEmpty()) return false
-        paths = p
-        titles = intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
-        index = p.indexOf(intent.getStringExtra(EXTRA_START)).coerceAtLeast(0)
+        val start = intent.getStringExtra(EXTRA_START)
+        val given = intent.getStringArrayListExtra(EXTRA_PATHS)
+        val list = photosFor(paths, given, start) ?: return false
+        if (list !== paths) {
+            paths = list
+            titles = if (given.isNullOrEmpty()) emptyList() else intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
+        }
+        index = list.indexOf(start).coerceAtLeast(0)
         rotation = 0f
         return true
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent)
+        // A follow (only where to go) keeps the photos this was opened with, so a viewer Android re-creates still has them.
+        setIntent(if (intent.hasExtra(EXTRA_PATHS)) intent else Intent(getIntent()).putExtra(EXTRA_START, intent.getStringExtra(EXTRA_START)))
         take(intent)
     }
+
+    // While it's in front, the phone's Show on TV may move it with just the next photo ([follow]; finding 47).
+    override fun onResume() { super.onResume(); showing(paths) }
+    override fun onPause() { showing(null, paths); super.onPause() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -176,5 +184,33 @@ class ImageViewerActivity : ComponentActivity() {
                 .putStringArrayListExtra(EXTRA_TITLES, ArrayList(titles))
                 .putExtra(EXTRA_START, start)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        /** The photos of the viewer in front; null while none is. */
+        @Volatile private var inFront: List<String>? = null
+
+        /** The viewer in front shows [list] (null: it left the front, if it showed [was]). Visible for tests. */
+        internal fun showing(list: List<String>?, was: List<String>? = null) {
+            if (list != null || was == null || inFront === was) inFront = list
+        }
+
+        /** Whether the viewer in front has [path] among its photos, so it can be moved there with [follow]. */
+        fun shows(path: String): Boolean = inFront?.contains(path) == true
+
+        /** Moves the viewer in front to [start], one of its photos ([shows]): a tiny intent rather than the whole list again. */
+        fun follow(context: Context, start: String): Intent =
+            Intent(context, ImageViewerActivity::class.java).putExtra(EXTRA_START, start)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
+        /**
+         * The photos to show after an intent: [given] when it brings some; else, with only where to go ([start], from
+         * [follow]), the ones it has ([current]) when [start] is among them, or [start] alone when it isn't (they were
+         * replaced meanwhile); null when it names no photo. The same list object when nothing changes. Visible for tests.
+         */
+        internal fun photosFor(current: List<String>, given: List<String>?, start: String?): List<String>? = when {
+            !given.isNullOrEmpty() -> given
+            start == null -> null
+            start in current -> current
+            else -> listOf(start)
+        }
     }
 }
