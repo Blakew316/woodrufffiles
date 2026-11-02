@@ -255,6 +255,14 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val cache = java.util.concurrent.ConcurrentHashMap<DrivePlace, List<DriveFile>>()
 
+    private val _listings = MutableStateFlow(0)
+    /**
+     * Ticks whenever Movies' or TV Shows' listing in memory changes (a saved copy read, a fresh listing,
+     * TMDB's details arriving, a sign-out forgetting them): Search follows this one small number, not
+     * the whole [state] (which ticks with download progress), and reads [libraries] when it does.
+     */
+    val listings: StateFlow<Int> = _listings.asStateFlow()
+
     /**
      * When each library was last listed in full — Drive, its posters, TMDB, saved — or, before that
      * this run, when its saved copy was. Opening one listed less than [FRESH_MS] ago lists nothing.
@@ -447,6 +455,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         if (cache.putIfAbsent(place, saved.files) != null) return
         if (saved.listedAt > 0 && place is DrivePlace.Named) listedAt.putIfAbsent(place, saved.listedAt)
         if (saved.cutAt > 0) cuts.putIfAbsent(place, saved.cutAt)
+        if (place in LIBRARIES) _listings.update { it + 1 }
     }
 
     /**
@@ -587,6 +596,17 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     /** [place]'s listing as last loaded (Movies or TV Shows; null before it's loaded), for a title page's "More like this". */
     fun libraryFiles(place: DrivePlace): List<DriveFile>? = cache[place]
 
+    /**
+     * Movies and TV Shows as listed now (in that order; a library not loaded yet is left out), for
+     * Search's matching ([TitleSearch.find]): read again each time [listings] ticks.
+     */
+    fun libraries(): Map<DrivePlace, List<DriveFile>> =
+        LinkedHashMap<DrivePlace, List<DriveFile>>().apply { for (place in LIBRARIES) cache[place]?.let { put(place, it) } }
+
+    /** The voice search's titles for [query], best first ([TitleSearch]); twelve at most. */
+    fun searchLibraries(query: String): List<Pair<DrivePlace, DriveFile>> =
+        TitleSearch.find(query, libraries(), limit = 12).hits.map { it.place to it.file }
+
     // Videos found not to sit under any Movies / TV Shows entry (asked again next launch).
     private val unplaced = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     private var placing: Job? = null
@@ -629,18 +649,6 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (found.isNotEmpty()) EpisodeShows.remember(ctx, found)
         }
-    }
-
-    /**
-     * Movies and TV Shows whose title matches every word of [query] (accents and case ignored),
-     * from the listings already loaded; for voice search.
-     */
-    fun searchLibraries(query: String): List<Pair<DrivePlace, DriveFile>> {
-        val words = Library.normalize(query).split(' ').filter { it.isNotEmpty() }
-        if (words.isEmpty()) return emptyList()
-        return listOf(DrivePlace.Movies, DrivePlace.TvShows).flatMap { place ->
-            cache[place].orEmpty().filter { f -> val t = Library.info(f).searchText; words.all { it in t } }.map { place to it }
-        }.take(12)
     }
 
     private fun initialStep() = when {
@@ -726,6 +734,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             listedAt.clear()
             cuts.clear()
         }
+        _listings.update { it + 1 }
         refreshes.cancelAll()
         warmedSaved.clear()
         artworkJob?.cancel()
@@ -978,6 +987,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             cache[place] = files
             if (cutAt > 0) cuts[place] = cutAt else cuts.remove(place)
         }
+        if (place in LIBRARIES) _listings.update { it + 1 }
         // The offline page (nothing was saved) gives way to the listing itself: no "Back online".
         _state.update {
             if (it.place == place) it.copy(files = files, busy = false, error = null, cutAt = cutAt, token = token ?: it.token, status = if (fromDrive && it.status.down) DriveStatus.Online else it.status)

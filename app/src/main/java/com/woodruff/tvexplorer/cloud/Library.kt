@@ -246,11 +246,11 @@ object Library {
     ): List<DriveFile> {
         // Each file paired with its info once: comparisons then read the pair, rather than looking
         // the file up in a map (which hashes the whole DriveFile on every comparison).
-        val words = normalize(filter.query).split(' ').filter { it.isNotEmpty() }
+        val words = queryWords(filter.query)
         val kept = files.map { it to info(it) }.filter { (f, i) ->
             (filter.genre == null || filter.genre in i.genres) &&
                 (filter.decade == null || (i.year != null && i.year / 10 * 10 == filter.decade)) &&
-                (words.isEmpty() || words.all { it in i.searchText }) &&
+                matches(words, i) &&
                 (!filter.unwatched || !watched(f))
         }
         val byTitle = compareBy<Pair<DriveFile, MediaInfo>> { it.second.sortKey }
@@ -262,6 +262,21 @@ object Library {
             LibrarySort.RATING -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.second.rating ?: -1.0 }.then(byTitle))
         }.map { it.first }
     }
+
+    /** A search's words as they're matched: lower case, accents and punctuation gone ("Amélie 2001!" → "amelie", "2001"). */
+    fun queryWords(query: String): List<String> = normalize(query).split(' ').filter { it.isNotEmpty() }
+
+    /**
+     * Whether a title ([info]) has every one of [words] ([queryWords]): each appears in its title
+     * (anywhere, accents and case ignored), or is its release year ("2024" finds what came out in
+     * 2024, not only titles with 2024 in their name). No words: everything matches. The one rule for
+     * Search, Streaming and the phone.
+     */
+    fun matches(words: List<String>, info: MediaInfo): Boolean =
+        words.all { w -> w in info.searchText || (info.year != null && isYear(w) && w.toInt() == info.year) }
+
+    /** A word of exactly four digits: a year. */
+    internal fun isYear(word: String): Boolean = word.length == 4 && word.all { it in '0'..'9' }
 
     /** Sorts "The Matrix" under M, ignores accents and case. */
     fun sortKey(title: String): String = normalize(title).replace(ARTICLE, "")
