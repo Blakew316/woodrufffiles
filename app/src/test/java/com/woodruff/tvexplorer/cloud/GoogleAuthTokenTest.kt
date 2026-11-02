@@ -75,6 +75,8 @@ class GoogleAuthTokenTest {
             TokenError(TokenError.Kind.NETWORK, "Couldn't reach Google", UnknownHostException()),
             // Google's own outage (5xx, 429) is the same: try again later.
             TokenError(TokenError.Kind.UNAVAILABLE, "busy"),
+            // So is anything else Google's sign-in service refuses that neither ends the sign-in nor is the keys.
+            TokenError(TokenError.Kind.OTHER, "Google sign-in failed: invalid_request"),
         )) {
             val store = signedIn()
             val before = store.map.toMap()
@@ -92,6 +94,12 @@ class GoogleAuthTokenTest {
         assertEquals(TokenResult.SignedOut, r)
         for (key in Grant.DRIVE.stored) assertNull(key, store.get(key))
         assertEquals(Grant.DRIVE, heard.await())
+        // Remembered as ended, and when (Settings: "Sign-in ended"; Streaming: "Sign in to Google Drive
+        // again"; its notice, once per ending).
+        assertEquals(now.toString(), store.get(Grant.DRIVE.endedKey))
+        // Asking again finds it signed out, without ending it a second time.
+        assertEquals(TokenResult.SignedOut, GoogleAuth.refresh(store, Grant.DRIVE, now + 60_000, failing(IOException("offline"))))
+        assertEquals(now.toString(), store.get(Grant.DRIVE.endedKey))
         // The cameras' sign-in and the keys are another matter.
         assertEquals("nest-refresh", store.get(Grant.NEST.refreshKey))
         assertEquals("123-abc.apps.googleusercontent.com", store.get(GoogleAuth.K_CLIENT_ID))
@@ -106,27 +114,46 @@ class GoogleAuthTokenTest {
         }
         assertEquals(TokenResult.SignedOut, r)
         assertEquals("refresh-2", store.get(Grant.DRIVE.refreshKey))
+        // Nor is the new one marked as ended.
+        assertNull(store.get(Grant.DRIVE.endedKey))
     }
 
     @Test fun refusedKeysAreTheirOwnProblemNotOfflineOrSignedOut() {
-        for (kind in listOf(TokenError.Kind.BAD_CLIENT, TokenError.Kind.OTHER)) {
-            val store = signedIn()
-            val before = store.map.toMap()
-            val r = GoogleAuth.refresh(store, Grant.DRIVE, now, failing(TokenError(kind, "Google didn't accept this TV's Client ID or secret.")))
-            assertEquals(TokenResult.Rejected("Google didn't accept this TV's Client ID or secret."), r)
-            assertEquals(before, store.map)
-        }
+        val store = signedIn()
+        val before = store.map.toMap()
+        val refused = failing(TokenError(TokenError.Kind.BAD_CLIENT, "Google doesn’t accept the Client ID or secret saved on this TV."))
+        val r = GoogleAuth.refresh(store, Grant.DRIVE, now, refused)
+        assertEquals(TokenResult.Rejected("Google doesn’t accept the Client ID or secret saved on this TV."), r)
+        // The sign-in is kept, and marked: "Keys not accepted" (written once, not on every refusal).
+        assertEquals(before + (Grant.DRIVE.refusedKey to now.toString()), store.map)
+        GoogleAuth.refresh(store, Grant.DRIVE, now + 5_000, refused)
+        assertEquals(now.toString(), store.get(Grant.DRIVE.refusedKey))
+        // Fixed in Google Cloud: the next renewal works, and the mark goes.
+        val r2 = GoogleAuth.refresh(store, Grant.DRIVE, now + 10_000) { JSONObject().put("access_token", "works").put("expires_in", 3599) }
+        assertEquals(TokenResult.Ok("works"), r2)
+        assertNull(store.get(Grant.DRIVE.refusedKey))
     }
 
     @Test fun withoutASignInOrKeysGoogleIsNotAsked() {
         var asked = false
         val call: (List<Pair<String, String>>) -> JSONObject = { asked = true; JSONObject() }
         assertEquals(TokenResult.SignedOut, GoogleAuth.refresh(MapTokens(), Grant.DRIVE, now, call))
-        // Signed in, but the Client ID is gone (removed, or unreadable just now).
+        // Signed in, but the Client ID can't be read just now (removing the keys removes the sign-ins
+        // with them): offline, tried again later, never "signed out" or "keys not accepted".
         val noClient = signedIn().apply { remove(GoogleAuth.K_CLIENT_ID) }
-        assertTrue(GoogleAuth.refresh(noClient, Grant.DRIVE, now, call) is TokenResult.Rejected)
+        assertTrue(GoogleAuth.refresh(noClient, Grant.DRIVE, now, call) is TokenResult.Offline)
         assertEquals("refresh-1", noClient.get(Grant.DRIVE.refreshKey))
         assertFalse(asked)
+    }
+
+    @Test fun whereASignInStands() {
+        assertEquals(GoogleAuth.SignIn.SIGNED_IN, GoogleAuth.signInOf(configured = true, connected = true, ended = false, refused = false))
+        assertEquals(GoogleAuth.SignIn.KEYS_REFUSED, GoogleAuth.signInOf(configured = true, connected = true, ended = false, refused = true))
+        assertEquals(GoogleAuth.SignIn.ENDED, GoogleAuth.signInOf(configured = true, connected = false, ended = true, refused = false))
+        assertEquals(GoogleAuth.SignIn.NOT_SIGNED_IN, GoogleAuth.signInOf(configured = true, connected = false, ended = false, refused = false))
+        assertEquals(GoogleAuth.SignIn.NOT_SET_UP, GoogleAuth.signInOf(configured = false, connected = false, ended = false, refused = false))
+        // Signed in again since it ended: signed in.
+        assertEquals(GoogleAuth.SignIn.SIGNED_IN, GoogleAuth.signInOf(configured = true, connected = true, ended = true, refused = false))
     }
 
     @Test fun aRenewedTokenIsKeptWithItsExpiryAndScopes() {
@@ -171,7 +198,9 @@ class GoogleAuthTokenTest {
         for (code in listOf(500, 502, 503, 504, 429, 408)) assertEquals("$code", TokenError.Kind.UNAVAILABLE, GoogleAuth.tokenErrorKind(code, ""))
         assertEquals(TokenError.Kind.UNAVAILABLE, GoogleAuth.tokenErrorKind(503, "backend_error"))
         assertEquals(TokenError.Kind.OTHER, GoogleAuth.tokenErrorKind(400, "invalid_request"))
-        assertEquals(TokenError.Kind.OTHER, GoogleAuth.tokenErrorKind(403, ""))
+        // No OAuth error at all: a Wi-Fi sign-in page or a proxy answered, not Google.
+        assertEquals(TokenError.Kind.UNAVAILABLE, GoogleAuth.tokenErrorKind(403, ""))
+        assertEquals(TokenError.Kind.UNAVAILABLE, GoogleAuth.tokenErrorKind(302, ""))
     }
 
     @Test fun onlyOfflineReadsAsANetworkFailure() {

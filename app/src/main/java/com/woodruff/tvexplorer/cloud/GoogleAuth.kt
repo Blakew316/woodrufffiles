@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.cloud
 
 import android.content.Context
 import android.util.Base64
+import com.woodruff.tvexplorer.notify.SignInNotice
 import com.woodruff.tvexplorer.settings.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -68,10 +69,24 @@ object GoogleAuth {
         val scopesKey = "$prefix.scopes"
         /** Everything stored for this sign-in, removed together when it ends. */
         val stored: Array<String> get() = arrayOf(refreshKey, accessKey, expiresKey, scopesKey)
+        /**
+         * When Google ended this sign-in (ms), kept after its tokens are gone: Settings says "Sign-in
+         * ended" rather than "Not signed in", and Streaming asks to sign in *again*. Gone with a new
+         * sign-in, a sign-out on the TV, or new keys.
+         */
+        val endedKey = "$prefix.ended"
+        /**
+         * Since when Google has refused this TV's Client ID or secret renewing this sign-in
+         * (invalid_client): "Keys not accepted". Gone as soon as a renewal works again, or the keys change.
+         */
+        val refusedKey = "$prefix.refused"
+        /** What's kept about this sign-in besides its tokens ([endedKey], [refusedKey]). */
+        internal val marks: Array<String> get() = arrayOf(endedKey, refusedKey)
     }
 
     private val K_REFRESH = Grant.DRIVE.refreshKey
-    private fun allTokens() = Grant.entries.flatMap { it.stored.toList() }.toTypedArray()
+    /** Every sign-in's tokens, and what's kept about each ([Grant.marks]): all of it belongs to the keys. */
+    private fun allTokens() = Grant.entries.flatMap { it.stored.toList() + it.marks.toList() }.toTypedArray()
 
     private fun s(c: Context) = SecretStore.get(c)
 
@@ -86,6 +101,13 @@ object GoogleAuth {
     private val _driveSignIns = MutableStateFlow(0)
     /** Counts Drive sign-ins finished on this TV, so a screen showing the QR code knows when it's done. */
     val driveSignIns: StateFlow<Int> = _driveSignIns.asStateFlow()
+
+    private val _accountChanges = MutableSharedFlow<Grant>(extraBufferCapacity = 8)
+    /**
+     * A sign-in's state ([signIn]) changed by itself: Google ended it, started or stopped refusing the
+     * keys, or it was signed in again. For screens showing it (Settings → Accounts) to read it again.
+     */
+    val accountChanges: SharedFlow<Grant> = _accountChanges.asSharedFlow()
 
     /** One-time move from the 1.2–1.4 plain prefs into encrypted storage, so nobody re-enters keys. */
     fun migrate(c: Context) {
@@ -116,7 +138,7 @@ object GoogleAuth {
     fun saveNestProject(c: Context, id: String?) {
         val clean = id?.trim()?.takeIf { it.isNotEmpty() }
         if (clean != null) require(Regex("[0-9a-fA-F-]{20,64}").matches(clean)) { "The Project ID looks like 1a2b3c4d-…, from the Device Access Console" }
-        if (clean != nestProject(c)) s(c).remove(*Grant.NEST.stored)
+        if (clean != nestProject(c)) s(c).remove(*Grant.NEST.stored, *Grant.NEST.marks)
         s(c).put(K_NEST_PROJECT, clean)
     }
 
@@ -192,7 +214,10 @@ object GoogleAuth {
                 // Google always says what it granted; without that, take it as what was asked for.
                 if (json.optString("scope").isBlank()) st.put(attempt.grant.scopesKey, attempt.grant.scope)
                 st.put(attempt.grant.refreshKey, refresh)
+                // Signed in again: neither ended nor refused any more.
+                st.remove(*attempt.grant.marks)
             }
+            _accountChanges.tryEmit(attempt.grant)
         }
         if (attempt.grant == Grant.DRIVE) {
             _driveSignIns.value = _driveSignIns.value + 1
@@ -226,9 +251,9 @@ object GoogleAuth {
         data class Offline(val cause: Throwable) : TokenResult
 
         /**
-         * Google answered, but won't renew it for a reason signing in again doesn't fix: the
-         * Client ID or secret were changed or deleted in Google Cloud, or aren't on this TV.
-         * [message] says what to do, in the family's words.
+         * Google refused this TV's Client ID or secret (invalid_client: changed or deleted in Google
+         * Cloud): "Keys not accepted". Signing in again doesn't fix it, and it never clears by itself:
+         * the keys need fixing. [message] says what to do, in the family's words.
          */
         data class Rejected(val message: String) : TokenResult
     }
@@ -268,12 +293,24 @@ object GoogleAuth {
     /**
      * Same as [tokenResult] for background threads. A token that's still good is handed out without
      * waiting on anything (the player asks for one on every Drive request); a renewal holds only its
-     * own grant's lock, so the doorbell renewing the cameras' sign-in never holds up a film.
+     * own grant's lock, so the doorbell renewing the cameras' sign-in never holds up a film. A renewal
+     * that finds Google ended the sign-in posts its quiet notice, once ([SignInNotice]), whoever asked:
+     * the player, the doorbell, a screen.
      */
     fun blockingTokenResult(c: Context, grant: Grant = Grant.DRIVE): TokenResult {
         val store = Stored(s(c))
         current(store, grant, System.currentTimeMillis())?.let { return TokenResult.Ok(it) }
-        synchronized(lock(grant)) { return refresh(store, grant, System.currentTimeMillis(), ::post) }
+        synchronized(lock(grant)) {
+            val endedBefore = store.get(grant.endedKey)
+            val result = refresh(store, grant, System.currentTimeMillis(), ::post)
+            // This renewal is what found out Google ended it: tell the family, once.
+            if (result == TokenResult.SignedOut) {
+                store.get(grant.endedKey)?.takeIf { it != endedBefore }?.toLongOrNull()?.let { at ->
+                    runCatching { SignInNotice.ended(c.applicationContext, grant, at) }.onFailure { android.util.Log.w("GoogleAuth", "couldn't post the sign-in notice", it) }
+                }
+            }
+            return result
+        }
     }
 
     /**
@@ -294,6 +331,39 @@ object GoogleAuth {
      */
     fun forgetAccess(c: Context, grant: Grant = Grant.DRIVE) {
         synchronized(lock(grant)) { s(c).remove(grant.accessKey, grant.expiresKey) }
+    }
+
+    /** Where a sign-in stands, as Settings → Accounts (and the health report) say it. Never "offline": a TV that's offline is still signed in. */
+    enum class SignIn {
+        /** Signed in (Drive) / connected (Photos, Calendar, cameras). */
+        SIGNED_IN,
+        /** Google ended it (expired or revoked): "Sign-in ended". Signing in again fixes it. */
+        ENDED,
+        /** Signed in, but Google refuses the keys renewing it: "Keys not accepted". New keys fix it. */
+        KEYS_REFUSED,
+        /** The keys are there; nobody has signed in (or someone signed out on the TV). */
+        NOT_SIGNED_IN,
+        /** No Google keys on this TV yet. */
+        NOT_SET_UP,
+    }
+
+    /** [grant]'s [SignIn] on this TV. Reads the encrypted store: off the main thread. */
+    fun signIn(c: Context, grant: Grant = Grant.DRIVE): SignIn =
+        signInOf(isConfigured(c), isConnected(c, grant), endedAt(c, grant) != null, keysRefused(c, grant))
+
+    /** When Google ended [grant]'s sign-in (ms); null when it didn't, or it's been signed in (or out) since. */
+    fun endedAt(c: Context, grant: Grant): Long? = s(c).get(grant.endedKey)?.toLongOrNull()
+
+    /** Whether Google refused the keys the last time [grant]'s sign-in was renewed (see [TokenResult.Rejected]). */
+    fun keysRefused(c: Context, grant: Grant): Boolean = s(c).get(grant.refusedKey) != null
+
+    /** [SignIn] from what's stored: keys there ([configured]), a sign-in ([connected]), and its marks. Visible for tests. */
+    internal fun signInOf(configured: Boolean, connected: Boolean, ended: Boolean, refused: Boolean): SignIn = when {
+        connected && refused -> SignIn.KEYS_REFUSED
+        connected -> SignIn.SIGNED_IN
+        ended -> SignIn.ENDED
+        configured -> SignIn.NOT_SIGNED_IN
+        else -> SignIn.NOT_SET_UP
     }
 
     /** One lock per grant: renewing one sign-in never waits on another's. */
@@ -323,15 +393,18 @@ object GoogleAuth {
 
     /**
      * Renews [grant]'s access token through [call] (the token endpoint) and keeps it in [store]. Only
-     * Google refusing the refresh token itself (invalid_grant) ends the sign-in: anything that keeps
-     * the answer from arriving leaves it as it is, to work again once Google can be reached. Called
-     * under the grant's lock.
+     * Google refusing the refresh token itself (invalid_grant) ends the sign-in, and it's remembered
+     * when ([Grant.endedKey]); Google refusing the keys marks them refused until a renewal works again.
+     * Anything that keeps the answer from arriving leaves it all as it is, to work again once Google can
+     * be reached. Called under the grant's lock.
      */
     internal fun refresh(store: Tokens, grant: Grant, now: Long, call: (List<Pair<String, String>>) -> JSONObject): TokenResult {
         val refresh = store.get(grant.refreshKey) ?: return TokenResult.SignedOut
         // Renewed by another thread while this one waited for the lock.
         current(store, grant, now)?.let { return TokenResult.Ok(it) }
-        val clientId = store.get(K_CLIENT_ID)?.takeIf { it.isNotBlank() } ?: return TokenResult.Rejected(NOT_SET_UP)
+        // A sign-in without a Client ID: it can't be read just now (the Keystore still waking up after
+        // the TV turned on), since removing the keys removes the sign-ins with them. Tried again later.
+        val clientId = store.get(K_CLIENT_ID)?.takeIf { it.isNotBlank() } ?: return TokenResult.Offline(IOException(KEYS_UNREADABLE))
         val json = try {
             call(listOf("client_id" to clientId, "client_secret" to (store.get(K_CLIENT_SECRET) ?: ""), "refresh_token" to refresh, "grant_type" to "refresh_token"))
         } catch (e: TokenError) {
@@ -340,13 +413,26 @@ object GoogleAuth {
                     // The approval expired (the 7-day limit in Testing mode) or was revoked: sign in
                     // again. Unless a new sign-in has replaced this one meanwhile.
                     if (store.get(grant.refreshKey) == refresh) {
-                        store.remove(*grant.stored)
+                        store.remove(*grant.stored, grant.refusedKey)
+                        // Remembered for Settings and the "again" wording; a Keystore hiccup writing it
+                        // costs only that (the sign-in has ended all the same).
+                        runCatching { store.put(grant.endedKey, now.toString()) }
                         _expirations.tryEmit(grant)
+                        _accountChanges.tryEmit(grant)
                     }
                     TokenResult.SignedOut
                 }
-                TokenError.Kind.BAD_CLIENT, TokenError.Kind.OTHER -> TokenResult.Rejected(e.message ?: BAD_CLIENT)
-                TokenError.Kind.NETWORK, TokenError.Kind.UNAVAILABLE -> TokenResult.Offline(e)
+                TokenError.Kind.BAD_CLIENT -> {
+                    // Kept, so Settings says it too; written once, not on every refused renewal.
+                    if (store.get(grant.refreshKey) == refresh && store.get(grant.refusedKey) == null) {
+                        runCatching { store.put(grant.refusedKey, now.toString()) }
+                        _accountChanges.tryEmit(grant)
+                    }
+                    TokenResult.Rejected(e.message ?: BAD_CLIENT)
+                }
+                // Anything else Google refused: neither a sign-in that ended nor keys to fix, so tried
+                // again later, like Google being busy.
+                TokenError.Kind.NETWORK, TokenError.Kind.UNAVAILABLE, TokenError.Kind.OTHER -> TokenResult.Offline(e)
             }
         } catch (e: IOException) {
             // No answer came back at all.
@@ -357,7 +443,14 @@ object GoogleAuth {
         // Not for a sign-in that ended (or was replaced) while this was under way. A Keystore hiccup
         // saving it costs a renewal next time, not this token.
         if (store.get(grant.refreshKey) == refresh) {
-            runCatching { storeAccess(store, json, grant, now) }.onFailure { android.util.Log.w("GoogleAuth", "couldn't save the access token", it) }
+            runCatching {
+                storeAccess(store, json, grant, now)
+                // The keys work again (fixed in Google Cloud).
+                if (store.get(grant.refusedKey) != null) {
+                    store.remove(grant.refusedKey)
+                    _accountChanges.tryEmit(grant)
+                }
+            }.onFailure { android.util.Log.w("GoogleAuth", "couldn't save the access token", it) }
         }
         return TokenResult.Ok(access)
     }
@@ -365,7 +458,7 @@ object GoogleAuth {
     /** Forgets tokens on this TV and asks Google to revoke them. Keeps the client ID/secret. */
     suspend fun signOut(c: Context, grant: Grant = Grant.DRIVE) = withContext(Dispatchers.IO) {
         val refresh = s(c).get(grant.refreshKey)
-        s(c).remove(*grant.stored)
+        s(c).remove(*grant.stored, *grant.marks)
         if (grant == Grant.DRIVE) _driveSignOuts.tryEmit(Unit)
         if (refresh != null) runCatching {
             (URL("https://oauth2.googleapis.com/revoke?token=${enc(refresh)}").openConnection() as HttpURLConnection).apply {
@@ -386,9 +479,9 @@ object GoogleAuth {
         json.optString("scope").takeIf { it.isNotBlank() }?.let { store.put(grant.scopesKey, it) }
     }
 
-    /** No Client ID on this TV, though a sign-in is: the keys were removed, or can't be read. */
-    private const val NOT_SET_UP = "Google isn't set up on this TV. Add the Client ID and secret in Settings → Accounts → Keys & sign-out."
-    private const val BAD_CLIENT = "Google didn't accept this TV's Client ID or secret. Check them in Settings → Accounts → Keys & sign-out."
+    /** A sign-in whose Client ID can't be read just now (never shown: it reads as offline). */
+    private const val KEYS_UNREADABLE = "The Google keys can't be read just now."
+    private const val BAD_CLIENT = "Google doesn’t accept the Client ID or secret saved on this TV. Check them in Settings → Accounts → Keys & sign-out."
 
     /** A request to the token endpoint that didn't bring tokens, and which [kind] of failure it was. */
     internal class TokenError(val kind: Kind, message: String, cause: Throwable? = null) : IOException(message, cause) {
@@ -401,16 +494,20 @@ object GoogleAuth {
             REVOKED,
             /** Google refused the OAuth client: a wrong, changed or deleted Client ID or secret. */
             BAD_CLIENT,
-            /** Anything else Google refused. */
+            /** Anything else Google's sign-in service refused (renewing: tried again later; signing in: said as Google said it). */
             OTHER,
         }
     }
 
-    /** Which kind of failure an error answer from the token endpoint is, from its HTTP [code] and OAuth [error]. */
+    /**
+     * Which kind of failure an error answer from the token endpoint is, from its HTTP [code] and OAuth
+     * [error]. An answer with no OAuth error at all didn't come from Google's sign-in service (a Wi-Fi
+     * sign-in page or a proxy answering in its place): Google wasn't reached.
+     */
     internal fun tokenErrorKind(code: Int, error: String): TokenError.Kind = when {
         error == "invalid_grant" -> TokenError.Kind.REVOKED
         error == "invalid_client" || error == "unauthorized_client" -> TokenError.Kind.BAD_CLIENT
-        code == 408 || code == 429 || code >= 500 -> TokenError.Kind.UNAVAILABLE
+        code == 408 || code == 429 || code >= 500 || error.isEmpty() -> TokenError.Kind.UNAVAILABLE
         else -> TokenError.Kind.OTHER
     }
 
@@ -469,3 +566,23 @@ object GoogleAuth {
         return (1..n).map { CHARS[r.nextInt(CHARS.length)] }.joinToString("")
     }
 }
+
+/**
+ * [signIn] in words, as Settings → Accounts (and the phone's Connections, and the health report) say
+ * it for [grant]: Drive is "Signed in"; Photos, Calendar and the cameras are "Connected". "Sign-in
+ * ended" and "Keys not accepted" need someone to act ([needsAttention]); offline never changes these.
+ */
+fun signInWords(grant: GoogleAuth.Grant, signIn: GoogleAuth.SignIn): String = when (signIn) {
+    GoogleAuth.SignIn.SIGNED_IN -> if (grant == GoogleAuth.Grant.DRIVE) "Signed in" else "Connected"
+    GoogleAuth.SignIn.ENDED -> "Sign-in ended"
+    GoogleAuth.SignIn.KEYS_REFUSED -> "Keys not accepted"
+    GoogleAuth.SignIn.NOT_SIGNED_IN, GoogleAuth.SignIn.NOT_SET_UP -> when (grant) {
+        GoogleAuth.Grant.DRIVE -> if (signIn == GoogleAuth.SignIn.NOT_SET_UP) "Not set up" else "Not signed in"
+        GoogleAuth.Grant.NEST -> "Not connected"
+        GoogleAuth.Grant.PHOTOS, GoogleAuth.Grant.CALENDAR -> "Connect"
+    }
+}
+
+/** Whether a sign-in in this state waits on someone (amber in Settings): ended, or its keys refused. */
+val GoogleAuth.SignIn.needsAttention: Boolean
+    get() = this == GoogleAuth.SignIn.ENDED || this == GoogleAuth.SignIn.KEYS_REFUSED
