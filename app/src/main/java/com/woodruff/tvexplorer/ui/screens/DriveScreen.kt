@@ -1040,6 +1040,8 @@ internal fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
                 },
                 color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
             )
+            // This TV's phone app can sign it in again too (its sign-in sheet), with no code to scan.
+            if (again) Text("You can also do it from the phone app.", color = Palette.muted, style = MaterialTheme.typography.bodyMedium)
             if (setup) state.setupAddress?.let {
                 Text("Or open this on a computer:", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
                 Text(it, color = Palette.accent, style = MaterialTheme.typography.bodyMedium)

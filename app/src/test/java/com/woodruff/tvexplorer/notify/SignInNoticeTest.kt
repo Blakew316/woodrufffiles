@@ -35,14 +35,22 @@ class SignInNoticeTest {
     @After fun back() { AppVisibility.foreground = false }
 
     @Test fun eachSignInSaysWhereToSignInAgain() {
+        // On the TV, or from its phone app (each of the four can be signed in again from there).
         assertEquals(
-            "Sign in to Google Drive again" to "Google ended this TV’s sign-in. Open Streaming and scan the code with your phone. Your library and progress are kept.",
+            "Sign in to Google Drive again" to
+                "Google ended this TV’s sign-in. Open Streaming and scan the code with your phone. Your library and progress are kept. Or do it from the phone app.",
             SignInNotice.words(Grant.DRIVE),
         )
-        assertEquals("Connect Google Photos again" to "Google ended this TV’s sign-in. Settings → Accounts → Google Photos.", SignInNotice.words(Grant.PHOTOS))
-        assertEquals("Connect Google Calendar again" to "Google ended this TV’s sign-in. Settings → Accounts → Google Calendar.", SignInNotice.words(Grant.CALENDAR))
         assertEquals(
-            "Connect your cameras again" to "Google ended this TV’s sign-in. Open the Command Center and scan the code with your phone.",
+            "Connect Google Photos again" to "Google ended this TV’s sign-in. Settings → Accounts → Google Photos. Or do it from the phone app.",
+            SignInNotice.words(Grant.PHOTOS),
+        )
+        assertEquals(
+            "Connect Google Calendar again" to "Google ended this TV’s sign-in. Settings → Accounts → Google Calendar. Or do it from the phone app.",
+            SignInNotice.words(Grant.CALENDAR),
+        )
+        assertEquals(
+            "Connect your cameras again" to "Google ended this TV’s sign-in. Open the Command Center and scan the code with your phone. Or do it from the phone app.",
             SignInNotice.words(Grant.NEST),
         )
         // Within the notice card's lines (about 38 characters a line).

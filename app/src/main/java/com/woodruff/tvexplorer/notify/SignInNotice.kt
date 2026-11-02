@@ -28,15 +28,21 @@ object SignInNotice {
         Notices.post(c, NoticeSource.SYSTEM, title, body, quiet = true)
     }
 
-    /** The notice for [grant]: its title, then what happened and where to sign in again. */
+    /**
+     * The notice for [grant]: its title, then what happened and where to sign in again, on the TV or (each of the
+     * four, from this TV's own phone app: its sign-in sheet) the phone (offline-states.md §3.4, phone-signin.md §5.2).
+     */
     internal fun words(grant: GoogleAuth.Grant): Pair<String, String> = when (grant) {
         GoogleAuth.Grant.DRIVE -> "Sign in to Google Drive again" to
-            "Google ended this TV’s sign-in. Open Streaming and scan the code with your phone. Your library and progress are kept."
-        GoogleAuth.Grant.PHOTOS -> "Connect Google Photos again" to "Google ended this TV’s sign-in. Settings → Accounts → Google Photos."
-        GoogleAuth.Grant.CALENDAR -> "Connect Google Calendar again" to "Google ended this TV’s sign-in. Settings → Accounts → Google Calendar."
+            "Google ended this TV’s sign-in. Open Streaming and scan the code with your phone. Your library and progress are kept.$FROM_PHONE"
+        GoogleAuth.Grant.PHOTOS -> "Connect Google Photos again" to "Google ended this TV’s sign-in. Settings → Accounts → Google Photos.$FROM_PHONE"
+        GoogleAuth.Grant.CALENDAR -> "Connect Google Calendar again" to "Google ended this TV’s sign-in. Settings → Accounts → Google Calendar.$FROM_PHONE"
         GoogleAuth.Grant.NEST -> "Connect your cameras again" to
-            "Google ended this TV’s sign-in. Open the Command Center and scan the code with your phone."
+            "Google ended this TV’s sign-in. Open the Command Center and scan the code with your phone.$FROM_PHONE"
     }
+
+    /** Every sign-in can be made again from this TV's phone app, as well as on the TV. */
+    private const val FROM_PHONE = " Or do it from the phone app."
 
     /** Whether [told] (see [K_TOLD]) already has [grant]'s ending at [at]. Visible for tests. */
     internal fun wasTold(told: String?, grant: GoogleAuth.Grant, at: Long): Boolean =
