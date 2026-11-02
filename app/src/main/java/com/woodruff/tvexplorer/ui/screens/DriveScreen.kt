@@ -186,20 +186,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val marked = remember { derivedStateOf { marks.intValue + synced.value } }
     // Reads [marked] as well: a tile asking while it composes is composed again when a ✓ changes.
     val seen: (DriveFile) -> Boolean = remember(films) { { f: DriveFile -> marked.value; posterWatched(context, f, films) } }
-    // Movies / TV Shows top level: filtered and sorted; everywhere else as Drive lists it.
-    val shown = remember(state.files, filterable, filter, films) {
-        when {
-            !filterable -> state.files
-            // The Overview shows rows, worked out on their own: no sorting the whole library for it.
-            filter.overview -> state.files
-            // As watched when it was chosen: a ✓ marked meanwhile doesn't pull a title (and the focus) away.
-            filter.unwatched -> Library.apply(state.files, filter, watchedFor(context, state.files, films))
-            else -> Library.apply(state.files, filter)
-        }
+    // Movies / TV Shows top level: filtered and sorted, on a background thread; everywhere else (and
+    // the Overview, whose rows are worked out on their own) as Drive lists it. Null only while a
+    // listing's first sort is worked out.
+    val shown = rememberShown(state.files, state.place.toString(), sorting = filterable && !filter.overview, inputs = filter to films, fresh = filter.unwatched) { files ->
+        // As watched when it was chosen: a ✓ marked meanwhile doesn't pull a title (and the focus) away.
+        if (filter.unwatched) Library.apply(files, filter, watchedFor(context, files, films)) else Library.apply(files, filter)
     }
     // For the handlers below, which read it when they run: they stay the same lambdas when it
     // changes, so the tiles holding them aren't recomposed for it.
-    val latestShown by rememberUpdatedState(shown)
+    val latestShown by rememberUpdatedState(shown.orEmpty())
     // A film in Movies / TV Shows plays on its own: no rolling on into the next title (and the
     // queue is never cut short of the one chosen). In a folder, the media around it queue up after it.
     val openNow: (DriveFile) -> Unit = { f ->
@@ -341,6 +337,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 state.busy -> EmptyState("Loading from Google Drive…")
                 state.error != null -> EmptyState(state.error!!)
                 state.files.isEmpty() -> EmptyState("Nothing here")
+                // A listing's first sort, a moment's work off the main thread: nothing rather than a flash of words.
+                shown == null -> Unit
                 shown.isEmpty() -> EmptyState("No matches")
                 // The Overview tab: a featured title and rows. ("All" is the whole library A–Z.)
                 filterable && filter.overview -> key(state.place) {
@@ -445,8 +443,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     }
                     LaunchedEffect(state.place) {
                         withFrameNanos {}
-                        // Not while choosing a category in the header: the focus stays on the tabs.
-                        if (!headerFocused.value) runCatching { first.requestFocus() }
+                        // Not while choosing a category in the header: the focus stays on the tabs. (The
+                        // header having it with no key pressed since the screen opened is only where the
+                        // screen put it while the list was being sorted: the poster takes it then.)
+                        if (!headerFocused.value || AppVisibility.lastInput < enteredAt) runCatching { first.requestFocus() }
                     }
                 }
             }
@@ -617,6 +617,44 @@ internal fun rememberProgress(marks: androidx.compose.runtime.State<Int>, key: A
 /** Each title part-way through, by media key, to its progress (0..1); finished ones (97% on) get no bar. */
 internal fun progressByKey(recent: List<RecentItem>): Map<String, Float> =
     recent.filter { it.progress < 0.97f }.associate { it.key to it.progress }
+
+/**
+ * What a list of Drive titles shows: when [sorting] (a library's grid: All, Unwatched, a genre, a
+ * decade), [files] as [sort] narrows and sorts them, worked out on a background thread — a big
+ * library's sort held the main thread, and the focus, for frames at every filter change and every
+ * refresh. Otherwise [files] as Drive listed them. [inputs] is everything [sort] goes by besides
+ * [files] (the filter): a change sorts again.
+ *
+ * While a new filter's list (or a refreshed listing's) is worked out, the last one for this [place]
+ * stays up, and the posters glide to their new places once it's in; another place's list is never
+ * shown, so it's null only until a place's first list is ready. The last list is kept
+ * ([lastSorted]), so coming back to it (from the side menu, say) shows at once, nothing worked out
+ * again, unless it must be worked out [fresh] each time the screen opens (Unwatched: as watched now).
+ */
+@Composable
+internal fun rememberShown(
+    files: List<DriveFile>, place: String, sorting: Boolean, inputs: Any, fresh: Boolean = false, sort: (List<DriveFile>) -> List<DriveFile>,
+): List<DriveFile>? {
+    if (!sorting) return files
+    val latestSort by rememberUpdatedState(sort)
+    val sorted by produceState(lastSorted?.takeIf { !fresh && it.isFor(place, files, inputs) }, files, inputs) {
+        if (value?.isFor(place, files, inputs) == true) return@produceState
+        val list = withContext(Dispatchers.Default) { latestSort(files) }
+        value = Sorted(place, files, inputs, list).also { lastSorted = it }
+    }
+    return sorted?.takeIf { it.place == place }?.list
+}
+
+/** A library grid's list ([list]) and what it was worked out from. */
+internal class Sorted(val place: String, val files: List<DriveFile>, val inputs: Any, val list: List<DriveFile>) {
+    fun isFor(place: String, files: List<DriveFile>, inputs: Any): Boolean = this.place == place && this.files === files && this.inputs == inputs
+}
+
+/**
+ * The last grid list worked out, for coming back to it at once (see [rememberShown]). Only the one: a
+ * library's whole listing is a lot to keep a second copy of.
+ */
+@Volatile internal var lastSorted: Sorted? = null
 
 /**
  * What the Unwatched filter leaves out. Movies: a film with its ✓ (a film in its own folder: that
