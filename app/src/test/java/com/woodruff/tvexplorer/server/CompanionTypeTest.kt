@@ -119,9 +119,10 @@ class CompanionTypeTest {
 
     @Test fun aBoxLeftOpenAfterHomeWasPressedIsNeverTypedInto() {
         val rename = box("This TV's name", "Den")
-        // Home pressed, YouTube opened: Woodruff's screen has stopped (and told TvScreen so), the box still registered.
-        TvScreen.detach(screen.get())
-        screen.pause().stop()
+        // Home pressed, YouTube opened: Woodruff's screen has stopped behind it, the box still registered. (Its
+        // screens also leave TvScreen as they stop; this one stays, so nothing another test left there counts.)
+        screen.pause().windowFocusChanged(false)
+        screen.stop()
         assertEquals(JSONObject.NULL, JSONObject(routes.answerFor(phoneRequest("/api/type")).bodyText()).get("field"))
         val r = type(JSONObject().put("id", rename).put("text", "Garage").put("submit", true))
         assertEquals(NanoHTTPD.Response.Status.BAD_REQUEST, r.status)
