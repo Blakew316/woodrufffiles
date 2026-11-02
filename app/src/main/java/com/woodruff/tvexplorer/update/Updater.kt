@@ -12,6 +12,7 @@ import android.util.Log
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
+import com.woodruff.tvexplorer.util.Presence
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,7 +38,8 @@ import kotlin.math.abs
  * signed with the same key as the installed app.
  *
  * Android 12+ lets an app update itself without a prompt. Silent installs wait until nobody is
- * using Woodruff (nothing playing, no button pressed for 2 minutes), since an update restarts it;
+ * using Woodruff (nothing playing, no key pressed anywhere in it for 2 minutes, no copy or transfer
+ * under way), since an update restarts it;
  * if it was on screen, it opens again by itself. Some TVs still ask for a press for every update
  * (and Android 11 and older always do): that update is offered the next time someone opens
  * Woodruff instead ([offer]).
@@ -64,6 +66,7 @@ object Updater {
     private const val CHECK_EVERY_MS = HOUR
     /** When Woodruff is opened: often enough that a fresh release shows up the next time you open it. */
     private const val CHECK_ON_OPEN_MS = 10 * 60_000L
+    /** No key pressed in Woodruff for this long: nobody's using it. */
     private const val IDLE_MS = 2 * 60_000L
     /** How long a build must be the newest before the TVs other than the test TV take it. */
     internal const val SETTLE_MS = 24 * HOUR
@@ -201,11 +204,13 @@ object Updater {
     }
 
     /**
-     * Nobody is using Woodruff: nothing playing in it, and it's either not on screen or no button
-     * has been pressed for [IDLE_MS], so a restart for the update interrupts no one.
+     * Nobody is using Woodruff: nothing playing in it, nothing running that mustn't be cut short (a
+     * copy, a file from the phone, a Google Photos pick), and it's either not on screen or no key has
+     * been pressed anywhere in it (any window, the phone's remote) for [IDLE_MS], so a restart for the
+     * update interrupts no one.
      */
-    private fun idle(): Boolean = NowPlaying.ownPlayer == null &&
-        (!AppVisibility.foreground || System.currentTimeMillis() - AppVisibility.lastInput >= IDLE_MS)
+    private fun idle(): Boolean = NowPlaying.ownPlayer == null && !Presence.isBusy &&
+        (!AppVisibility.foreground || Presence.sinceUseMs() >= IDLE_MS)
 
     private fun offerIfDue(c: Context) {
         val s = _state.value

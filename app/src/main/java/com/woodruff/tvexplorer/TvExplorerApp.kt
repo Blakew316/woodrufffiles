@@ -12,6 +12,9 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.woodruff.tvexplorer.util.CrashLog.install(this)
+        // Every Woodruff screen from its first one: key presses anywhere count as use, and what's up
+        // can be put back after an update (OnScreen).
+        com.woodruff.tvexplorer.update.OnScreen.install(this)
         // Read in the background, before any screen asks (a screen's first read otherwise waits on
         // the disk or the Keystore on the main thread, in the middle of drawing).
         Thread({

@@ -135,7 +135,9 @@ object GooglePhotos {
 
     fun startPicking() {
         job?.cancel()
-        job = scope.launch {
+        // From the code on screen to the last photo saved (up to half an hour waiting for the phone):
+        // an update waits, rather than cutting the pick off or leaving photos half-downloaded.
+        job = scope.launch { com.woodruff.tvexplorer.util.Presence.busy {
             try {
                 _state.value = State(Step.READY)
                 val session = withContext(Dispatchers.IO) { call("POST", "sessions", "{}") }
@@ -160,7 +162,7 @@ object GooglePhotos {
             } finally {
                 endSession()
             }
-        }
+        } }
     }
 
     private suspend fun download(session: String) {

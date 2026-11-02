@@ -82,6 +82,9 @@ object TvScreen {
             "menu" -> KeyEvent.KEYCODE_MENU
             else -> return false
         }
+        // Someone's at the phone's remote: as much use as the TV's own (handed to the activity
+        // directly, the key doesn't pass through its window).
+        com.woodruff.tvexplorer.util.Presence.pressed()
         main.post {
             a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
             a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
