@@ -116,7 +116,7 @@ class BannerRotationUiTest {
                 BackHandler {}
                 LibraryRows(
                     library(), null, placeKey = "banner-rotation", isShows = false, canTakeFocus = { true },
-                    onChoose = {}, onPlay = {}, onMenu = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
+                    onChoose = {}, onPlay = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
                 )
             }
         }

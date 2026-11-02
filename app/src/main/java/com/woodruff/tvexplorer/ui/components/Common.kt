@@ -51,10 +51,18 @@ fun FocusWhenReady(requester: androidx.compose.ui.focus.FocusRequester, key: Any
     androidx.compose.runtime.LaunchedEffect(requester, key) {
         repeat(10) {
             androidx.compose.runtime.withFrameNanos {}
-            if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (requester.tryFocus()) return@LaunchedEffect
         }
     }
 }
+
+/**
+ * Asks for the focus, saying whether it was given: false while nothing is attached to the requester yet
+ * (its item isn't composed, or its window not up), or it can't take the focus. A request like that doesn't
+ * throw any more; it does nothing, so checking for an exception said yes to every one of them.
+ */
+fun androidx.compose.ui.focus.FocusRequester.tryFocus(): Boolean =
+    runCatching { requestFocus(androidx.compose.ui.focus.FocusDirection.Enter) }.getOrDefault(false)
 
 /** Tinted vector icon; follows the surrounding content color (which flips when focused). */
 @Composable
@@ -199,22 +207,25 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** Thin usage bar for storage cards. */
+/**
+ * Thin usage bar for storage cards. [fill] and [track] default to the theme's; a bar drawn on artwork
+ * (a resume tile) passes fixed ones, since artwork looks the same in both themes.
+ */
 @Composable
-fun UsageBar(fraction: Float, modifier: Modifier = Modifier) {
+fun UsageBar(fraction: Float, modifier: Modifier = Modifier, fill: Color = Palette.accent, track: Color = Palette.surfaceHigh) {
     Box(
         modifier
             .fillMaxWidth()
             .height(6.dp)
             .clip(RoundedCornerShape(3.dp))
-            .background(Palette.surfaceHigh),
+            .background(track),
     ) {
         Box(
             Modifier
                 .fillMaxHeight()
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
                 // Always blue: near the end of a film is not a warning.
-                .background(Palette.accent),
+                .background(fill),
         )
     }
 }

@@ -89,14 +89,7 @@ import com.woodruff.tvexplorer.notify.NoticeLook
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import kotlinx.coroutines.delay
-import android.content.Intent
-import android.speech.RecognizerIntent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
-import com.woodruff.tvexplorer.ui.components.ActionMenu
-import com.woodruff.tvexplorer.ui.components.MenuAction
-import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.produceState
 import android.graphics.BitmapFactory
@@ -158,32 +151,22 @@ fun AppRoot(vm: MainViewModel) {
     val railActive = remember { FocusRequester() }
     val open = railFocused || RailPreview.open
 
-    // Voice search: the menu's Search item, or the remote's search button. Speech when the TV has a
-    // recognizer, otherwise typing. Searches the Movies and TV Shows already loaded.
-    val searchContext = LocalContext.current
-    // A film found plays from where anyone in the family last stopped (see rememberResume).
-    val resumeFound = com.woodruff.tvexplorer.ui.screens.rememberResume()
-    var searchResults by remember { mutableStateOf<Pair<String, List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>>?>(null) }
-    var typingSearch by remember { mutableStateOf(false) }
-    val showResults: (String) -> Unit = { q ->
-        val found = drive.searchLibraries(q)
-        if (found.isEmpty()) vm.say("Nothing called \u201c$q\u201d in Movies or TV Shows")
-        else searchResults = q to found
-        Unit
-    }
-    val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let(showResults)
-    }
-    val startSearch: () -> Unit = {
-        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a movie or show")
-        if (runCatching { speech.launch(i) }.isFailure) typingSearch = true
-        Unit
-    }
-    LaunchedEffect(Unit) { VoiceSearch.requests.collect { startSearch() } }
+    // The remote's search button (MainActivity hands it over): Search, listening if the TV can, or, already
+    // open, listening again (see SearchPages.searchKey).
+    LaunchedEffect(Unit) { VoiceSearch.requests.collect { com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey() } }
+    // Search on screen: the smoothness meter counts its frames as "Search".
+    val searchOpen by remember { com.woodruff.tvexplorer.ui.screens.SearchPages.request.map { it != null }.distinctUntilChanged() }
+        .collectAsStateWithLifecycle(false)
 
-    Box(Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background))) {
+    Box(
+        Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background))
+            // The remote's voice button, if a TV ever hands it to apps (most keep it for their assistant): as Search's.
+            .onKeyEvent { e ->
+                if (e.nativeKeyEvent.keyCode != android.view.KeyEvent.KEYCODE_VOICE_ASSIST) return@onKeyEvent false
+                if (e.type == KeyEventType.KeyUp) com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey()
+                true
+            },
+    ) {
         // Optional background photo (Settings → Screensaver & background), dimmed so text stays
         // readable. Dimmed as it's drawn (a colour filter), not by a see-through layer over the
         // whole screen: the same picture, one full-screen fill fewer on every frame.
@@ -304,6 +287,11 @@ fun AppRoot(vm: MainViewModel) {
                 Brand(Modifier.padding(start = 6.dp, bottom = 24.dp))
                 // Choosing a screen in the menu goes straight into it (the menu closes behind).
                 val go: (() -> Unit) -> Unit = { action -> action(); enterContent++ }
+                // Search, first, as on tvOS and Netflix: its page opens over the screen, and closing it leaves the
+                // menu open here, on Search.
+                RailItem("Search", Sym.Search, false, railPlatter) {
+                    com.woodruff.tvexplorer.ui.screens.SearchPages.open(com.woodruff.tvexplorer.ui.screens.SearchFrom.MENU)
+                }
                 RailItem("Home", Sym.Home, screen == Screen.HOME, railPlatter, Modifier.focusRequester(homeFocus)) { go { vm.show(Screen.HOME) } }
                 // Streaming: Movies and TV Shows (switched at the top of the tab), from those Drive folders.
                 RailItem("Streaming", Sym.Streaming, screen == Screen.DRIVE && (driveTop == DrivePlace.Movies || driveTop == DrivePlace.TvShows), railPlatter) {
@@ -325,29 +313,16 @@ fun AppRoot(vm: MainViewModel) {
 
     OperationProgress(vm)
     DriveProgress(drive)
-    if (typingSearch) {
-        TextInputDialog("Search movies and shows", "", "Search", onConfirm = { q -> typingSearch = false; if (q.isNotBlank()) showResults(q.trim()) }, onDismiss = { typingSearch = false })
-    }
-    searchResults?.let { (q, found) ->
-        ActionMenu(
-            title = "\u201c$q\u201d", subtitle = "${found.size} found",
-            onDismiss = { searchResults = null },
-            actions = found.map { (place, f) ->
-                MenuAction(com.woodruff.tvexplorer.cloud.Library.label(f) + " · " + place.title, if (f.isFolder) Sym.Tv else Sym.Movie) {
-                    if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
-                    else resumeFound {
-                        val key = com.woodruff.tvexplorer.player.MediaRef.Drive(f.id).key
-                        searchContext.startActivity(com.woodruff.tvexplorer.player.PlayerActivity.intent(searchContext, listOf(key), listOf(f.name), key))
-                    }
-                }
-            },
-        )
-    }
+    // Title pages, over whichever screen asked for one (Home, Streaming).
+    com.woodruff.tvexplorer.ui.screens.TitleHost(vm, drive)
+    // Search, over whatever's on screen (the side menu's Search, the remote's button, Streaming's field).
+    com.woodruff.tvexplorer.ui.screens.SearchHost(vm, drive)
     com.woodruff.tvexplorer.ui.screens.UpdatePrompt(vm)
     // Doorbell: a ring while Woodruff is on screen opens that camera full screen (no card over it).
     // On the Command Center's cameras it shows in place (Back: the grid); over any other screen the
     // doorbell's own view opens, and Back returns to that screen exactly as it was (its focus, scroll,
     // folder and open pages untouched underneath).
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         val bell = com.woodruff.tvexplorer.nest.Doorbell
         bell.opens.collect { ring ->
@@ -368,8 +343,8 @@ fun AppRoot(vm: MainViewModel) {
                 // Until it's up, another doorbell ringing switches it rather than opening a second view.
                 bell.viewOpening()
                 runCatching {
-                    searchContext.startActivity(
-                        com.woodruff.tvexplorer.player.DoorbellActivity.intent(searchContext, ring, com.woodruff.tvexplorer.player.DoorbellActivity.Origin.SCREEN, name),
+                    context.startActivity(
+                        com.woodruff.tvexplorer.player.DoorbellActivity.intent(context, ring, com.woodruff.tvexplorer.player.DoorbellActivity.Origin.SCREEN, name),
                     )
                 }.onFailure { bell.unclaim(ring) } // its card pops up a moment later instead
             }
@@ -402,8 +377,9 @@ fun AppRoot(vm: MainViewModel) {
     }
     // The smoothness meter's name for what's on screen: Movies and TV Shows apart, and set again on
     // coming back from the player (which counts its frames as "Player").
-    val frameLabel = when (screen) {
-        Screen.DRIVE -> driveTop?.title ?: "Google Drive"
+    val frameLabel = when {
+        searchOpen -> "Search"
+        screen == Screen.DRIVE -> driveTop?.title ?: "Google Drive"
         else -> screen.name.lowercase().replaceFirstChar { it.uppercase() }
     }
     LaunchedEffect(frameLabel) { com.woodruff.tvexplorer.util.FrameStats.screen = frameLabel }
@@ -563,7 +539,10 @@ internal fun untilNextMinute(now: Long): Long = 60_000 - now.mod(60_000L) + 50
  */
 internal val LocalOpenSidebar = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
 
-/** The remote's search button asks for a voice search (MainActivity forwards it here). */
+/**
+ * The remote's search button, pressed in the main window (MainActivity forwards it here): it opens Search,
+ * listening when the TV can ([com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey]).
+ */
 internal object VoiceSearch {
     val requests = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 }

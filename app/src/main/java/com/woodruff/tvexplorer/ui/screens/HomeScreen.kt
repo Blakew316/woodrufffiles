@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -26,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -35,11 +37,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -98,6 +104,7 @@ import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.StatusBadge
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.rememberOfflineShown
+import com.woodruff.tvexplorer.ui.components.tryFocus
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.icons.Sym
@@ -138,6 +145,10 @@ internal object DashboardSamples {
     var calendar: com.woodruff.tvexplorer.calendar.CalendarState? = null
     /** The Command Center's cameras, in place of [Nest]'s. */
     var nest: com.woodruff.tvexplorer.nest.NestState? = null
+    /** Recently added, in place of the libraries' (the gallery has no Drive). */
+    var added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>? = null
+    /** The shows with new episodes, in place of the libraries'. */
+    var newShows: Map<String, com.woodruff.tvexplorer.cloud.NewShow>? = null
 }
 
 /**
@@ -160,11 +171,21 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
             recent = withContext(Dispatchers.Default) { readRecent(store) }
         }
     }
-    var removeFor by remember { mutableStateOf<RecentItem?>(null) }
+    val scope = rememberCoroutineScope()
     // Coming back from the player: pick up the position it just saved (and a fresh token for the
     // Google-hosted posters: the one from start-up lasts an hour), and what the other TVs watched.
     // And today's calendar, if it's been a while (the TV woken in the morning: today's, not last night's).
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context); TodayCalendar.refreshSoon() }
+    // And Recently added: what's new is worked out again (an episode just watched isn't), and libraries
+    // last listed a while ago are listed again behind the screen.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context); TodayCalendar.refreshSoon()
+        drive.recheckNew(); drive.homeShown()
+    }
+    // A TV left on Home for hours: Recently added still catches up now and then (only while Home is up).
+    LifecycleStartEffect(Unit) {
+        val checking = scope.launch { while (true) { delay(com.woodruff.tvexplorer.cloud.HOME_RECHECK_MS); drive.homeShown() } }
+        onStopOrDispose { checking.cancel() }
+    }
     // Another TV's progress merged in while Home is up: show it.
     val syncSeen = remember { FamilySync.updates.value }
     LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) reloads.trySend(Unit) } }
@@ -177,8 +198,12 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
             context.startActivity(PlayerActivity.intent(context, listOf(now.key), listOf(now.title), now.key))
         }
     }
-    // Recently added movies and shows, after what's in progress.
-    val added by drive.recentlyAdded.collectAsStateWithLifecycle()
+    // Recently added movies and shows, after what's in progress; shows with new episodes among them
+    // by when the newest came, with the NEW badge.
+    val liveAdded by drive.recentlyAdded.collectAsStateWithLifecycle()
+    val liveNews by drive.newEpisodes.collectAsStateWithLifecycle()
+    val added = DashboardSamples.added ?: liveAdded
+    val newShows = DashboardSamples.newShows ?: liveNews
     // Posters for what's in progress, from the Movies / TV Shows entries they belong to.
     val artwork by drive.artwork.collectAsStateWithLifecycle()
     // Read from disk once per run of the app, off the main thread (the posters follow when it's in).
@@ -188,12 +213,26 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Which show (or film folder) each one sits under, looked up once on Drive.
     LaunchedEffect(recent, artwork) { if (artwork.isNotEmpty()) drive.resolveShows(recent.map { it.key }) }
     val driveToken by remember(drive) { drive.state.map { it.token }.distinctUntilChanged() }.collectAsStateWithLifecycle(drive.state.value.token)
+    // What's added, less what already has a resume tile here (its tile leads to the same title): ten at most.
+    val addedShown = remember(recent, added, shows) { notResuming(added, recent.take(RESUME_TILES), shows).take(10) }
+    // A title's page, over Home (Back comes back to its poster); a show with new episodes opens at the first of them.
+    val latestNews by rememberUpdatedState(newShows)
     val openAdded = { (place, f): Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile> ->
-        if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
-        else resume { val key = MediaRef.Drive(f.id).key; context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(f.name), key)) }
+        TitlePages.open(place, f, latestNews[f.id]?.takeIf { it.announced }?.first?.id)
     }
-    val scope = rememberCoroutineScope()
-    val linked by TvLinks.linked.collectAsStateWithLifecycle()
+    // Hold OK (or Menu) on a tile or a poster: the title menu, as anywhere else (a resume tile's offers its page,
+    // Episodes / Details, since OK there plays). Play/Pause plays the title.
+    var titleMenu by remember { mutableStateOf<MenuFor?>(null) }
+    // Continue watching taken off from a tile's menu: gone at once (the focus moving to its neighbour), until the
+    // list is read again without it.
+    val removing = remember { RemovedTiles() }
+    val run = rememberTitleRun(
+        drive, changed = { reloads.trySend(Unit) }, removing = { tile, _ -> removing.start(tile) },
+        playTile = { play(it) },
+    )
+    val shownRecent = remember(recent, removing.hidden.toList()) { recent.filter { RecentStore.showOf(it) !in removing.hidden } }
+    // What was taken off is hidden only until a fresh read leaves it out (then it may come back, watched again).
+    LaunchedEffect(recent) { removing.hidden.retainAll { show -> recent.any { RecentStore.showOf(it) == show } } }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 28.dp, end = 28.dp, top = 14.dp, bottom = 14.dp),
@@ -203,8 +242,11 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         PinnedMessage()
         Row(Modifier.fillMaxWidth().height(196.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ContinuePanel(
-                recent, arts, play, onMenu = { removeFor = it },
-                added = added, token = driveToken, openAdded = openAdded,
+                shownRecent, arts, play, onMenu = { titleMenu = MenuFor(null, null, MenuPlace.HOME_RESUME, it) },
+                added = addedShown, newShows = newShows, token = driveToken, openAdded = openAdded,
+                onAddedMenu = { (place, f) -> titleMenu = MenuFor(place, f, MenuPlace.HOME_ADDED) },
+                onAddedPlay = { (place, f) -> run.playNow(MenuFor(place, f, MenuPlace.HOME_ADDED)) },
+                removing = removing,
                 onMovies = { drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE) },
                 onShows = { drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE) },
                 modifier = Modifier.weight(1.5f).fillMaxHeight(),
@@ -217,39 +259,27 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         }
     }
 
-    removeFor?.let { r ->
-        ActionMenu(
-            title = r.title, subtitle = if (r.upNext) upNextCaption(r.title) else "${(r.progress * 100).toInt()}% watched",
-            onDismiss = { removeFor = null },
-            actions = listOfNotNull(
-                // Up next hasn't started: it plays from the beginning.
-                MenuAction(if (r.upNext) "Play" else "Play from where you left off", Sym.PlayArrow) { play(r) },
-                // Same Drive video on every linked TV, from the same spot.
-                if (linked.isNotEmpty() && MediaRef.parse(r.key) is MediaRef.Drive) MenuAction("Watch together on all TVs", Sym.Groups) {
-                    scope.launch {
-                        // From where anyone last stopped, as Play does.
-                        FamilySync.awaitFresh(context)
-                        val now = latestOf(r, store.continueWatching())
-                        withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, now.key, now.title, now.positionMs) } }
-                        // This TV leads: pause, seek and its position keep the others in step.
-                        context.startActivity(PlayerActivity.intent(context, listOf(now.key), listOf(now.title), now.key, now.positionMs, together = true))
-                    }
-                } else null,
-                // As finishing it in the player does: off Continue watching, with a ✓ on its poster
-                // (both reach the other TVs too).
-                MenuAction("Mark as watched", Sym.CheckCircle) {
-                    store.remove(r.key); Watched.mark(context, r.key); reloads.trySend(Unit)
-                },
-                MenuAction("Remove from Continue watching", Sym.Delete, destructive = true) {
-                    store.removeShow(r); reloads.trySend(Unit)
-                },
-            ),
-        )
-    }
+    TitleMenu(titleMenu, run) { titleMenu = null }
 }
 
 /** An up-next tile's caption, in place of the progress bar: "Next · S2 E5" ("Up next" without an episode number). */
 internal fun upNextCaption(title: String): String = episodeCode(title)?.let { "Next · $it" } ?: "Up next"
+
+/** Resume tiles Home's Continue watching panel shows, at most. */
+private const val RESUME_TILES = 9
+
+/**
+ * [added], less the titles already in Continue watching ([resuming]: the panel's resume tiles), found
+ * as the Overview's Continue watching finds them ([Library.continuing], [shows]: media key to entry):
+ * a show you're watching isn't repeated among the added posters, new episodes or not.
+ */
+internal fun notResuming(
+    added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>, resuming: List<RecentItem>, shows: Map<String, String>,
+): List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>> {
+    if (resuming.isEmpty() || added.isEmpty()) return added
+    val watching = com.woodruff.tvexplorer.cloud.Library.continuing(added.map { it.second }, resuming, shows, ::matchKeyOf).mapTo(HashSet()) { it.first.id }
+    return added.filter { it.second.id !in watching }
+}
 
 /**
  * Home's Continue watching as last read, kept while the app runs: coming back to Home shows it at
@@ -410,21 +440,44 @@ private val LATE = listOf(
 // ---- Panel frame ----------------------------------------------------------------------------
 
 @Composable
-private fun Panel(title: String, modifier: Modifier, note: String? = null, content: @Composable ColumnScope.() -> Unit) {
+private fun Panel(
+    title: String, modifier: Modifier, note: String? = null,
+    /** In place of [title]: an eyebrow that changes by itself (Continue watching's follows the focus). */
+    eyebrow: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(modifier.glassPanel(RoundedCornerShape(26.dp)).padding(14.dp)) {
         Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title.uppercase(), color = Palette.accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Box(Modifier.weight(1f)) { if (eyebrow != null) eyebrow() else PanelEyebrow(title) }
             if (note != null) Text(note, color = Palette.muted, style = MaterialTheme.typography.labelSmall)
         }
         content()
     }
 }
 
+/** A panel's eyebrow: its name, UPPERCASE, in the Woodruff blue. */
+@Composable
+private fun PanelEyebrow(title: String) {
+    Text(title.uppercase(), color = Palette.accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+}
+
+/**
+ * Continue watching's eyebrow: "RECENTLY ADDED" while the focus is on an added poster ([onAdded]) or there are
+ * no resume tiles ([onlyAdded]), else "CONTINUE WATCHING"; the two words cross-fade in place as the focus
+ * crosses between the groups. Only this reads [onAdded], so a focus move recomposes nothing else.
+ */
+@Composable
+private fun ContinueEyebrow(onAdded: androidx.compose.runtime.State<Boolean>, onlyAdded: Boolean) {
+    val words = if (onlyAdded || onAdded.value) "Recently added" else "Continue watching"
+    FadeBetween(words, remember { androidx.compose.animation.core.tween<Float>(200, easing = TvMotion.GlideEase) }, label = "eyebrow") { PanelEyebrow(it) }
+}
+
 /** A small text button inside a panel: white with dark words when focused. */
 @Composable
-private fun PanelButton(label: String, icon: ImageVector, onClick: () -> Unit) {
+private fun PanelButton(label: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
     FocusButton(
         onClick = onClick,
+        modifier = modifier,
         shape = RoundedCornerShape(50),
         color = Palette.surfaceHigh, focusedColor = Palette.text,
         content = Palette.text, focusedContent = Palette.background,
@@ -442,12 +495,53 @@ private fun PanelButton(label: String, icon: ImageVector, onClick: () -> Unit) {
 @Composable
 private fun ContinuePanel(
     recent: List<RecentItem>, arts: Map<String, com.woodruff.tvexplorer.cloud.DriveFile?>, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit,
-    added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>, token: String?,
+    added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>,
+    newShows: Map<String, com.woodruff.tvexplorer.cloud.NewShow>, token: String?,
     openAdded: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
+    onAddedMenu: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
+    onAddedPlay: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
+    removing: RemovedTiles,
     onMovies: () -> Unit, onShows: () -> Unit, modifier: Modifier,
 ) {
+    // Whether the focus is on an added poster (the eyebrow says RECENTLY ADDED): written by the tiles, read by the eyebrow alone.
+    val onAdded = remember { mutableStateOf(false) }
+    // Each tile's handle, by key, and the one with the focus: a tile taken off Continue watching hands the focus
+    // to its neighbour on the right, else on the left, else the panel's first button (title-access §4.2).
+    val requesters = remember { HashMap<String, FocusRequester>() }
+    val requester = { key: String -> requesters.getOrPut(key) { FocusRequester() } }
+    val focusedKey = remember { arrayOfNulls<String>(1) }
+    val firstButton = remember { FocusRequester() }
+    val latestRecent by rememberUpdatedState(recent)
+    val latestAdded by rememberUpdatedState(added)
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    // Where the focus still has to go once a tile is gone: the panel's first button when it was the last thing in it.
+    var emptied by remember { mutableIntStateOf(0) }
+    // A tile chosen to come off Continue watching: the focus moves to its neighbour at once, in this same press
+    // (before the tile goes, so it's never left on nothing), then the tile goes.
+    DisposableEffect(removing) {
+        removing.handOff = { tile ->
+            val keys = latestRecent.take(RESUME_TILES).map { it.key } + latestAdded.map { addedKey(it) }
+            val at = keys.indexOf(tile.key)
+            if (focusedKey[0] == tile.key) {
+                val right = keys.getOrNull(at + 1)
+                val left = keys.getOrNull(at - 1)
+                when {
+                    // A neighbour scrolled out of the row isn't composed: the row's own move brings it in.
+                    right != null -> if (!requester(right).tryFocus()) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right)
+                    left != null -> if (!requester(left).tryFocus()) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
+                    else -> emptied++
+                }
+            }
+        }
+        onDispose { removing.handOff = null }
+    }
+    // The panel emptied under the focus: its first button, once it's there.
+    LaunchedEffect(emptied) {
+        if (emptied == 0) return@LaunchedEffect
+        repeat(10) { withFrameNanos {}; if (firstButton.tryFocus()) return@LaunchedEffect }
+    }
     val title = if (recent.isEmpty() && added.isNotEmpty()) "Recently added" else "Continue watching"
-    Panel(title, modifier) {
+    Panel(title, modifier.onFocusChanged { if (!it.hasFocus) onAdded.value = false }, eyebrow = { ContinueEyebrow(onAdded, onlyAdded = recent.isEmpty() && added.isNotEmpty()) }) {
         val r = recent.firstOrNull()
         if (r == null && added.isNotEmpty()) {
             // The whole row is composed ahead while the TV is idle, not each poster as it slides in.
@@ -459,8 +553,8 @@ private fun ContinuePanel(
                     Modifier.fillMaxWidth().weight(1f), state = row,
                     horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                 ) {
-                    items(added, key = { "new-" + it.second.id }) { a ->
-                        PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+                    items(added, key = { addedKey(it) }) { a ->
+                        AddedPoster(a, newShows, token, openAdded, onAddedMenu, onAddedPlay, requester(addedKey(a)), onAdded, focusedKey)
                     }
                 }
             }
@@ -471,8 +565,8 @@ private fun ContinuePanel(
             Text("Pick something to start; it shows up here to resume.", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PanelButton("Movies", Sym.Movie, onMovies)
-                PanelButton("TV Shows", Sym.Tv, onShows)
+                PanelButton("Movies", Sym.Movie, Modifier.focusRequester(firstButton), onMovies)
+                PanelButton("TV Shows", Sym.Tv, onClick = onShows)
             }
             return@Panel
         }
@@ -486,18 +580,75 @@ private fun ContinuePanel(
                 Modifier.fillMaxWidth().weight(1f), state = row, horizontalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
             ) {
-                item(key = r.key) {
-                    ResumeTile(r, arts[r.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
+                items(recent.take(RESUME_TILES), key = { it.key }) { m ->
+                    ResumeTile(
+                        m, arts[m.key], token, play, onMenu,
+                        // Taken off Continue watching from its menu: it glides out, the rest gliding along (no fades).
+                        Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).fillMaxHeight().aspectRatio(2f / 3f)
+                            .focusRequester(requester(m.key))
+                            .onFocusChanged {
+                                if (it.isFocused) { onAdded.value = false; focusedKey[0] = m.key } else if (focusedKey[0] == m.key) focusedKey[0] = null
+                            },
+                    )
                 }
-                items(recent.drop(1).take(8), key = { it.key }) { m ->
-                    ResumeTile(m, arts[m.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
-                }
+                // A pause between the two groups (24 dp, against 12 between tiles): whitespace, no line.
+                if (added.isNotEmpty()) item(key = "pause", contentType = "pause") { Spacer(Modifier.width(12.dp)) }
                 // Then what's new in Movies and TV Shows.
-                items(added, key = { "new-" + it.second.id }) { a ->
-                    PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+                items(added, key = { addedKey(it) }) { a ->
+                    AddedPoster(a, newShows, token, openAdded, onAddedMenu, onAddedPlay, requester(addedKey(a)), onAdded, focusedKey)
                 }
             }
         }
+    }
+}
+
+/** A Recently added poster's key in Continue watching's row (apart from the resume tiles' media keys). */
+private fun addedKey(a: Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>): String = "new-" + a.second.id
+
+/**
+ * A Recently added poster on Home: OK opens its title page, holding OK (or Menu) its title menu ([menu]),
+ * Play/Pause plays it ([play]). Home's posters are small, so a show with new episodes gets the NEW badge
+ * rather than words over its art (its page and menu say which). Taking the focus tells the panel's eyebrow
+ * ([onAdded]) and remembers itself in [focusedKey].
+ */
+@Composable
+private fun LazyItemScope.AddedPoster(
+    a: Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>, newShows: Map<String, com.woodruff.tvexplorer.cloud.NewShow>, token: String?,
+    open: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
+    menu: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
+    play: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
+    requester: FocusRequester,
+    onAdded: androidx.compose.runtime.MutableState<Boolean>,
+    focusedKey: Array<String?>,
+) {
+    val key = addedKey(a)
+    PosterTile(
+        a.second, token, onClick = { open(a) }, onLongClick = { menu(a) },
+        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).fillMaxHeight().focusRequester(requester).onFocusChanged {
+            if (it.isFocused) { onAdded.value = true; focusedKey[0] = key } else if (focusedKey[0] == key) focusedKey[0] = null
+        },
+        label = com.woodruff.tvexplorer.cloud.Library.label(a.second),
+        newBadge = newShows[a.second.id]?.announced == true,
+        onPlay = { play(a) },
+    )
+}
+
+/**
+ * Continue watching tiles being taken off from their menu (title-access §4.2): the focus moves to the tile's
+ * neighbour first ([handOff], set by the panel while it's on screen), then its show is [hidden] until a fresh
+ * read of Continue watching leaves it out.
+ */
+@androidx.compose.runtime.Stable
+internal class RemovedTiles {
+    val hidden = androidx.compose.runtime.mutableStateListOf<String>()
+
+    /** Moves the focus off a tile that's about to go, to its neighbour; main thread. */
+    internal var handOff: ((RecentItem) -> Unit)? = null
+
+    /** [tile] was chosen to come off: in the same press, before anything is written. Main thread. */
+    fun start(tile: RecentItem) {
+        handOff?.invoke(tile)
+        hidden += RecentStore.showOf(tile)
     }
 }
 
@@ -511,7 +662,8 @@ private fun ResumeTile(
     TvCard(
         onClick = { play(r) }, onLongClick = { onMenu(r) },
         shape = Shapes.card,
-        modifier = modifier,
+        // Play/Pause plays it, as OK does.
+        modifier = modifier.playPauseKey { play(r) },
         focusedScale = 1.05f,
         borderWidth = 2.dp, focusedBorderColor = Palette.focusRim,
     ) {
@@ -534,7 +686,8 @@ private fun ResumeTile(
                     remember(r.title) { upNextCaption(r.title) }, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
                 )
-                else UsageBar(r.progress, Modifier.padding(top = 4.dp))
+                // On artwork: the blue of art over a white 20 % track, the same in both themes.
+                else UsageBar(r.progress, Modifier.padding(top = 4.dp), fill = ArtAccent, track = Color.White.copy(alpha = 0.2f))
             }
         }
     }
@@ -549,7 +702,8 @@ private fun ResumeTile(
 private fun ResumeArt(r: RecentItem, poster: String?, token: String?) {
     val context = LocalContext.current
     val ref = MediaRef.parse(r.key)
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))) {
+    // Artwork's stand-in under (or instead of) its picture: dark in both themes.
+    Box(Modifier.fillMaxSize().background(TitleCardBrush)) {
         when {
             poster != null -> {
                 val request = remember(poster, token) {

@@ -65,6 +65,8 @@ import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FolderCache
 import com.woodruff.tvexplorer.cloud.Library
+import com.woodruff.tvexplorer.cloud.NewEpisodes
+import com.woodruff.tvexplorer.cloud.NewShow
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.RecentItem
@@ -103,7 +105,15 @@ internal fun LibraryRows(
     onChoose: (DriveFile) -> Unit,
     /** Play a film straight away (the featured title's Play). */
     onPlay: (DriveFile) -> Unit,
-    onMenu: (DriveFile) -> Unit,
+    /**
+     * Hold OK (or Menu) on a title: its menu. With the Continue watching item a tile stands for, when it's in
+     * that row (its menu can take it off Continue watching).
+     */
+    onMenu: (DriveFile, RecentItem?) -> Unit = { _, _ -> },
+    /** Play/Pause on a title: play it as its menu's first row would (with its Continue watching item, as [onMenu]). */
+    onPlayTitle: (DriveFile, RecentItem?) -> Unit = { _, _ -> },
+    /** Continue watching tiles being taken off while here (see [RowRemovals]); null: none are. */
+    removals: RowRemovals? = null,
     /** The focused title's art, for the backdrop behind the screen. */
     onFocusArt: (String?) -> Unit,
     /**
@@ -115,6 +125,11 @@ internal fun LibraryRows(
     marks: State<Int>,
     /** A title taking (true) or losing the focus, banner included: a folder's listing is fetched ahead. */
     onRest: (DriveFile, Boolean) -> Unit = { _, _ -> },
+    /**
+     * TV shows with new episodes ([com.woodruff.tvexplorer.cloud.DriveViewModel.newEpisodes]): Recently
+     * added puts them by when their newest episode came, and their posters say what's new, in blue.
+     */
+    newShows: Map<String, NewShow> = emptyMap(),
 ) {
     val context = LocalContext.current
     // Whether to take the focus once the rows are in: decided as the Overview opens. The rows can
@@ -133,15 +148,16 @@ internal fun LibraryRows(
     // again when the listing changes (TMDB's details arriving), the rows shown meanwhile staying put.
     // Coming back to the same listing (from a show's folders, say), the rows worked out last time for
     // it show at once, with nothing worked out again.
-    val page by produceState(remember { lastOverview[placeKey]?.takeIf { it.isFor(files, recentAtOpen) }?.page }, files) {
-        if (value != null && lastOverview[placeKey]?.isFor(files, recentAtOpen) == true) return@produceState
+    val page by produceState(remember { lastOverview[placeKey]?.takeIf { it.isFor(files, recentAtOpen, newShows) }?.page }, files, newShows) {
+        if (value != null && lastOverview[placeKey]?.isFor(files, recentAtOpen, newShows) == true) return@produceState
         val day = Library.today()
         value = withContext(Dispatchers.Default) {
             // An episode whose name doesn't say its show ("S01E013_Pilot"): the show it's known to sit
             // under. Names are matched by keys worked out ahead, off the main thread (matchKeyOf).
             EpisodeShows.load(context)
             val shows = EpisodeShows.map.value
-            overviewPage(files, recentAtOpen, shows, ::matchKeyOf, day).also { lastOverview[placeKey] = WorkedOut(files, recentAtOpen, shows, day, it) }
+            overviewPage(files, recentAtOpen, shows, ::matchKeyOf, day) { NewEpisodes.addedAt(it, newShows) }
+                .also { lastOverview[placeKey] = WorkedOut(files, recentAtOpen, shows, day, newShows, it) }
         }
     }
     // Shown once both are in, a frame or two after opening, so the tiles come with their bars. The
@@ -160,6 +176,24 @@ internal fun LibraryRows(
     val heroRows = if (featured.isNotEmpty()) 1 else 0
     val list = rememberLazyListState(initialFirstVisibleItemIndex = restore?.let { it.first + heroRows } ?: 0)
     val scope = rememberCoroutineScope()
+    // A Continue watching tile taken off from its menu: the focus moves on to its neighbour (on the right, else
+    // the left, else the row below or the banner above) before the tile glides out of the row.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    if (removals != null) LaunchedEffect(removals) {
+        androidx.compose.runtime.snapshotFlow { removals.pending.toList() }.collect { pending ->
+            if (pending.isEmpty()) return@collect
+            withFrameNanos {} // the menu's window gone, the focus back in this one
+            val focused = rowsFocus[placeKey]?.second
+            if (focused != null && focused in pending) {
+                val moved = listOf(
+                    androidx.compose.ui.focus.FocusDirection.Right, androidx.compose.ui.focus.FocusDirection.Left,
+                    androidx.compose.ui.focus.FocusDirection.Down, androidx.compose.ui.focus.FocusDirection.Up,
+                ).any { runCatching { focusManager.moveFocus(it) }.getOrDefault(false) }
+                if (!moved) runCatching { heroFocus.requestFocus() }
+            }
+            removals.done(pending)
+        }
+    }
     // A featured folder being looked in for its film: OK pressed again meanwhile doesn't play it twice.
     var findingFilm by remember { mutableStateOf<Job?>(null) }
     // Each row's scroll position, kept while it's off screen.
@@ -203,10 +237,14 @@ internal fun LibraryRows(
                         // It moves on only while it's wholly on screen: the list at its very top.
                         inView = { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0 },
                         onShowing = { f -> onFocusArt(posterArt(f)) },
+                        onMenu = { onMenu(it, null) },
                     )
                 }
             }
-            rows.forEachIndexed { r, (title, items) ->
+            rows.forEachIndexed { r, (title, all) ->
+                // Continue watching less the tiles taken off while here (it otherwise keeps its tiles as of opening).
+                val items = if (removals == null || title != CONTINUE_ROW) all else all.filter { it.id !in removals.gone }
+                if (items.isEmpty()) return@forEachIndexed
                 item(key = "row:$title", contentType = "row") {
                     // The row's whole visible width is composed ahead when the column prefetches it. Back
                     // in a row: the title left from shows first, where the focus rests in a row (below),
@@ -229,14 +267,17 @@ internal fun LibraryRows(
                                     val key = MediaRef.Drive(f.id).key
                                     // In Continue watching: what the tile stands for — its progress, or what's next.
                                     val now = playing[f.id]
+                                    // Elsewhere, a show with new episodes says what's new ("New · S3 E2"), in blue.
+                                    val news = if (now == null) newShows[f.id]?.takeIf { it.announced }?.caption else null
                                     val requester = when {
                                         restore != null && restore.first == r && restore.second == c -> restoreTile
                                         r == 0 && c == 0 -> firstTile
                                         else -> null
                                     }
                                     PosterTile(
-                                        f, token, onClick = { onChoose(f) }, onLongClick = { onMenu(f) },
-                                        modifier = Modifier.width(150.dp)
+                                        f, token, onClick = { onChoose(f) }, onLongClick = { onMenu(f, now) },
+                                        // A tile taken off Continue watching glides out, the rest gliding along (no fades).
+                                        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).width(150.dp)
                                             .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
                                             // Each row's first poster: where Back along the row puts the focus.
                                             .then(if (c == 0) Modifier.focusRequester(rowsBack.start(title)) else Modifier)
@@ -252,7 +293,9 @@ internal fun LibraryRows(
                                         // Both read here, in the tile: a ✓ or a bar changing redraws the tiles alone.
                                         progress = if (now?.upNext == true) null else progress.value?.get(now?.key ?: key),
                                         watched = seen(f),
-                                        caption = now?.takeIf { it.upNext }?.let { upNextCaption(it.title) },
+                                        caption = now?.takeIf { it.upNext }?.let { upNextCaption(it.title) } ?: news,
+                                        captionColor = if (news != null) ArtAccent else CaptionWhite,
+                                        onPlay = { onPlayTitle(f, now) },
                                     )
                                 }
                             }
@@ -301,10 +344,13 @@ private class WithinEnds(private val spec: BringIntoViewSpec, private val list: 
 /** The Overview last worked out for each library (by its place), and what it was worked out from. */
 private val lastOverview = java.util.concurrent.ConcurrentHashMap<String, WorkedOut>()
 
-private class WorkedOut(val files: List<DriveFile>, val recent: List<RecentItem>, val shows: Map<String, String>, val day: Long, val page: OverviewPage) {
-    /** Whether it's what [overviewPage] would give now: the same listing, watching and day. */
-    fun isFor(files: List<DriveFile>, recent: List<RecentItem>): Boolean =
-        this.files === files && this.recent == recent && shows === EpisodeShows.map.value && day == Library.today()
+private class WorkedOut(
+    val files: List<DriveFile>, val recent: List<RecentItem>, val shows: Map<String, String>, val day: Long,
+    val news: Map<String, NewShow>, val page: OverviewPage,
+) {
+    /** Whether it's what [overviewPage] would give now: the same listing, watching, new episodes and day. */
+    fun isFor(files: List<DriveFile>, recent: List<RecentItem>, news: Map<String, NewShow>): Boolean =
+        this.files === files && this.recent == recent && shows === EpisodeShows.map.value && this.news == news && day == Library.today()
 }
 
 /** The Overview as it shows: its rows, what each Continue watching tile stands for, and the featured titles. */
@@ -317,15 +363,17 @@ internal class OverviewPage(
 
 /**
  * The Overview of [files]: Continue watching (what's in [recent], newest first, found in the library
- * as [Library.continuing] finds it; up to 20), then Recently added, Top rated and the genres; and the
- * five featured titles of [day]. Pure, so it can run on a background thread (and is unit tested).
+ * as [Library.continuing] finds it; up to 20), then Recently added (newest first by [addedAt]: a show
+ * with new episodes by its newest one), Top rated and the genres; and the five featured titles of
+ * [day]. Pure, so it can run on a background thread (and is unit tested).
  */
 internal fun overviewPage(
     files: List<DriveFile>, recent: List<RecentItem>, shows: Map<String, String>, matchKey: (String) -> String, day: Long,
+    addedAt: (DriveFile) -> Long = { it.added },
 ): OverviewPage {
     val watching = Library.continuing(files, recent, shows, matchKey).take(20)
     return OverviewPage(
-        Library.overview(files, watching.map { it.first }),
+        Library.overview(files, watching.map { it.first }, addedAt),
         watching.associate { (f, r) -> f.id to r },
         Library.featured(files, day),
     )
@@ -380,6 +428,8 @@ private fun HeroCarousel(
     inView: () -> Boolean = { true },
     /** The title showing while the banner has the focus, once its fade is done: the backdrop follows it. */
     onShowing: (DriveFile) -> Unit = {},
+    /** Hold OK (or Menu) on either button: the title menu for the title showing. */
+    onMenu: (DriveFile) -> Unit = {},
 ) {
     val context = LocalContext.current
     var index by remember(items) { mutableIntStateOf(0) }
@@ -473,8 +523,12 @@ private fun HeroCarousel(
             }
         }
         Row(Modifier.align(Alignment.BottomStart).padding(start = 36.dp, bottom = 28.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            HeroButton(Sym.PlayArrow, if (current.isFolder && isShows) "Episodes" else "Play", Modifier.focusRequester(focus)) { onPlay(current) }
-            HeroButton(Sym.Info, "Details", Modifier) { onDetails(current) }
+            // Play/Pause on either is the banner's Play.
+            HeroButton(
+                Sym.PlayArrow, if (current.isFolder && isShows) "Episodes" else "Play",
+                Modifier.focusRequester(focus).playPauseKey { onPlay(current) }, onLongClick = { onMenu(current) },
+            ) { onPlay(current) }
+            HeroButton(Sym.Info, "Details", Modifier.playPauseKey { onPlay(current) }, onLongClick = { onMenu(current) }) { onDetails(current) }
         }
         if (items.size > 1) Row(
             Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 40.dp),
@@ -494,9 +548,10 @@ private fun HeroCarousel(
 private const val HERO_FADE_MS = 700
 
 @Composable
-private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     FocusButton(
         onClick = onClick,
+        onLongClick = onLongClick,
         shape = Shapes.pill,
         color = Color.White.copy(alpha = 0.22f), focusedColor = Color.White,
         content = Color.White, focusedContent = Color(0xFF0B1220),
@@ -507,5 +562,33 @@ private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, la
             TintIcon(icon, tint.color, size = 22.dp)
             RowText(label, tint.color, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         }
+    }
+}
+
+/** The Overview's first row's name, which [RowRemovals] can take tiles off. */
+private const val CONTINUE_ROW = "Continue watching"
+
+/**
+ * Continue watching tiles taken off from their menu while the Overview is up: the row otherwise keeps its
+ * tiles as of opening (so a film finished meanwhile doesn't pull the focus away), but a tile removed on
+ * purpose glides out at once, the focus moving to its neighbour first (title-access §4.2). One per library
+ * visit, made by the screen.
+ */
+@androidx.compose.runtime.Stable
+internal class RowRemovals {
+    /** Titles (their ids) waiting for the focus to move off them before they go. */
+    internal val pending = androidx.compose.runtime.mutableStateListOf<String>()
+
+    /** Titles taken off Continue watching. */
+    val gone = androidx.compose.runtime.mutableStateListOf<String>()
+
+    /** Takes [id]'s tile off the row (once the focus has moved off it, if it was on it). */
+    fun remove(id: String) {
+        if (id !in gone && id !in pending) pending += id
+    }
+
+    internal fun done(ids: List<String>) {
+        pending.removeAll(ids)
+        gone.addAll(ids.filter { it !in gone })
     }
 }

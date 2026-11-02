@@ -43,15 +43,63 @@ object FolderCache {
     fun inMemory(folderId: String): List<DriveFile>? = synchronized(memory) { memory[folderId] }
 
     /** Lists [folder] from Drive with a current token and keeps it; null when it can't be listed. */
-    suspend fun list(c: Context, token: String?, folder: DriveFile): List<DriveFile>? = try {
+    suspend fun list(c: Context, token: String?, folder: DriveFile): List<DriveFile>? = (fetch(c, token, folder) as? Listing.Listed)?.files
+
+    /** What listing a folder came to ([fetch]). */
+    sealed interface Listing {
+        /** Listed (and kept). */
+        data class Listed(val files: List<DriveFile>) : Listing
+        /** Couldn't get through to Google (no network, Google busy, no token renewed): worth trying again once it's back. */
+        data object Offline : Listing
+        /** Google answered, with something else (the folder is gone, the sign-in ended). */
+        data object Failed : Listing
+    }
+
+    /**
+     * Lists [folder] from Drive with a current token and keeps it, saying how it went: a title page
+     * then tells "the season will show when the TV is back online" from "nothing here".
+     */
+    suspend fun fetch(c: Context, token: String?, folder: DriveFile): Listing = if (galleryOffline) Listing.Offline else try {
         val gen = generation
-        val t = GoogleAuth.token(c) ?: token
-        if (t == null) null else DriveApi.list(t, DrivePlace.Folder(folder.id, folder.name)).also { keep(c, folder.id, it, gen) }
+        val result = GoogleAuth.tokenResult(c)
+        val t = listingToken(result, token)
+        when {
+            t != null -> Listing.Listed(DriveApi.list(t, DrivePlace.Folder(folder.id, folder.name)).also { keep(c, folder.id, it, gen) })
+            result is GoogleAuth.TokenResult.Offline -> Listing.Offline
+            else -> Listing.Failed
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        null
+        listingFailure(e)
     }
+
+    /**
+     * The token to list a folder with, after asking for a fresh one came to [result]: that one; else,
+     * when renewing couldn't get through (offline) or Google refused the keys, the one the screen has
+     * ([screen]: it may have a while left yet). Never for a sign-in Google ended: its old token is
+     * refused, and that refusal would read as Google not answering (offline, tried again and again).
+     * Visible for tests.
+     */
+    internal fun listingToken(result: GoogleAuth.TokenResult, screen: String?): String? = when (result) {
+        is GoogleAuth.TokenResult.Ok -> result.token
+        is GoogleAuth.TokenResult.Offline, is GoogleAuth.TokenResult.Rejected -> screen
+        GoogleAuth.TokenResult.SignedOut -> null
+    }
+
+    /** [e], thrown while listing a folder, as a [Listing]: the network failing, or Google not answering properly, is [Listing.Offline]. Visible for tests. */
+    internal fun listingFailure(e: Throwable): Listing = when {
+        com.woodruff.tvexplorer.util.isNetworkFailure(e) -> Listing.Offline
+        e is DriveHttpException && e.unreachable -> Listing.Offline
+        e is org.json.JSONException -> Listing.Offline
+        else -> Listing.Failed
+    }
+
+    /** Gallery hook: every listing can't get through, as on a TV that's offline. Never set in the app. */
+    @Volatile internal var galleryOffline = false
+
+    /** Gallery and test hook: [files] as [folderId]'s listing in memory, as if just listed. Never used by the app. */
+    internal fun seed(folderId: String, files: List<DriveFile>) = synchronized(memory) { memory[folderId] = files }
 
     /** Signed out: forget every listing, in memory and on disk. */
     fun clear(c: Context) {

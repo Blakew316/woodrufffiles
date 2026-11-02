@@ -78,6 +78,29 @@ object ListingCache {
         File(c.applicationContext.cacheDir, "listings").deleteRecursively()
     }
 
+    private fun freshFile(c: Context) = File(dir(c), "new-episodes.json")
+
+    /**
+     * The TV shows' new episodes as last found ([NewEpisodes.placeVideos]: show id to its videos put in
+     * Drive lately), so Home says what's new from the start, offline too; null when none were saved.
+     */
+    @Synchronized
+    fun readFresh(c: Context): Map<String, List<FreshEpisode>>? = runCatching {
+        freshFile(c).takeIf { it.exists() }?.readText()?.let(NewEpisodes::fromJson)
+    }.getOrNull()
+
+    /** Saves [fresh] (see [readFresh]), unless the saved listings were cleared (signed out) since [gen]. */
+    @Synchronized
+    fun writeFresh(c: Context, fresh: Map<String, List<FreshEpisode>>, gen: Int = generation) {
+        if (gen != generation) return
+        runCatching {
+            val f = freshFile(c)
+            val tmp = File(f.parentFile, f.name + ".tmp")
+            tmp.writeText(NewEpisodes.toJson(fresh))
+            tmp.renameTo(f)
+        }
+    }
+
     /**
      * A listing as it's saved: the array of its files, as always; one the listing limit cut is
      * `{"cut": 20000, "files": [...]}`. Visible for tests.
@@ -123,6 +146,14 @@ object ListingCache {
                     .name("id").value((i.tmdbId ?: 0).toLong()).name("tv").value(i.tv)
                 w.endObject()
             }
+            // An episode's TMDB name and synopsis: a season's saved listing shows them offline too.
+            d.episode?.let { e ->
+                w.name("e").beginObject().name("s").value(e.season.toLong()).name("e").value(e.number.toLong())
+                e.name?.let { w.name("n").value(it) }
+                e.overview?.let { w.name("o").value(it) }
+                e.minutes?.let { w.name("m").value(it.toLong()) }
+                w.endObject()
+            }
             w.endObject()
         }
         w.endArray()
@@ -139,7 +170,7 @@ object ListingCache {
 
     private fun readFile(r: JsonReader): DriveFile {
         var id = ""; var name = ""; var mime = ""; var size = 0L; var modified = 0L; var created = 0L
-        var thumb: String? = null; var poster: String? = null; var info: MediaInfo? = null
+        var thumb: String? = null; var poster: String? = null; var info: MediaInfo? = null; var episode: EpisodeMeta? = null
         r.beginObject()
         while (r.hasNext()) {
             when (r.nextName()) {
@@ -152,11 +183,29 @@ object ListingCache {
                 "th" -> thumb = r.nextString().ifBlank { null }
                 "p" -> poster = r.nextString().ifBlank { null }
                 "i" -> info = readInfo(r)
+                "e" -> episode = readEpisode(r)
                 else -> r.skipValue()
             }
         }
         r.endObject()
-        return DriveFile(id, name, mime, size, modified, thumb, poster, info, created)
+        return DriveFile(id, name, mime, size, modified, thumb, poster, info, created, episode)
+    }
+
+    private fun readEpisode(r: JsonReader): EpisodeMeta? {
+        var season = -1; var number = -1; var name: String? = null; var overview: String? = null; var minutes = 0
+        r.beginObject()
+        while (r.hasNext()) {
+            when (r.nextName()) {
+                "s" -> season = r.nextInt()
+                "e" -> number = r.nextInt()
+                "n" -> name = r.nextString().ifBlank { null }
+                "o" -> overview = r.nextString().ifBlank { null }
+                "m" -> minutes = r.nextInt()
+                else -> r.skipValue()
+            }
+        }
+        r.endObject()
+        return if (season < 0 || number < 0) null else EpisodeMeta(season, number, name, overview, minutes.takeIf { it > 0 })
     }
 
     private fun readInfo(r: JsonReader): MediaInfo {

@@ -1,9 +1,12 @@
 package com.woodruff.tvexplorer.tmdb
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -107,6 +110,61 @@ class TmdbDetailsTest {
         assertEquals(Tmdb.Episode(null, 47), eps[2]) // no picture: not ".../originalnull"
         assertEquals(Tmdb.Episode("https://image.tmdb.org/t/p/original/c.jpg", null), eps[3])
         assertNull(eps[4])
+    }
+
+    @Test fun seasonNamesAndSynopses() {
+        val long = "A sentence about the episode. ".repeat(20).trim()
+        val o = JSONObject(
+            """
+            {"season_number": 3, "episodes": [
+              {"episode_number": 1, "name": "The Volcano", "overview": "The kids build a volcano.\nIt goes sideways.", "still_path": "/v.jpg", "runtime": 42},
+              {"episode_number": 2, "name": "Episode 2", "overview": "", "still_path": null, "runtime": null},
+              {"episode_number": 3, "name": "Tide Pools", "overview": ${JSONObject.quote(long)}},
+              {"episode_number": 4, "name": "  ", "overview": null}
+            ]}
+            """,
+        )
+        val eps = Tmdb.seasonEpisodes(o)
+        assertEquals(Tmdb.Episode("https://image.tmdb.org/t/p/original/v.jpg", 42, "The Volcano", "The kids build a volcano. It goes sideways."), eps[1])
+        // TMDB's stand-in name for an episode nobody has named yet says nothing: nothing is kept for it.
+        assertNull(eps[2])
+        // A long synopsis is kept short, at a word.
+        val tide = eps[3]!!
+        assertEquals("Tide Pools", tide.name)
+        assertTrue(tide.overview!!.length <= 300 && tide.overview!!.endsWith("…"))
+        assertNull(eps[4])
+        assertEquals(EpisodeMeta(3, 1, "The Volcano", "The kids build a volcano. It goes sideways.", 42), eps[1]!!.meta(3, 1))
+    }
+
+    @Test fun placeholderNames() {
+        assertTrue(Tmdb.isPlaceholderName("Episode 7", 7))
+        assertTrue(Tmdb.isPlaceholderName("episode #7", 7))
+        assertFalse(Tmdb.isPlaceholderName("Episode 7", 8))
+        assertFalse(Tmdb.isPlaceholderName("The Seventh", 7))
+    }
+
+    @Test fun aSeasonIsCachedSmallAndReadsBack() {
+        val eps = mapOf(
+            1 to Tmdb.Episode("https://image.tmdb.org/t/p/original/v.jpg", 42, "The Volcano", "Sideways."),
+            2 to Tmdb.Episode(null, null, "Tide Pools", null),
+            3 to Tmdb.Episode(null, 24, null, null),
+        )
+        val json = Tmdb.episodesJson(eps)
+        // The picture is kept as its path alone, and what isn't known isn't written at all.
+        assertEquals("/v.jpg", json.getJSONObject("1").getString("s"))
+        assertFalse(json.getJSONObject("2").has("s"))
+        assertFalse(json.getJSONObject("2").has("o"))
+        assertEquals(eps, Tmdb.episodesFrom(JSONObject(json.toString())))
+        // A full address (kept by hand, or by a later version) still reads.
+        assertEquals("https://example.org/x.jpg", Tmdb.episodesFrom(JSONObject("""{"5": {"s": "https://example.org/x.jpg"}}"""))[5]?.still)
+    }
+
+    @Test fun olderEpisodeEntriesAreDroppedAsTheCacheLoads() {
+        assertTrue(Tmdb.isOldEpisodeEntry("ep:Backyard Science:null:2"))
+        assertTrue(Tmdb.isOldEpisodeEntry("e:Backyard Science:null:2:5"))
+        assertFalse(Tmdb.isOldEpisodeEntry("ep2:Backyard Science:null:2"))
+        assertFalse(Tmdb.isOldEpisodeEntry("t:Backyard Science:null"))
+        assertFalse(Tmdb.isOldEpisodeEntry("d:t:1396"))
     }
 
     @Test fun detailsCacheRoundTrip() {

@@ -1,6 +1,7 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.FreshEpisode
 import com.woodruff.tvexplorer.cloud.MediaInfo
 import com.woodruff.tvexplorer.player.RecentItem
 import org.junit.Assert.assertEquals
@@ -75,9 +76,22 @@ class TitlePageTest {
         assertEquals(emptyList<DriveFile>(), ownedParts(listOf(122), library, self = 122))
     }
 
-    @Test fun episodeLabels() {
-        assertEquals("S1 E3 · The Title", episodeCardLabel("Show.S01E03.The.Title.1080p.mkv"))
-        assertEquals("S1 E5 · The Fifth", episodeCardLabel("1x05 - The Fifth.mp4"))
-        assertEquals("Pilot", episodeCardLabel("Pilot.mkv"))
+    @Test fun aPageOpenedAtAnEpisodeOpensOnItsSeason() {
+        val ids = listOf(null, "s1", "s2", "s3")
+        val names = listOf("Episodes", "Season 1", "Season 2", "Season 3")
+        val listed = listOf(emptySet(), emptySet(), setOf("drive:listed"), emptySet<String>())
+        val fresh = listOf(
+            FreshEpisode("new", "Show S03E02.mkv", "s3", "Season 3", 1, 3, 2),
+            FreshEpisode("loose", "Bonus.mkv", null, null, 1),
+            FreshEpisode("elsewhere", "Show S02E09.mkv", "gone", "Season 2", 1, 2, 9),
+        )
+        // The folder its new-episode record names; one in the show's own folder: the Episodes tab.
+        assertEquals(3, seasonOfEpisode(ids, names, listed, "new", fresh))
+        assertEquals(0, seasonOfEpisode(ids, names, listed, "loose", fresh))
+        // A folder the page doesn't list: by its name's season, as an episode to go on with is found.
+        assertEquals(2, seasonOfEpisode(ids, names, listed, "elsewhere", fresh))
+        // No record: the season listing it.
+        assertEquals(2, seasonOfEpisode(ids, names, listed, "listed", fresh))
+        assertNull(seasonOfEpisode(ids, names, listed, "unknown", fresh))
     }
 }

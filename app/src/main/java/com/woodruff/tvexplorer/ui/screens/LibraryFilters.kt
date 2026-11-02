@@ -73,7 +73,7 @@ import java.util.Locale
  *   - Filter opens a panel on the right with everything else as plain lists: Overview, All or
  *     Unwatched, Sort, Genre and Decade (applied instantly, so the posters behind change as you
  *     go), then the Drive actions (Refresh, My Drive, Sign out…);
- *   - OK on the search field opens its own full screen (see LibrarySearch in DriveScreen.kt).
+ *   - OK on the search field opens Search, for both libraries (see SearchPage.kt).
  */
 
 /** The library's one row: Movies / TV Shows (or the title), the search field, and Filter. */
@@ -231,8 +231,9 @@ private fun FilterSheet(
         // the window (smooth even while the panel is still being built), so the panel doesn't move itself.
         DialogWindowMotion(WindowMotion.SideSheet)
         com.woodruff.tvexplorer.ui.components.FocusWhenReady(first)
-        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
-        Box(Modifier.fillMaxSize().dpadGate(), contentAlignment = Alignment.CenterEnd) {
+        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here. The remote's search
+        // button opens Search over the sheet.
+        Box(Modifier.fillMaxSize().dpadGate().searchKeyOpensSearch(), contentAlignment = Alignment.CenterEnd) {
             LazyColumn(
                 state = list,
                 modifier = Modifier

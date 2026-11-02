@@ -110,19 +110,26 @@ object Library {
         }.distinctBy { it.first.id }
     }
 
-    /** The Overview's rows: Continue watching ([watching]) when something's in progress, then [overviewRows]. */
-    fun overview(files: List<DriveFile>, watching: List<DriveFile>): List<Pair<String, List<DriveFile>>> = buildList {
+    /**
+     * The Overview's rows: Continue watching ([watching]) when something's in progress, then
+     * [overviewRows] ([addedAt]: when each title counts as added, for Recently added).
+     */
+    fun overview(
+        files: List<DriveFile>, watching: List<DriveFile>, addedAt: (DriveFile) -> Long = { it.added },
+    ): List<Pair<String, List<DriveFile>>> = buildList {
         if (watching.isNotEmpty()) add("Continue watching" to watching)
-        addAll(overviewRows(files, watching.mapTo(HashSet()) { it.id }))
+        addAll(overviewRows(files, watching.mapTo(HashSet()) { it.id }, addedAt))
     }
 
     /**
      * What the Overview shows first, to load ahead: the first featured title's wide art (on [day]),
      * and the posters of the first few titles in its top two rows ([watching]: Continue watching).
      */
-    fun overviewArt(files: List<DriveFile>, watching: List<DriveFile>, day: Long): Pair<String?, List<String>> {
+    fun overviewArt(
+        files: List<DriveFile>, watching: List<DriveFile>, day: Long, addedAt: (DriveFile) -> Long = { it.added },
+    ): Pair<String?, List<String>> {
         val backdrop = featured(files, day).firstOrNull()?.let { info(it).backdrop }
-        val posters = overview(files, watching).take(2).flatMap { (_, row) -> row.take(6) }.mapNotNull { it.posterUrl }
+        val posters = overview(files, watching, addedAt).take(2).flatMap { (_, row) -> row.take(6) }.mapNotNull { it.posterUrl }
         return backdrop to posters
     }
 
@@ -149,9 +156,12 @@ object Library {
      * rated too). The rows above claim a title first; among the genres, it goes to its own (the
      * first TMDB lists) unless that row is full. A row too short to be worth one is left out, its
      * titles going back to the others. Rows are shorter in a small library, so there's some left
-     * for the genres.
+     * for the genres. Recently added is newest first by [addedAt]: a show whose new episodes came
+     * lately counts from the newest of them ([NewEpisodes.addedAt]).
      */
-    fun overviewRows(files: List<DriveFile>, shown: Set<String>): List<Pair<String, List<DriveFile>>> {
+    fun overviewRows(
+        files: List<DriveFile>, shown: Set<String>, addedAt: (DriveFile) -> Long = { it.added },
+    ): List<Pair<String, List<DriveFile>>> {
         val size = (files.size / 6).coerceIn(MIN_ROW + 2, 20)
         val used = shown.toHashSet()
         fun claim(candidates: List<DriveFile>): List<DriveFile> {
@@ -162,7 +172,7 @@ object Library {
             }
             return out
         }
-        val recent = claim(files.sortedByDescending { it.added })
+        val recent = claim(files.sortedByDescending(addedAt))
         // Top rated, when enough are rated to make a row; otherwise those go back to the genres.
         val top = claim(files.filter { info(it).rating != null }.sortedByDescending { info(it).rating })
         if (top.size < MIN_ROW) used.removeAll(top.map { it.id }.toSet())
@@ -227,27 +237,46 @@ object Library {
 
     /**
      * [files] narrowed and sorted as [filter] says. [watched] is what the Unwatched filter leaves
-     * out (a film's ✓, a show started): the screen knows that, so this stays pure.
+     * out (a film's ✓, a show started): the screen knows that, so this stays pure. [addedAt] is when
+     * each counts as added for the "Recently added" sort, as in the Overview's Recently added row.
      */
-    fun apply(files: List<DriveFile>, filter: LibraryFilter, watched: (DriveFile) -> Boolean = { false }): List<DriveFile> {
+    fun apply(
+        files: List<DriveFile>, filter: LibraryFilter, watched: (DriveFile) -> Boolean = { false },
+        addedAt: (DriveFile) -> Long = { it.added },
+    ): List<DriveFile> {
         // Each file paired with its info once: comparisons then read the pair, rather than looking
         // the file up in a map (which hashes the whole DriveFile on every comparison).
-        val words = normalize(filter.query).split(' ').filter { it.isNotEmpty() }
+        val words = queryWords(filter.query)
         val kept = files.map { it to info(it) }.filter { (f, i) ->
             (filter.genre == null || filter.genre in i.genres) &&
                 (filter.decade == null || (i.year != null && i.year / 10 * 10 == filter.decade)) &&
-                (words.isEmpty() || words.all { it in i.searchText }) &&
+                matches(words, i) &&
                 (!filter.unwatched || !watched(f))
         }
         val byTitle = compareBy<Pair<DriveFile, MediaInfo>> { it.second.sortKey }
         return when (filter.sort) {
             LibrarySort.TITLE -> kept.sortedWith(byTitle)
-            LibrarySort.RECENT -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.first.added }.then(byTitle))
+            LibrarySort.RECENT -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { addedAt(it.first) }.then(byTitle))
             // Unknown years / ratings go last, not first.
             LibrarySort.YEAR -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.second.year ?: Int.MIN_VALUE }.then(byTitle))
             LibrarySort.RATING -> kept.sortedWith(compareByDescending<Pair<DriveFile, MediaInfo>> { it.second.rating ?: -1.0 }.then(byTitle))
         }.map { it.first }
     }
+
+    /** A search's words as they're matched: lower case, accents and punctuation gone ("Amélie 2001!" → "amelie", "2001"). */
+    fun queryWords(query: String): List<String> = normalize(query).split(' ').filter { it.isNotEmpty() }
+
+    /**
+     * Whether a title ([info]) has every one of [words] ([queryWords]): each appears in its title
+     * (anywhere, accents and case ignored), or is its release year ("2024" finds what came out in
+     * 2024, not only titles with 2024 in their name). No words: everything matches. The one rule for
+     * Search, Streaming and the phone.
+     */
+    fun matches(words: List<String>, info: MediaInfo): Boolean =
+        words.all { w -> w in info.searchText || (info.year != null && isYear(w) && w.toInt() == info.year) }
+
+    /** A word of exactly four digits: a year. */
+    internal fun isYear(word: String): Boolean = word.length == 4 && word.all { it in '0'..'9' }
 
     /** Sorts "The Matrix" under M, ignores accents and case. */
     fun sortKey(title: String): String = normalize(title).replace(ARTICLE, "")

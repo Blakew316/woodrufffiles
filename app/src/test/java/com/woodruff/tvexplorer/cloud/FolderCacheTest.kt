@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.cloud
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -17,6 +18,29 @@ class FolderCacheTest {
         )
         assertEquals(files, FolderCache.fromJson(FolderCache.toJson(files)))
         assertEquals(emptyList<DriveFile>(), FolderCache.fromJson(FolderCache.toJson(emptyList())))
+    }
+
+    @Test fun aListingThatCantGetThroughIsOfflineNotEmpty() {
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(java.net.UnknownHostException("www.googleapis.com")))
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(java.net.SocketTimeoutException()))
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(DriveHttpException(503, "busy")))
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(DriveHttpException(403, "busy", busy = true)))
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(org.json.JSONException("cut off")))
+        // Google answered: the folder is gone, or it may not be listed.
+        assertEquals(FolderCache.Listing.Failed, FolderCache.listingFailure(DriveHttpException(404, "gone")))
+        assertEquals(FolderCache.Listing.Failed, FolderCache.listingFailure(DriveHttpException(403, "no")))
+        assertEquals(FolderCache.Listing.Failed, FolderCache.listingFailure(IllegalStateException("x")))
+    }
+
+    @Test fun aSignInGoogleEndedNeverListsWithTheScreensOldToken() {
+        // Renewed: the fresh token.
+        assertEquals("fresh", FolderCache.listingToken(GoogleAuth.TokenResult.Ok("fresh"), "old"))
+        // Couldn't renew (offline), or Google refused the keys: the screen's token may have a while left yet.
+        assertEquals("old", FolderCache.listingToken(GoogleAuth.TokenResult.Offline(java.io.IOException()), "old"))
+        assertEquals("old", FolderCache.listingToken(GoogleAuth.TokenResult.Rejected("keys"), "old"))
+        // Google ended the sign-in: its old token is refused (a 401 that would read as "offline" for ever).
+        assertNull(FolderCache.listingToken(GoogleAuth.TokenResult.SignedOut, "old"))
+        assertNull(FolderCache.listingToken(GoogleAuth.TokenResult.Offline(java.io.IOException()), null))
     }
 
     @Test fun folderIdsAreSafeFileNames() {
