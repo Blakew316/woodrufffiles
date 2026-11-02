@@ -24,6 +24,21 @@ class HealthWordsTest {
         assertEquals(trace, scrubbed(trace))
     }
 
+    @Test fun ipv6AddressesAreTakenOutToo() {
+        // How Android names both ends of a connection that failed: on most home networks the TV's own end is the
+        // home's public IPv6 address. (Addresses from the range kept for examples.)
+        assertEquals(
+            "java.net.SocketTimeoutException: failed to connect to www.googleapis.com/… (port 443) from /… (port 41234) after 10000ms",
+            scrubbed("java.net.SocketTimeoutException: failed to connect to www.googleapis.com/2001:db8:4004:c07::5f (port 443) " +
+                "from /2001:db8:a1b2:5e10:8c3d:2f4e:9a01:5 (port 41234) after 10000ms"),
+        )
+        assertEquals("to … and […]:8080 via …", scrubbed("to fe80::1c2d:3e4f:5a6b:7c8d%wlan0 and [2001:db8::1]:8080 via ::1"))
+        assertEquals("from /::ffff:…", scrubbed("from /::ffff:192.168.1.20"))
+        // Times, lines and versions stay.
+        val trace = "Nov 1, 9:41 PM · 21:30:05\n\tat a.b.C.d(Foo.kt:123)\n\tat kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)\nVersion 2.0.171"
+        assertEquals(trace, scrubbed(trace))
+    }
+
     @Test fun howLongAgo() {
         val c = clock()
         assertEquals("just now", c.ago(now - 30_000))
