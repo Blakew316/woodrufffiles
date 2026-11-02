@@ -48,6 +48,12 @@ class MainActivity : ComponentActivity() {
     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The TV's app row opening Woodruff while it's already open, when Android started a second
+        // main window on top of it (MainIntents): close it, so what was there shows, as it was.
+        if (MainIntents.isRepeatLaunch(isTaskRoot, intent)) {
+            finish()
+            return
+        }
         hasAccess = Permissions.hasStorageAccess(this)
         ThemeSetting.load(this)
         Notices.load(this)
@@ -56,6 +62,11 @@ class MainActivity : ComponentActivity() {
         handleOpen(intent)
         // The app's motion plays at its own speed, even on a TV with Android's animations turned off.
         window.decorView.useAppMotion(lifecycle)
+        // Android 9–11: Back at Home's side menu (the last level) puts Woodruff in the background, as
+        // Android 12 and later do, instead of closing it: reopening it is then instant, every screen
+        // and both libraries as they were. Added before the screens' own Back handlers, so it's
+        // the last in line: only a Back nothing else wanted reaches it.
+        if (MainIntents.backKeepsTask(android.os.Build.VERSION.SDK_INT)) onBackPressedDispatcher.addCallback(MainIntents.keepTaskOnBack(this))
         setContent {
             TvExplorerTheme {
                 // No background here: AppRoot's backdrop and the permission screen paint the whole screen.
@@ -81,7 +92,11 @@ class MainActivity : ComponentActivity() {
         }
         // Media broadcasts come from the system, so the receiver doesn't need to be exported.
         ContextCompat.registerReceiver(this, mediaReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        listening = true
     }
+
+    /** The media receiver is registered (not when a repeat launch closed this window in onCreate). */
+    private var listening = false
 
     override fun onStart() {
         super.onStart()
@@ -171,7 +186,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        unregisterReceiver(mediaReceiver)
+        if (listening) unregisterReceiver(mediaReceiver)
         super.onDestroy()
     }
 

@@ -4,11 +4,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
-import com.woodruff.tvexplorer.MainActivity
 import com.woodruff.tvexplorer.R
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,8 +122,9 @@ object Notices {
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "Messages and mail", NotificationManager.IMPORTANCE_HIGH))
         }
+        // The open main window, at Notifications (whatever was over it closes), never a second one.
         val open = PendingIntent.getActivity(
-            context, 2, Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN, "notifications"),
+            context, 2, com.woodruff.tvexplorer.MainIntents.open(context, "notifications"),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notif = NotificationCompat.Builder(context, CHANNEL)

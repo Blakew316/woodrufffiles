@@ -149,7 +149,8 @@ class TransferService : Service() {
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "Phone connection", NotificationManager.IMPORTANCE_MIN))
         }
-        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        // Woodruff as it was, as the TV's app row opens it.
+        val open = PendingIntent.getActivity(this, 0, com.woodruff.tvexplorer.MainIntents.resume(this), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, TransferService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(this)
         return builder

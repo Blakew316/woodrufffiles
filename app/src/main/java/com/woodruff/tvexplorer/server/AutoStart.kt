@@ -26,7 +26,7 @@ class BootReceiver : BroadcastReceiver() {
         // when Woodruff may draw over other apps, which the pop-up notifications already ask for.)
         if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED && com.woodruff.tvexplorer.update.Updater.takeReopen(context)) {
             runCatching {
-                context.startActivity(Intent(context, com.woodruff.tvexplorer.MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                context.startActivity(com.woodruff.tvexplorer.MainIntents.resume(context))
             }.onFailure { Log.w("BootReceiver", "couldn't reopen after the update", it) }
         }
         if (!AutoStart.enabled(context)) return

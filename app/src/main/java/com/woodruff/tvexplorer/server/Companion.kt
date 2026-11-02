@@ -237,10 +237,9 @@ class CompanionRoutes(private val ctx: Context) {
                 ctx.getSystemService(android.media.AudioManager::class.java)
                     ?.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, volume, android.media.AudioManager.FLAG_SHOW_UI)
             } else if (key == "home") {
-                // Brings Woodruff Family up on its Home screen (from another app too, if allowed).
-                launch(Intent(ctx, com.woodruff.tvexplorer.MainActivity::class.java)
-                    .putExtra(com.woodruff.tvexplorer.MainActivity.EXTRA_OPEN, "home")
-                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+                // Brings Woodruff Family up on its Home screen (from another app too, if allowed): the
+                // open main window, whatever was over it closing, never a second one.
+                launch(com.woodruff.tvexplorer.MainIntents.open(ctx, "home"))
             } else if (key in Handoff.REMOTE_APPS) {
                 // The phone remote's Netflix and YouTube buttons.
                 openApp(Handoff.REMOTE_APPS.getValue(key))

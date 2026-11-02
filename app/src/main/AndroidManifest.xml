@@ -40,11 +40,14 @@
         android:theme="@style/Theme.TVExplorer"
         android:usesCleartextTraffic="true">
 
+        <!-- singleTop, not singleTask: opening Woodruff from the TV's app row brings it back as it was
+             (a paused film stays open over its screen) instead of closing everything above this window.
+             Woodruff's own intents for it keep the app row's identity: see MainIntents. -->
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
