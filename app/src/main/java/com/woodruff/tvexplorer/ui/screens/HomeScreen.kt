@@ -171,10 +171,16 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Coming back from the player: pick up the position it just saved (and a fresh token for the
     // Google-hosted posters: the one from start-up lasts an hour), and what the other TVs watched.
     // And today's calendar, if it's been a while (the TV woken in the morning: today's, not last night's).
-    // And Recently added: what's new is worked out again (an episode just watched isn't).
+    // And Recently added: what's new is worked out again (an episode just watched isn't), and libraries
+    // last listed a while ago are listed again behind the screen.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context); TodayCalendar.refreshSoon()
-        drive.recheckNew()
+        drive.recheckNew(); drive.homeShown()
+    }
+    // A TV left on Home for hours: Recently added still catches up now and then (only while Home is up).
+    LifecycleStartEffect(Unit) {
+        val checking = scope.launch { while (true) { delay(com.woodruff.tvexplorer.cloud.HOME_RECHECK_MS); drive.homeShown() } }
+        onStopOrDispose { checking.cancel() }
     }
     // Another TV's progress merged in while Home is up: show it.
     val syncSeen = remember { FamilySync.updates.value }

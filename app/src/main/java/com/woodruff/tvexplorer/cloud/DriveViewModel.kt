@@ -571,6 +571,18 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Home is on show: a library last listed more than [FRESH_MS] ago is listed again in the background,
+     * so Recently added catches up (a TV left on Home for days never showed new titles until Streaming was
+     * opened). Nothing on screen changes until the fresh listing is in. Already under way (or waiting for
+     * the network to come back): left to finish.
+     */
+    fun homeShown() {
+        if (!_state.value.connected || prefetchJob?.isActive == true) return
+        if (!anyStale(LIBRARIES.map { listedAt[it] }, System.currentTimeMillis())) return
+        prefetchLibraries()
+    }
+
     /** [place]'s listing as last loaded (Movies or TV Shows; null before it's loaded), for a title page's "More like this". */
     fun libraryFiles(place: DrivePlace): List<DriveFile>? = cache[place]
 
@@ -1173,6 +1185,9 @@ private val LIBRARIES = listOf(DrivePlace.Movies, DrivePlace.TvShows)
 
 /** Entries [DriveViewModel.recentlyAdded] holds: Home shows about half (after what's in progress), the phone up to 20. */
 internal const val RECENT_COUNT = 20
+
+/** While Home stays on screen, how often it looks whether the libraries need listing again ([DriveViewModel.homeShown]). */
+internal const val HOME_RECHECK_MS = 60 * 60_000L
 
 /**
  * [Library.showMatchKey] of the libraries' names and of what's in progress, worked out on a

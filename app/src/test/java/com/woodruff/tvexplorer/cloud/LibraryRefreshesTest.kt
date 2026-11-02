@@ -133,4 +133,13 @@ class LibraryRefreshesTest {
         // The TV's clock went back (set after a power cut): stale, not fresh for ever.
         assertFalse(isFresh(listed, listed - 60_000))
     }
+
+    @Test fun homeComingBackListsTheLibrariesOnlyOnceOneIsStale() {
+        val now = 1_000_000_000L
+        assertFalse(anyStale(listOf(now - 60_000, now - FRESH_MS + 1), now))
+        // One listed over five minutes ago (a TV left on Home), or one never listed this run.
+        assertTrue(anyStale(listOf(now - 60_000, now - FRESH_MS), now))
+        assertTrue(anyStale(listOf(now - 60_000, null), now))
+        assertFalse(anyStale(emptyList(), now))
+    }
 }
