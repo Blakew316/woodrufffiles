@@ -10,7 +10,7 @@ for old in glob.glob(os.path.join(img_dir, '*.webp')):
     os.remove(old)
 
 TITLES = {
-    'home': 'Home', 'home-menu': 'Home · menu open', 'home-notice': 'Home · a notice', 'movies': 'Movies (sample posters)', 'tv-shows': 'TV Shows (sample posters)', 'command-center': 'Command center', 'google-drive': 'Google Drive', 'mail': 'Mail',
+    'home': 'Home', 'home-menu': 'Home · menu open', 'home-notice': 'Home · a notice', 'movies': 'Movies (sample posters)', 'tv-shows': 'TV Shows (sample posters)', 'command-center': 'Command Center', 'google-drive': 'Google Drive', 'mail': 'Mail',
     'notifications': 'Notifications', 'notes': 'Notes', 'apps': 'Apps', 'phone': 'Phone connection',
     'settings': 'Settings', 'files': 'Send › Photos & Files', 'tv': 'TV', 'remote': 'Remote', 'keyboard': 'Keyboard', 'send': 'Send',
     'files-scrolled': 'Send › Photos & Files · scrolled', 'files-actions': 'File actions', 'memories': 'Family Memories', 'memories-photo': 'Family Memories › a photo',
@@ -21,7 +21,7 @@ TITLES = {
     'tv-shows-back-online': 'TV Shows · back online', 'movies-offline-empty': 'Movies · offline, nothing saved',
     'tv-shows-trying': 'TV Shows · can’t reach Google, trying again', 'movies-keys': 'Movies · keys not accepted',
     'drive-signin-again': 'Google Drive · sign in again', 'home-offline': 'Home · offline',
-    'command-center-offline': 'Command center · offline', 'home-signin-notice': 'Home · sign-in ended notice',
+    'command-center-offline': 'Command Center · offline', 'home-signin-notice': 'Home · sign-in ended notice',
     'movies-truncated': 'Movies · very large library', 'settings-accounts-ended': 'Settings › Accounts · sign-ins ended',
     'movies-back-to-top': 'Movies · Back from deep in the rows: the banner’s Play',
     'movies-grid-back-to-top': 'Movies › All · Back from deep in the grid: the first poster',
@@ -35,7 +35,7 @@ TITLES = {
     'recovery': 'Recovery screen', 'recovery-ready': 'Recovery screen · fix ready',
     'recovery-details': 'Recovery screen · what happened',
     'home-person-notice': 'Home · person seen', 'home-cameras': 'Home · camera states',
-    'command-center-cameras': 'Command center · camera states',
+    'command-center-cameras': 'Command Center · camera states',
     'doorbell-ring-home': 'Doorbell · from Home', 'doorbell-slideshow': 'Doorbell · over the slideshow',
     'doorbell-connecting': 'Doorbell · connecting', 'doorbell-reconnecting': 'Doorbell · reconnecting',
     'doorbell-offline': 'Doorbell · offline',

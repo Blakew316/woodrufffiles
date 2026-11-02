@@ -193,7 +193,7 @@ fun CommandCenterScreen(vm: MainViewModel) {
             // it (the same weights and gap as the row below).
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 Column(Modifier.weight(2.2f)) {
-                    Text("Command center", style = MaterialTheme.typography.headlineLarge)
+                    Text("Command Center", style = MaterialTheme.typography.headlineLarge)
                     // Offline: a calm line under the title (never red: the cameras come back by themselves),
                     // in the room the 64 dp tiles beside the title leave under it. It takes no height, so the
                     // cameras don't move when it comes and goes, and their bottom row stays on screen.
