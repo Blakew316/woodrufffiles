@@ -77,6 +77,7 @@ import com.woodruff.tvexplorer.ui.motion.posterRowState
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -196,6 +197,9 @@ internal fun LibraryRows(
                             }
                         },
                         onDetails = onChoose,
+                        // It moves on only while it's wholly on screen: the list at its very top.
+                        inView = { list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0 },
+                        onShowing = { f -> onFocusArt(posterArt(f)) },
                     )
                 }
             }
@@ -355,7 +359,7 @@ private fun heroRequest(context: Context, f: DriveFile, token: String?): ImageRe
 
 /**
  * The featured titles, Apple TV style: one at a time across the top — its wide art in a rounded
- * frame, name, year and genres, synopsis — gliding to the next every 12 seconds, with dots for
+ * frame, name, year and genres, synopsis — gliding to the next after 12 calm seconds, with dots for
  * where it is among them. Only the picture and words cross-fade (each faded as it's drawn, see
  * [FadeBetween]); the shade over the picture stays put, and the Play and Details buttons stay put
  * (and keep the focus) and always act on the title showing.
@@ -366,21 +370,53 @@ private fun HeroCarousel(
     /** The title showing taking (true) or losing the focus with the banner: a folder's listing is fetched ahead. */
     onRest: (DriveFile, Boolean) -> Unit,
     onPlay: (DriveFile) -> Unit, onDetails: (DriveFile) -> Unit,
+    /** Whether the banner is wholly on screen (the list at its very top). Read as it changes, never while composing. */
+    inView: () -> Boolean = { true },
+    /** The title showing while the banner has the focus, once its fade is done: the backdrop follows it. */
+    onShowing: (DriveFile) -> Unit = {},
 ) {
     val context = LocalContext.current
     var index by remember(items) { mutableIntStateOf(0) }
     var focused by remember { mutableStateOf(false) }
     val latestToken by rememberUpdatedState(token)
+    val latestInView by rememberUpdatedState(inView)
     // Paused while a title's page, a menu or the filters cover it (they take the window's focus):
     // unseen, it went on loading and cross-fading art behind them.
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     LaunchedEffect(items, windowFocused) {
-        while (windowFocused && items.size > 1) {
-            kotlinx.coroutines.delay(10_000)
-            // The next title's picture, fetched a couple of seconds ahead, so it fades in whole.
-            heroRequest(context, items[(index + 1) % items.size], latestToken)?.let { coil.Coil.imageLoader(context).enqueue(it) }
-            kotlinx.coroutines.delay(2_000) // a calm pace: 12 s a title
-            index = (index + 1) % items.size
+        if (!windowFocused || items.size < 2) return@LaunchedEffect
+        // The next title comes 12 s after the latest of: its last move, the last key pressed, and the
+        // banner coming back fully into view (browsing-motion §3.2). So it never changes while keys
+        // come, never while it's even partly scrolled away, and a press can't land on a title that
+        // has just appeared. Starting (or coming back from a page over it) counts as a move.
+        val settle = com.woodruff.tvexplorer.ui.motion.BrowseSettle
+        val keys = com.woodruff.tvexplorer.ui.motion.KeyClock()
+        var moved = settle.uptime()
+        // When it last came wholly into view; null while it's even partly scrolled away.
+        var inViewSince: Long? = moved
+        var fetched = -1
+        launch {
+            androidx.compose.runtime.snapshotFlow { latestInView() }.collect { whole -> inViewSince = if (whole) settle.uptime() else null }
+        }
+        while (true) {
+            val next = (index + 1) % items.size
+            when (val step = settle.bannerStep(settle.uptime(), moved, keys.lastKey(), inViewSince, fetched = fetched == next)) {
+                com.woodruff.tvexplorer.ui.motion.BannerStep.Hidden -> {
+                    androidx.compose.runtime.snapshotFlow { latestInView() }.first { it }
+                    inViewSince = settle.uptime()
+                }
+                // Each wait ends where a key pressed meanwhile is seen, and the time worked out again.
+                is com.woodruff.tvexplorer.ui.motion.BannerStep.Wait -> kotlinx.coroutines.delay(step.ms)
+                // The next title's picture, fetched a couple of seconds ahead, so it fades in whole.
+                com.woodruff.tvexplorer.ui.motion.BannerStep.Fetch -> {
+                    heroRequest(context, items[next], latestToken)?.let { coil.Coil.imageLoader(context).enqueue(it) }
+                    fetched = next
+                }
+                com.woodruff.tvexplorer.ui.motion.BannerStep.Advance -> {
+                    index = next
+                    moved = settle.uptime()
+                }
+            }
         }
     }
     val current = items[index.coerceIn(0, items.lastIndex)]
@@ -390,16 +426,31 @@ private fun HeroCarousel(
         if (focused) onRest(current, true)
         onDispose { if (focused) onRest(current, false) }
     }
+    // ...and the backdrop behind the screen follows it, after the banner's own fade (two big fades
+    // at once are a lot for a TV's graphics chip). It waits for browsing to settle too.
+    LaunchedEffect(current, focused) {
+        if (!focused) return@LaunchedEffect
+        kotlinx.coroutines.delay(HERO_FADE_MS.toLong())
+        onShowing(current)
+    }
     Box(
         Modifier.fillMaxWidth().padding(horizontal = 18.dp).height(300.dp).clip(RoundedCornerShape(28.dp)).background(Color.Black)
             .onFocusChanged { focused = it.hasFocus },
     ) {
         val fade = remember { androidx.compose.animation.core.tween<Float>(700, easing = androidx.compose.animation.core.FastOutSlowInEasing) }
         FadeBetween(current, fade, label = "featured") { f ->
-            // The same request as the one fetched ahead, so it's a memory-cache hit.
-            val request = remember(f, token) { heroRequest(context, f, token) }
-            if (request != null) {
-                AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            val painter = LocalPosterPainter.current
+            if (painter != null) {
+                // The gallery: its sample art, drawn at once.
+                (Library.info(f).backdrop ?: posterArt(f))?.let(painter)?.let {
+                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+            } else {
+                // The same request as the one fetched ahead, so it's a memory-cache hit.
+                val request = remember(f, token) { heroRequest(context, f, token) }
+                if (request != null) {
+                    AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
             }
         }
         // The same shade under every title's words: drawn once, outside the fades.
@@ -432,6 +483,9 @@ private fun HeroCarousel(
         }
     }
 }
+
+/** How long the banner's picture and words cross-fade (its `fade`, DESIGN.md §4.2). */
+private const val HERO_FADE_MS = 700
 
 @Composable
 private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {

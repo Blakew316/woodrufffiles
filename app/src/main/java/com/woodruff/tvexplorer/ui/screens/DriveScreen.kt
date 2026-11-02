@@ -350,7 +350,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         isShows = state.stack.firstOrNull() == DrivePlace.TvShows,
                         canTakeFocus = { !headerFocused.value },
                         onChoose = choose, onPlay = onOpen, onMenu = { menuFor = it },
-                        onFocusArt = { focusedArt.value = it },
+                        // A title without art leaves the last picture behind (no fade to nothing).
+                        onFocusArt = { art -> if (art != null) focusedArt.value = art },
                         seen = seen, marks = marked, onRest = rest,
                     )
                 }
@@ -410,7 +411,8 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                                     .onFocusChanged {
                                         if (it.hasFocus) {
                                             driveFocus[placeKey] = f.id
-                                            if (library) { focusedArt.value = posterArt(f); if (!episodeGrid) prefetch(f.id) }
+                                            // A title without art leaves the last picture behind (no fade to nothing).
+                                            if (library) { posterArt(f)?.let { focusedArt.value = it }; if (!episodeGrid) prefetch(f.id) }
                                         }
                                         if (filterable) rest(f, it.hasFocus)
                                     }
@@ -739,22 +741,34 @@ private fun Modifier.fadeWithFocus(motion: FocusMotionState): Modifier = graphic
 /**
  * Behind Movies / TV Shows: the focused title's art, blown up and dimmed, so the posters float
  * over their own picture. The art is fetched tiny (48×72) and stretched, which makes it soft by
- * itself, without a full-screen blur effect that slow TV graphics chips stutter on. Changes
- * settle for a moment first, so fast scrolling doesn't keep swapping it.
+ * itself, without a full-screen blur effect that slow TV graphics chips stutter on. It changes only
+ * once browsing settles (BrowseSettle: no key for 750 ms), so moving across posters never starts its
+ * full-screen fade under the focus's own motion.
  */
 @Composable
 internal fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token: String?) {
     val context = LocalContext.current
     var shown by remember { mutableStateOf<String?>(null) }
     // Keyed by the State: each place has its own (keyed on Unit, it kept watching the first one and
-    // the backdrop froze after the first folder). collectLatest: it changes once the focus rests,
-    // not every 350 ms while you scroll (each change decodes and cross-fades a full-screen image).
+    // the backdrop froze after the first folder). collectLatest: each new title starts the wait again.
     LaunchedEffect(art) {
-        androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { kotlinx.coroutines.delay(350); shown = it }
+        // When the fade under way ends: a change never cuts one short or starts it again.
+        var fadeEnds = 0L
+        androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { next ->
+            // No key for 750 ms, and the same title all that time (each decode and cross-fade is a
+            // full-screen repaint, on the screen the graphics chip already struggles with).
+            com.woodruff.tvexplorer.ui.motion.BrowseSettle.awaitSettled()
+            val running = fadeEnds - com.woodruff.tvexplorer.ui.motion.BrowseSettle.uptime()
+            if (running > 0) kotlinx.coroutines.delay(running)
+            if (next != shown) {
+                shown = next
+                fadeEnds = com.woodruff.tvexplorer.ui.motion.BrowseSettle.uptime() + BACKDROP_FADE_MS
+            }
+        }
     }
     // Faded as each picture draws (FadeBetween): Crossfade drew both full-screen pictures into
     // offscreen buffers on every frame of the fade.
-    FadeBetween(shown, remember { tween<Float>(520, easing = androidx.compose.animation.core.FastOutSlowInEasing) }, label = "backdrop") { url ->
+    FadeBetween(shown, remember { tween<Float>(BACKDROP_FADE_MS.toInt(), easing = androidx.compose.animation.core.FastOutSlowInEasing) }, label = "backdrop") { url ->
         if (url != null) {
             val painter = LocalPosterPainter.current
             if (painter != null) painter(url)?.let {
@@ -772,6 +786,9 @@ internal fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token:
     // so only the picture fades, not a second veil.
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.background.copy(alpha = 0.92f), Palette.background.copy(alpha = 0.66f), Palette.background.copy(alpha = 0.88f)))))
 }
+
+/** The backdrop's cross-fade, FastOutSlowIn (DESIGN.md §4.2). */
+private const val BACKDROP_FADE_MS = 520L
 
 /**
  * Compose's Crossfade, with each side faded as it draws (ModulateAlpha) instead of through an
