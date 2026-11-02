@@ -46,13 +46,19 @@ object ListingCache {
      */
     fun savedAt(c: Context, place: DrivePlace): Long = runCatching { file(c, place)?.lastModified() ?: 0L }.getOrDefault(0L)
 
+    /**
+     * [place]'s saved listing; null when none is saved (or it can't be read). Only what a library shows
+     * ([DriveApi.isTitle]), as a fresh listing: a copy saved by 2.0.165 or older still holds the subtitle
+     * files, .nfo files and pictures beside the films, which would come back as blank films on Home, in
+     * Recently added and in search at the first launch after the update, until that library is listed again.
+     */
     // Synchronized: a listing that's still being saved (from a load that was since replaced) and the
     // next one would otherwise write the same temporary file at once.
     @Synchronized
     fun read(c: Context, place: DrivePlace): Saved? = runCatching {
         val f = file(c, place)?.takeIf { it.exists() } ?: return null
         val (files, cut) = JsonReader(f.bufferedReader()).use(::readListing)
-        Saved(files, f.lastModified(), cut)
+        Saved(files.filter(DriveApi::isTitle), f.lastModified(), cut)
     }.getOrNull()
 
     /**

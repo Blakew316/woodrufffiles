@@ -307,9 +307,10 @@ object DriveApi {
     /**
      * What a library (Movies, TV Shows, and the folders in them) shows: folders, and films and songs.
      * Not the files that come with them (subtitles, posters and other artwork, .nfo and the like),
-     * which used to show up as blank "films" in the grid, the rows and Recently added.
+     * which used to show up as blank "films" in the grid, the rows and Recently added. Also applied to
+     * the copies saved on the TV ([ListingCache.read]).
      */
-    private fun isTitle(f: DriveFile): Boolean =
+    internal fun isTitle(f: DriveFile): Boolean =
         f.isFolder || ((f.kind == FileKind.VIDEO || f.kind == FileKind.AUDIO) && !FileTypes.isSidecar(f.name))
 
     /** Drive thumbnails come at 220px ("=s220"); ask for a size that's sharp on a TV poster. */

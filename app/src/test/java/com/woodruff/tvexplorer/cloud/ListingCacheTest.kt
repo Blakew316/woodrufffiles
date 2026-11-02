@@ -35,7 +35,7 @@ class ListingCacheTest {
             created = 1_600_000_000_000,
         ),
         DriveFile("2xY", "Backyard Science", DriveFile.FOLDER_MIME, 0, 1_700_000_000_002, null, null, MediaInfo("Backyard Science", null), 0),
-        DriveFile("3zz", "notes.txt", "text/plain", 12, 3, null),
+        DriveFile("3zz", "Harbor Theme.mp3", "audio/mpeg", 12, 3, null),
     )
 
     @After fun clean() = ListingCache.clear(context)
@@ -162,6 +162,32 @@ class ListingCacheTest {
         assertEquals(fresh, NewEpisodes.fromJson(NewEpisodes.toJson(fresh)))
         assertEquals(emptyMap<String, List<FreshEpisode>>(), NewEpisodes.fromJson("{\"a\": [{\"n\": "))
         assertEquals(emptyMap<String, List<FreshEpisode>>(), NewEpisodes.fromJson(NewEpisodes.toJson(emptyMap())))
+    }
+
+    @Test fun aCopySavedByTheVersionBeforeShowsOnlyTitles() {
+        // 2.0.165 saved a library with the files beside its films (only poster pictures were taken out): written as it
+        // wrote them, with org.json, under the same names.
+        fun entry(id: String, name: String, mime: String) = JSONObject().put("id", id).put("n", name).put("m", mime).put("s", 1)
+            .put("t", 1_700_000_000_000).put("c", 1_700_000_000_000).put("th", "").put("p", "")
+        val movies = JSONArray()
+            .put(entry("f1", "Midnight Harbor (2024).mkv", "video/x-matroska"))
+            .put(entry("f2", "Midnight Harbor (2024).en.srt", "application/x-subrip"))
+            .put(entry("f3", "Midnight Harbor (2024).nfo", "application/octet-stream"))
+            .put(entry("f4", "Midnight Harbor (2024)-fanart.jpg", "image/jpeg"))
+            .put(entry("f5", "Backyard Science", DriveFile.FOLDER_MIME))
+            .put(entry("f6", "Harbor Theme.mp3", "audio/mpeg"))
+            .put(entry("f7", "Midnight Harbor (2024).idx", "video/x-idx"))
+            .put(entry("f8", "Read me.txt", "text/plain"))
+        val season = JSONArray()
+            .put(entry("e1", "Show.S01E01.mkv", "video/x-matroska"))
+            .put(entry("e2", "Show.S01E01.en.srt", "text/plain"))
+            .put(entry("e3", "Show.S01E02.mkv", "video/x-matroska"))
+        val dir = File(context.cacheDir, "listings").apply { mkdirs() }
+        File(dir, "named-Movies.json").writeText(movies.toString())
+        File(dir, "folder-s1.json").writeText(season.toString())
+        // Home's rows, Recently added and search start from these at the first launch: no blank films among them.
+        assertEquals(listOf("f1", "f5", "f6"), ListingCache.read(context, DrivePlace.Movies)!!.files.map { it.id })
+        assertEquals(listOf("e1", "e3"), ListingCache.read(context, DrivePlace.Folder("s1", "Season 1"))!!.files.map { it.id })
     }
 
     @Test fun onlyLibraryPlacesAreSaved() {
