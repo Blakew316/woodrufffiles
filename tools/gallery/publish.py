@@ -20,6 +20,8 @@ TITLES = {
     'movies-offline': 'Movies · offline (the saved library)', 'tv-shows-reconnecting': 'TV Shows · reconnecting', 'drive-offline': 'Movies · offline, nothing saved yet',
     'doorbell-slideshow': 'Doorbell · over the slideshow', 'doorbell-ring-home': 'Doorbell · from Home', 'doorbell-offline': 'Doorbell · offline',
     'home-person-notice': 'Home · person seen',
+    'home-cameras': 'Home · camera states', 'command-center-cameras': 'Command center · camera states',
+    'doorbell-connecting': 'Doorbell · connecting', 'doorbell-reconnecting': 'Doorbell · reconnecting',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -33,7 +35,7 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     im.save(os.path.join(img_dir, out), 'WEBP', quality=82, method=6)
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
-ORDER = ['home', 'home-menu', 'home-notice', 'home-person-notice', 'movies', 'tv-shows', 'movies-offline', 'tv-shows-reconnecting', 'drive-offline', 'command-center', 'doorbell-ring-home', 'doorbell-slideshow', 'doorbell-offline', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
+ORDER = ['home', 'home-menu', 'home-notice', 'home-person-notice', 'home-cameras', 'movies', 'tv-shows', 'movies-offline', 'tv-shows-reconnecting', 'drive-offline', 'command-center', 'command-center-cameras', 'doorbell-ring-home', 'doorbell-slideshow', 'doorbell-connecting', 'doorbell-reconnecting', 'doorbell-offline', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
          'player', 'player-menu', 'player-up-next', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])

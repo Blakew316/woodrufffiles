@@ -130,6 +130,8 @@ import kotlinx.coroutines.withContext
 internal object DashboardSamples {
     var tvs: List<TvStatus>? = null
     var cameras: List<String>? = null
+    /** The Command Center's cameras, in place of [Nest]'s. */
+    var nest: com.woodruff.tvexplorer.nest.NestState? = null
 }
 
 /**
@@ -688,7 +690,11 @@ private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     Panel("Cameras", modifier, note = if (count > 0) "$count" else null) {
         when {
             // Four at a glance in a 2×2 grid; the rest are in the Command center.
-            samples != null -> CameraGrid4(samples.take(4)) { _, name -> CameraTile(name, null, live = false, onClick = {}) }
+            samples != null -> CameraGrid4(samples.take(4)) { _, name ->
+                // The gallery's sample cameras: streaming as CameraSamples says (there's no WebRTC there).
+                val sample = CameraSamples.camera(name)
+                CameraTile(name, sample, live = sample != null, onClick = {})
+            }
             state.step == NestStep.CONNECTED && cams.isNotEmpty() -> CameraGrid4(shown) { i, cam ->
                 // Play live on their own, like the Command center.
                 key(cam.name) {
@@ -748,10 +754,18 @@ private fun <T> CameraGrid4(items: List<T>, tile: @Composable (Int, T) -> Unit) 
     }
 }
 
+/**
+ * A camera on Home: streaming when [live] (it's meant to), else its last picture or its symbol. Its
+ * name on a chip; LIVE only while the stream's frames come, never while it connects, reconnects or
+ * holds a picture that has stopped.
+ */
 @Composable
 private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?, live: Boolean, onFocus: (Boolean) -> Unit = {}, onClick: () -> Unit) {
     // Whether this tile has the focus, read only by its video (the focused tile plays smoothest).
     val focused = remember { mutableStateOf(false) }
+    // What its video shows (live frames, a held picture, or none), for the LIVE badge.
+    var picture by remember { mutableStateOf(CameraPicture.NONE) }
+    LaunchedEffect(live) { if (!live) picture = CameraPicture.NONE }
     TvCard(
         onClick = onClick,
         shape = Shapes.card,
@@ -765,7 +779,7 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
             val stills by CameraStills.stills.collectAsStateWithLifecycle()
             val still = cam?.let { stills[it.name] }
             val stillImage = remember(still) { still?.bitmap?.asImageBitmap() }
-            if (live && cam != null) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
+            if (live && cam != null) LiveVideo(cam, audio = false, fill = true, focused = { focused.value }, onPicture = { picture = it })
             else if (stillImage != null) Image(stillImage, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 TvIcon(Sym.Videocam, size = 28.dp, tint = Color.White.copy(alpha = 0.45f))
@@ -777,10 +791,9 @@ private fun CameraTile(label: String, cam: com.woodruff.tvexplorer.nest.Camera?,
                 modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(6.dp))
                     .background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 8.dp, vertical = 2.dp),
             )
-            if (live) Text(
-                "LIVE", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).clip(RoundedCornerShape(5.dp)).background(Color(0xFFE5484D)).padding(horizontal = 6.dp, vertical = 1.dp),
-            )
+            if (live && picture == CameraPicture.LIVE) {
+                com.woodruff.tvexplorer.ui.components.StatusBadge("LIVE", com.woodruff.tvexplorer.ui.components.BadgeKind.LIVE, Modifier.align(Alignment.TopEnd).padding(6.dp))
+            }
         }
     }
 }

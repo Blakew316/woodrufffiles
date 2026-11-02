@@ -2,6 +2,8 @@ package com.woodruff.tvexplorer.ui.screens
 
 import com.woodruff.tvexplorer.ui.icons.Sym
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.woodruff.tvexplorer.nest.CameraGl
 import com.woodruff.tvexplorer.nest.CameraStills
@@ -20,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -134,7 +137,9 @@ internal val cameraRequests = kotlinx.coroutines.flow.MutableSharedFlow<CameraRe
  */
 @Composable
 fun CommandCenterScreen(vm: MainViewModel) {
-    val state by Nest.state.collectAsStateWithLifecycle()
+    val live by Nest.state.collectAsStateWithLifecycle()
+    // The UI gallery's sample cameras (no network there), else the real ones.
+    val state = DashboardSamples.nest ?: live
     // Opened from a Home camera tile: go straight to that camera full screen.
     var full by remember { mutableStateOf(openCameraAt.also { openCameraAt = null }) }
     // The camera last shown full screen: back in the grid it takes the focus, not camera 1.
@@ -142,7 +147,7 @@ fun CommandCenterScreen(vm: MainViewModel) {
     var askProject by remember { mutableStateOf(false) }
     // A doorbell ring showed the camera full screen: rings from then on show their time on it.
     var ringsSince by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(Unit) { Nest.open() }
+    LaunchedEffect(Unit) { if (DashboardSamples.nest == null) Nest.open() }
     LaunchedEffect(Unit) { cameraRequests.collect { full = it.index; if (ringsSince == null) ringsSince = it.rangAt } }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
     BackHandler {
@@ -325,8 +330,8 @@ private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, o
     val times by com.woodruff.tvexplorer.nest.Doorbell.ringTimes.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clock = remember { android.text.format.DateFormat.getTimeFormat(context) }
-    // The picture's frames are coming (the scrim behind the words is only over a picture).
-    var live by remember { mutableStateOf(false) }
+    // A picture shows, live or held while it reconnects (the scrim behind the words is only over a picture).
+    var picture by remember { mutableStateOf(CameraPicture.NONE) }
     Box(
         Modifier
             .overWindow(LocalView.current)
@@ -356,7 +361,7 @@ private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, o
                 alpha = if (glide.live) 1f else 0f
                 compositingStrategy = CompositingStrategy.ModulateAlpha
             },
-        ) { LiveVideo(cam, audio = glide.live, onLive = { live = it }) }
+        ) { LiveVideo(cam, audio = glide.live, onPicture = { picture = it }) }
         // The page: black over the picture until it shows (then cleared), and the camera's name. It
         // grows into place as it fades in, as a screen does, and shrinks away going.
         Box(
@@ -376,7 +381,7 @@ private fun FullCamera(cams: List<Camera>, index: Int, glide: FullScreenGlide, o
                     .graphicsLayer { alpha = glide.cover.value.coerceIn(0f, 1f); compositingStrategy = CompositingStrategy.ModulateAlpha }
                     .background(Color.Black),
             )
-            if (live) CameraScrim(Modifier.align(Alignment.TopStart))
+            if (picture != CameraPicture.NONE) CameraScrim(Modifier.align(Alignment.TopStart))
             CameraCaption(
                 eyebrow = ringsSince?.let { since -> times[cam.name]?.takeIf { it >= since } }?.let { rangAt(it, clock) },
                 title = cam.label,
@@ -471,30 +476,67 @@ private fun Modifier.overWindow(window: View): Modifier = layout { measurable, c
  * or another app on top, the stream stops (it was decoding underneath) and resumes on return.
  * Views of the same camera share one stream, in this activity or another (the doorbell over a film).
  * [focused]: a tile has the focus, read only by its video (the focused tile plays smoothest).
+ * [onPicture]: what it shows (live frames, the last picture held while it reconnects, or none),
+ * for what its host draws around it (the doorbell's scrim, Home's LIVE badge).
  */
 @Composable
-internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false, focused: () -> Boolean = { true }, onLive: (Boolean) -> Unit = {}) {
+internal fun LiveVideo(cam: Camera, audio: Boolean, fill: Boolean = false, focused: () -> Boolean = { true }, onPicture: (CameraPicture) -> Unit = {}) {
+    // The UI gallery has no WebRTC: its sample views are drawn with the same words and veil.
+    val sample = CameraSamples.views?.get(cam.name)
+    if (sample != null) {
+        SampleVideo(sample, fill, onPicture)
+        return
+    }
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio, fill, focused, onLive)
+    if (lifecycle.isAtLeast(Lifecycle.State.STARTED)) LiveStream(cam, audio, fill, focused, onPicture)
     else {
         Placeholder("Paused")
-        LaunchedEffect(Unit) { onLive(false) }
+        LaunchedEffect(Unit) { onPicture(CameraPicture.NONE) }
     }
 }
 
-/** A video view, what it renders into, and how to take a frame from it, clear it and let it go. */
+/**
+ * A video view, what it renders into ([draws]), and how to take a frame from it, clear it ([wipe])
+ * and let it go. The stream's frames reach it through [sink], which notes whether it holds a picture.
+ */
 private class Renderer(
     val view: View,
-    val sink: VideoSink,
+    private val draws: VideoSink,
     val grab: (EglRenderer.FrameListener) -> Unit,
-    /** Another camera is coming into the view: the last one's picture goes. */
-    val clear: () -> Unit,
+    /** The view's picture goes (another camera is coming into it). */
+    private val wipe: () -> Unit,
     /** A tile's frame rate follows its focus. */
     val focus: (Boolean) -> Unit,
     val release: () -> Unit,
 ) {
     /** The camera it shows (read on the GL thread too, by a frame grab). */
     @Volatile var camera: String? = null
+
+    /** Whether the view holds a picture: it has been given a frame since it was made or last cleared. Main thread. */
+    val pictured = mutableStateOf(false)
+    /** Moved on by [clear], so word of a frame from before then changes nothing. */
+    @Volatile private var epoch = 0
+    /** A frame reached it since it was made or cleared (WebRTC's decoder thread). */
+    @Volatile private var seen = false
+    private val main = Handler(Looper.getMainLooper())
+
+    /** What the stream draws into (WebRTC's decoder thread): the view, noting its first frame. */
+    val sink = VideoSink { frame ->
+        if (!seen) {
+            seen = true
+            val e = epoch
+            main.post { if (epoch == e) pictured.value = true }
+        }
+        draws.onFrame(frame)
+    }
+
+    /** Another camera is coming into the view: the last one's picture goes now (main thread). */
+    fun clear() {
+        epoch++
+        seen = false
+        pictured.value = false
+        wipe()
+    }
 }
 
 /** A tile: the picture fills it and takes its rounded corners (a TextureView, on the tiles' shared GL thread). */
@@ -523,7 +565,7 @@ private fun fullRenderer(context: Context): Renderer {
     }
     return Renderer(
         s, sink, { l -> s.addFrameListener(l, 0.3f) },
-        clear = { sink.waiting = true; s.pauseVideo(); s.clearImage() },
+        wipe = { sink.waiting = true; s.pauseVideo(); s.clearImage() },
         focus = {},
         // Letting go waits for its GL thread to clean up: done in the background.
         release = { CameraGl.later { s.release() } },
@@ -538,9 +580,10 @@ private fun fullRenderer(context: Context): Renderer {
  * [fill]: a tile — the picture fills it and takes its rounded corners (a TextureView); otherwise
  * the whole frame is shown, letterboxed if need be (a SurfaceView, the cheapest to draw). The view
  * stays when [cam] changes (full screen's Left/Right): only the stream it shows is swapped.
+ * Over the picture, [CameraOverlay] says what the stream is doing: it's live only while frames come.
  */
 @Composable
-private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -> Boolean, onLive: (Boolean) -> Unit) {
+private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -> Boolean, onPicture: (CameraPicture) -> Unit) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val renderer = remember { if (fill) tileRenderer(context) else fullRenderer(context) }
@@ -584,9 +627,11 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -
     val stream = hold?.stream
     // Keyed by the stream: after a switch it's the new camera's state at once, not the last one's for a frame.
     val status = if (stream == null) CameraStream.Status.Connecting else key(stream) { stream.status.collectAsState().value }
-    // Whether frames are coming, for what's drawn over the picture (the doorbell's scrim).
-    val reportLive by rememberUpdatedState(onLive)
-    LaunchedEffect(status) { reportLive(status == CameraStream.Status.Live) }
+    // What the view shows, for its host: live only while the stream's frames come.
+    val held by renderer.pictured
+    val shows = cameraPicture(status, held)
+    val reportPicture by rememberUpdatedState(onPicture)
+    LaunchedEffect(shows) { reportPicture(shows) }
     // Keep a small recent frame of this camera for tiles that aren't streaming.
     LaunchedEffect(status, cam.name) {
         val name = cam.name
@@ -597,24 +642,36 @@ private fun LiveStream(cam: Camera, audio: Boolean, fill: Boolean, focused: () -
             delay(20_000)
         }
     }
+    // A tile with no picture of its own yet holds the camera's last one while it connects or reconnects.
+    val still = if (fill) {
+        val stills by CameraStills.stills.collectAsStateWithLifecycle()
+        val bmp = stills[cam.name]?.bitmap
+        remember(bmp) { bmp?.asImageBitmap() }
+    } else null
+    val long = rememberLongTrouble(com.woodruff.tvexplorer.nest.troubleSince(status))
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         // A tile's video in a layer of its own: each frame redraws just the video, not the tile's
         // label and frame around it.
         AndroidView(factory = { renderer.view }, modifier = if (fill) Modifier.fillMaxSize().graphicsLayer() else Modifier.fillMaxSize())
-        when (status) {
-            CameraStream.Status.Live -> Unit
-            CameraStream.Status.Connecting -> Placeholder("Connecting…")
-            is CameraStream.Status.Failed -> Placeholder(status.message + "\nRetrying…")
-        }
+        CameraOverlay(status, long, held, still, big = !fill)
     }
 }
 
+/**
+ * A camera's symbol and a few words in place of its picture, on the camera views' dark. Smaller in a
+ * short tile (Home's), and a little above its middle there, so the words clear the camera's name.
+ */
 @Composable
-private fun Placeholder(text: String) {
-    Box(Modifier.fillMaxSize().background(Color(0xFF0B0E13)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            TvIcon(Sym.Videocam, size = 36.dp, tint = Color.White.copy(alpha = 0.6f))
-            Text(text, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+internal fun Placeholder(text: String) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF0B0E13)), contentAlignment = Alignment.Center) {
+        val compact = maxHeight < 120.dp
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = if (compact) Modifier.padding(bottom = 22.dp) else Modifier) {
+            TvIcon(Sym.Videocam, size = if (compact) 22.dp else 36.dp, tint = Color.White.copy(alpha = 0.6f))
+            Text(
+                text, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = if (compact) 10.dp else 16.dp, vertical = if (compact) 2.dp else 6.dp),
+            )
         }
     }
 }

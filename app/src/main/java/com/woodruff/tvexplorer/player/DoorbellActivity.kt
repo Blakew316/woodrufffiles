@@ -15,7 +15,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,11 +35,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.nest.Doorbell
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestStep
@@ -49,7 +44,9 @@ import com.woodruff.tvexplorer.ui.motion.DpadGate
 import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.motion.useAppMotion
 import com.woodruff.tvexplorer.ui.screens.CameraCaption
+import com.woodruff.tvexplorer.ui.screens.CameraPicture
 import com.woodruff.tvexplorer.ui.screens.CameraScrim
+import com.woodruff.tvexplorer.ui.screens.CameraWords
 import com.woodruff.tvexplorer.ui.screens.LiveVideo
 import com.woodruff.tvexplorer.ui.screens.cameraHint
 import com.woodruff.tvexplorer.ui.screens.rangAt
@@ -220,7 +217,7 @@ class DoorbellActivity : ComponentActivity() {
                     cam == null -> "Connecting…"
                     else -> null
                 },
-            ) { onLive -> if (cam != null) key(cam.name) { LiveVideo(cam, audio = true, onLive = onLive) } }
+            ) { onPicture -> if (cam != null) key(cam.name) { LiveVideo(cam, audio = true, onPicture = onPicture) } }
             // Over everything, a layer of its own that fades: nothing is drawn again for it.
             if (cover != null) Box(
                 Modifier.matchParentSize()
@@ -265,24 +262,20 @@ internal fun backPhrase(origin: DoorbellActivity.Origin, backTo: String?): Strin
 internal fun autoCloses(origin: DoorbellActivity.Origin): Boolean = origin != DoorbellActivity.Origin.FILM
 
 /**
- * The doorbell view's page: the [picture] (it says when frames are live, through its argument) or
- * [message] in its place, and over it the caption, on the scrim while the picture is live. Always
- * dark (a camera view), in both themes.
+ * The doorbell view's page: the [picture] (it says what it shows, through its argument: live frames,
+ * the last picture held while it reconnects, or words) or [message] in its place, and over it the
+ * caption, on the scrim whenever there's a picture under it. Always dark (a camera view), in both themes.
  */
 @Composable
 internal fun DoorbellPage(
     eyebrow: String?, title: String, hint: String, message: String?,
-    picture: @Composable (onLive: (Boolean) -> Unit) -> Unit,
+    picture: @Composable (onPicture: (CameraPicture) -> Unit) -> Unit,
 ) {
-    var live by remember { mutableStateOf(false) }
-    LaunchedEffect(message) { if (message != null) live = false }
+    var shown by remember { mutableStateOf(CameraPicture.NONE) }
+    LaunchedEffect(message) { if (message != null) shown = CameraPicture.NONE }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (message == null) picture { live = it }
-        else Text(
-            message, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
-            modifier = Modifier.align(Alignment.Center).padding(32.dp),
-        )
-        if (live && message == null) CameraScrim(Modifier.align(Alignment.TopStart))
+        if (message == null) picture { shown = it } else CameraWords(message)
+        if (shown != CameraPicture.NONE && message == null) CameraScrim(Modifier.align(Alignment.TopStart))
         CameraCaption(eyebrow, title, hint, Modifier.align(Alignment.TopStart))
     }
 }
