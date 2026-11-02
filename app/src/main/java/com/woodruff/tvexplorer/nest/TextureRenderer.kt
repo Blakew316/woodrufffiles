@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.SurfaceTexture
 import android.opengl.EGL14
 import android.opengl.GLES20
+import android.os.SystemClock
 import android.util.Log
 import android.view.TextureView
 import android.view.View
@@ -26,16 +27,23 @@ import java.util.concurrent.Executors
  *
  * Each frame a TextureView shows redraws the app's window on the main thread, so a tile shows few:
  * 15 a second when it has the focus, 5 otherwise, and none just after a remote press (the picture
- * holds, so moving the focus gets the main thread). Its GL work runs on the tiles' shared GL thread
- * ([CameraGl]): nothing here waits for GL on the main thread.
+ * holds, so moving the focus gets the main thread). The tiles without the focus all draw on one
+ * shared beat ([BeatGate]), so their redraws tend to land together rather than each at its own
+ * moment. Its GL work runs on the tiles' shared GL thread ([CameraGl]): nothing here waits for GL
+ * on the main thread.
  */
 class TextureRenderer(context: Context) : TextureView(context), TextureView.SurfaceTextureListener, VideoSink {
     private val egl = EglRenderer("camera-tile")
     /** Let go of: set up after that (in the background), it would never be released. */
     @Volatile private var released = false
+    /** The tile has the focus: it plays smoothest, on the renderer's own clock. */
+    @Volatile private var focused = false
+    /** Without the focus, its frames go through on the beat every tile shares. */
+    private val beat = BeatGate()
 
     init {
-        egl.setFpsReduction(tileFps(focused = false))
+        // Without the focus to start with: the shared beat sets its pace, not the renderer.
+        egl.disableFpsReduction()
         surfaceTextureListener = this
         isFocusable = false
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -43,11 +51,15 @@ class TextureRenderer(context: Context) : TextureView(context), TextureView.Surf
         CameraGl.later { if (!released) CameraGl.attach(egl) }
     }
 
-    /** The tile with the focus plays smoothest; the others at a third of that. */
-    fun setFocused(focused: Boolean) = egl.setFpsReduction(tileFps(focused))
+    /** The tile with the focus plays smoothest; the others at a third of that, together on the shared beat. */
+    fun setFocused(focused: Boolean) {
+        this.focused = focused
+        if (focused) egl.setFpsReduction(tileFps(focused = true)) else egl.disableFpsReduction()
+    }
 
     override fun onFrame(frame: VideoFrame) {
         if (released || holdsPicture(System.currentTimeMillis(), AppVisibility.lastInput)) return
+        if (!focused && !beat.pass(SystemClock.uptimeMillis())) return
         egl.onFrame(frame)
     }
 
@@ -89,6 +101,29 @@ class TextureRenderer(context: Context) : TextureView(context), TextureView.Surf
 
 /** Frames a second a camera tile shows: each one redraws the window on the main thread. */
 internal fun tileFps(focused: Boolean): Float = if (focused) 15f else 5f
+
+/** The beat the tiles without the focus share: 5 a second, as [tileFps] says. */
+internal const val TILE_BEAT_MS = 200L
+
+/**
+ * Lets a tile's frames through on the beat all tiles share (the uptime clock in [beatMs] steps): the
+ * first frame in each beat, no other. Each tile limiting its frames on a clock of its own drew at
+ * moments unrelated to the others', so four tiles meant up to 20 separate redraws of the whole window
+ * a second; on one beat they land close together and mostly share a redraw (finding 32). It only ever
+ * lets fewer frames through, never delays one: no frame is held back, so nothing can show late or out
+ * of order. One decoder thread feeds a tile at a time.
+ */
+internal class BeatGate(private val beatMs: Long = TILE_BEAT_MS) {
+    @Volatile private var last = Long.MIN_VALUE
+
+    /** Whether the frame arriving at [uptimeMs] goes through. */
+    fun pass(uptimeMs: Long): Boolean {
+        val b = Math.floorDiv(uptimeMs, beatMs)
+        if (b == last) return false
+        last = b
+        return true
+    }
+}
 
 /** How long after a remote press the tiles hold their picture. */
 internal const val HOLD_AFTER_PRESS_MS = 350L
