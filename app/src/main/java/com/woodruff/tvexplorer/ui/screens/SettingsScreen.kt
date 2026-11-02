@@ -106,7 +106,7 @@ import com.woodruff.tvexplorer.ui.components.DialogFrame
 import com.woodruff.tvexplorer.ui.components.ButtonRow
 import com.woodruff.tvexplorer.ui.components.FadingText
 import androidx.tv.material3.OutlinedButton
-import androidx.tv.material3.Button
+import com.woodruff.tvexplorer.ui.components.TvButton
 import com.woodruff.tvexplorer.BuildConfig
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.Image
@@ -1338,7 +1338,7 @@ private fun ICloudDialog(onDismiss: () -> Unit, onStart: () -> Unit) {
         ).forEach { Text(it) }
         ButtonRow {
             OutlinedButton(onClick = onDismiss) { Text("Close") }
-            Button(onClick = onStart) { Text("Start") }
+            TvButton(onClick = onStart) { Text("Start") }
         }
     }
 }

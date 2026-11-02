@@ -77,7 +77,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
+import com.woodruff.tvexplorer.ui.components.TvButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
@@ -224,14 +224,14 @@ fun CommandCenterScreen(vm: MainViewModel) {
             when (state.step) {
                 NestStep.NEED_GOOGLE -> SetupText(
                     "Cameras use the same Google Cloud keys as Google Drive. Set those up first (Google Drive in the menu), then come back here.",
-                ) { Button(onClick = { vm.show(Screen.DRIVE) }) { Text("Set up Google keys") } }
+                ) { TvButton(onClick = { vm.show(Screen.DRIVE) }) { Text("Set up Google keys") } }
                 NestStep.NEED_PROJECT -> SetupText(
                     "One-time setup with Google Device Access:\n\n" +
                         "1.  In Google Cloud (the project you made for Drive) open APIs & Services → Library and enable \"Smart Device Management API\".\n" +
                         "2.  Go to console.nest.google.com/device-access, accept the terms and pay Google's one-time \$5 fee.\n" +
                         "3.  Create project: any name; for OAuth client ID paste the same Client ID you use for Drive; skip events.\n" +
                         "4.  Copy the Project ID it shows and enter it here (or in the phone's Settings tab).",
-                ) { Button(onClick = { askProject = true }) { Text("Enter Project ID") } }
+                ) { TvButton(onClick = { askProject = true }) { Text("Enter Project ID") } }
                 NestStep.SIGN_IN -> SignInPanel(state, ended)
                 NestStep.CONNECTED -> {
                     // Offline before any camera was listed: said calmly; they appear by themselves.

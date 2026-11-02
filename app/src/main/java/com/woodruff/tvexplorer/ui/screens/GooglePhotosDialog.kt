@@ -25,7 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
+import com.woodruff.tvexplorer.ui.components.TvButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
@@ -109,14 +109,14 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
         }
         ButtonRow {
             when (state.step) {
-                GooglePhotos.Step.NEED_GOOGLE -> Button(onClick = { onDismiss(); onSetUpGoogle() }, modifier = Modifier.focusRequester(focus)) { Text("Set up Google") }
+                GooglePhotos.Step.NEED_GOOGLE -> TvButton(onClick = { onDismiss(); onSetUpGoogle() }, modifier = Modifier.focusRequester(focus)) { Text("Set up Google") }
                 GooglePhotos.Step.PICKING -> if (onTv.items > 0) {
                     OutlinedButton(onClick = { GooglePhotos.setReplace(!replace) }) { Text(if (replace) "Add instead" else "Replace instead") }
                     OutlinedButton(onClick = { confirmRemove = true }) { Text("Remove all") }
                 }
                 GooglePhotos.Step.DONE -> {
                     OutlinedButton(onClick = { GooglePhotos.startPicking() }) { Text("Pick again") }
-                    if (onTv.photos > 0) Button(onClick = { onDismiss(); SlideshowActivity.start(context) }) { Text("Start slideshow") }
+                    if (onTv.photos > 0) TvButton(onClick = { onDismiss(); SlideshowActivity.start(context) }) { Text("Start slideshow") }
                 }
                 else -> Unit
             }

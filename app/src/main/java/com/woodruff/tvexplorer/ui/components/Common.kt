@@ -128,10 +128,31 @@ fun pressScale(scale: Float) = ClickableSurfaceDefaults.scale(focusedScale = 1f,
 fun buttonPressScale(scale: Float) = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f / scale)
 fun listItemPressScale(scale: Float) = ListItemDefaults.scale(focusedScale = 1f, pressedScale = 1f / scale, pressedSelectedScale = 1f / scale)
 
-/** tv-material's filled button, growing on focus in its layer ([growOnFocus]). Same look and press. */
+/**
+ * tv-material's filled button, growing on focus in its layer ([growOnFocus]), as the app's glass pill
+ * ([glassPillColors]). tv-material's own colours were the theme's brighter glass at 80 %: in the dark
+ * theme a pale grey pill with near-white words (1.3:1), blank until focused.
+ */
 @Composable
 fun TvButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) =
-    Button(onClick = onClick, modifier = modifier.growOnFocus(ButtonFocusScale), scale = buttonPressScale(ButtonFocusScale), content = content)
+    Button(
+        onClick = onClick, modifier = modifier.growOnFocus(ButtonFocusScale), scale = buttonPressScale(ButtonFocusScale),
+        border = glassPillBorder(), colors = glassPillColors(), content = content,
+    )
+
+/** A glass pill's colours: glass with the theme's words at rest; solid [Palette.text] with [Palette.background] words when focused, as on Apple TV. */
+@Composable
+private fun glassPillColors() = ButtonDefaults.colors(
+    containerColor = Palette.surfaceHigh,
+    contentColor = Palette.text,
+    focusedContainerColor = Palette.text,
+    focusedContentColor = Palette.background,
+)
+
+/** A glass pill's lit rim. */
+@Composable
+private fun glassPillBorder() =
+    ButtonDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = com.woodruff.tvexplorer.ui.theme.Shapes.pill))
 
 /** tv-material's outlined button, growing on focus in its layer ([growOnFocus]). Same look and press. */
 @Composable
@@ -149,13 +170,8 @@ fun ToolButton(icon: ImageVector, label: String?, onClick: () -> Unit, modifier:
         contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
         scale = buttonPressScale(1.06f),
         // Glass pill with the lit rim; white with dark content when focused, as on Apple TV.
-        border = ButtonDefaults.border(border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = com.woodruff.tvexplorer.ui.theme.Shapes.pill)),
-        colors = ButtonDefaults.colors(
-            containerColor = Palette.surfaceHigh,
-            contentColor = Palette.text,
-            focusedContainerColor = Palette.text,
-            focusedContentColor = Palette.background,
-        ),
+        border = glassPillBorder(),
+        colors = glassPillColors(),
     ) {
         TvIcon(icon, size = 20.dp)
         if (label != null) Text(label, modifier = Modifier.padding(start = 8.dp))
