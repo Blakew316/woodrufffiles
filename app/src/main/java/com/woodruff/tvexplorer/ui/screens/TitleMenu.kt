@@ -666,9 +666,16 @@ internal fun TitleMenu(target: MenuFor?, run: TitleRun, onClose: () -> Unit) {
         model = withTimeoutOrNull(MENU_WAIT_MS) { built.await() } ?: run.quick(t).also { built.cancel() }
     }
     val m = model ?: return
+    TitleMenuView(m, onClose) { run.run(m, it) }
+}
+
+/** [model] as the menu shows it: the frosted action menu, its title on one line, Remove in red. A row closes it, then [onRow]. */
+@Composable
+internal fun TitleMenuView(model: TitleMenuModel, onClose: () -> Unit, onRow: (TitleAction) -> Unit) {
+    // Play/Pause in the menu runs its first row, as it does on the title (title-access §4.2).
     ActionMenu(
-        title = m.title, subtitle = m.subtitle, titleMaxLines = 1, onDismiss = onClose,
-        actions = m.rows.map { a -> MenuAction(a.label(), a.icon(), destructive = a is TitleAction.Remove) { run.run(m, a) } },
+        title = model.title, subtitle = model.subtitle, titleMaxLines = 1, onDismiss = onClose, playsFirst = true,
+        actions = model.rows.map { a -> MenuAction(a.label(), a.icon(), destructive = a is TitleAction.Remove) { onRow(a) } },
     )
 }
 

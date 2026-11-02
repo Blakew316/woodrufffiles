@@ -51,10 +51,18 @@ fun FocusWhenReady(requester: androidx.compose.ui.focus.FocusRequester, key: Any
     androidx.compose.runtime.LaunchedEffect(requester, key) {
         repeat(10) {
             androidx.compose.runtime.withFrameNanos {}
-            if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (requester.tryFocus()) return@LaunchedEffect
         }
     }
 }
+
+/**
+ * Asks for the focus, saying whether it was given: false while nothing is attached to the requester yet
+ * (its item isn't composed, or its window not up), or it can't take the focus. A request like that doesn't
+ * throw any more; it does nothing, so checking for an exception said yes to every one of them.
+ */
+fun androidx.compose.ui.focus.FocusRequester.tryFocus(): Boolean =
+    runCatching { requestFocus(androidx.compose.ui.focus.FocusDirection.Enter) }.getOrDefault(false)
 
 /** Tinted vector icon; follows the surrounding content color (which flips when focused). */
 @Composable

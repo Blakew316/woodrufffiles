@@ -131,7 +131,6 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val state by drive.screen.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var menuFor by remember { mutableStateOf<DriveFile?>(null) }
-    var searching by remember { mutableStateOf(false) }
     // Back goes up a folder; at a library's top it brings up the sidebar, as on Apple TV.
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
     BackHandler { if (!drive.back()) openSidebar() }
@@ -299,7 +298,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                 // The library's top level: Movies / TV Shows, the search field and Filter (with everything else).
                 Box(Modifier.onFocusChanged { headerFocused.value = it.hasFocus }) {
                     LibraryHeader(
-                        state.place.title, state.files, filter, drive::setFilter, onSearch = { searching = true }, more = driveActions,
+                        // Search for both libraries, this one's titles first among equals; Back from it returns here.
+                        state.place.title, state.files, filter, drive::setFilter,
+                        onSearch = { SearchPages.open(SearchFrom.STREAMING, prefer = state.stack.first()) }, more = driveActions,
                         // Streaming: Movies / TV Shows across the top, Netflix style.
                         switcher = {
                             com.woodruff.tvexplorer.ui.components.TopTabs(
@@ -494,13 +495,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     }
     TitleMenu(titleMenu, run) { titleMenu = null }
 
-    if (searching) {
-        LibrarySearch(
-            state.place.title, state.files, token, newShows = if (state.stack.firstOrNull() == DrivePlace.TvShows) newShows else emptyMap(),
-            onOpen = { f -> searching = false; choose(f) }, onDismiss = { searching = false },
-        )
-    }
-    // Searching used to narrow the grid itself; it has its own screen now, so an old search left in
+    // Searching used to narrow the grid itself; it has its own page now (Search), so an old search left in
     // the saved filter would hide titles with nothing on screen saying why.
     LaunchedEffect(state.place, filter.query) { if (state.filterable && filter.query.isNotBlank()) drive.setFilter(filter.copy(query = "")) }
 
@@ -537,7 +532,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
 }
 
 /** Asks the image loader for [count] posters from [from] on, at the tiles' size (so they land in the memory cache). */
-private fun prefetchPosters(context: Context, files: List<DriveFile>, from: Int, count: Int, token: String?) {
+internal fun prefetchPosters(context: Context, files: List<DriveFile>, from: Int, count: Int, token: String?) {
     val loader = coil.Coil.imageLoader(context)
     for (i in from until minOf(files.size, from + count)) {
         val art = posterArt(files[i]) ?: continue
@@ -861,86 +856,6 @@ internal fun <T> FadeBetween(
                 val alpha by transition.animateFloat(transitionSpec = { animationSpec }, label = label) { if (it == state) 1f else 0f }
                 Box(Modifier.graphicsLayer { this.alpha = alpha; compositingStrategy = CompositingStrategy.ModulateAlpha }) {
                     content(state)
-                }
-            }
-        }
-    }
-}
-
-/**
- * Search, Apple TV style: its own full screen with a big search field at the top and the matching
- * posters below, updating with every letter (TV keyboard or the phone's Keyboard page). Down goes
- * from the field into the results; OK opens one; Back closes.
- */
-@Composable
-private fun LibrarySearch(
-    title: String, all: List<DriveFile>, token: String?,
-    /** The TV shows with new episodes: their results say what's new. */
-    newShows: Map<String, com.woodruff.tvexplorer.cloud.NewShow>,
-    onOpen: (DriveFile) -> Unit, onDismiss: () -> Unit,
-) {
-    var query by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
-    val field = remember { FocusRequester() }
-    // Narrowed on a background thread as you type (on the main thread, each letter held up a frame
-    // in a big library). What shows is the last search worked out: its words and what matched.
-    val found by produceState<Pair<String, List<DriveFile>>>("" to emptyList(), all, query.text) {
-        val q = query.text.trim()
-        val matches = if (q.isEmpty()) emptyList<DriveFile>()
-        else withContext(Dispatchers.Default) { Library.apply(all, com.woodruff.tvexplorer.cloud.LibraryFilter(query = q)) }
-        value = q to matches
-    }
-    val (searched, results) = found
-    val grid = rememberLazyGridState()
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        // Grows into place as it fades in, and back out, as the system moves its window (smooth even
-        // while the page is still being built), so the page doesn't ease in itself.
-        DialogWindowMotion(WindowMotion.Page)
-        com.woodruff.tvexplorer.ui.components.FocusWhenReady(field)
-        // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
-        Box(Modifier.fillMaxSize().dpadGate()) {
-            Box(Modifier.fillMaxSize().ambientBackdrop()) {
-                Column(Modifier.fillMaxSize().padding(start = 64.dp, end = 64.dp, top = 40.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TvIcon(Sym.Search, size = 34.dp, tint = Palette.muted)
-                        com.woodruff.tvexplorer.ui.components.RemoteTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            label = "Search $title",
-                            placeholder = "Search $title",
-                            onSubmit = {},
-                            modifier = Modifier.weight(1f).padding(start = 16.dp),
-                            textModifier = Modifier.focusRequester(field),
-                        )
-                    }
-                    Text(
-                        when {
-                            searched.isEmpty() -> "Type a title or a year. You can also type on your phone (Phone → Keyboard)."
-                            results.isEmpty() -> "Nothing in $title matches \u201c$searched\u201d"
-                            else -> "${results.size} result${if (results.size == 1) "" else "s"}"
-                        },
-                        color = Palette.muted, style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 14.dp, start = 4.dp),
-                    )
-                    // The focused row comes to rest where the first row sits, as in the library's grid.
-                    PivotScroll(grid, Pivot(offset = 30.dp)) {
-                        LazyVerticalGrid(
-                            state = grid,
-                            columns = GridCells.Adaptive(150.dp),
-                            contentPadding = PaddingValues(top = 30.dp, bottom = 56.dp, start = 18.dp, end = 18.dp),
-                            horizontalArrangement = Arrangement.spacedBy(30.dp),
-                            verticalArrangement = Arrangement.spacedBy(30.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            items(results, key = { it.id }) { f ->
-                                // Glides into place as the results change; no fades (each was drawn offscreen).
-                                PosterTile(
-                                    f, token, onClick = { onOpen(f) }, onLongClick = { onOpen(f) },
-                                    modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null), label = Library.label(f),
-                                    caption = newShows[f.id]?.takeIf { it.announced }?.caption, captionColor = ArtAccent,
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }

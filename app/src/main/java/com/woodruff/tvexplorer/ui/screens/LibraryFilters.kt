@@ -73,7 +73,7 @@ import java.util.Locale
  *   - Filter opens a panel on the right with everything else as plain lists: Overview, All or
  *     Unwatched, Sort, Genre and Decade (applied instantly, so the posters behind change as you
  *     go), then the Drive actions (Refresh, My Drive, Sign out…);
- *   - OK on the search field opens its own full screen (see LibrarySearch in DriveScreen.kt).
+ *   - OK on the search field opens Search, for both libraries (see SearchPage.kt).
  */
 
 /** The library's one row: Movies / TV Shows (or the title), the search field, and Filter. */

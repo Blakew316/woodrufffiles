@@ -55,11 +55,13 @@ internal fun libraryFieldStatus(status: DriveStatus, hasFiles: Boolean): FieldSt
 
 /**
  * The search field's hint: "Search your saved library" while what it searches is the copy saved on
- * the TV because a refresh didn't get through (until "Back online" has gone), else "Search Movies".
+ * the TV because a refresh didn't get through (until "Back online" has gone), else "Search Movies & TV
+ * Shows" (the field opens Search, which looks in both libraries, whichever [title] it's in).
  */
+@Suppress("UNUSED_PARAMETER")
 internal fun librarySearchHint(title: String, status: DriveStatus, hasFiles: Boolean): String =
     if (hasFiles && (status.said || status is DriveStatus.BackOnline || status is DriveStatus.Refused)) "Search your saved library"
-    else "Search $title"
+    else SEARCH_BOX
 
 /** A calm page Streaming shows in place of its posters. */
 internal sealed interface LibraryPage {
@@ -128,6 +130,29 @@ internal fun LibraryPagePanel(
 ) {
     val words = libraryPageWords(page, subject)
     val button = remember { FocusRequester() }
+    CalmPage(
+        words, modifier,
+        onAction = {
+            when (page) {
+                LibraryPage.Keys -> onOpenKeys()
+                is LibraryPage.Offline -> if (!page.trying) onTryAgain()
+            }
+        },
+        buttonModifier = Modifier.focusRequester(button).focusProperties { right = FocusRequester.Cancel; down = FocusRequester.Cancel },
+    )
+    LaunchedEffect(Unit) {
+        withFrameNanos {} // once the button is laid out
+        if (takeFocus()) runCatching { button.requestFocus() }
+    }
+}
+
+/**
+ * A calm page in place of a screen's content ([words]): a symbol, the headline, a line or three, and one
+ * button ([onAction]), in a centred column 520 dp wide. Streaming's offline and keys pages, and Search's
+ * pages for when Google Drive isn't ready, are this. [buttonModifier]: the button's focus handle and moves.
+ */
+@Composable
+internal fun CalmPage(words: PageWords, modifier: Modifier = Modifier, onAction: () -> Unit, buttonModifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(Modifier.width(520.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             TvIcon(words.icon, size = 56.dp, tint = Palette.muted)
@@ -140,21 +165,7 @@ internal fun LibraryPagePanel(
                 words.body, style = MaterialTheme.typography.bodyLarge.copy(lineBreak = LineBreak.Heading), color = Palette.muted,
                 textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp),
             )
-            RoundButton(
-                words.actionIcon, words.action,
-                onClick = {
-                    when (page) {
-                        LibraryPage.Keys -> onOpenKeys()
-                        is LibraryPage.Offline -> if (!page.trying) onTryAgain()
-                    }
-                },
-                modifier = Modifier.padding(top = 24.dp).focusRequester(button)
-                    .focusProperties { right = FocusRequester.Cancel; down = FocusRequester.Cancel },
-            )
+            RoundButton(words.actionIcon, words.action, onClick = onAction, modifier = Modifier.padding(top = 24.dp).then(buttonModifier))
         }
-    }
-    LaunchedEffect(Unit) {
-        withFrameNanos {} // once the button is laid out
-        if (takeFocus()) runCatching { button.requestFocus() }
     }
 }

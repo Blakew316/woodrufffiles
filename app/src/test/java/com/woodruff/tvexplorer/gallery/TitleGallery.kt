@@ -46,6 +46,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.github.takahirom.roborazzi.captureScreenRoboImage
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveStatus
@@ -61,6 +62,7 @@ import com.woodruff.tvexplorer.notes.Notes
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.nowplaying.Playing
+import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.tmdb.Tmdb
@@ -77,8 +79,13 @@ import com.woodruff.tvexplorer.ui.screens.LibraryHeader
 import com.woodruff.tvexplorer.ui.screens.LibraryRows
 import com.woodruff.tvexplorer.ui.screens.LocalPosterPainter
 import com.woodruff.tvexplorer.ui.screens.PosterBackdrop
+import com.woodruff.tvexplorer.ui.screens.MenuFor
+import com.woodruff.tvexplorer.ui.screens.MenuPlace
+import com.woodruff.tvexplorer.ui.screens.TitleFacts
+import com.woodruff.tvexplorer.ui.screens.TitleMenuView
 import com.woodruff.tvexplorer.ui.screens.TitlePage
 import com.woodruff.tvexplorer.ui.screens.TitleSamples
+import com.woodruff.tvexplorer.ui.screens.titleMenu
 import com.woodruff.tvexplorer.ui.screens.libraryFieldStatus
 import com.woodruff.tvexplorer.ui.screens.librarySearchHint
 import com.woodruff.tvexplorer.ui.screens.posterArt
@@ -304,10 +311,11 @@ class TitleGallery {
             compose.onNode(hasText("Midnight Harbor", substring = true) and hasClickAction()).requestFocus()
             settle()
             capture("tv-home-new-episodes", light)
-            // On the first of them (the row glides it to its leading edge): its name over the stronger scrim.
+            // On the first of them (the row glides it to its leading edge): its name over the stronger scrim, and the
+            // panel's eyebrow says RECENTLY ADDED (title-access §3.2).
             compose.onNode(hasText("Backyard Science", substring = true) and hasClickAction()).requestFocus()
             settle()
-            capture("tv-home-new-episodes-poster", light)
+            capture("tv-home-added", light)
         }
     }
 
@@ -352,6 +360,108 @@ class TitleGallery {
             settle()
             capture("tv-tv-shows-rows", l)
         }
+    }
+
+    /**
+     * The title menu (hold OK on a poster) for a film in progress, over Streaming's Movies: its title on one line,
+     * "45% watched", and Resume from 1h 05m / Start over / Watch together on all TVs / Mark as watched / Download
+     * to this TV. The menu is its own window, so the whole screen is captured.
+     */
+    @Test
+    fun drawTitleMenu() {
+        val films = sampleFilms()
+        val harbor = films[0]
+        val played = RecentItem("drive:${harbor.id}", harbor.name, 3_900_000, 8_640_000, now)
+        val model = titleMenu(
+            TitleFacts(
+                MenuFor(DrivePlace.Movies, harbor, MenuPlace.LIBRARY), harbor, DrivePlace.Movies, listOf(played), emptyMap(),
+                inside = null, listing = { null }, watched = { false }, news = null, now = now, linked = true,
+            ),
+        )
+        var theme by mutableStateOf(false)
+        compose.setContent {
+            TvExplorerTheme {
+                CompositionLocalProvider(LocalPosterPainter provides ::decode) {
+                    key(theme) {
+                        Box(Modifier.fillMaxSize().background(Palette.background).ambientBackdrop()) {
+                            PosterBackdrop(remember { mutableStateOf(posterArt(harbor)) }, null)
+                            Column(Modifier.fillMaxSize().padding(start = 40.dp, end = 40.dp, top = 18.dp)) {
+                                LibraryHeader(
+                                    "Movies", films, LibraryFilter(overview = true), onChange = {}, onSearch = {},
+                                    switcher = { TopTabs(listOf("Movies", "TV Shows"), selected = 0, onSelect = {}) },
+                                    hint = librarySearchHint("Movies", DriveStatus.Online, true),
+                                    status = libraryFieldStatus(DriveStatus.Online, true), cutAt = 0,
+                                )
+                                Box(Modifier.fillMaxSize()) {
+                                    LibraryRows(
+                                        films, null, placeKey = "title-menu-$theme", isShows = false, canTakeFocus = { false },
+                                        onChoose = {}, onPlay = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
+                                    )
+                                }
+                            }
+                        }
+                        TitleMenuView(model, onClose = {}, onRow = {})
+                    }
+                }
+            }
+        }
+        for (l in listOf(false, true)) {
+            compose.runOnIdle { Palette.light = l; theme = l }
+            settle()
+            captureScreenRoboImage(File(out, "tv-title-menu-${if (l) "light" else "dark"}.png").path)
+        }
+    }
+
+    /** A film's title page as Home opens it: its backdrop, Resume from 1h 05m and Start over, when it would end, More like this. */
+    @Test
+    fun drawFilmPage() {
+        FamilySync.setEnabled(app, false)
+        val films = sampleFilms()
+        val harbor = films[0]
+        RecentStore(app).save("drive:${harbor.id}", harbor.name, 3_900_000, 8_640_000)
+        TitleSamples.details = Tmdb.Details(runtime = 144, ageRating = "PG-13", cast = listOf("Mara Quinn", "Theo Vance", "Ines Park", "Sol Reyes"))
+        var theme by mutableStateOf(false)
+        compose.setContent {
+            TvExplorerTheme {
+                CompositionLocalProvider(LocalPosterPainter provides ::decode) {
+                    key(theme) {
+                        Box(Modifier.fillMaxSize().background(Color.Black)) {
+                            TitlePage(
+                                harbor, posterArt(harbor), null, films, isShow = false, artHeaders = { emptyMap() },
+                                onPlay = {}, onPlayEpisode = { _, _, _ -> }, onPlayKey = { _, _ -> }, openLabel = "Open",
+                                onOpen = {}, onChoose = {},
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        for (l in listOf(false, true)) {
+            compose.runOnIdle { Palette.light = l; theme = l }
+            settle()
+            capture("tv-title-film", l)
+        }
+    }
+
+    /** Sample films: Midnight Harbor first (with its backdrop and synopsis), then others sharing its genres. */
+    private fun sampleFilms(): List<DriveFile> {
+        fun film(id: String, title: String, year: Int, poster: String, genres: List<String>, rating: Double, overview: String? = null, backdrop: String? = null) = DriveFile(
+            id, "$title ($year).mkv", "video/x-matroska", 0, 0, null, art(poster),
+            MediaInfo(title, year, genres, rating, overview, backdrop, tmdbId = id.hashCode() and 0xffff),
+            created = now - 30 * day,
+        )
+        return listOf(
+            film(
+                "m1", "Midnight Harbor", 2024, "m_midnight_harbor", listOf("Thriller", "Drama"), 7.8,
+                "A harbour pilot takes one last night shift, and the ship she guides in isn’t carrying what its papers say.",
+                picture("backdrop-harbor", 1280, 720, ::harbor),
+            ),
+            film("m2", "The Last Light", 2023, "m_last_light", listOf("Drama"), 7.1),
+            film("m3", "Neon Alley", 2024, "m_neon_alley", listOf("Thriller", "Crime"), 6.9),
+            film("m4", "Ironwood", 2025, "m_ironwood", listOf("Drama", "Western"), 7.4),
+            film("m5", "Orbit", 2021, "m_orbit", listOf("Sci-Fi", "Thriller"), 7.6),
+            film("m6", "Paper Planes", 2022, "m_paper_planes", listOf("Family", "Comedy"), 7.0),
+        )
     }
 
     /**
@@ -555,6 +665,23 @@ class TitleGallery {
         p.color = 0xFFF4EBC8.toInt(); c.drawCircle(w * 0.78f, h * 0.22f, h * 0.08f, p)
         p.color = 0xFF151D2B.toInt(); c.drawRect(0f, h * 0.8f, w.toFloat(), h.toFloat(), p)
         for (x in 0 until w step (w / 20)) c.drawRect(x.toFloat(), h * 0.72f, x + w / 50f, h.toFloat(), p)
+    }
+
+    /** A harbour at dusk: a deep sky, the sea, a pier and its lights. */
+    private fun harbor(c: Canvas, p: Paint, w: Int, h: Int) {
+        c.gradient(p, 0f, 0f, w.toFloat(), h * 0.55f, 0xFF0E1B33.toInt(), 0xFF3B4E78.toInt())
+        c.gradient(p, 0f, h * 0.55f, w.toFloat(), h.toFloat(), 0xFF162A45.toInt(), 0xFF070D18.toInt())
+        p.color = 0xFF0A0F18.toInt()
+        c.drawRect(w * 0.55f, h * 0.5f, w.toFloat(), h * 0.57f, p)
+        for (i in 0 until 8) c.drawRect(w * (0.58f + i * 0.05f), h * 0.57f, w * (0.59f + i * 0.05f), h * 0.7f, p)
+        for (i in 0 until 8) {
+            p.color = 0xCCFFD58A.toInt()
+            c.drawCircle(w * (0.585f + i * 0.05f), h * 0.49f, h * 0.008f, p)
+            p.color = 0x33FFD58A
+            c.drawRect(w * (0.58f + i * 0.05f), h * 0.58f, w * (0.59f + i * 0.05f), h * 0.9f, p)
+        }
+        p.color = 0xCCFFFFFF.toInt()
+        for (i in 0 until 40) c.drawCircle((i * 89 % w).toFloat(), (i * 47 % (h * 0.4f).toInt()).toFloat(), 1.4f, p)
     }
 
     /** A warm kitchen: counter, pans and window light. */

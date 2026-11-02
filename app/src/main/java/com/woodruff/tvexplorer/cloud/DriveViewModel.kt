@@ -603,10 +603,6 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     fun libraries(): Map<DrivePlace, List<DriveFile>> =
         LinkedHashMap<DrivePlace, List<DriveFile>>().apply { for (place in LIBRARIES) cache[place]?.let { put(place, it) } }
 
-    /** The voice search's titles for [query], best first ([TitleSearch]); twelve at most. */
-    fun searchLibraries(query: String): List<Pair<DrivePlace, DriveFile>> =
-        TitleSearch.find(query, libraries(), limit = 12).hits.map { it.place to it.file }
-
     // Videos found not to sit under any Movies / TV Shows entry (asked again next launch).
     private val unplaced = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     private var placing: Job? = null

@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextRange
@@ -103,9 +104,10 @@ data class MenuAction(val label: String, val icon: ImageVector, val destructive:
  * The long-press / menu-key action list for a file or app. First entry gets focus. Its highlight
  * glides from action to action (a [FocusPlatter] in the list colours tv-material's ListItem had).
  * [titleMaxLines]: a title menu keeps its title to one line, so six rows still fit the screen.
+ * [playsFirst]: Play/Pause runs the first row (a title menu's: it plays the title), as OK on it would.
  */
 @Composable
-fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDismiss: () -> Unit, titleMaxLines: Int = 2) {
+fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDismiss: () -> Unit, titleMaxLines: Int = 2, playsFirst: Boolean = false) {
     val first = remember { FocusRequester() }
     val platter = rememberFocusPlatter()
     val scheme = MaterialTheme.colorScheme
@@ -114,7 +116,15 @@ fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDi
         // Room above the first row and below the last: a focused row grows past them, and the
         // list clips there.
         LazyColumn(
-            Modifier.focusPlatterHost(platter, ListRowShape, scheme.inverseSurface),
+            Modifier.focusPlatterHost(platter, ListRowShape, scheme.inverseSurface).then(
+                if (!playsFirst || actions.isEmpty()) Modifier
+                else Modifier.onKeyEvent { e ->
+                    val code = e.nativeKeyEvent.keyCode
+                    if (code != android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && code != android.view.KeyEvent.KEYCODE_MEDIA_PLAY) return@onKeyEvent false
+                    if (e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_UP) { onDismiss(); actions.first().run() }
+                    true
+                },
+            ),
             contentPadding = PaddingValues(vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {

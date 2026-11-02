@@ -57,13 +57,14 @@ class OfflineWordsTest {
     }
 
     @Test fun theHintSaysWhatIsSearched() {
-        assertEquals("Search Movies", librarySearchHint("Movies", DriveStatus.Online, hasFiles = true))
+        // The field opens Search, which looks in both libraries, from either.
+        assertEquals("Search Movies & TV Shows", librarySearchHint("Movies", DriveStatus.Online, hasFiles = true))
         assertEquals("Search your saved library", librarySearchHint("Movies", offline, hasFiles = true))
         assertEquals("Search your saved library", librarySearchHint("TV Shows", DriveStatus.Reconnecting(unreachable), hasFiles = true))
         // "Back online" for its 2 s, then the hint returns with the words gone.
         assertEquals("Search your saved library", librarySearchHint("Movies", DriveStatus.BackOnline(t0), hasFiles = true))
-        assertEquals("Search Movies", librarySearchHint("Movies", DriveStatus.Offline(since = t0, google = false), hasFiles = true))
-        assertEquals("Search TV Shows", librarySearchHint("TV Shows", offline, hasFiles = false))
+        assertEquals("Search Movies & TV Shows", librarySearchHint("Movies", DriveStatus.Offline(since = t0, google = false), hasFiles = true))
+        assertEquals("Search Movies & TV Shows", librarySearchHint("TV Shows", offline, hasFiles = false))
     }
 
     @Test fun theOfflinePageWhenNothingIsSaved() {

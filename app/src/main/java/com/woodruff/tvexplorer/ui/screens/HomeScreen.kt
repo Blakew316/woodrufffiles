@@ -104,6 +104,7 @@ import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.StatusBadge
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.rememberOfflineShown
+import com.woodruff.tvexplorer.ui.components.tryFocus
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.icons.Sym
@@ -525,7 +526,7 @@ private fun ContinuePanel(
             removing.pending = null
             if (focused && next == null) {
                 // The panel's empty now: its first button, once it's there.
-                repeat(10) { withFrameNanos {}; if (runCatching { firstButton.requestFocus() }.isSuccess) return@collect }
+                repeat(10) { withFrameNanos {}; if (firstButton.tryFocus()) return@collect }
             }
         }
     }
