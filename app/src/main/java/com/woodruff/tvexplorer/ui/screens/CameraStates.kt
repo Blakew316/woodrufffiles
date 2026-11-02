@@ -1,6 +1,8 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -15,7 +17,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,6 +30,7 @@ import com.woodruff.tvexplorer.nest.CAMERA_TROUBLE_MS
 import com.woodruff.tvexplorer.nest.Camera
 import com.woodruff.tvexplorer.nest.CameraStream
 import com.woodruff.tvexplorer.nest.troubleSince
+import com.woodruff.tvexplorer.ui.motion.TvMotion
 import kotlinx.coroutines.delay
 
 // What a camera view shows besides its live picture (doorbell.md §5, offline-states.md §3.6): the
@@ -117,7 +122,8 @@ internal fun CameraOverlay(status: CameraStream.Status, longTrouble: Boolean, he
     when (cameraOverlay(status, held, hasStill = still != null, big)) {
         Overlay.NONE -> Unit
         Overlay.STILL -> if (still != null) StillPicture(still)
-        Overlay.VEIL -> StallVeil(words, big)
+        // The view's own picture just stopped (it has shown frames): the veil eases in over it.
+        Overlay.VEIL -> StallVeil(words, big, fadeIn = true)
         Overlay.STILL_VEIL -> if (still != null) {
             StillPicture(still)
             StallVeil(words, big = false)
@@ -144,11 +150,21 @@ internal fun CameraWords(words: String, modifier: Modifier = Modifier) {
 /**
  * Over a picture that isn't live (it stopped, or isn't moving yet): black 60 % across it, so it plainly
  * isn't, and the words in white 90 % at its centre (5:1 even over a sunlit white wall). Over a
- * full-screen view the caption's scrim is drawn on top, so its words still read.
+ * full-screen view the caption's scrim is drawn on top, so its words still read. [fadeIn]: over a
+ * picture that was moving a moment ago, it eases in (as a window's fade does) rather than dimming the
+ * picture at a stroke; in its own layer, so nothing is composed again for it (and with Reduce motion,
+ * at once).
  */
 @Composable
-private fun StallVeil(words: String, big: Boolean) {
-    Box(Modifier.fillMaxSize().background(StallVeilColor), contentAlignment = Alignment.Center) {
+private fun StallVeil(words: String, big: Boolean, fadeIn: Boolean = false) {
+    val shown = remember { Animatable(if (fadeIn) 0f else 1f) }
+    if (fadeIn) LaunchedEffect(Unit) { shown.animateTo(1f, tween(TvMotion.PresentFadeMs, easing = TvMotion.GlideEase)) }
+    Box(
+        Modifier.fillMaxSize()
+            .graphicsLayer { alpha = shown.value; compositingStrategy = CompositingStrategy.ModulateAlpha }
+            .background(StallVeilColor),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(
             words, color = Color.White.copy(alpha = 0.9f),
             style = if (big) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodySmall,
