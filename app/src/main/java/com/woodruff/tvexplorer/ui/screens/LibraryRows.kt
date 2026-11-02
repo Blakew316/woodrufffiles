@@ -52,6 +52,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
@@ -207,10 +208,13 @@ internal fun LibraryRows(
     // [bannerWholeOrGone]). The rows set their own (PivotScroll, below).
     val appScroll = LocalBringIntoViewSpec.current
     val columnScroll = remember(appScroll, list, heroRows) { WithinEnds(appScroll, list, banner = heroRows == 1) }
+    // Under a banner and a single row (a small library), the list is too short to scroll that row up to
+    // the header: a screen's height of room under it lets the banner go wholly out of sight there too.
+    val roomBelow = if (heroRows == 1 && rows.size == 1) LocalConfiguration.current.screenHeightDp.dp else 56.dp
     CompositionLocalProvider(LocalBringIntoViewSpec provides columnScroll) {
         LazyColumn(
             state = list,
-            contentPadding = PaddingValues(top = 8.dp, bottom = 56.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = roomBelow),
             verticalArrangement = Arrangement.spacedBy(18.dp),
             modifier = Modifier.fillMaxSize().onFocusChanged { rowsBack.held.value = it.hasFocus },
         ) {

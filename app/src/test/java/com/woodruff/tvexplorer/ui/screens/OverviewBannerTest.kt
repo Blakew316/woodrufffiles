@@ -57,10 +57,10 @@ class OverviewBannerTest {
         compose.waitForIdle()
     }
 
-    /** 120 films over 8 genres; the first 8 have wide art, so there's a banner. */
-    private fun library(): List<DriveFile> {
+    /** [n] films over 8 genres; the first 8 have wide art, so there's a banner. */
+    private fun library(n: Int = 120): List<DriveFile> {
         val genres = listOf("Drama", "Comedy", "Thriller", "Family", "Sci-Fi", "Western", "Adventure", "Mystery")
-        return (0 until 120).map { i ->
+        return (0 until n).map { i ->
             val info = MediaInfo(
                 "Film $i", 1990 + i % 30, listOf(genres[i % genres.size]), rating = 5.0 + (i % 40) / 10.0,
                 backdrop = if (i < 8) "file:///nowhere/backdrop$i.jpg" else null,
@@ -69,7 +69,8 @@ class OverviewBannerTest {
         }
     }
 
-    @Test fun theBannerIsWholeOrGone() {
+    /** The Overview of [files] under a 64 dp header, as DriveScreen lays it out, with the app's way of scrolling. */
+    private fun overview(files: List<DriveFile>, place: String) {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             CompositionLocalProvider(LocalBringIntoViewSpec provides SmoothBringIntoView) {
@@ -77,7 +78,7 @@ class OverviewBannerTest {
                     Spacer(Modifier.height(64.dp))
                     Box(Modifier.fillMaxSize().testTag("rows")) {
                         LibraryRows(
-                            library(), null, placeKey = "banner-whole", isShows = false, canTakeFocus = { true },
+                            files, null, placeKey = place, isShows = false, canTakeFocus = { true },
                             onChoose = {}, onPlay = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
                         )
                     }
@@ -85,6 +86,21 @@ class OverviewBannerTest {
             }
         }
         settle()
+    }
+
+    @Test fun aSmallLibrarysOneRowStillHidesTheBannerWhole() {
+        // Five films: the banner and one row (Recently added), too short a list to scroll by itself.
+        overview(library(5), "banner-one-row")
+        compose.onNodeWithText("Play").assertIsFocused()
+        val top = compose.onNodeWithTag("rows").fetchSemanticsNode().boundsInRoot.top
+        press(Key.DirectionDown)
+        settle()
+        assertBannerGone(top)
+        assertEquals(8f, (rowTitleTop() - top) / compose.density.density, 1.5f)
+    }
+
+    @Test fun theBannerIsWholeOrGone() {
+        overview(library(), "banner-whole")
         compose.onNodeWithText("Play").assertIsFocused()
         val top = compose.onNodeWithTag("rows").fetchSemanticsNode().boundsInRoot.top
         val dp = compose.density.density
