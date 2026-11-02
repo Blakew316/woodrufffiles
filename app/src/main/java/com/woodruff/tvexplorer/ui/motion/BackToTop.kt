@@ -11,7 +11,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -76,14 +75,11 @@ suspend fun LazyGridState.glideToTop() {
 suspend fun focusAtTop(holdsFocus: () -> Boolean, targets: List<FocusRequester>, orElse: () -> Unit) {
     repeat(BackToTop.FOCUS_FRAMES) {
         if (!holdsFocus()) return
-        if (targets.any { it.takeFocus() }) return
+        if (targets.any { it.tryFocus() }) return
         withFrameNanos {}
     }
     if (holdsFocus()) orElse()
 }
-
-/** Asks for the focus; false when this isn't composed yet or the focus couldn't move there. */
-private fun FocusRequester.takeFocus(): Boolean = runCatching { requestFocus(FocusDirection.Enter) }.getOrDefault(false)
 
 /**
  * Back while [scrolled] says the list is away from its top (with the focus in it) runs [toTop]: the

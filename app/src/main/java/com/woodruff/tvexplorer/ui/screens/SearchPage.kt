@@ -88,7 +88,7 @@ import com.woodruff.tvexplorer.ui.components.RowTint
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.rememberOfflineShown
 import com.woodruff.tvexplorer.ui.components.rememberRowTint
-import com.woodruff.tvexplorer.ui.components.tryFocus
+import com.woodruff.tvexplorer.ui.motion.tryFocus
 import com.woodruff.tvexplorer.ui.icons.Sym
 import com.woodruff.tvexplorer.ui.motion.DialogWindowMotion
 import com.woodruff.tvexplorer.ui.motion.FocusPlatter

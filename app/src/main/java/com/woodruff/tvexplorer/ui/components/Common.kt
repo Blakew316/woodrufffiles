@@ -38,6 +38,7 @@ import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Text
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
+import com.woodruff.tvexplorer.ui.motion.tryFocus
 import com.woodruff.tvexplorer.ui.motion.tvFocusMotion
 import com.woodruff.tvexplorer.ui.theme.Palette
 
@@ -55,14 +56,6 @@ fun FocusWhenReady(requester: androidx.compose.ui.focus.FocusRequester, key: Any
         }
     }
 }
-
-/**
- * Asks for the focus, saying whether it was given: false while nothing is attached to the requester yet
- * (its item isn't composed, or its window not up), or it can't take the focus. A request like that doesn't
- * throw any more; it does nothing, so checking for an exception said yes to every one of them.
- */
-fun androidx.compose.ui.focus.FocusRequester.tryFocus(): Boolean =
-    runCatching { requestFocus(androidx.compose.ui.focus.FocusDirection.Enter) }.getOrDefault(false)
 
 /** Tinted vector icon; follows the surrounding content color (which flips when focused). */
 @Composable

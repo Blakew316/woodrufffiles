@@ -76,6 +76,8 @@ import com.woodruff.tvexplorer.ui.motion.PivotScroll
 import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.motion.bringWholeIntoView
 import com.woodruff.tvexplorer.ui.motion.posterRowState
+import com.woodruff.tvexplorer.ui.motion.tryFocus
+import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -136,6 +138,9 @@ internal fun LibraryRows(
     // arrive a few frames later, and by then the window may have put the focus in the header itself
     // (a screen chosen in the side menu gets it after two frames). Read without observing it.
     val takeFocus = remember { Snapshot.withoutReadObservation { canTakeFocus() } }
+    // The last key press as it opens: one after it is someone putting the focus where they want it
+    // themselves, and the rows arriving after that don't take it from them.
+    val keyAtOpen = remember { AppVisibility.lastInput }
     // What's being watched, as of opening — in progress or up next, one per show: the rows keep
     // their titles while you're here, so a film finished meanwhile doesn't pull its tile (and the
     // focus) out from under you...
@@ -312,9 +317,11 @@ internal fun LibraryRows(
             featured.isNotEmpty() -> heroFocus
             else -> firstTile
         }
+        // Tried on each of the next frames until it's composed and takes it, unless someone has pressed a key
+        // since the rows opened: the focus is theirs then, wherever it went.
         repeat(10) {
             withFrameNanos {}
-            if (runCatching { target.requestFocus() }.isSuccess) return@LaunchedEffect
+            if (AppVisibility.lastInput != keyAtOpen || target.tryFocus()) return@LaunchedEffect
         }
     }
 }

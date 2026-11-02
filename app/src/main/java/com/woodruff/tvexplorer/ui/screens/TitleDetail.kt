@@ -97,7 +97,7 @@ import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.motion.posterRowState
 import com.woodruff.tvexplorer.ui.components.BadgeKind
 import com.woodruff.tvexplorer.ui.components.StatusBadge
-import com.woodruff.tvexplorer.ui.components.tryFocus
+import com.woodruff.tvexplorer.ui.motion.tryFocus
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.util.Format
