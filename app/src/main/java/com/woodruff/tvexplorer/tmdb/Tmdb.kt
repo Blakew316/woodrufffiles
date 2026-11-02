@@ -55,6 +55,13 @@ object Tmdb {
     fun key(c: Context): String? = SecretStore.get(c).get(KEY)?.takeIf { it.isNotBlank() }
     fun isConfigured(c: Context) = key(c) != null
 
+    /**
+     * Whether a key is saved, counting one the Keystore can't read just now (still waking after the TV turned on), as
+     * the Google keys' checks do: the health report never says "TMDB key not set" for that. (Read again when it isn't
+     * unreadable: another thread may have read it as the Keystore's key turned up.)
+     */
+    fun hasKey(c: Context): Boolean = isConfigured(c) || SecretStore.get(c).isUnreadableNow(KEY) || isConfigured(c)
+
     private val _keyChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     /**

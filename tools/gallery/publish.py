@@ -73,6 +73,11 @@ TITLES.update({
     'settings-phone-messages': 'Settings › This Phone › Recent Messages', 'memories-no-room': 'Family Memories · a video too big for the TV',
     'files-no-room': 'Photos & Files · a file too big for the TV',
 })
+# Keys & sign-out (final review): the keys saved, and the same TV while its Keystore still wakes after a power cut.
+TITLES.update({
+    'settings-keys': 'Settings › Accounts › Keys & sign-out', 'settings-keys-waking': 'Settings › Keys · the Keystore still waking',
+    'settings-keys-waking-ok': 'Settings › Keys · OK while the Keystore wakes',
+})
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     kind, rest = os.path.basename(path)[:-4].split('-', 1)
@@ -114,6 +119,11 @@ for after, name in [('remote', 'remote-unreachable-linked'), ('remote', 'remote-
                     ('messages-summary', 'settings-phone-messages')]:
     if after in PHONE_ORDER and name not in PHONE_ORDER:
         PHONE_ORDER.insert(PHONE_ORDER.index(after) + 1, name)
+# Keys & sign-out (final review): each after the one it belongs with.
+for after, name in [('settings-accounts-ended', 'settings-keys'), ('settings-keys', 'settings-keys-waking'),
+                    ('settings-keys-waking', 'settings-keys-waking-ok')]:
+    if after in ORDER and name not in ORDER:
+        ORDER.insert(ORDER.index(after) + 1, name)
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {
     'build': build,
