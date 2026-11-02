@@ -217,6 +217,20 @@ class UrgentUpdateTest {
         assertTrue(prefs.getLong("promptUntil", 0) > System.currentTimeMillis())
     }
 
+    @Test fun androidsPromptOpensOverTheRecoveryScreenToo() {
+        // The recovery screen up: Woodruff doesn't count as in front for notices, but the prompt for
+        // Install the fix (Android 11 and older, or a TV that asks) still opens over it.
+        AppVisibility.foreground = false
+        RecoveryView.inFront = true
+        try {
+            val confirm = Intent("android.content.pm.action.CONFIRM_INSTALL")
+            Updater.onResult(app, PackageInstaller.STATUS_PENDING_USER_ACTION, null, confirm, how = How.CHOSEN, build = next, answered = 7)
+            assertEquals(confirm.action, shadowOf(app).nextStartedActivity?.action)
+        } finally {
+            RecoveryView.inFront = false
+        }
+    }
+
     @Test fun andIsOfferedNextTimeWhenWoodruffIsntOnScreen() {
         AppVisibility.foreground = false
         Updater.onResult(app, PackageInstaller.STATUS_PENDING_USER_ACTION, null, Intent("confirm"), how = How.URGENT, build = next, answered = 7)
@@ -234,6 +248,35 @@ class UrgentUpdateTest {
         assertEquals(Next.FAILED, step(PackageInstaller.STATUS_FAILURE_STORAGE))
         // Sent and read back as itself.
         assertEquals(How.URGENT, How.of(How.URGENT.code))
+    }
+
+    @Test fun aReleasesSpeedProfileComesThroughTheSameStandInAsTheApk() {
+        // A release with a speed profile for this TV (Android 14): both files are fetched through the
+        // stand-in, so nothing in a test ever reaches the network for either.
+        val fetchedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
+        Updater.listReleases = {
+            listOf(Release(next, System.currentTimeMillis() - hour, files = listOf(
+                ReleaseFile("WoodruffFamily.apk", 4, "https://example.invalid/apk"),
+                ReleaseFile("WoodruffFamily-api28.dm", 3, "https://example.invalid/dm"),
+            )))
+        }
+        Updater.fetchFile = { url, dest, _, _ ->
+            fetchedUrls += url
+            if (url.endsWith("apk")) {
+                dest.writeBytes(byteArrayOf(1, 2, 3, 4))
+                shadowOf(app.packageManager).setPackageArchiveInfo(dest.path, PackageInfo().apply {
+                    packageName = app.packageName
+                    @Suppress("DEPRECATION")
+                    versionCode = next
+                    longVersionCode = next.toLong()
+                })
+            } else {
+                dest.writeBytes(byteArrayOf(1, 2, 3))
+            }
+        }
+        Updater.checkNow(app)
+        waitUntil("it's ready") { Updater.state.value.step == Step.READY }
+        assertEquals(listOf("https://example.invalid/apk", "https://example.invalid/dm"), fetchedUrls.toList())
     }
 
     @Test fun lookingIsSpacedOutButGoesSoonerAfterOneThatDidntGoThrough() {

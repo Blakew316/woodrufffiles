@@ -347,6 +347,15 @@ class RecoveryView internal constructor(private val activity: Activity) : FrameL
     companion object {
         private const val TAG = "RecoveryView"
 
+        /**
+         * The recovery screen is in front (MainActivity says so between its start and stop, whichever
+         * form of the screen is up). Woodruff's own banner isn't there then, so the rest of the app
+         * doesn't count Woodruff as in front ([com.woodruff.tvexplorer.notify.AppVisibility.foreground]
+         * stays false): notices and doorbell rings show over this screen as over any other app, instead
+         * of going to a banner nobody sees. The updater still opens Android's install prompt over it.
+         */
+        @Volatile var inFront = false
+
         const val TITLE = "Woodruff couldn’t open"
         const val BODY = "It closed twice while starting, so this simple screen is showing instead. A fixed version may already be waiting."
         const val INSTALL = "Install the fix"
@@ -404,6 +413,7 @@ class RecoveryView internal constructor(private val activity: Activity) : FrameL
 
         @Suppress("UNCHECKED_CAST")
         internal fun resetForTest() {
+            inFront = false
             font = defaults[0] as (Context, Int) -> Typeface?
             logo = defaults[1] as (Context) -> Bitmap?
             load = defaults[2] as (Runnable) -> Unit

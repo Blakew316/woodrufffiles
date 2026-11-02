@@ -140,6 +140,15 @@ object OnScreen : Application.ActivityLifecycleCallbacks {
     /** What to put back after an update started now (by someone pressing Install, say); main thread. */
     fun routeNow(c: Context): Restore.Route? = runCatching { moment(c).route }.getOrNull()
 
+    /**
+     * Whether [main] starting now is someone coming back to it from another of Woodruff's own screens
+     * (the player at the end of a film, the photo viewer, the doorbell's camera): the middle of using
+     * Woodruff, not opening it, so no update is offered over it. (That screen hasn't stopped yet as
+     * [main] starts.) Woodruff's slideshow doesn't count: it only ran because nobody was using it.
+     * Main thread, from [main]'s start.
+     */
+    fun backFromInside(main: Activity): Boolean = showing.startedBesides(main) { it is com.woodruff.tvexplorer.screensaver.SlideshowActivity }
+
     /** Every key in [window] counts as use (see [Presence]); the activity gets them as before. */
     internal fun countKeys(window: Window) {
         val callback = window.callback ?: return
@@ -273,6 +282,9 @@ internal class Showing(private val clock: () -> Long) {
     }
 
     fun isStarted(key: Any?): Boolean = key != null && key in started
+
+    /** Whether a screen other than [key] (and not one [except] lets pass) is started too. */
+    fun startedBesides(key: Any, except: (Any) -> Boolean = { false }): Boolean = started.any { it !== key && !except(it) }
 
     fun reset() {
         live.clear(); started.clear(); left = null; covered = null; coverEndsAt = Long.MAX_VALUE; restoring = false

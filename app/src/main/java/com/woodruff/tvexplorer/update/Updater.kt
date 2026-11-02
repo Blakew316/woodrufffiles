@@ -339,9 +339,16 @@ object Updater {
         val moment = OnScreen.momentNow(app)
         if (!mayInstallUrgently(moment?.film ?: OnScreen.Film.NONE, Presence.isBusy)) return
         // A screen that didn't answer in time is up but stuck: its Home comes back.
-        val route = moment?.route ?: if (AppVisibility.foreground) Restore.App(Screen.HOME) else null
+        val route = moment?.route ?: if (mainScreenInFront()) Restore.App(Screen.HOME) else null
         startInstall(app, How.URGENT, reopen = route)
     }
+
+    /**
+     * Woodruff's main screen is in front, as itself or as the recovery screen: where Android's install
+     * prompt may open. (The recovery screen doesn't count as Woodruff in front for the rest of the app:
+     * see [RecoveryView.inFront].)
+     */
+    private fun mainScreenInFront(): Boolean = AppVisibility.foreground || RecoveryView.inFront
 
     /**
      * Whether a fix after an early close may restart Woodruff now: even with someone using it, but never
@@ -387,7 +394,7 @@ object Updater {
     internal fun resetForTest() {
         _state.value = State(); _offer.value = null
         session = -1; letGoSessions.clear(); failures = 0; retryAt = 0
-        urgentClaim.set(0); lastAttempt = 0
+        urgentClaim.set(0); lastAttempt = 0; lastList = null
         listReleases = { emptyList() }
         fetchFile = { _, _, _, _ -> throw IOException("no downloads in tests") }
     }
@@ -566,13 +573,17 @@ object Updater {
         else "2.0.$build arrives in about ${((arrivesInMs + HOUR - 1) / HOUR).coerceAtLeast(1)} h (after the test TV)"
 
     private suspend fun checkAndDownload(c: Context, manual: Boolean = false) { lock.withLock {
-        if (_state.value.step == Step.DOWNLOADING || _state.value.step == Step.INSTALLING) return@withLock
-        val before = _state.value
+        // Into CHECKING only from the state it was in, so an Install pressed at this very moment (which
+        // claims READY the same way) can't be overwritten and then offered again mid-install.
+        var before: State
+        do {
+            before = _state.value
+            if (before.step == Step.DOWNLOADING || before.step == Step.INSTALLING) return@withLock
+        } while (!_state.compareAndSet(before, before.copy(step = Step.CHECKING, message = null)))
         lastAttempt = System.currentTimeMillis()
-        _state.update { it.copy(step = Step.CHECKING, message = null) }
         try {
             val releases = listReleases()
-            if (releases.isEmpty()) throw UpdateProblem("Couldn't check · trying again soon")
+            if (releases.isEmpty()) throw UpdateProblem("Couldn’t check · trying again soon")
             val p = prefs(c)
             // (behindOn/behindSince: what the 48-hour limit this replaced kept.)
             p.edit().putLong("lastCheck", System.currentTimeMillis()).remove("behindOn").remove("behindSince").apply()
@@ -589,7 +600,7 @@ object Updater {
             // Already downloaded and waiting for a quiet moment: keep it ready.
             if (build == ready) { _state.value = before; return@withLock }
             val release = releases.first { it.build == build }
-            val apk = release.apk ?: throw UpdateProblem("Couldn't check · trying again soon")
+            val apk = release.apk ?: throw UpdateProblem("Couldn’t check · trying again soon")
             val file = apkFile(c)
             // Already downloaded and checked (e.g. the app was busy last time): don't fetch it again.
             if (!(file.length() == apk.size && verify(c, file) == build)) {
@@ -628,10 +639,10 @@ object Updater {
 
     /** A failed check or download in plain words for Settings (the details go to the log). Visible for tests. */
     internal fun plainCheckError(e: Exception): String = when (e) {
-        is UpdateProblem -> e.message ?: "Couldn't check · trying again soon"
+        is UpdateProblem -> e.message ?: "Couldn’t check · trying again soon"
         is java.net.UnknownHostException, is java.net.SocketException, is java.io.InterruptedIOException,
-        is javax.net.ssl.SSLException -> "Couldn't connect · trying again soon"
-        else -> "Couldn't check · trying again soon"
+        is javax.net.ssl.SSLException -> "Couldn’t connect · trying again soon"
+        else -> "Couldn’t check · trying again soon"
     }
 
     /** GitHub's "2026-10-14T22:06:24Z" → ms. Visible for tests. */
@@ -830,7 +841,7 @@ object Updater {
         val app = c.applicationContext
         val p = prefs(app)
         val next = nextStep(
-            status, how, answered, session, answered in letGoSessions, canPrompt = confirm != null && AppVisibility.foreground,
+            status, how, answered, session, answered in letGoSessions, canPrompt = confirm != null && mainScreenInFront(),
             mayRetryWithoutProfile = profile > 0 && p.getInt("profileRefused", 0) != profile,
         )
         Log.i("Updater", "installer answered $status for 2.0.$build (${how ?: "?"}, session $answered): $next${message?.let { " ($it)" } ?: ""}")
@@ -867,7 +878,7 @@ object Updater {
                     clearReopen(app)
                     letGoLater(app, answered)
                 }
-                backToReady(build, if (opened) null else "the TV's install screen didn't open")
+                backToReady(build, if (opened) null else "the TV’s install screen didn’t open")
             }
             Next.LET_GO -> {
                 // Woodruff isn't on screen any more: offered again the next time it opens.
@@ -913,16 +924,16 @@ object Updater {
     /** Why the installer turned an update down, in plain words for Settings ("last try: …"). Visible for tests. */
     internal fun plainReason(status: Int): String = when (status) {
         PackageInstaller.STATUS_FAILURE_STORAGE -> "the TV is out of space"
-        PackageInstaller.STATUS_FAILURE_BLOCKED -> "this TV doesn't allow it"
+        PackageInstaller.STATUS_FAILURE_BLOCKED -> "this TV doesn’t allow it"
         PackageInstaller.STATUS_FAILURE_INVALID -> "the download was damaged"
         PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "the TV turned it down"
-        else -> "the TV couldn't install it"
+        else -> "the TV couldn’t install it"
     }
 
     /** An install that couldn't even start, in plain words. */
     private fun plainStartError(e: Exception): String {
         val m = generateSequence<Throwable>(e) { it.cause }.mapNotNull { it.message }.joinToString(" ")
-        return if ("ENOSPC" in m || "No space" in m) "the TV is out of space" else "the update couldn't start"
+        return if ("ENOSPC" in m || "No space" in m) "the TV is out of space" else "the update couldn’t start"
     }
 
     private fun apkFile(c: Context) = File(File(c.applicationContext.cacheDir, "updates").apply { mkdirs() }, "update.apk")
@@ -950,7 +961,8 @@ object Updater {
             if (asset.size > 0 && file.length() == asset.size) return // already here
             file.delete()
             if (asset.size <= 0) return
-            download(asset.url, file, asset.size) {}
+            // Through the same door as the APK, which tests replace (they never reach the network).
+            fetchFile(asset.url, file, asset.size) {}
             Log.i("Updater", "downloaded $name for 2.0.$build")
         } catch (e: Exception) {
             Log.w("Updater", "couldn't download the speed profile", e)
@@ -967,18 +979,34 @@ object Updater {
         return true
     }
 
+    /**
+     * The list last read in full and the tag GitHub gave it ("ETag"). Asked again with that tag, an
+     * unchanged list comes back as "not modified" with nothing else: a few hundred bytes instead of
+     * the whole page (about 360 KB), which matters for a TV checking every few minutes after an early
+     * close, all night if nobody opens Woodruff. Kept for this run only.
+     */
+    @Volatile private var lastList: Pair<String, List<Release>>? = null
+
     /** The newest releases, read straight off the connection (only the parts updating needs are kept). */
-    private fun fetchReleases(): List<Release> {
-        val conn = (URL(RELEASES).openConnection() as HttpURLConnection).apply {
+    private fun fetchReleases(): List<Release> = fetchReleasesFrom(RELEASES)
+
+    /** [fetchReleases] from [address]. Visible for tests (a server of their own on this machine). */
+    internal fun fetchReleasesFrom(address: String): List<Release> {
+        val known = lastList
+        val conn = (URL(address).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000; readTimeout = 20_000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "WoodruffFamily/${BuildConfig.VERSION_NAME}")
+            known?.let { setRequestProperty("If-None-Match", it.first) }
         }
         try {
             val code = conn.responseCode
+            if (code == HttpURLConnection.HTTP_NOT_MODIFIED && known != null) return known.second
             if (code == 403 || code == 429) throw UpdateProblem("The update server is busy · trying again soon")
-            if (code !in 200..299) throw UpdateProblem("Couldn't check · trying again soon")
-            return conn.inputStream.bufferedReader().use { parseReleases(it) }
+            if (code !in 200..299) throw UpdateProblem("Couldn’t check · trying again soon")
+            val list = conn.inputStream.bufferedReader().use { parseReleases(it) }
+            lastList = conn.getHeaderField("ETag")?.takeIf { it.isNotBlank() }?.let { it to list }
+            return list
         } finally {
             conn.disconnect()
         }
@@ -1069,7 +1097,7 @@ object Updater {
             setRequestProperty("User-Agent", "WoodruffFamily/${BuildConfig.VERSION_NAME}")
         }
         try {
-            if (conn.responseCode !in 200..299) throw UpdateProblem("Couldn't download it · trying again soon")
+            if (conn.responseCode !in 200..299) throw UpdateProblem("Couldn’t download it · trying again soon")
             var done = 0L
             var shown = 0L
             conn.inputStream.use { input ->
@@ -1083,7 +1111,7 @@ object Updater {
                 }
             }
             if (size > 0 && done != size) throw UpdateProblem("The download stopped · trying again soon")
-            if (!tmp.renameTo(dest)) throw UpdateProblem("Couldn't save it: the TV may be out of space")
+            if (!tmp.renameTo(dest)) throw UpdateProblem("Couldn’t save it: the TV may be out of space")
         } finally {
             conn.disconnect()
             tmp.delete()

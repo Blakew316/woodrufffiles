@@ -157,9 +157,11 @@ class TransferService : Service() {
             keepOpen()
         }
         // Rings reach every TV through this one only once there's a network to pull and relay over.
+        // Only while this instance still runs: stopped meanwhile (onDestroy clears [live] first, then
+        // stops the doorbell), a start now would leave the doorbell running with no service.
         scope.launch {
             awaitOnline()
-            Doorbell.start(app)
+            synchronized(lock) { if (live === me) Doorbell.start(app) }
         }
         scope.launch { keepChecking(app) }
     }

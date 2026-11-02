@@ -1,8 +1,10 @@
 package com.woodruff.tvexplorer.update
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -33,6 +35,25 @@ class ShowingTest {
         showing.stopped(player, finishing = true)
         showing.destroyed(player)
         assertSame(main, showing.top()?.key)
+    }
+
+    @Test fun comingBackFromAnotherWoodruffScreenIsTold() {
+        open(main)
+        assertFalse(showing.startedBesides(main))
+        open(player)
+        showing.stopped(main, finishing = false)
+        // Back from the film: Home starts again before the player stops.
+        showing.started(main)
+        assertTrue(showing.startedBesides(main))
+        showing.stopped(player, finishing = true)
+        showing.destroyed(player)
+        assertFalse(showing.startedBesides(main))
+        // A screen let pass (the slideshow, which only ran because nobody was using Woodruff) doesn't count.
+        open(slideshow)
+        showing.stopped(main, finishing = false)
+        showing.started(main)
+        assertFalse(showing.startedBesides(main) { it == slideshow })
+        assertTrue(showing.startedBesides(main))
     }
 
     @Test fun aWoodruffLeftForAnotherAppIsntOnScreen() {
