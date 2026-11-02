@@ -586,7 +586,8 @@ private fun ResumeTile(
                     remember(r.title) { upNextCaption(r.title) }, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
                 )
-                else UsageBar(r.progress, Modifier.padding(top = 4.dp))
+                // On artwork: the blue of art over a white 20 % track, the same in both themes.
+                else UsageBar(r.progress, Modifier.padding(top = 4.dp), fill = ArtAccent, track = Color.White.copy(alpha = 0.2f))
             }
         }
     }
@@ -601,7 +602,8 @@ private fun ResumeTile(
 private fun ResumeArt(r: RecentItem, poster: String?, token: String?) {
     val context = LocalContext.current
     val ref = MediaRef.parse(r.key)
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background)))) {
+    // Artwork's stand-in under (or instead of) its picture: dark in both themes.
+    Box(Modifier.fillMaxSize().background(TitleCardBrush)) {
         when {
             poster != null -> {
                 val request = remember(poster, token) {

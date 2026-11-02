@@ -199,22 +199,25 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** Thin usage bar for storage cards. */
+/**
+ * Thin usage bar for storage cards. [fill] and [track] default to the theme's; a bar drawn on artwork
+ * (a resume tile) passes fixed ones, since artwork looks the same in both themes.
+ */
 @Composable
-fun UsageBar(fraction: Float, modifier: Modifier = Modifier) {
+fun UsageBar(fraction: Float, modifier: Modifier = Modifier, fill: Color = Palette.accent, track: Color = Palette.surfaceHigh) {
     Box(
         modifier
             .fillMaxWidth()
             .height(6.dp)
             .clip(RoundedCornerShape(3.dp))
-            .background(Palette.surfaceHigh),
+            .background(track),
     ) {
         Box(
             Modifier
                 .fillMaxHeight()
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
                 // Always blue: near the end of a film is not a warning.
-                .background(Palette.accent),
+                .background(fill),
         )
     }
 }

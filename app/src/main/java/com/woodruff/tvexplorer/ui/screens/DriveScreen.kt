@@ -689,21 +689,21 @@ internal fun PosterTile(
         lift = TvMotion.PosterLift,
         shadow = true,
         // Nothing is painted under a picture: it covers the tile, and each fill under it was one more
-        // pass over the tile's pixels on every frame (Movies is held up by the graphics chip). A
-        // title card gets the card's glass, brightening with the focus.
-        color = if (picture == null) Palette.surface else Color.Transparent,
-        focusedColor = if (picture == null) Palette.surfaceHigh else Color.Transparent,
+        // pass over the tile's pixels on every frame (Movies is held up by the graphics chip). A title
+        // card is artwork too: its dark gradient (below), the same in both themes; the lift and the
+        // brighter rim show the focus.
         // No focus outline or extra zoom: the lift is the focus.
         borderWidth = 1.dp,
         borderColor = Color.White.copy(alpha = 0.08f),
         focusedBorderColor = Color.White.copy(alpha = 0.35f),
     ) {
         if (picture == null) {
-            // Title card: the brand gradient, a large initial and the name, so tiles stay readable without art.
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background))))
+            // Title card: a dark gradient in both themes (it stands in for artwork), a large initial and
+            // the name, so tiles stay readable without art.
+            Box(Modifier.fillMaxSize().background(TitleCardBrush))
             Text(
                 title.trim().take(1).uppercase(), style = MaterialTheme.typography.displayLarge,
-                color = Palette.accent.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center),
+                color = ArtAccent.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center),
             )
         } else if (LocalPosterPainter.current != null) {
             LocalPosterPainter.current!!(picture)?.let {
@@ -717,8 +717,8 @@ internal fun PosterTile(
                     .apply { if (isGoogle(picture) && token != null) addHeader("Authorization", "Bearer $token") }
                     .size(320, 480).crossfade(150).build() // the tile's real size on a 1080p TV: faster decode, less memory
             }
-            // A picture that won't load leaves the title card's gradient, as it had under it before.
-            val failed = remember(Palette.light) { BrushPainter(Brush.verticalGradient(listOf(Palette.surfaceHigh, Palette.background))) }
+            // A picture that won't load leaves the title card's gradient (dark in both themes).
+            val failed = remember { BrushPainter(TitleCardBrush) }
             AsyncImage(
                 model = request,
                 contentDescription = null,
@@ -750,9 +750,9 @@ internal fun PosterTile(
                 )
             }
         }
-        // Part-watched: a bar along the bottom edge, Netflix style.
+        // Part-watched: a bar along the bottom edge, Netflix style, in the blue of art (the same in both themes).
         if (progress != null && progress > 0.01f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color.Black.copy(alpha = 0.55f))) {
-            Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Palette.accent))
+            Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(ArtAccent))
         }
         // Watched: a ✓ badge top right.
         if (watched) Box(
