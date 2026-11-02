@@ -285,7 +285,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val title = queue[i - 1].mediaMetadata.title?.toString().orEmpty()
         val next = queue[i]
         val nextTitle = next.mediaMetadata.title?.toString().orEmpty()
-        if (ShowPrefs.isEpisode(title) && showFor(next.mediaId, nextTitle) == showFor(key, title)) recent.saveUpNext(next.mediaId, nextTitle)
+        if (ShowPrefs.isEpisode(title) && sameShow(key, title, next.mediaId, nextTitle)) recent.saveUpNext(next.mediaId, nextTitle)
     }
 
     // ---- Scrubbing preview ----------------------------------------------------------------------
@@ -543,19 +543,23 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private fun show(): String {
         val id = player?.currentMediaItem?.mediaId
         if (showCache.first != id) {
-            showCache = id to showFor(id, player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: "")
-            introEnd = ShowPrefs.introEnd(this, showCache.second)
+            // The show's library entry when it's known, else its name ([ShowKeys]): the same whether the
+            // title page named the episode or it came by its file's name. Choices kept for the show under
+            // an older key (before this release, or before its entry was known) come with it.
+            val title = player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: ""
+            val shows = com.woodruff.tvexplorer.cloud.EpisodeShows.map.value
+            val seen = recent.all()
+            val key = ShowKeys.of(id, title, shows, ShowKeys.named(seen, shows))
+            ShowPrefs.carryOver(this, key, ShowKeys.older(id, title, key, seen, shows), ShowKeys.name(title))
+            showCache = id to key
+            introEnd = ShowPrefs.introEnd(this, key)
         }
         return showCache.second
     }
 
-    /**
-     * Which show an item belongs to: from its name ("Show S01E02"), else, when the name only has
-     * the episode ("S01E013_Pilot"), the show it was found under ([EpisodeShows]).
-     */
-    private fun showFor(key: String?, title: String): String =
-        if (ShowPrefs.namesShow(title)) ShowPrefs.showKey(title)
-        else key?.let { com.woodruff.tvexplorer.cloud.EpisodeShows.map.value[it] }?.let { "show:$it" } ?: ShowPrefs.showKey(title)
+    /** Whether two items are episodes of one show ([ShowKeys.same]), however each was named. */
+    private fun sameShow(key: String?, title: String, otherKey: String?, otherTitle: String): Boolean =
+        ShowKeys.same(key, title, otherKey, otherTitle, com.woodruff.tvexplorer.cloud.EpisodeShows.map.value)
 
     /** Stop for the night: pause, leave the player, and let the slideshow take over the screen. */
     private fun sleepNow() {
@@ -859,7 +863,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val nextTitle = next?.mediaMetadata?.title?.toString().orEmpty()
         nextCard.set(
             p.hasNextMediaItem() && p.duration > 60_000 && left in 1..40_000 && p.pauseAtEndOfMediaItems && free &&
-                key != nextDismissedFor && ShowPrefs.isEpisode(title) && showFor(next?.mediaId, nextTitle) == show(),
+                key != nextDismissedFor && ShowPrefs.isEpisode(title) && sameShow(key, title, next?.mediaId, nextTitle),
         )
     }
 
@@ -1581,9 +1585,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 it.kind == com.woodruff.tvexplorer.data.FileKind.VIDEO && !com.woodruff.tvexplorer.data.FileTypes.isSidecar(it.name) && ShowPrefs.isEpisode(it.name)
             }
             val at = media.indexOfFirst { it.id == ref.id }.takeIf { it >= 0 } ?: return@launch
+            val after = media.drop(at + 1).take(300)
+            val before = media.take(at).takeLast(300)
+            // The episodes beside it are its show's too, whatever their files are called: they keep its
+            // Skip intro and audio and subtitle choices, and Continue watching shows its poster for them.
+            com.woodruff.tvexplorer.cloud.EpisodeShows.map.value[key]?.let { show ->
+                com.woodruff.tvexplorer.cloud.EpisodeShows.remember(applicationContext, (before + after).associate { MediaRef.Drive(it.id).key to show })
+            }
             fun item(f: com.woodruff.tvexplorer.cloud.DriveFile) = mediaItem(MediaRef.Drive(f.id).key, com.woodruff.tvexplorer.util.Format.title(f.name))
-            p.addMediaItems(media.drop(at + 1).take(300).map(::item))
-            p.addMediaItems(0, media.take(at).takeLast(300).map(::item))
+            p.addMediaItems(after.map(::item))
+            p.addMediaItems(0, before.map(::item))
         }
     }
 

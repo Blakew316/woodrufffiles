@@ -282,6 +282,9 @@ class WatchRoutes(
             got ?: Seasons.plain(ctx, folderId)?.takeIf { Seasons.runningFor(folderId) > PREPARE_GRACE_MS }
         } ?: return json(JSONObject().put("state", "loading").put("episodes", JSONArray()))
         val number = seasonName?.let(Tmdb::seasonNumber)
+        // Each is this show's, whatever its file is called, when the phone starts one here (as the title
+        // page's do): its Skip intro and audio and subtitle choices, and its poster in Continue watching.
+        if (facts.isShow(show)) EpisodeShows.remember(ctx, season.files.filter { it.kind == FileKind.VIDEO }.associate { WatchJson.driveKey(it.id) to show.id })
         return json(JSONObject().put("state", "ready").put("episodes", JSONArray().apply {
             season.files.filter { it.kind == FileKind.VIDEO }.forEach { v ->
                 put(episode(v, number, season.stills[v.id], season.minutes[v.id], facts, folder = folderId))

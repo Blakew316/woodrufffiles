@@ -22,6 +22,14 @@ class ResumeLatestTest {
         assertEquals("drive:e5", latestOf(tile, merged).key)
     }
 
+    @Test fun theNextEpisodeIsFoundWhicheverWayEachWasNamed() {
+        // The tile was saved by its file's name (an older Woodruff); the other TV started the next
+        // episode from its title page, which names it from TMDB, without the year.
+        val tile = item("drive:e4", "Backyard Science (2019) - S02E04 - The Rain")
+        val merged = listOf(item("drive:e5", "Backyard Science S02E05 The Volcano", pos = 0, upNext = true))
+        assertEquals("drive:e5", latestOf(tile, merged).key)
+    }
+
     @Test fun anotherShowsEpisodeIsntTaken() {
         val tile = item("drive:e4", "Backyard Science - S02E04.mkv")
         val merged = listOf(item("drive:k1", "Kitchen Rules - S01E01.mkv"))
