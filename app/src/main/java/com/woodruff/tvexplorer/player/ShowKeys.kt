@@ -54,11 +54,14 @@ object ShowKeys {
      * just one: an episode whose entry isn't known yet (saved by another TV, or off a USB drive) is
      * then still that show's. A name two entries share (a remake and its original) is left out.
      */
-    fun named(items: List<RecentItem>, shows: Map<String, String>): Map<String, String> {
+    fun named(items: List<RecentItem>, shows: Map<String, String>): Map<String, String> = named(items, items.map { name(it.title) }, shows)
+
+    /** [named], with each item's [name] worked out already ([names], in [items]' order). */
+    private fun named(items: List<RecentItem>, names: List<String?>, shows: Map<String, String>): Map<String, String> {
         val found = HashMap<String, String?>()
-        for (r in items) {
-            val id = shows[r.key] ?: continue
-            val name = name(r.title) ?: continue
+        items.forEachIndexed { i, r ->
+            val id = shows[r.key] ?: return@forEachIndexed
+            val name = names[i] ?: return@forEachIndexed
             found[name] = if (found.containsKey(name) && found[name] != id) null else id
         }
         return found.mapNotNull { (name, id) -> id?.let { name to it } }.toMap()
@@ -70,9 +73,10 @@ object ShowKeys {
      * episode nothing says the show of is its own.
      */
     fun groups(items: List<RecentItem>, shows: Map<String, String>): List<String> {
-        val named = named(items, shows)
-        return items.map { r ->
-            val name = name(r.title)
+        val names = items.map { name(it.title) }
+        val named = named(items, names, shows)
+        return items.mapIndexed { i, r ->
+            val name = names[i]
             val id = shows[r.key] ?: name?.let { named[it] }
             when {
                 !ShowPrefs.isEpisode(r.title) -> r.key
