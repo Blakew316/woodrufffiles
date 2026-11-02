@@ -24,6 +24,8 @@ TITLES = {
     'phone-waiting': 'Phone connection · waiting for the network', 'phone-waiting-focused': 'Phone connection · waiting, Network settings focused',
     'phone-off': 'Phone connection · couldn’t start', 'settings-start': 'Settings › TVs & phones › Start when the TV turns on',
     'settings-popups': 'Settings › Advanced › Pop-ups over other apps',
+    'recovery': 'Recovery screen', 'recovery-ready': 'Recovery screen · fix ready',
+    'recovery-details': 'Recovery screen · what happened',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -38,7 +40,7 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
 ORDER = ['home', 'home-menu', 'home-notice', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'phone-waiting', 'phone-waiting-focused', 'phone-off', 'settings',
-         'settings-updated', 'settings-updates', 'settings-updates-asks', 'settings-start', 'settings-popups', 'update-offer', 'update-offer-retry', 'player', 'player-menu', 'player-up-next',
+         'settings-updated', 'settings-updates', 'settings-updates-asks', 'settings-start', 'settings-popups', 'update-offer', 'update-offer-retry', 'recovery', 'recovery-ready', 'recovery-details', 'player', 'player-menu', 'player-up-next',
          'player-restored', 'restore-gone', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])

@@ -39,6 +39,7 @@ import com.woodruff.tvexplorer.ui.screens.PermissionScreen
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
+import com.woodruff.tvexplorer.update.RecoveryView
 import com.woodruff.tvexplorer.update.Restore
 import com.woodruff.tvexplorer.util.EarlyCrashes
 import com.woodruff.tvexplorer.util.Permissions
@@ -56,12 +57,23 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
         override fun onReceive(context: Context, intent: Intent) = vm.refreshRoots()
     }
 
+    /**
+     * This version closed twice in a row while starting ([EarlyCrashes]): the plain recovery screen
+     * ([RecoveryView]) is up instead of the app, and nothing else of Woodruff's starts here.
+     */
+    private var recovering = false
+
     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
-        // First, before anything that could fail as Woodruff starts: a close in the next 45 s counts
-        // as one while starting (EarlyCrashes).
-        EarlyCrashes.opened(this)
+        // First, before anything that could fail as Woodruff starts: after two closes in a row, the
+        // recovery screen; otherwise a close in the next 45 s counts as one.
+        recovering = EarlyCrashes.needsRecovery(this)
+        if (!recovering) EarlyCrashes.opened(this)
         super.onCreate(savedInstanceState)
+        if (recovering) {
+            RecoveryView.show(this)
+            return
+        }
         hasAccess = Permissions.hasStorageAccess(this)
         ThemeSetting.load(this)
         Notices.load(this)
@@ -107,6 +119,8 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
         super.onStart()
         TvScreen.attach(this)
         AppVisibility.foreground = true
+        // The recovery screen looks for a fix itself; the phone connection and the rest stay as they are.
+        if (recovering) return
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
         // An update that needs a press is offered now, as Woodruff comes on screen, unless it was
@@ -160,7 +174,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
      * its filter, the Command Center with its camera full screen, the folder in Files. (Pages and
      * menus over it aren't put back.) Main thread.
      */
-    override fun restoreRoute(): Restore.Route = Restore.app(
+    override fun restoreRoute(): Restore.Route = if (recovering) Restore.App(Screen.HOME) else Restore.app(
         vm.screen.value,
         if (hasAccess) drive.state.value else null,
         vm.browser.value.location,
@@ -177,6 +191,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
      * keeps the main thread busy shows up in the phone's Smoothness Report.
      */
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (recovering) return super.dispatchKeyEvent(event)
         if (DpadGate.shouldDrop(event)) return true
         val started = com.woodruff.tvexplorer.util.FrameStats.keyStarted(event)
         try {
@@ -197,7 +212,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleOpen(intent)
+        if (!recovering) handleOpen(intent)
     }
 
     /**
@@ -220,6 +235,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
 
     override fun onResume() {
         super.onResume()
+        if (recovering) return
         // The TV's window animations may have been turned on or off in Android's settings meanwhile.
         AppMotion.refresh(this)
         com.woodruff.tvexplorer.util.FrameStats.attach(this)
@@ -227,12 +243,12 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
     }
 
     override fun onPause() {
-        com.woodruff.tvexplorer.util.FrameStats.detach(this)
+        if (!recovering) com.woodruff.tvexplorer.util.FrameStats.detach(this)
         super.onPause()
     }
 
     override fun onDestroy() {
-        unregisterReceiver(mediaReceiver)
+        if (!recovering) unregisterReceiver(mediaReceiver)
         busy?.stop()
         super.onDestroy()
     }
