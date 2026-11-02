@@ -23,6 +23,31 @@ class AddressWaitTest {
         assertEquals(AddressesEnd.PUBLIC, w.end)
     }
 
+    @Test fun everyPartOfTheOfferGetsItsPublicAddress() {
+        // The sound, the picture and the data channel ask for addresses of their own until Google's
+        // answer joins them: the first public address (the picture's) doesn't end it alone.
+        val w = waitFrom(start)
+        for (part in 0..2) w.found("host", start + 5 + part, part)
+        w.found("srflx", start + 61, part = 1)
+        assertNull(w.end)
+        assertTrue(w.left(start + 61) > 0)
+        w.found("srflx", start + 62, part = 0)
+        assertNull(w.end)
+        w.found("srflx", start + 64, part = 2)
+        assertEquals(AddressesEnd.PUBLIC, w.end)
+        assertEquals(0L, w.left(start + 64))
+    }
+
+    @Test fun aPartThatNeverGetsAPublicAddressWaitsOnlyHalfASecond() {
+        val w = waitFrom(start)
+        w.found("host", start + 10, part = 0)
+        w.found("host", start + 11, part = 1)
+        w.found("srflx", start + 70, part = 0)
+        assertNull(w.end)
+        assertTrue(w.left(start + 10 + LOCAL_GRACE_MS) <= 0)
+        assertEquals(AddressesEnd.LOCAL, w.end)
+    }
+
     @Test fun onlyLocalAddressesWaitHalfASecondMore() {
         val w = waitFrom(start)
         w.found("host", start + 30)

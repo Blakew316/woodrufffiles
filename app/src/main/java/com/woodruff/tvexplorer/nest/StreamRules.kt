@@ -116,7 +116,7 @@ internal const val ADDRESS_LIMIT_MS = 3_000L
 
 /** Why the wait for the TV's network addresses ended (the smoothness report says). */
 internal enum class AddressesEnd(val words: String) {
-    /** A public address (seen from outside the home network): the one Google needs. */
+    /** A public address (seen from outside the home network), the one Google needs, for every part of the offer. */
     PUBLIC("public"),
     /** Every network was asked and answered. */
     ALL("all"),
@@ -129,14 +129,20 @@ internal enum class AddressesEnd(val words: String) {
 /**
  * Waiting for this TV's network addresses (WebRTC's ICE candidates) before the offer goes to Google,
  * which takes none found later. Waiting for every network to answer could take the full 3 s where
- * one never does (broken IPv6, some VPN set-ups): so it ends at the first public address, or
- * [LOCAL_GRACE_MS] after the first local one, or once every network has answered, and never later
- * than [ADDRESS_LIMIT_MS] after it [begin]s. No network is left out (a VPN on the TV may be the only
- * way out). Its callbacks come on WebRTC's signaling thread, its checks on the stream's own: synchronized.
+ * one never does (broken IPv6, some VPN set-ups): so it ends once there's a public address for every
+ * part of the offer, or [LOCAL_GRACE_MS] after the first local one, or once every network has
+ * answered, and never later than [ADDRESS_LIMIT_MS] after it [begin]s. (Until Google's answer joins
+ * them into one, the sound, the picture and the data channel each ask for addresses of their own, a
+ * few milliseconds apart: the first public address alone would leave the others' out.) No network is
+ * left out (a VPN on the TV may be the only way out). Its callbacks come on WebRTC's signaling
+ * thread, its checks on the stream's own: synchronized.
  */
 internal class AddressWait {
     private var startedAt = -1L
     private var firstLocalAt = 0L
+    /** The parts of the offer (by their index) that have a local address, and those with a public one. */
+    private val local = HashSet<Int>()
+    private val public = HashSet<Int>()
 
     /** Why it ended; null while it goes on. */
     var end: AddressesEnd? = null
@@ -148,13 +154,20 @@ internal class AddressWait {
         if (startedAt < 0) startedAt = now
     }
 
-    /** An address of [type] ("host", "srflx"…, from [candidateType]) was found at [now]. */
-    @Synchronized fun found(type: String?, now: Long) {
+    /**
+     * An address of [type] ("host", "srflx"…, from [candidateType]) was found at [now], for the part
+     * of the offer at index [part] (WebRTC's sdpMLineIndex).
+     */
+    @Synchronized fun found(type: String?, now: Long, part: Int = 0) {
         if (end != null) return
         when (type) {
-            "srflx" -> end = AddressesEnd.PUBLIC
-            "host" -> if (firstLocalAt == 0L) firstLocalAt = now
+            "srflx" -> public += part
+            "host" -> {
+                local += part
+                if (firstLocalAt == 0L) firstLocalAt = now
+            }
         }
+        if (public.isNotEmpty() && public.containsAll(local)) end = AddressesEnd.PUBLIC
     }
 
     /** Every network has answered. */

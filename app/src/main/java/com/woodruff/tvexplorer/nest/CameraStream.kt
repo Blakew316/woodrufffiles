@@ -327,7 +327,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
                 }
             }
             override fun onIceCandidate(candidate: IceCandidate?) {
-                addresses.found(candidateType(candidate?.sdp), clock())
+                addresses.found(candidateType(candidate?.sdp), clock(), candidate?.sdpMLineIndex ?: 0)
                 found.trySend(Unit)
             }
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
@@ -369,9 +369,9 @@ class CameraStream(private val context: Context, private val camera: Camera) {
         val asking = clock()
         addresses.begin(asking)
         setDescription { obs -> conn.setLocalDescription(obs, offer) }
-        // This TV's network addresses go in the offer (Google takes none found later): until a public
-        // one is found, or half a second after the first local one, or all are in, 3 s at most. The
-        // offer then carries the ones found so far.
+        // This TV's network addresses go in the offer (Google takes none found later): until each part
+        // of it has a public one, or half a second after the first local one, or all are in, 3 s at
+        // most. The offer then carries the ones found so far.
         while (true) {
             val left = addresses.left(clock())
             if (left <= 0) break
