@@ -302,7 +302,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     /** Where the preview frames come from: the same file the player streams (Drive with its token). Off the main thread. */
     private fun previewSource(key: String): Pair<String, Map<String, String>>? = when (val ref = MediaRef.parse(key)) {
-        is MediaRef.Drive -> token().takeIf { it.isNotEmpty() }?.let { com.woodruff.tvexplorer.cloud.DriveApi.mediaUrl(ref.id) to mapOf("Authorization" to "Bearer $it") }
+        is MediaRef.Drive -> tokenOrEmpty().takeIf { it.isNotEmpty() }?.let { com.woodruff.tvexplorer.cloud.DriveApi.mediaUrl(ref.id) to mapOf("Authorization" to "Bearer $it") }
         is MediaRef.Local -> ref.path to emptyMap()
         is MediaRef.Remote -> ref.url to emptyMap()
     }
@@ -1144,7 +1144,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         lifecycleScope.launch {
             val next = runCatching {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val t = token().ifEmpty { return@withContext null }
+                    val t = tokenOrEmpty().ifEmpty { return@withContext null }
                     val showFolder = com.woodruff.tvexplorer.cloud.DriveFile(show, "", com.woodruff.tvexplorer.cloud.DriveFile.FOLDER_MIME, 0, 0, null)
                     val inShow = com.woodruff.tvexplorer.cloud.FolderCache.list(app, t, showFolder) ?: return@withContext null
                     val season = UpNext.seasonOf(inShow, com.woodruff.tvexplorer.cloud.DriveApi.parentOf(t, ref.id), name) ?: return@withContext null
@@ -1637,7 +1637,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         lifecycleScope.launch {
             val folder = runCatching {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val t = token().ifEmpty { return@withContext null }
+                    val t = tokenOrEmpty().ifEmpty { return@withContext null }
                     // The season's subtitle files come with it: the episodes queued below get theirs.
                     com.woodruff.tvexplorer.cloud.DriveApi.siblings(t, ref.id).also { SubtitleIndex.learnNow(it) }
                 }
@@ -1677,11 +1677,17 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     }
 
     /**
-     * Runs on ExoPlayer's loading thread, so blocking here is fine. GoogleAuth keeps the token in
-     * memory until a minute before it runs out and then fetches a new one, so it's always current
-     * (a copy kept here for 30 minutes could outlive it, and kept "" after a failed refresh).
+     * The Google token one of the player's Drive requests carries. Runs on ExoPlayer's loading thread,
+     * so blocking here is fine. GoogleAuth keeps the token in memory until a minute before it runs out
+     * and then fetches a new one, so it's always current (a copy kept here for 30 minutes could outlive
+     * it, and kept "" after a failed refresh). None to be had just now (Google out of reach, or the
+     * TV's Keystore still waking after a power cut): the request fails as a dropped connection does,
+     * and the film is tried again under "Reconnecting…" ([driveToken]).
      */
-    private fun token(): String = GoogleAuth.blockingToken(applicationContext).orEmpty()
+    private fun token(): String = driveToken(GoogleAuth.blockingTokenResult(applicationContext))
+
+    /** The Drive token, or "" while there's none: for the scrub preview and the queue's own Drive lookups, which do without. Blocking. */
+    private fun tokenOrEmpty(): String = GoogleAuth.blockingToken(applicationContext).orEmpty()
 
     // ---- Drive token ---------------------------------------------------------------------------
 
@@ -1878,6 +1884,23 @@ internal const val TOKEN_RENEW_LEAD_MS = 50_000L
 
 /** How long to wait before renewing a token that runs out at [expiresAt]; 0 when that's due already. */
 internal fun tokenRenewDelayMs(expiresAt: Long, now: Long): Long = (expiresAt - TOKEN_RENEW_LEAD_MS - now).coerceAtLeast(0)
+
+/**
+ * The token a Drive request carries, from what GoogleAuth answered ([result]). None to be had just now
+ * (offline: Google out of reach, or the Keystore still waking after a power cut) fails the request as
+ * a dropped connection does ([PlaybackErrors.stallOf] says NETWORK), so the player says "Reconnecting…"
+ * and tries again until there is one. Asked without one, Drive turned it down, and the ring said
+ * "Google Drive turned this down", blaming Google for a TV starting up. Signed out, or the keys refused:
+ * asked all the same, as before, and Drive's answer brings up how to sign in again (or that it's refused).
+ */
+@OptIn(UnstableApi::class)
+internal fun driveToken(result: GoogleAuth.TokenResult): String = when (result) {
+    is GoogleAuth.TokenResult.Ok -> result.token
+    is GoogleAuth.TokenResult.Offline -> throw androidx.media3.datasource.DataSourceException(
+        "No Google token just now", result.cause, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+    )
+    GoogleAuth.TokenResult.SignedOut, is GoogleAuth.TokenResult.Rejected -> ""
+}
 
 /**
  * The player's decoders. The TV's own come first, as before, and so does passing the sound
