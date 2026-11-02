@@ -8,7 +8,7 @@ import org.junit.Test
 
 /** A linked TV whose address changed (a new router, a power cut) is found again on the network. */
 class TvRefindTest {
-    private val kids = LinkedTv("kids-id", "Kids Room", "http://192.168.1.21:8080", "key1")
+    private val family = LinkedTv("family-id", "Family Room", "http://192.168.1.21:8080", "key1")
     private val bedroom = LinkedTv("bed-id", "Bedroom", "http://192.168.1.22:8080", "key2")
     private val guestBedroom = LinkedTv("guest-id", "Bedroom", "http://192.168.1.23:8080", "key3")
     private val newAddress = "http://192.168.1.40:8090"
@@ -18,9 +18,9 @@ class TvRefindTest {
     // ---- Which TV an advertisement is ----------------------------------------------------------
 
     @Test fun theIdComesFromTheTxtRecord() {
-        assertEquals("kids-id", txtId(mapOf("id" to "kids-id".toByteArray())))
+        assertEquals("family-id", txtId(mapOf("id" to "family-id".toByteArray())))
         // TXT keys are case-insensitive; stray spaces don't count.
-        assertEquals("kids-id", txtId(mapOf("ID" to " kids-id ".toByteArray(), "other" to "x".toByteArray())))
+        assertEquals("family-id", txtId(mapOf("ID" to " family-id ".toByteArray(), "other" to "x".toByteArray())))
     }
 
     @Test fun olderVersionsAdvertiseNoId() {
@@ -36,40 +36,40 @@ class TvRefindTest {
         // Only a suffix like Android's, at the very end.
         assertEquals("Den (2) TV", withoutRenameSuffix("Den (2) TV"))
         assertEquals("TV(2)", withoutRenameSuffix("TV(2)"))
-        assertEquals("Kids Room 2", withoutRenameSuffix("Kids Room 2"))
+        assertEquals("Family Room 2", withoutRenameSuffix("Family Room 2"))
     }
 
     @Test fun namesMatchDespiteTheSuffixOrCase() {
-        assertTrue(sameTvName("Kids Room", "Kids Room"))
-        assertTrue(sameTvName("Kids Room (2)", "Kids Room"))
-        assertTrue(sameTvName("kids room", "Kids Room"))
+        assertTrue(sameTvName("Family Room", "Family Room"))
+        assertTrue(sameTvName("Family Room (2)", "Family Room"))
+        assertTrue(sameTvName("family room", "Family Room"))
         // A TV whose own name ends in "(2)", renamed again by Android.
         assertTrue(sameTvName("Den (3)", "Den (2)"))
-        assertFalse(sameTvName("Kids Room 2", "Kids Room"))
-        assertFalse(sameTvName("Bedroom", "Kids Room"))
+        assertFalse(sameTvName("Family Room 2", "Family Room"))
+        assertFalse(sameTvName("Bedroom", "Family Room"))
     }
 
     @Test fun anAdvertisedIdPicksThatTvWhateverItsName() {
-        assertEquals(listOf(kids), candidatesFor(found("Playroom", "kids-id"), listOf(kids, bedroom)))
+        assertEquals(listOf(family), candidatesFor(found("Playroom", "family-id"), listOf(family, bedroom)))
     }
 
     @Test fun anotherIdIsNeverTheTvEvenWithItsName() {
-        assertEquals(emptyList<LinkedTv>(), candidatesFor(found("Kids Room", "other-id"), listOf(kids, bedroom)))
+        assertEquals(emptyList<LinkedTv>(), candidatesFor(found("Family Room", "other-id"), listOf(family, bedroom)))
     }
 
     @Test fun withoutAnIdTheNameDecides() {
-        assertEquals(listOf(kids), candidatesFor(found("Kids Room (2)"), listOf(kids, bedroom)))
-        assertEquals(emptyList<LinkedTv>(), candidatesFor(found("Garage"), listOf(kids, bedroom)))
+        assertEquals(listOf(family), candidatesFor(found("Family Room (2)"), listOf(family, bedroom)))
+        assertEquals(emptyList<LinkedTv>(), candidatesFor(found("Garage"), listOf(family, bedroom)))
     }
 
     @Test fun twoTvsWithTheSameNameAreBothTried() {
         // The link key check (each TV's own) then tells them apart.
-        assertEquals(listOf(bedroom, guestBedroom), candidatesFor(found("Bedroom (2)"), listOf(kids, bedroom, guestBedroom)))
+        assertEquals(listOf(bedroom, guestBedroom), candidatesFor(found("Bedroom (2)"), listOf(family, bedroom, guestBedroom)))
     }
 
     @Test fun onlyTvsThatStoppedAnsweringAreCandidates() {
-        assertEquals(emptyList<LinkedTv>(), candidatesFor(found("Kids Room", "kids-id"), listOf(bedroom)))
-        assertEquals(emptyList<LinkedTv>(), candidatesFor(found("Kids Room"), emptyList()))
+        assertEquals(emptyList<LinkedTv>(), candidatesFor(found("Family Room", "family-id"), listOf(bedroom)))
+        assertEquals(emptyList<LinkedTv>(), candidatesFor(found("Family Room"), emptyList()))
     }
 
     // ---- How often to look ---------------------------------------------------------------------
@@ -84,10 +84,10 @@ class TvRefindTest {
 
     @Test fun oneSearchAtATimeCoversEveryTvThatStoppedAnswering() {
         val r = Refinds(180_000) { 0L }
-        assertTrue(r.lost("kids-id", null))
+        assertTrue(r.lost("family-id", null))
         // Fails before the search starts: looked for in the same one.
         assertFalse(r.lost("bed-id", null))
-        assertEquals(setOf("kids-id", "bed-id"), r.next())
+        assertEquals(setOf("family-id", "bed-id"), r.next())
         // Fails during it: in the next one.
         assertFalse(r.lost("guest-id", null))
         assertEquals(setOf("guest-id"), r.next())
@@ -98,25 +98,25 @@ class TvRefindTest {
 
     @Test fun aTvAlreadyBeingLookedForIsNotLookedForTwice() {
         val r = Refinds(180_000) { 0L }
-        assertTrue(r.lost("kids-id", null))
-        assertFalse(r.lost("kids-id", null))
-        assertEquals(setOf("kids-id"), r.next())
-        assertFalse(r.lost("kids-id", null))
+        assertTrue(r.lost("family-id", null))
+        assertFalse(r.lost("family-id", null))
+        assertEquals(setOf("family-id"), r.next())
+        assertFalse(r.lost("family-id", null))
         assertNull(r.next())
     }
 
     @Test fun aTvIsLookedForAgainOnlyAfterAFewMinutes() {
         var now = 0L
         val r = Refinds(180_000) { now }
-        assertTrue(r.lost("kids-id", null))
+        assertTrue(r.lost("family-id", null))
         r.next()
         assertNull(r.next())
         now = 60_000
-        assertFalse(r.lost("kids-id", null))
+        assertFalse(r.lost("family-id", null))
         assertNull(r.next())
         now = 180_000
-        assertTrue(r.lost("kids-id", null))
-        assertEquals(setOf("kids-id"), r.next())
+        assertTrue(r.lost("family-id", null))
+        assertEquals(setOf("family-id"), r.next())
     }
 
     // ---- What's sent again ---------------------------------------------------------------------
@@ -124,41 +124,41 @@ class TvRefindTest {
     @Test fun whatFailedGoesOnceToTheNewAddress() {
         val r = Refinds(180_000) { 0L }
         val sent = mutableListOf<String>()
-        r.lost("kids-id") { sent += "doorbell to ${it.base}" }
+        r.lost("family-id") { sent += "doorbell to ${it.base}" }
         // Failed again while waiting: goes too.
-        r.lost("kids-id") { sent += "notice to ${it.base}" }
+        r.lost("family-id") { sent += "notice to ${it.base}" }
         // A key press: nothing to send again.
-        r.lost("kids-id", null)
+        r.lost("family-id", null)
         r.next()
-        r.found("kids-id").forEach { it(kids.copy(base = newAddress)) }
+        r.found("family-id").forEach { it(family.copy(base = newAddress)) }
         assertEquals(listOf("doorbell to $newAddress", "notice to $newAddress"), sent)
-        assertTrue(r.found("kids-id").isEmpty())
+        assertTrue(r.found("family-id").isEmpty())
     }
 
     @Test fun aMessageFailingDuringTheSearchGoesTooIfTheTvTurnsUp() {
         val r = Refinds(180_000) { 0L }
         var sent = 0
-        r.lost("kids-id", null)
+        r.lost("family-id", null)
         r.next()
-        r.lost("kids-id") { sent++ }
-        r.found("kids-id").forEach { it(kids) }
+        r.lost("family-id") { sent++ }
+        r.found("family-id").forEach { it(family) }
         assertEquals(1, sent)
     }
 
     @Test fun whatATvThatWasntFoundMissedIsDropped() {
         val r = Refinds(180_000) { 0L }
         var sent = 0
-        r.lost("kids-id") { sent++ }
-        assertEquals(setOf("kids-id"), r.next())
+        r.lost("family-id") { sent++ }
+        assertEquals(setOf("family-id"), r.next())
         // The search ended without finding it (off, or out of reach).
         assertNull(r.next())
-        assertTrue(r.found("kids-id").isEmpty())
+        assertTrue(r.found("family-id").isEmpty())
         assertEquals(0, sent)
     }
 
     @Test fun aTvThatWasntLookedForHasNothingToSend() {
         val r = Refinds(180_000) { 0L }
-        r.lost("kids-id") { }
+        r.lost("family-id") { }
         r.next()
         assertTrue(r.found("bed-id").isEmpty())
     }

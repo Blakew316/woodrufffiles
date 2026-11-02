@@ -117,11 +117,11 @@ class PhoneInboxTest {
     }
 
     @Test fun messagesOutliveARestart() {
-        PhoneInbox.add(ctx, listOf("p-mom-1234"), msg("Dinner’s ready", System.currentTimeMillis()))
+        PhoneInbox.add(ctx, listOf("p-kitchen-1234"), msg("Dinner’s ready", System.currentTimeMillis()))
         PhoneInbox.settle()
-        val before = PhoneInbox.since(ctx, "p-mom-1234", 0, null)
+        val before = PhoneInbox.since(ctx, "p-kitchen-1234", 0, null)
         PhoneInbox.forgetLoaded()   // as an update restarts the TV app
-        val after = PhoneInbox.since(ctx, "p-mom-1234", 0, before.getString("epoch"))
+        val after = PhoneInbox.since(ctx, "p-kitchen-1234", 0, before.getString("epoch"))
         assertEquals(before.getString("epoch"), after.getString("epoch"))
         assertEquals("Dinner’s ready", after.getJSONArray("messages").getJSONObject(0).getString("title"))
         assertEquals(1L, after.getJSONArray("messages").getJSONObject(0).getLong("seq"))
@@ -129,17 +129,17 @@ class PhoneInboxTest {
 
     @Test fun thePhonesInboxRoute() {
         val routes = CompanionRoutes(ctx)
-        PhoneInbox.add(ctx, listOf("p-mom-1234"), msg("Dinner’s ready", System.currentTimeMillis()))
+        PhoneInbox.add(ctx, listOf("p-kitchen-1234"), msg("Dinner’s ready", System.currentTimeMillis()))
         PhoneInbox.settle()
-        val first = JSONObject(routes.answerFor(phoneRequest("/api/inbox", params = mapOf("id" to "p-mom-1234", "after" to "0", "epoch" to ""))).bodyText())
+        val first = JSONObject(routes.answerFor(phoneRequest("/api/inbox", params = mapOf("id" to "p-kitchen-1234", "after" to "0", "epoch" to ""))).bodyText())
         assertEquals(1, first.getJSONArray("messages").length())
         val epoch = first.getString("epoch")
         assertNotEquals("", epoch)
         val seq = first.getLong("seq")
         // Asked again after it: nothing new, and nothing was taken.
-        val again = JSONObject(routes.answerFor(phoneRequest("/api/inbox", params = mapOf("id" to "p-mom-1234", "after" to "$seq", "epoch" to epoch))).bodyText())
+        val again = JSONObject(routes.answerFor(phoneRequest("/api/inbox", params = mapOf("id" to "p-kitchen-1234", "after" to "$seq", "epoch" to epoch))).bodyText())
         assertEquals(0, again.getJSONArray("messages").length())
-        val replay = JSONObject(routes.answerFor(phoneRequest("/api/inbox", params = mapOf("id" to "p-mom-1234", "after" to "0", "epoch" to epoch))).bodyText())
+        val replay = JSONObject(routes.answerFor(phoneRequest("/api/inbox", params = mapOf("id" to "p-kitchen-1234", "after" to "0", "epoch" to epoch))).bodyText())
         assertEquals(1, replay.getJSONArray("messages").length())
         // A phone that isn't known: nothing, and no error.
         val stranger = JSONObject(routes.answerFor(phoneRequest("/api/inbox", params = mapOf("id" to "p-unknown-1"))).bodyText())

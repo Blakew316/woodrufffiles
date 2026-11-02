@@ -759,7 +759,7 @@ class CompanionRoutes(private val ctx: Context) {
 
     /**
      * The TVs a message is for, from its optional "tvs": "all", "this", or TVs by id or name (a list,
-     * or comma-separated, e.g. ?tvs=this,Kids Room). Without it, [default].
+     * or comma-separated, e.g. ?tvs=this,Den). Without it, [default].
      */
     private fun targets(b: JSONObject, default: TvTargets): TvTargets {
         val asked = when (val v = b.opt("tvs")) {

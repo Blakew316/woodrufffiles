@@ -12,7 +12,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
 
-/** A phone that opened the companion web app, with the name its owner gave it ("Mom's iPhone"). */
+/** A phone that opened the companion web app, with the name its owner gave it ("Kitchen iPad"). */
 data class Phone(val id: String, val name: String, val topic: String?, val lastSeen: Long)
 
 /**

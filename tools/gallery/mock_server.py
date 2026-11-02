@@ -146,9 +146,9 @@ def room_for(path):
 def memories_json():
     return {'items': MEMORIES, 'folder': PHOTOS, 'fit': [1920, 1080], 'slideshow': True, 'free': FREE['tv']}
 PHONES = [
-    {'id': 'p-blake', 'name': "Blake's iPhone", 'alerts': True},
-    {'id': 'p-mom', 'name': "Mom's iPhone", 'alerts': True},
-    {'id': 'p-kids', 'name': 'Kids iPad', 'alerts': False},
+    {'id': 'p-phone', 'name': 'Phone', 'alerts': True},
+    {'id': 'p-living-room', 'name': 'Living Room iPad', 'alerts': True},
+    {'id': 'p-kitchen', 'name': 'Kitchen iPad', 'alerts': False},
 ]
 SETTINGS = {
     'notifyUrl': 'http://192.168.1.20:8080/api/notify?k=…&tvs=all',
@@ -1218,7 +1218,7 @@ class Handler(BaseHTTPRequestHandler):
             DIAG['started'] = time.time()
             return self.send({'ok': True, 'seconds': RECORD_S})
         if path == '/api/phone/hello':
-            phone = {'id': body.get('id', 'p-blake'), 'name': body.get('name', "Blake's iPhone"),
+            phone = {'id': body.get('id', 'p-phone'), 'name': body.get('name', 'Phone'),
                      'alerts': body.get('alerts', True), 'topic': 'woodruff-example'}
             return self.send({'phone': phone, 'phones': PHONES})
         if upload and len(raw) > room_for(query.get('path', [PHOTOS])[0] if path == '/api/upload' else PHOTOS):

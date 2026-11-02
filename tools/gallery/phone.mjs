@@ -92,7 +92,7 @@ for (const scheme of ['dark', 'light']) {
   // A named phone, like one that has been set up, so Settings shows it; installed on the Home Screen,
   // so the "Add to Home Screen" tip is already gone.
   await context.addInitScript(() => {
-    localStorage.setItem('woodruff.device', JSON.stringify({ id: 'p-blake', name: "Blake's iPhone", alerts: true, topic: 'woodruff-example' }));
+    localStorage.setItem('woodruff.device', JSON.stringify({ id: 'p-phone', name: 'Phone', alerts: true, topic: 'woodruff-example' }));
     localStorage.setItem('woodruff.installHint', '1');
     Object.defineProperty(navigator, 'standalone', { get: () => true });
   });

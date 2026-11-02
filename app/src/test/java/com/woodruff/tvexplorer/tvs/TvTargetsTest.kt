@@ -6,9 +6,9 @@ import org.junit.Test
 
 /** Which TVs an announcement or a Shortcut message goes to ("tvs"). */
 class TvTargetsTest {
-    private val kids = LinkedTv("kids-id", "Kids Room", "http://192.168.1.21:8080", "key1")
+    private val family = LinkedTv("family-id", "Family Room", "http://192.168.1.21:8080", "key1")
     private val bedroom = LinkedTv("bed-id", "Bedroom", "http://192.168.1.22:8080", "key2")
-    private val linked = listOf(kids, bedroom)
+    private val linked = listOf(family, bedroom)
 
     private fun pick(vararg asked: String, default: TvTargets = TvTargets.HERE) =
         pickTargets(asked.toList(), default, "me-id", "Living Room", linked)
@@ -33,8 +33,8 @@ class TvTargetsTest {
     }
 
     @Test fun linkedTvsByIdOrName() {
-        assertEquals(TvTargets(false, setOf("kids-id")), pick("kids-id"))
-        assertEquals(TvTargets(false, setOf("kids-id", "bed-id")), pick(" kids room ", "BEDROOM"))
+        assertEquals(TvTargets(false, setOf("family-id")), pick("family-id"))
+        assertEquals(TvTargets(false, setOf("family-id", "bed-id")), pick(" family room ", "BEDROOM"))
         assertEquals(TvTargets(true, setOf("bed-id")), pick("this", "Bedroom"))
     }
 
