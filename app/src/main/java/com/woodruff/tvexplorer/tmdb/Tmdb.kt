@@ -118,13 +118,14 @@ object Tmdb {
     /**
      * Asks TMDB whether [key] works, with one light request (its configuration), before it's kept:
      * on the TV and from the phone. Nothing about the key is logged, and the request's address (which
-     * carries a v3 key) is never put in a message.
+     * carries a v3 key) is never put in a message. Ten seconds at most (TMDB answers in well under
+     * one): the person waits on it, the phone's request too; past that it's saved unchecked.
      */
     suspend fun check(key: String): KeyCheck = withContext(Dispatchers.IO) {
         val k = key.trim()
         if (k.isEmpty()) return@withContext KeyCheck.REFUSED
         val result = try {
-            val conn = connect(k, "configuration", connectMs = 8_000, readMs = 10_000)
+            val conn = connect(k, "configuration", connectMs = 5_000, readMs = 5_000)
             try { keyCheckOf(conn.responseCode) } finally { conn.disconnect() }
         } catch (e: java.io.IOException) {
             KeyCheck.UNCHECKED

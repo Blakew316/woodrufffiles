@@ -28,6 +28,7 @@ import com.woodruff.tvexplorer.cloud.said
 import com.woodruff.tvexplorer.ui.components.FieldStatus
 import com.woodruff.tvexplorer.ui.components.OfflineWords
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.tryFocus
 import com.woodruff.tvexplorer.ui.icons.Sym
 import com.woodruff.tvexplorer.ui.theme.Palette
 
@@ -142,7 +143,9 @@ internal fun LibraryPagePanel(
     )
     LaunchedEffect(Unit) {
         withFrameNanos {} // once the button is laid out
-        if (takeFocus()) runCatching { button.requestFocus() }
+        if (!takeFocus()) return@LaunchedEffect
+        // A few frames more if it isn't attached yet (a request with nothing attached does nothing).
+        repeat(10) { if (button.tryFocus()) return@LaunchedEffect; withFrameNanos {} }
     }
 }
 

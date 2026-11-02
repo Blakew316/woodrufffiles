@@ -97,6 +97,7 @@ import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.motion.posterRowState
 import com.woodruff.tvexplorer.ui.components.BadgeKind
 import com.woodruff.tvexplorer.ui.components.StatusBadge
+import com.woodruff.tvexplorer.ui.components.tryFocus
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.util.Format
@@ -471,7 +472,9 @@ internal fun TitlePage(
         if (focused || !ready) return@LaunchedEffect
         repeat(10) {
             withFrameNanos {}
-            if (runCatching { primary.requestFocus() }.isSuccess) { focused = true; return@LaunchedEffect }
+            // tryFocus: a request with nothing attached yet no longer throws, it does nothing (and the
+            // next frames would never have tried again).
+            if (primary.tryFocus()) { focused = true; return@LaunchedEffect }
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
