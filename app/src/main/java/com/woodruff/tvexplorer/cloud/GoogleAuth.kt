@@ -200,6 +200,16 @@ object GoogleAuth {
 
     private val SAVED_KEYS = listOf(K_CLIENT_ID, K_CLIENT_SECRET, K_NEST_PROJECT)
 
+    /**
+     * Whether [grant]'s sign-in, or a key it needs, is kept but can't be read just now: the TV's Keystore is still
+     * waking after a power cut. A token asked for then is [TokenResult.Offline], but Google was never asked: screens
+     * keep what they show ("Loading", with nothing saved) rather than say "Can't reach Google", and try again the
+     * moment the Keystore wakes (its key turning up wakes whatever waits for the network: [SecretStore.keyBack]).
+     */
+    fun waitingForKeys(c: Context, grant: Grant): Boolean = s(c).let { st ->
+        unreadableNow(st, grant.refreshKey) || unreadableNow(st, K_CLIENT_ID) || (grant == Grant.NEST && unreadableNow(st, K_NEST_PROJECT))
+    }
+
     /** [IllegalArgumentException] ([KEYS_NOT_YET]), as for a key that won't do, while any of [names] can't be read just now. */
     private fun requireReadable(c: Context, vararg names: String) {
         val st = s(c)

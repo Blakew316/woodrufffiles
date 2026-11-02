@@ -7,9 +7,12 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import com.woodruff.tvexplorer.util.NetworkWatch
 import java.security.KeyStore
 import java.security.KeyStoreException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -23,7 +26,8 @@ import javax.crypto.spec.GCMParameterSpec
  * prefs file is copied off the device. Uninstalling the app deletes the key and with it the data.
  *
  * Some TVs may not find the key for a moment just after they turn on. That never costs the saved
- * sign-ins, and never holds up the screen: see [key].
+ * sign-ins, and never holds up the screen: see [key]. It's looked for in the background meanwhile,
+ * and what waits on it is told the moment it turns up: see [lookOn].
  */
 class SecretStore internal constructor(
     context: Context,
@@ -33,6 +37,13 @@ class SecretStore internal constructor(
     /** Milliseconds that only go forward (elapsedRealtime), for spacing out looks for a missing key. */
     private val clock: () -> Long = SystemClock::elapsedRealtime,
     private val pause: (Long) -> Unit = { Thread.sleep(it) },
+    /**
+     * Starts the background look for a missing key ([lookOn]) on a thread of its own. Null: no such look (a test's
+     * store, unless it asks for one); the app's own store ([get]) has it.
+     */
+    private val background: ((Runnable) -> Unit)? = null,
+    /** Told once, when the key turns up after it was missing this run (the app's own store: [keyBack]). */
+    private val onKeyBack: () -> Unit = {},
 ) {
     private val prefs = context.applicationContext.getSharedPreferences("secrets", Context.MODE_PRIVATE)
     /** What happened to the key, in plain prefs of their own (never read as a secret): see [lostAt]. */
@@ -55,6 +66,12 @@ class SecretStore internal constructor(
     @Volatile private var lookAgainAt = 0L
     /** When this run last counted the key as missing ([clock]); null while it hasn't. */
     @Volatile private var missCountedAt: Long? = null
+    /** Whether a look for the key came to nothing this run, so its turning up is news ([onKeyBack]). */
+    @Volatile private var missed = false
+    /** Whether [onKeyBack] was told. */
+    private val told = AtomicBoolean(false)
+    /** Whether the background look for the key ([lookOn]) is under way. */
+    private val lookingOn = AtomicBoolean(false)
 
     fun get(name: String): String? {
         cache[name]?.let { return it }
@@ -143,13 +160,30 @@ class SecretStore internal constructor(
      * - The lock is held only for each look, never during the pauses, so nobody waits behind a pause.
      * - After a wait that came to nothing, nobody looks again for [LOOK_AGAIN_MS]: reads say unset at
      *   once instead of each waiting again (a dozen secrets read at start-up would otherwise take a
-     *   dozen seconds).
+     *   dozen seconds). The background look ([lookOn]) goes on meanwhile, so a key that turns up is
+     *   read as soon as it's there.
      * - Only when the Keystore has said the key isn't there on [MISSES_BEFORE_NEW_KEY] occasions at
      *   least [MISS_SPACING_MS] apart (or on that many separate runs) is it taken as gone: the old
      *   secrets are dropped and a new key made. A Keystore that errors, rather than answering, is
      *   never taken as an answer. Finding the key starts the count again.
      */
     private fun key(): SecretKey {
+        secretKey?.let { return it }
+        val key = try {
+            lookForKey()
+        } catch (e: Exception) {
+            missed = true
+            lookOn()
+            // Found by another thread meanwhile, before this one counted as having missed it: told all the same.
+            if (secretKey != null) tellKeyBack()
+            throw e
+        }
+        tellKeyBack()
+        return key
+    }
+
+    /** [key]'s looks (see there); throws while the key can't be found. */
+    private fun lookForKey(): SecretKey {
         secretKey?.let { return it }
         val mayWait = !onMainThread()
         var answeredMissing = false
@@ -179,6 +213,37 @@ class SecretStore internal constructor(
             if (misses < MISSES_BEFORE_NEW_KEY) throw KeyStoreException("The secrets' key isn't there (miss $misses)")
             return startOver()
         }
+    }
+
+    /**
+     * Looks for a missing key in the background ([background]) until it turns up: every [RELOOK_MS] for the first
+     * [RELOOK_FAST_FOR_MS], then every [LOOK_AGAIN_MS] (see [relookPause]). One quick look each time, which waits for
+     * nothing and counts nothing as the key being gone (only a reader's wait does, see [key]). So a key the Keystore
+     * finds a moment after a wait for it gave up is found within a couple of seconds, not at the next read after
+     * [LOOK_AGAIN_MS], and whatever waits on it is told at once ([onKeyBack]), even when nothing reads a secret meanwhile.
+     */
+    private fun lookOn() {
+        val start = background ?: return
+        if (secretKey != null || !lookingOn.compareAndSet(false, true)) return
+        val since = clock()
+        start(Runnable {
+            try {
+                while (secretKey == null) {
+                    pause(relookPause(clock() - since))
+                    synchronized(lock) {
+                        if (secretKey == null) runCatching { vault.find() }.getOrNull()?.let { found(it) }
+                    }
+                }
+            } finally {
+                lookingOn.set(false)
+            }
+            tellKeyBack()
+        })
+    }
+
+    /** The key is here: when it was missing earlier this run, [onKeyBack] is told, once. Never with [lock] held. */
+    private fun tellKeyBack() {
+        if (missed && secretKey != null && told.compareAndSet(false, true)) runCatching { onKeyBack() }.onFailure { Log.w(TAG, "telling the key is back failed", it) }
     }
 
     /** Counts this absence of the key, at most once every [MISS_SPACING_MS] in a run; the count so far (kept across runs). */
@@ -267,10 +332,38 @@ class SecretStore internal constructor(
         internal const val LOOK_AGAIN_MS = 30_000L
         internal const val MISS_SPACING_MS = 5 * 60_000L
         internal const val MISSES_BEFORE_NEW_KEY = 3
+        /** How often the background look for a missing key looks ([lookOn]), at first, and for how long before it slows down. */
+        internal const val RELOOK_MS = 2_000L
+        internal const val RELOOK_FAST_FOR_MS = 2 * 60_000L
+
+        /** The background look's pause before its next look, once it has looked for [lookedForMs]. */
+        internal fun relookPause(lookedForMs: Long): Long = if (lookedForMs < RELOOK_FAST_FOR_MS) RELOOK_MS else LOOK_AGAIN_MS
 
         @Volatile private var instance: SecretStore? = null
         fun get(context: Context): SecretStore =
-            instance ?: synchronized(this) { instance ?: SecretStore(context).also { instance = it } }
+            instance ?: synchronized(this) {
+                instance ?: SecretStore(context, background = ::onItsOwnThread, onKeyBack = { onItsOwnThread(::keyBack) }).also { instance = it }
+            }
+
+        private fun onItsOwnThread(r: Runnable) = Thread(r, "secrets-key").apply { isDaemon = true }.start()
+
+        private val keyBackListeners = CopyOnWriteArrayList<() -> Unit>()
+
+        /**
+         * Runs [action] whenever the app's store finds its key after it was missing (at most once a run, on a
+         * background thread): for what was read once a run as "not yet" while the Keystore was still waking
+         * ([isUnreadableNow]), such as the linked TVs and the paired phones, to read again at once.
+         */
+        fun whenKeyBack(action: () -> Unit) { keyBackListeners += action }
+
+        /**
+         * The app's store found its key after it was missing: whatever waits to try again (on the network coming back:
+         * the libraries, the calendar, the cameras, the doorbell) tries now, and what was read as "not yet" reads again.
+         */
+        internal fun keyBack() {
+            NetworkWatch.tryAgainNow()
+            keyBackListeners.forEach { action -> runCatching(action).onFailure { Log.w(TAG, "reading again with the key back failed", it) } }
+        }
 
         /**
          * Tests: [get] hands out [store] (one over a stand-in Keystore) from now on. Returns the one it

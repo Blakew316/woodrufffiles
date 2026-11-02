@@ -118,6 +118,30 @@ class SlowKeystoreKeysTest {
         assertFalse(GoogleAuth.isConnected(app, Grant.NEST))
     }
 
+    @Test fun aSignInThatCantBeReadYetIsWaitingNotOutOfReach() {
+        signedIn()
+        vault.missing = true
+        use(run())
+        // Its token is offline, but Google was never asked: the screens wait calmly rather than say "Can't reach Google".
+        assertTrue(GoogleAuth.blockingTokenResult(app) is GoogleAuth.TokenResult.Offline)
+        assertTrue(GoogleAuth.waitingForKeys(app, Grant.DRIVE))
+        assertTrue(GoogleAuth.waitingForKeys(app, Grant.NEST))
+        assertTrue(GoogleAuth.waitingForKeys(app, Grant.CALENDAR))
+        // The Keystore wakes: it isn't any more.
+        vault.missing = false
+        now += SecretStore.LOOK_AGAIN_MS
+        assertFalse(GoogleAuth.waitingForKeys(app, Grant.DRIVE))
+        assertFalse(GoogleAuth.waitingForKeys(app, Grant.NEST))
+    }
+
+    @Test fun aTvNeverSignedInWaitsForNothing() {
+        run().put("tmdb.key", "abc123")
+        vault.missing = true
+        use(run())
+        assertFalse(GoogleAuth.waitingForKeys(app, Grant.DRIVE))
+        assertFalse(GoogleAuth.waitingForKeys(app, Grant.NEST))
+    }
+
     @Test fun aTvNeverSetUpSavesItsFirstKeysAsBefore() {
         // Only a TMDB key saved, and the Keystore waking: no Google key is kept, so none is waited for.
         run().put("tmdb.key", "abc123")
