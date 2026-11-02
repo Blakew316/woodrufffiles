@@ -18,6 +18,8 @@ import android.view.PixelCopy
 import android.view.View
 import android.view.Window
 import android.view.WindowManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import com.woodruff.tvexplorer.ui.motion.DialogWindows
 import com.woodruff.tvexplorer.ui.motion.DpadGate
 import com.woodruff.tvexplorer.util.Presence
@@ -41,9 +43,9 @@ import kotlin.math.roundToInt
  * doorbell's camera), and each of its pop-ups (a title page, a menu, a confirmation, the filters,
  * search) is a window of its own over the screen that opened it ([DialogWindows]). A key goes to the
  * window with the focus, as the TV's remote's does, so Back closes a pop-up and OK presses Play on a
- * title page. It carries the time it came and, for an arrow held on the phone, how many times it has
- * repeated: held arrows are gated as the remote's are (never queued, at the phone's own pace), and
- * Settings → Smoothness counts the moves.
+ * title page (and to none of them while another app's screen is in front). It carries the time it
+ * came and, for an arrow held on the phone, how many times it has repeated: held arrows are gated as
+ * the remote's are (never queued, at the phone's own pace), and Settings → Smoothness counts the moves.
  *
  * The picture is the screen with its pop-ups drawn over it, the screen dimmed behind them as on the
  * TV. Only this app's windows can be copied (Android needs a permission prompt on the TV for anything
@@ -160,14 +162,18 @@ object TvScreen {
 
     /**
      * Where a key goes now: of the top screen's windows (its own and its pop-ups over it), the one with
-     * the focus; when none has it (one of Android's own windows is over them), its top pop-up, else the
-     * screen itself. Its window's callback is what Android hands keys to (for a pop-up, the dialog:
-     * Back closes it). Main thread.
+     * the focus; when none has it (a window of Android's is over them for a moment), its top pop-up,
+     * else the screen itself. Its window's callback is what Android hands keys to (for a pop-up, the
+     * dialog: Back closes it). Nowhere (null) when another app's screen is in front of Woodruff's
+     * (Android's own install or permission screen, its voice search): the phone can't press there,
+     * and pressing behind it would act where nobody can see. Main thread.
      */
     private fun keyWindow(): Window.Callback? {
         val a = top() ?: return null
         val windows = listOf(a.window) + DialogWindows.of(a)
-        val w = windows.lastOrNull { it.peekDecorView()?.hasWindowFocus() == true } ?: windows.last()
+        val focused = windows.lastOrNull { it.peekDecorView()?.hasWindowFocus() == true }
+        if (focused == null && a is LifecycleOwner && !a.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return null
+        val w = focused ?: windows.last()
         return w.callback ?: a
     }
 

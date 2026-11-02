@@ -133,6 +133,24 @@ class TvScreenTest {
         assertFalse(TvScreen.press("ok"))
     }
 
+    @Test fun withAnotherAppsScreenInFrontThePhonePressesNothingUnseen() {
+        val controller = Robolectric.buildActivity(Screen::class.java).setup()
+        val screen = controller.get()
+        attach(screen)
+        // Android's own install screen over Woodruff (a window of another app): Woodruff's screen is
+        // paused, still started under it, and its window has lost the focus.
+        controller.pause().windowFocusChanged(false)
+        assertTrue(TvScreen.onScreen)
+        TvScreen.press("ok")
+        settle()
+        assertTrue(screen.keys.isEmpty())
+        // In front again: pressed as before.
+        controller.resume().windowFocusChanged(true)
+        TvScreen.press("ok")
+        settle()
+        assertEquals(listOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_DPAD_CENTER), screen.keys.map { it.keyCode })
+    }
+
     @Test fun aHeldArrowRepeatsAsTheRemotesDo() {
         val code = KeyEvent.KEYCODE_DPAD_RIGHT
         val (first, firstUp) = TvScreen.events(code, 0, 10_000)
