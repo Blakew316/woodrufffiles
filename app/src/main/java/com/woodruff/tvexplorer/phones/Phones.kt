@@ -33,6 +33,14 @@ object Phones {
     private val _items = MutableStateFlow<List<Phone>>(emptyList())
     val items: StateFlow<List<Phone>> = _items
     @Volatile private var loaded = false
+    /** For reading the list again once the Keystore wakes (set by [load]). */
+    @Volatile private var appContext: Context? = null
+
+    init {
+        // A list read as "not yet" while the Keystore was still waking is read again the moment it finds its key, for
+        // the screens showing it (Settings, the Announce dialog) and announcements, not whenever something next asks.
+        SecretStore.whenKeyBack { appContext?.let { load(it) } }
+    }
 
     /**
      * The paired phones, read from the encrypted store once per run. While the Keystore can't read the saved list yet
@@ -41,6 +49,7 @@ object Phones {
      * over the list, losing every other phone and its Lock Screen alerts for good (see [write]).
      */
     fun load(c: Context) {
+        appContext = c.applicationContext
         if (loaded) return
         val store = SecretStore.get(c)
         // Read outside the lock: a Keystore still waking can take a moment, and nobody waits behind it. Asked again

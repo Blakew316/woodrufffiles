@@ -100,6 +100,18 @@ object TvLinks {
     val linked: StateFlow<List<LinkedTv>> = _linked
     @Volatile private var loaded = false
 
+    /**
+     * Whether this run has read its list of linked TVs ([load]). Not while the Keystore is still waking after a power
+     * cut: the list is empty then only for now, which the doorbell mustn't take for "no TVs to pass rings on to".
+     */
+    val listRead: Boolean get() = loaded
+
+    init {
+        // A list read as "not yet" while the Keystore was still waking is read again the moment it finds its key, for
+        // the screens showing it (Settings, the Announce dialog) and the doorbell's relay, not whenever something next asks.
+        SecretStore.whenKeyBack { appContext?.let { load(it) } }
+    }
+
     // ---- This TV ---------------------------------------------------------------------------
 
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

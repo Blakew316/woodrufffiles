@@ -499,8 +499,9 @@ object Doorbell {
             return Next.After(IDLE_CHECK_MS)
         }
         TvLinks.load(app)
-        // Asleep, a TV that passes alerts on to no other TV has nobody to show them to.
-        if (!Awake.on.value && TvLinks.linked.value.isEmpty()) return Next.Asleep
+        // Asleep, a TV that passes alerts on to no other TV has nobody to show them to. (A list not read yet, the
+        // Keystore still waking after a power cut, isn't "no other TV": it goes on, and catches up once the Keystore wakes.)
+        if (!Awake.on.value && TvLinks.listRead && TvLinks.linked.value.isEmpty()) return Next.Asleep
         return try {
             // Offline is "can't reach Google right now" (tried again soon), never "connect first".
             val token = GoogleAuth.requireToken(app, GoogleAuth.Grant.NEST, SIGNED_OUT)
