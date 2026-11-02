@@ -246,7 +246,7 @@ class RecoveryView internal constructor(private val activity: Activity) : FrameL
 
     private fun render(s: Updater.State) {
         if (!refused(s)) refusedFor = null
-        val l = look(s, refused(s))
+        val l = look(s, refused(s)) { android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(it)) }
         statusView.text = l.status
         statusView.setTextColor(if (l.accent) ACCENT else MUTED)
         first.text = l.pill
@@ -474,8 +474,14 @@ class RecoveryView internal constructor(private val activity: Activity) : FrameL
             }
         }
 
-        /** What the status line and the first pill say for [s] (the spec's words), [refusedByProfile] after a refused Install. */
-        internal fun look(s: Updater.State, refusedByProfile: Boolean = false): Look = when (s.step) {
+        /**
+         * What the status line and the first pill say for [s] (the spec's words), [refusedByProfile] after a
+         * refused Install; [time] writes a time of day as the TV does.
+         */
+        internal fun look(
+            s: Updater.State, refusedByProfile: Boolean = false,
+            time: (Long) -> String = { java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(java.util.Date(it)) },
+        ): Look = when (s.step) {
             Updater.Step.IDLE, Updater.Step.CHECKING -> Look("Looking for a fixed version…", true, CHECKING, busy = true)
             Updater.Step.DOWNLOADING -> Look("Downloading the fix… ${(s.progress * 100).toInt().coerceIn(0, 100)}%", true, CHECKING, busy = true)
             Updater.Step.READY -> when {
@@ -485,9 +491,12 @@ class RecoveryView internal constructor(private val activity: Activity) : FrameL
             }
             Updater.Step.INSTALLING -> Look("Installing… Woodruff opens again by itself.", true, INSTALLING, busy = true)
             Updater.Step.UP_TO_DATE -> Look("No fix yet. Woodruff checks again by itself every few minutes.", false, CHECK, busy = false)
-            Updater.Step.ERROR ->
-                if (s.offline) Look("Can’t check right now: this TV is offline.", false, CHECK, busy = false)
-                else Look("Couldn’t check for a fix. Try again in a moment.", false, CHECK, busy = false)
+            Updater.Step.ERROR -> when {
+                // GitHub turned the check down for its limit: nothing asks it before it said, a press included.
+                s.busyUntil != null -> Look("GitHub is busy. Woodruff checks again by itself at ${time(s.busyUntil)}.", false, CHECK, busy = false)
+                s.offline -> Look("Can’t check right now: this TV is offline.", false, CHECK, busy = false)
+                else -> Look("Couldn’t check for a fix. Try again in a moment.", false, CHECK, busy = false)
+            }
         }
 
         /** Updater's words with typographic apostrophes, as everything on this screen has. */

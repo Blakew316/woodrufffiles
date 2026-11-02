@@ -57,6 +57,11 @@ import kotlin.math.abs
 object Updater {
     /** The newest releases, in one request (GitHub allows 60 an hour for the whole home, shared by every TV). */
     private const val RELEASES = "https://api.github.com/repos/Blakew316/woodrufffiles/releases?per_page=30"
+    /**
+     * The newest release's page on github.com, which sends a browser on to that release's tag: which build
+     * is the newest, in a few hundred bytes, and not one of the API's 60 an hour ([latestBuildFrom]).
+     */
+    private const val LATEST = "https://github.com/Blakew316/woodrufffiles/releases/latest"
     private const val ASSET = "WoodruffFamily.apk"
     /** A release's speed profiles, named by the lowest API level each serves ("-api28-30" if it stops early). */
     private val PROFILE_NAME = Regex("""WoodruffFamily-api(\d+)(?:-(\d+))?\.dm""")
@@ -86,11 +91,24 @@ object Updater {
     private const val REOPEN_WITHIN_MS = HOUR
     /**
      * After an early close: how often it looks for a fix by itself (just under the phone connection's
-     * 5-minute round, so each round checks; GitHub's 60 an hour are shared by every TV in the home).
+     * 5-minute round, so most rounds check), give or take [URGENT_JITTER] of it, drawn afresh each time, so
+     * TVs that started together (a power cut) don't all ask at once. Each look asks github.com which build
+     * is the newest first ([LATEST]); only a newer one is read from the API, whose 60 an hour are shared by
+     * every TV in the home ([firstLook]).
      */
     internal const val URGENT_EVERY_MS = 4 * 60_000L
-    /** ...and how soon again after a check that didn't go through. */
+    internal const val URGENT_JITTER = 0.25
+    /** ...and how soon again after a check that didn't go through (never after GitHub said it's busy: it says when). */
     internal const val URGENT_RETRY_MS = 60_000L
+    /** The API's list read this long ago still serves a look whose newest build it has ([firstLook]). */
+    private const val KNOWN_FOR_MS = 15 * 60_000L
+    /**
+     * The longest GitHub ever asks to wait (its counts start again every hour, and a moment more): a hold
+     * further off than this is this TV's clock having gone back, not kept to ([heldUntil]).
+     */
+    internal const val MAX_HOLD_MS = 65 * 60_000L
+    /** The least wait after GitHub turned a request down (it asks for a minute at least). */
+    private const val MIN_HOLD_MS = 60_000L
 
     // Saved in the "updates" settings file.
     /** The build Android asked a press for when it tried to go in by itself: it's offered instead from then on. */
@@ -113,6 +131,11 @@ object Updater {
      * in: never acted on, only cleared ([takeReopen]).
      */
     private const val K_REOPEN_OLD = "reopen"
+    /**
+     * When GitHub said its API may be asked again (this TV's clock, ms) after turning a check down for its
+     * limit: no check asks before then, whoever starts it (a restart, Check for updates, Check for a fix).
+     */
+    private const val K_HELD_UNTIL = "githubHeldUntil"
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
 
@@ -124,6 +147,11 @@ object Updater {
         val message: String? = null,
         /** A check that didn't go through ([Step.ERROR]) because this TV had no network at all. */
         val offline: Boolean = false,
+        /**
+         * A check GitHub turned down for its limit ([Step.ERROR]): when it may be asked again (ms), which
+         * [message] says too. Nothing asks it before then, and nothing tries again sooner meanwhile.
+         */
+        val busyUntil: Long? = null,
     ) {
         val latestName: String? get() = latest?.let { "2.0.$it" }
     }
@@ -220,10 +248,8 @@ object Updater {
             }
             val every = if (opening) CHECK_ON_OPEN_MS else CHECK_EVERY_MS
             val now = System.currentTimeMillis()
-            // After a failed check, try again sooner — but not on every pass: GitHub allows 60 checks
-            // an hour for the whole home connection, shared by every TV.
-            val retryError = _state.value.step == Step.ERROR && now - lastAttempt >= ERROR_RETRY_MS
-            if (now - p.getLong("lastCheck", 0) >= every || retryError) {
+            // Not while GitHub said to wait (the words say until when already).
+            if (heldUntil(app, now) == null && routineCheckDue(now, p.getLong("lastCheck", 0), nextTryAt, every)) {
                 checkAndDownload(app)
             }
             val afterCheck = System.currentTimeMillis()
@@ -241,6 +267,17 @@ object Updater {
             }
         }
     }
+
+    /**
+     * Whether the background routine checks at [now]: [every] after the last check that went through
+     * ([lastCheck]); after one that didn't, at [nextTryAt] instead, however long ago the last good one was
+     * (0: none pending). That's [ERROR_RETRY_MS] after a try GitHub may have counted (sooner than an hour,
+     * but not on every pass: GitHub allows 60 an hour for the whole home, shared by every TV), and when
+     * GitHub said, after it turned one down (as Settings says). A try further off than GitHub ever asks
+     * for is this TV's clock having gone back: it goes now. Visible for tests.
+     */
+    internal fun routineCheckDue(now: Long, lastCheck: Long, nextTryAt: Long, every: Long): Boolean =
+        if (nextTryAt > 0) now >= nextTryAt || nextTryAt - now > MAX_HOLD_MS else now - lastCheck >= every
 
     /**
      * Whether an update may restart Woodruff now, with no one asked: nothing that mustn't be cut short
@@ -286,12 +323,13 @@ object Updater {
      * After this version closed while starting ([EarlyCrashes]): checks for a newer build now unless it
      * did lately ([urgentCheckDue]; [manual] always checks), taking any newer one at once rather than one
      * the test TV has had for a day (anything newer beats a version that closes as it starts), then puts
-     * it in ([installUrgently]).
+     * it in ([installUrgently]). github.com is asked which build is the newest first: the API's list,
+     * which every TV's checks share 60 an hour of, only when that's one this TV doesn't have ([firstLook]).
      */
     private suspend fun urgentNow(app: Context, manual: Boolean) {
         if (_state.value.step == Step.IDLE) restoreReady(app)
         if (claimUrgentCheck(manual)) {
-            checkAndDownload(app, manual = true)
+            checkAndDownload(app, manual = true, newestFirst = true)
             // No network at all (just after the TV turned on): the next look, once there is one, goes at once.
             if (_state.value.step == Step.ERROR && _state.value.offline) urgentClaim.set(0)
         }
@@ -300,24 +338,35 @@ object Updater {
 
     /** When the last urgent check started (elapsedRealtime; 0: none in this run, so the first one goes at once). */
     private val urgentClaim = java.util.concurrent.atomic.AtomicLong(0)
+    /** How long after the last urgent check the next one is due ([urgentSpacing], drawn as each one starts). */
+    @Volatile private var urgentGap = URGENT_EVERY_MS
 
     /** Claims the next urgent check, so two callers at once make one request; false when one isn't due. */
     private fun claimUrgentCheck(manual: Boolean): Boolean {
         while (true) {
             val last = urgentClaim.get()
             val now = android.os.SystemClock.elapsedRealtime()
-            if (!manual && !urgentCheckDue(last, now, failed = _state.value.step == Step.ERROR)) return false
-            if (urgentClaim.compareAndSet(last, now.coerceAtLeast(1))) return true
+            // Sooner after a check that didn't go through, but never after GitHub said it's busy: it said when.
+            val s = _state.value
+            if (!manual && !urgentCheckDue(last, now, failed = s.step == Step.ERROR && s.busyUntil == null, every = urgentGap)) return false
+            if (urgentClaim.compareAndSet(last, now.coerceAtLeast(1))) {
+                urgentGap = urgentSpacing(Math.random())
+                return true
+            }
         }
     }
 
     /**
      * Whether an urgent check is due at [now], the last having started at [last] (0: none yet in this
-     * run): every [URGENT_EVERY_MS], or [URGENT_RETRY_MS] after one that didn't go through ([failed]).
+     * run): [every] after it, or [URGENT_RETRY_MS] after one that didn't go through ([failed]).
      * Visible for tests.
      */
-    internal fun urgentCheckDue(last: Long, now: Long, failed: Boolean): Boolean =
-        last == 0L || now - last >= (if (failed) URGENT_RETRY_MS else URGENT_EVERY_MS)
+    internal fun urgentCheckDue(last: Long, now: Long, failed: Boolean, every: Long = URGENT_EVERY_MS): Boolean =
+        last == 0L || now - last >= (if (failed) URGENT_RETRY_MS else every)
+
+    /** [URGENT_EVERY_MS], give or take [URGENT_JITTER] of it, for a draw [r] between 0 and 1. Visible for tests. */
+    internal fun urgentSpacing(r: Double): Long =
+        (URGENT_EVERY_MS * (1 + URGENT_JITTER * (2 * r.coerceIn(0.0, 1.0) - 1))).toLong()
 
     /**
      * After an early close, a fix that's ready goes in now: there's no waiting for nobody to be using
@@ -397,8 +446,9 @@ object Updater {
     internal fun resetForTest() {
         _state.value = State(); _offer.value = null
         session = -1; letGoSessions.clear(); failures = 0; retryAt = 0
-        urgentClaim.set(0); lastAttempt = 0; lastList = null
+        urgentClaim.set(0); urgentGap = URGENT_EVERY_MS; lastAttempt = 0; nextTryAt = 0; lastList = null; lastRead = null
         listReleases = { emptyList() }
+        latestBuild = { null }
         fetchFile = { _, _, _, _ -> throw IOException("no downloads in tests") }
     }
 
@@ -497,6 +547,11 @@ object Updater {
 
     /** When the last check started (successful or not). */
     @Volatile private var lastAttempt = 0L
+    /**
+     * After a check that didn't go through, when the background routine tries again ([routineCheckDue]);
+     * 0 when the last one went through, or found no network at all (GitHub never saw it: the next pass may go).
+     */
+    @Volatile private var nextTryAt = 0L
     private const val ERROR_RETRY_MS = 15 * 60_000L
 
     private fun restoreReady(c: Context) {
@@ -581,7 +636,13 @@ object Updater {
         if (arrivesInMs <= 0) "2.0.$build is on its way"
         else "2.0.$build arrives in about ${((arrivesInMs + HOUR - 1) / HOUR).coerceAtLeast(1)} h (after the test TV)"
 
-    private suspend fun checkAndDownload(c: Context, manual: Boolean = false) { lock.withLock {
+    /**
+     * Looks for a newer build and downloads the one [choose] picks ([manual]: the newest, as the test TV
+     * does). [newestFirst] (an urgent look): github.com says which build is the newest first, and the
+     * API's list is read only for one this TV doesn't have ([firstLook]). The API is never asked while
+     * GitHub said to wait ([heldUntil]), whoever asks.
+     */
+    private suspend fun checkAndDownload(c: Context, manual: Boolean = false, newestFirst: Boolean = false) { lock.withLock {
         // Into CHECKING only from the state it was in, so an Install pressed at this very moment (which
         // claims READY the same way) can't be overwritten and then offered again mid-install.
         var before: State
@@ -591,12 +652,21 @@ object Updater {
         } while (!_state.compareAndSet(before, before.copy(step = Step.CHECKING, message = null)))
         lastAttempt = System.currentTimeMillis()
         try {
-            val releases = listReleases()
-            if (releases.isEmpty()) throw UpdateProblem("Couldn’t check · trying again soon")
-            val p = prefs(c)
-            // (behindOn/behindSince: what the 48-hour limit this replaced kept.)
-            p.edit().putLong("lastCheck", System.currentTimeMillis()).remove("behindOn").remove("behindSince").apply()
             val ready = before.latest.takeIf { before.step == Step.READY && apkFile(c).exists() }
+            val releases = if (!newestFirst) listFromApi(c) else {
+                val newest = runCatching { latestBuild() }.getOrNull()
+                val recent = lastRead?.takeIf { android.os.SystemClock.elapsedRealtime() - it.first < KNOWN_FOR_MS }?.second
+                when (firstLook(newest, current, ready, recent)) {
+                    FirstLook.NOTHING_NEWER -> {
+                        nextTryAt = 0
+                        _state.value = if (ready != null) before else State(Step.UP_TO_DATE, newest)
+                        return@withLock
+                    }
+                    FirstLook.KNOWN -> recent!!
+                    FirstLook.ASK -> listFromApi(c)
+                }
+            }
+            nextTryAt = 0
             val choice = choose(releases, current, System.currentTimeMillis(), eager = manual || isTestTv(c), ready = ready)
             val build = choice.build
             if (build == null) {
@@ -623,17 +693,106 @@ object Updater {
             if (before.latest != build) { failures = 0; retryAt = 0 }
             _state.value = State(Step.READY, build)
         } catch (e: Exception) {
-            Log.w("Updater", "update check failed", e)
+            // GitHub said when it may be asked again (just now, or kept from before): nothing asks before then.
+            val busy = (e as? Busy)?.until
+            if (busy != null) Log.i("Updater", "GitHub asked to wait ${(busy - System.currentTimeMillis()) / 1000} s") else Log.w("Updater", "update check failed", e)
+            val offline = !com.woodruff.tvexplorer.util.NetworkWatch.hasNetworkNow(c)
+            if (busy != null) prefs(c).edit().putLong(K_HELD_UNTIL, busy).apply()
+            // The routine's next try ([routineCheckDue]): when GitHub said, or a while after one it may have counted.
+            nextTryAt = busy ?: if (offline) 0 else lastAttempt + ERROR_RETRY_MS
             // An update already downloaded and checked stays ready: a failed check (no network,
             // GitHub's hourly limit) mustn't take away its install.
             if (before.step == Step.READY && apkFile(c).exists()) _state.value = before
-            else _state.update { State(Step.ERROR, it.latest, message = plainCheckError(e), offline = !com.woodruff.tvexplorer.util.NetworkWatch.hasNetworkNow(c)) }
+            else _state.update {
+                if (busy != null) State(Step.ERROR, it.latest, message = busyWords(c, busy), busyUntil = busy)
+                else State(Step.ERROR, it.latest, message = plainCheckError(e), offline = offline)
+            }
         }
         Unit
     } }
 
+    /**
+     * GitHub's list of releases from its API ([listReleases]), noted as this TV's last check ("lastCheck")
+     * and kept a while for a look soon after ([lastRead]). Never while GitHub said to wait ([heldUntil]):
+     * [Busy] then, with nothing asked.
+     */
+    private fun listFromApi(c: Context): List<Release> {
+        heldUntil(c, System.currentTimeMillis())?.let { throw Busy(it) }
+        val releases = listReleases()
+        if (releases.isEmpty()) throw UpdateProblem("Couldn’t check · trying again soon")
+        lastRead = android.os.SystemClock.elapsedRealtime() to releases
+        // (behindOn/behindSince: what the 48-hour limit this replaced kept.)
+        prefs(c).edit().putLong("lastCheck", System.currentTimeMillis()).remove("behindOn").remove("behindSince").apply()
+        return releases
+    }
+
+    /** The list [listFromApi] read last in this run, and when (elapsedRealtime). */
+    @Volatile private var lastRead: Pair<Long, List<Release>>? = null
+
+    /** What an urgent look does once github.com has said which build is the newest ([firstLook]). */
+    internal enum class FirstLook {
+        /** Nothing newer than this TV's build, nor than the one downloaded already: the API isn't asked. */
+        NOTHING_NEWER,
+        /** Newer, and the list read from the API a moment ago has it, APK and all (its download didn't go through): that list again. */
+        KNOWN,
+        /** Newer (or github.com couldn't say, or the build downloaded may have been taken down since): the API's list. */
+        ASK,
+    }
+
+    /**
+     * An urgent look's first step, from the newest build github.com names ([newest]; null when it couldn't
+     * say), this TV's ([installed]), the one downloaded already ([ready]) and the API's list read a moment
+     * ago ([known]). A TV checking every few minutes after an early close asks the API only when something
+     * newer is out, not 12 times an hour: GitHub allows 60 an hour for the whole home, shared by every TV,
+     * and a fix must still get through when several TVs are looking at once. Visible for tests.
+     */
+    internal fun firstLook(newest: Int?, installed: Int, ready: Int?, known: List<Release>?): FirstLook = when {
+        newest == null -> FirstLook.ASK
+        ready == null && newest <= installed -> FirstLook.NOTHING_NEWER
+        ready != null && newest == ready -> FirstLook.NOTHING_NEWER
+        newest > maxOf(installed, ready ?: 0) && known.orEmpty().any { it.build == newest && !it.prerelease && it.apk != null } -> FirstLook.KNOWN
+        else -> FirstLook.ASK
+    }
+
     /** Where the list of releases comes from; tests put in their own (no network in tests). */
     @Volatile internal var listReleases: () -> List<Release> = ::fetchReleases
+
+    /** Which build github.com names as the newest (null: it couldn't say); tests put in their own. */
+    @Volatile internal var latestBuild: () -> Int? = { latestBuildFrom(LATEST) }
+
+    /**
+     * GitHub turned a request down for its limit, or said before to wait and that time hasn't come: not
+     * before [until] (ms, this TV's clock).
+     */
+    private class Busy(val until: Long) : IOException("GitHub asked to wait")
+
+    /**
+     * When to ask GitHub's API again (ms, this TV's clock, [now]) after it turned a request down with
+     * [code] 403 or 429: as its Retry-After says ([retryAfter], seconds), or, with none of the hour's
+     * requests left ([remaining] "0"), when its count starts again ([reset], seconds since 1970 by GitHub's
+     * clock: read against the answer's own time, [serverNow], since this TV's clock may be off; 0 when it
+     * gave none). A minute at least (GitHub asks that much) and never more than [MAX_HOLD_MS];
+     * [ERROR_RETRY_MS] when it says neither. Null for any other answer. Visible for tests.
+     */
+    internal fun askAgainAt(code: Int, retryAfter: String?, remaining: String?, reset: String?, serverNow: Long, now: Long): Long? {
+        if (code != 403 && code != 429) return null
+        val wait = retryAfter?.trim()?.toLongOrNull()?.times(1000)
+            ?: reset?.trim()?.toLongOrNull()?.takeIf { remaining?.trim() == "0" }?.let { it * 1000 - (if (serverNow > 0) serverNow else now) }
+            ?: ERROR_RETRY_MS
+        return now + wait.coerceIn(MIN_HOLD_MS, MAX_HOLD_MS)
+    }
+
+    /**
+     * When GitHub's API may be asked again, if not yet at [now] (null: it may be now). Kept in settings, so
+     * a restart waits too; a time further off than GitHub ever asks for ([MAX_HOLD_MS]) is this TV's clock
+     * having gone back, and isn't kept to. Visible for tests.
+     */
+    internal fun heldUntil(c: Context, now: Long): Long? =
+        prefs(c).getLong(K_HELD_UNTIL, 0).takeIf { it > now && it - now <= MAX_HOLD_MS }
+
+    /** "GitHub is busy · checking again at 9:40 PM": the time as the TV writes it. */
+    private fun busyWords(c: Context, until: Long): String =
+        "GitHub is busy · checking again at ${android.text.format.DateFormat.getTimeFormat(c).format(java.util.Date(until))}"
 
     /** How a release's file is fetched; tests put in their own. */
     @Volatile internal var fetchFile: (String, File, Long, (Float) -> Unit) -> Unit = ::download
@@ -644,6 +803,7 @@ object Updater {
     /** A failed check or download in plain words for Settings (the details go to the log). Visible for tests. */
     internal fun plainCheckError(e: Exception): String = when (e) {
         is UpdateProblem -> e.message ?: "Couldn’t check · trying again soon"
+        is Busy -> "GitHub is busy · trying again soon"
         is java.net.UnknownHostException, is java.net.SocketException, is java.io.InterruptedIOException,
         is javax.net.ssl.SSLException -> "Couldn’t connect · trying again soon"
         else -> "Couldn’t check · trying again soon"
@@ -1006,11 +1166,36 @@ object Updater {
         try {
             val code = conn.responseCode
             if (code == HttpURLConnection.HTTP_NOT_MODIFIED && known != null) return known.second
-            if (code == 403 || code == 429) throw UpdateProblem("The update server is busy · trying again soon")
+            // Turned down for GitHub's limit: no check asks again before it says (kept, so a restart waits too).
+            askAgainAt(
+                code, conn.getHeaderField("Retry-After"), conn.getHeaderField("X-RateLimit-Remaining"),
+                conn.getHeaderField("X-RateLimit-Reset"), conn.date, System.currentTimeMillis(),
+            )?.let { throw Busy(it) }
             if (code !in 200..299) throw UpdateProblem("Couldn’t check · trying again soon")
             val list = conn.inputStream.bufferedReader().use { parseReleases(it) }
             lastList = conn.getHeaderField("ETag")?.takeIf { it.isNotBlank() }?.let { it to list }
             return list
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /**
+     * The newest release's build, from where github.com's page for it ([address]) sends a browser
+     * ("…/releases/tag/v2.0.170"), asked for its headers only: a few hundred bytes, and not one of the
+     * API's 60 an hour. Null when it doesn't say (no release yet, a page that changed). Visible for tests.
+     */
+    internal fun latestBuildFrom(address: String): Int? {
+        val conn = (URL(address).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15_000; readTimeout = 20_000
+            instanceFollowRedirects = false
+            requestMethod = "HEAD"
+            setRequestProperty("User-Agent", "WoodruffFamily/${BuildConfig.VERSION_NAME}")
+        }
+        try {
+            if (conn.responseCode !in 300..399) return null
+            val to = conn.getHeaderField("Location") ?: return null
+            return buildNumber(to.substringAfter("/releases/tag/", "").substringBefore('?').substringBefore('#'))
         } finally {
             conn.disconnect()
         }

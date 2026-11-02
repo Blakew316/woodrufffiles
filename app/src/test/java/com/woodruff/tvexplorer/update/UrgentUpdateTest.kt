@@ -123,8 +123,8 @@ class UrgentUpdateTest {
         Updater.maybeAuto(app, opening = true)
         settled()
         assertEquals(1, checks)
-        // A few minutes on, it looks again.
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Updater.URGENT_EVERY_MS))
+        // A few minutes on (four, give or take one, so TVs that started together don't all ask at once), it looks again.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Updater.urgentSpacing(1.0)))
         Updater.maybeAuto(app)
         waitUntil("it looked again") { checks == 2 }
         // "Check for a fix" always looks.
