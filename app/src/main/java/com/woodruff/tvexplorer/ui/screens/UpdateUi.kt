@@ -36,7 +36,7 @@ import com.woodruff.tvexplorer.util.Opener
  */
 fun startUpdate(context: Context, vm: MainViewModel, how: Updater.How = Updater.How.CHOSEN) {
     if (Updater.installsBlockedByProfile(context)) {
-        vm.say("This TV's profile doesn't allow installing apps from outside the Play Store (a kids profile, parental controls or a work setup). Switch to the main profile, then choose Install again")
+        vm.say("This TV’s profile doesn’t allow installing apps from outside the Play Store (a kids profile, parental controls or a work setup). Switch to the main profile, then choose Install again")
         return
     }
     if (!Opener.canInstallPackages(context) && !Updater.promptWorked(context)) vm.say("Installing… If the TV asks, allow Woodruff Family to install apps")
@@ -83,7 +83,7 @@ fun updateStatus(s: Updater.State): String = when (s.step) {
     Updater.Step.DOWNLOADING -> "Downloading ${(s.progress * 100).toInt()}%"
     Updater.Step.READY -> "${s.latestName} ready · Install" + (s.message?.let { " (last try: $it)" } ?: "")
     Updater.Step.INSTALLING -> "Installing…"
-    Updater.Step.ERROR -> s.message ?: "Couldn't check"
+    Updater.Step.ERROR -> s.message ?: "Couldn’t check"
 }
 
 /**

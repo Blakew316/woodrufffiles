@@ -258,16 +258,16 @@ class UpdaterTest {
 
     @Test fun refusalsAreSaidInPlainWords() {
         assertEquals("the TV is out of space", Updater.plainReason(PackageInstaller.STATUS_FAILURE_STORAGE))
-        assertEquals("this TV doesn't allow it", Updater.plainReason(PackageInstaller.STATUS_FAILURE_BLOCKED))
+        assertEquals("this TV doesn’t allow it", Updater.plainReason(PackageInstaller.STATUS_FAILURE_BLOCKED))
         assertEquals("the download was damaged", Updater.plainReason(PackageInstaller.STATUS_FAILURE_INVALID))
         assertEquals("the TV turned it down", Updater.plainReason(PackageInstaller.STATUS_FAILURE_CONFLICT))
-        assertEquals("the TV couldn't install it", Updater.plainReason(PackageInstaller.STATUS_FAILURE))
+        assertEquals("the TV couldn’t install it", Updater.plainReason(PackageInstaller.STATUS_FAILURE))
     }
 
     @Test fun checkProblemsAreSaidInPlainWords() {
-        assertEquals("Couldn't connect · trying again soon", Updater.plainCheckError(java.net.UnknownHostException("api.github.com")))
-        assertEquals("Couldn't connect · trying again soon", Updater.plainCheckError(java.net.SocketTimeoutException()))
-        assertEquals("Couldn't check · trying again soon", Updater.plainCheckError(IllegalStateException("odd JSON")))
+        assertEquals("Couldn’t connect · trying again soon", Updater.plainCheckError(java.net.UnknownHostException("api.github.com")))
+        assertEquals("Couldn’t connect · trying again soon", Updater.plainCheckError(java.net.SocketTimeoutException()))
+        assertEquals("Couldn’t check · trying again soon", Updater.plainCheckError(IllegalStateException("odd JSON")))
     }
 
     private companion object {

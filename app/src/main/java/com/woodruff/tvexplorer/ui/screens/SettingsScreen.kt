@@ -379,9 +379,9 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsPage.UPDATES -> listOf(
             SettingItem(
-                Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", versionStatus(update, updatedLately(context, installed)), about = "OK checks for an update, or installs one that's ready.",
+                Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", versionStatus(update, updatedLately(context, installed)), about = "OK checks for an update, or installs one that’s ready.",
                 // Why this TV offers each update instead of installing it by itself (Updater.needsPress).
-                detail = if (facts.autoUpdate && Updater.asksEachTime(context)) "This TV asks before each update, so it's offered when you open Woodruff." else null,
+                detail = if (facts.autoUpdate && Updater.asksEachTime(context)) "This TV asks before each update, so it’s offered when you open Woodruff." else null,
             ) {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
