@@ -126,8 +126,8 @@ fun AddTvDialog(onDismiss: () -> Unit, onResult: (String) -> Unit, target: Linke
                     content = scheme.onSurface,
                     focusedContent = scheme.inverseOnSurface,
                     leading = { tint -> TintIcon(Sym.Tv, tint.soft) },
+                    // Its name only: network addresses never show (Android names a second TV with the same name "… (2)").
                     headline = { tint -> RowText(f.name, tint.color) },
-                    supporting = { Text(f.base.removePrefix("http://"), color = Palette.muted) },
                 )
             }
         }
