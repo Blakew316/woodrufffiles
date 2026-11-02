@@ -250,6 +250,35 @@ class UrgentUpdateTest {
         assertEquals(How.URGENT, How.of(How.URGENT.code))
     }
 
+    @Test fun aReleasesSpeedProfileComesThroughTheSameStandInAsTheApk() {
+        // A release with a speed profile for this TV (Android 14): both files are fetched through the
+        // stand-in, so nothing in a test ever reaches the network for either.
+        val fetchedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
+        Updater.listReleases = {
+            listOf(Release(next, System.currentTimeMillis() - hour, files = listOf(
+                ReleaseFile("WoodruffFamily.apk", 4, "https://example.invalid/apk"),
+                ReleaseFile("WoodruffFamily-api28.dm", 3, "https://example.invalid/dm"),
+            )))
+        }
+        Updater.fetchFile = { url, dest, _, _ ->
+            fetchedUrls += url
+            if (url.endsWith("apk")) {
+                dest.writeBytes(byteArrayOf(1, 2, 3, 4))
+                shadowOf(app.packageManager).setPackageArchiveInfo(dest.path, PackageInfo().apply {
+                    packageName = app.packageName
+                    @Suppress("DEPRECATION")
+                    versionCode = next
+                    longVersionCode = next.toLong()
+                })
+            } else {
+                dest.writeBytes(byteArrayOf(1, 2, 3))
+            }
+        }
+        Updater.checkNow(app)
+        waitUntil("it's ready") { Updater.state.value.step == Step.READY }
+        assertEquals(listOf("https://example.invalid/apk", "https://example.invalid/dm"), fetchedUrls.toList())
+    }
+
     @Test fun lookingIsSpacedOutButGoesSoonerAfterOneThatDidntGoThrough() {
         val t = 10_000_000L
         assertTrue(Updater.urgentCheckDue(0, t, failed = false))

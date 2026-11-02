@@ -573,10 +573,14 @@ object Updater {
         else "2.0.$build arrives in about ${((arrivesInMs + HOUR - 1) / HOUR).coerceAtLeast(1)} h (after the test TV)"
 
     private suspend fun checkAndDownload(c: Context, manual: Boolean = false) { lock.withLock {
-        if (_state.value.step == Step.DOWNLOADING || _state.value.step == Step.INSTALLING) return@withLock
-        val before = _state.value
+        // Into CHECKING only from the state it was in, so an Install pressed at this very moment (which
+        // claims READY the same way) can't be overwritten and then offered again mid-install.
+        var before: State
+        do {
+            before = _state.value
+            if (before.step == Step.DOWNLOADING || before.step == Step.INSTALLING) return@withLock
+        } while (!_state.compareAndSet(before, before.copy(step = Step.CHECKING, message = null)))
         lastAttempt = System.currentTimeMillis()
-        _state.update { it.copy(step = Step.CHECKING, message = null) }
         try {
             val releases = listReleases()
             if (releases.isEmpty()) throw UpdateProblem("Couldn’t check · trying again soon")
@@ -957,7 +961,8 @@ object Updater {
             if (asset.size > 0 && file.length() == asset.size) return // already here
             file.delete()
             if (asset.size <= 0) return
-            download(asset.url, file, asset.size) {}
+            // Through the same door as the APK, which tests replace (they never reach the network).
+            fetchFile(asset.url, file, asset.size) {}
             Log.i("Updater", "downloaded $name for 2.0.$build")
         } catch (e: Exception) {
             Log.w("Updater", "couldn't download the speed profile", e)
