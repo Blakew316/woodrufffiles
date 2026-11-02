@@ -53,22 +53,42 @@ internal object PhonePosters {
     /**
      * The library entry or episode file [id] stands for and the Drive picture to fetch, sized for
      * [kind]: a poster ~342 wide (posters on a 3× screen), a backdrop 1280, a still 300. Only files
-     * this TV has listed (an entry of Movies or TV Shows, or an episode in [folder]'s listing), only
-     * Google-hosted pictures: never an address someone made up.
+     * this TV has listed (an entry of Movies or TV Shows, or an episode in the listing of [folder], one
+     * the Watch tab shows: [watchFolder]), only Google-hosted pictures: never an address someone made up.
      */
     private fun source(c: Context, id: String, kind: String, folder: String?): Pair<DriveFile, String>? {
         if (id.isBlank()) return null
         val (m, sh) = WatchLibrary.listings(c)
-        val entry = (m?.files.orEmpty().asSequence() + sh?.files.orEmpty().asSequence()).firstOrNull { it.id == id }
+        val entries = m?.files.orEmpty() + sh?.files.orEmpty()
+        val entry = entries.firstOrNull { it.id == id }
+        val episode by lazy {
+            folder?.takeIf { watchFolder(c, it, entries, sh?.files.orEmpty()) }?.let { FolderCache.peek(c, it) }?.firstOrNull { it.id == id }
+        }
         val url = when (kind) {
             "poster" -> entry?.let { it.posterUrl ?: it.thumbnailLink?.takeIf { _ -> it.kind == FileKind.VIDEO } }?.let { sized(it, "w342") }
             "backdrop" -> entry?.takeIf { it.kind == FileKind.VIDEO }?.thumbnailLink?.let { sized(it, "w1280") }
-            "still" -> folder?.let { FolderCache.peek(c, it) }?.firstOrNull { it.id == id }?.thumbnailLink?.let { sized(it, "w300") }
+            "still" -> episode?.thumbnailLink?.let { sized(it, "w300") }
             else -> null
         } ?: return null
         if (!isGoogleUrl(url)) return null
-        val file = entry ?: folder?.let { FolderCache.peek(c, it) }?.firstOrNull { it.id == id } ?: return null
+        val file = entry ?: episode ?: return null
         return file to url
+    }
+
+    /**
+     * Whether [folder] is one whose videos the phone's Watch tab shows: a library entry ([entries], Movies' and TV
+     * Shows': a show, or a collection of films), or a season folder in the listing ([listing]) of one of [shows].
+     * Stills come from such folders only, so no other folder of the Drive is looked into for the phone, and no frame
+     * of its videos is fetched with this TV's token. Visible for tests.
+     */
+    fun watchFolder(folder: String, entries: List<DriveFile>, shows: List<DriveFile>, listing: (String) -> List<DriveFile>?): Boolean =
+        entries.any { it.isFolder && it.id == folder } ||
+            shows.any { show -> show.isFolder && listing(show.id)?.any { it.isFolder && it.id == folder } == true }
+
+    /** [watchFolder] with the listings this TV holds: the shows it holds in memory first (the one just opened on the phone). */
+    private fun watchFolder(c: Context, folder: String, entries: List<DriveFile>, shows: List<DriveFile>): Boolean {
+        val (held, saved) = shows.partition { FolderCache.inMemory(it.id) != null }
+        return watchFolder(folder, entries, held + saved) { FolderCache.peek(c, it) }
     }
 
     /**
