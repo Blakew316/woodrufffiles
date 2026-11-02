@@ -168,9 +168,11 @@ internal fun fetchFailure(e: Throwable, explain: (Throwable) -> String): Fetch =
     e is GoogleAuth.AuthException.SignedOut -> Fetch.SignedOut
     e is GoogleAuth.AuthException.Rejected -> Fetch.Refused(e.message.orEmpty())
     isNetworkFailure(e) -> Fetch.Offline
-    // Drive answered that it's busy, or still wouldn't take a token just renewed: Google isn't
-    // answering properly, so it's "Can't reach Google", tried again by itself.
+    // Drive answered that it's busy, or still wouldn't take a token just renewed, or with something
+    // that can't be read (cut off part-way): Google isn't answering properly, so it's "Can't reach
+    // Google", tried again by itself.
     e is DriveHttpException && e.unreachable -> Fetch.Offline
+    e is org.json.JSONException -> Fetch.Offline
     else -> Fetch.Failed(explain(e))
 }
 
@@ -1015,9 +1017,11 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     fun say(text: String) = _state.update { it.copy(message = text) }
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
+    /** [e] in the family's words: the network's, or Woodruff's own message for Drive's answer; never an exception's own text. */
     private fun explain(e: Throwable): String = when {
         isNetworkFailure(e) -> if (NetworkWatch.online.value) DriveApi.CANT_REACH else "This TV is offline. Try again when it’s back online."
-        else -> e.message ?: DriveApi.CANT_REACH
+        e is java.io.IOException -> e.message ?: DriveApi.CANT_REACH
+        else -> DriveApi.CANT_REACH
     }
 }
 

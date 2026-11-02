@@ -611,8 +611,9 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsDialog.TmdbKey -> TextInputDialog(
             "TMDB API key", "", "Save",
-            // Checked with TMDB first: a key it refuses isn't saved (or copied to the other TVs).
-            onConfirm = { key -> scope.launch { saveTmdbKey(context, vm, key); changed() } },
+            // Checked with TMDB first: a key it refuses isn't saved (or copied to the other TVs). Not
+            // tied to this screen: leaving Settings while TMDB answers doesn't lose the key.
+            onConfirm = { key -> kotlinx.coroutines.MainScope().launch { saveTmdbKey(context.applicationContext, vm, key); changed() } },
             onDismiss = { dialog = null }, secret = true,
             hint = "Free at themoviedb.org → Settings → API. The API Key or the Read Access Token both work.",
         )

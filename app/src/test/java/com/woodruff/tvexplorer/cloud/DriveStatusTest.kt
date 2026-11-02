@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.cloud
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.cloud.GoogleAuth.TokenResult
 import com.woodruff.tvexplorer.ui.components.OFFLINE_GRACE_MS
 import org.junit.Assert.assertEquals
@@ -7,6 +8,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -17,6 +20,8 @@ import java.net.UnknownHostException
  * that gets through says "Back online" over the saved library; only a sign-in that really ended
  * brings the QR code; keys Google refuses are their own state, with no grace and no "offline".
  */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34]) // org.json needs Robolectric
 class DriveStatusTest {
     private val movies = listOf(
         DriveFile("m1", "Midnight Harbor (2024).mkv", "video/x-matroska", 0, 1, null),
@@ -174,6 +179,8 @@ class DriveStatusTest {
         // Drive busy or failing, or refusing a token it has just renewed: "Can't reach Google", tried again.
         for (code in listOf(401, 408, 429, 500, 503)) assertEquals("$code", Fetch.Offline, fetchFailure(DriveHttpException(code, "x"), explain))
         assertEquals(Fetch.Offline, fetchFailure(DriveHttpException(403, "x", busy = true), explain))
+        // An answer cut off part-way can't be read: Google didn't answer properly.
+        assertEquals(Fetch.Offline, fetchFailure(org.json.JSONException("Unterminated object"), explain))
         // Anything else Drive answered is said, not retried.
         assertEquals(Fetch.Failed("That file is no longer in Google Drive."), fetchFailure(DriveHttpException(404, "That file is no longer in Google Drive."), explain))
         assertEquals(Fetch.Failed("x"), fetchFailure(DriveHttpException(403, "x"), explain))
