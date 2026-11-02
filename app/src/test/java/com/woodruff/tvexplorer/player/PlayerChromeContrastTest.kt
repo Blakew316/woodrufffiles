@@ -29,7 +29,8 @@ import kotlin.math.pow
  * The player's controls read over the brightest picture a film can have (snow, a beach, a white sky):
  * the show and episode line, the title, the round buttons and the times, each measured against what the
  * controls' scrim leaves of a pure white frame behind it, at its top edge (the scrim is weakest there).
- * The scrim was 70 % black at the bottom edge and only 15 % behind the title: 1.4:1 to 1.6:1.
+ * The scrim was 70 % black at the bottom edge and only 15 % behind the title: 1.4:1 to 1.6:1. And the
+ * scrim is drawn under the subtitles, which rise above the controls and so stay white.
  */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -49,7 +50,7 @@ class PlayerChromeContrastTest {
         settle()
 
         // The scrim over a white frame: what's left of the picture behind each part of the controls.
-        val scrim = player.findViewById<View>(androidx.media3.ui.R.id.exo_controls_background)
+        val scrim = player.findViewById<ControlsScrim>(androidx.media3.ui.R.id.exo_controls_background).twin
         val frame = Bitmap.createBitmap(scrim.width, scrim.height, Bitmap.Config.ARGB_8888)
         Canvas(frame).apply { drawColor(Color.WHITE); scrim.draw(this) }
         val origin = IntArray(2).also(scrim::getLocationInWindow)
@@ -72,6 +73,33 @@ class PlayerChromeContrastTest {
         // The times sit under the bar, its labels' line starting 18 dp down (white 80 % at rest).
         val labels = behind(bar, below = 18 * activity.resources.displayMetrics.density)
         assertReads("the times", over(0xCCFFFFFF.toInt(), labels), labels, 4.5)
+    }
+
+    /**
+     * The scrim darkens the film under the subtitles, not over them (subtitles risen above the controls stay
+     * white): it's drawn in the picture's frame just under the subtitle view, fading in and out with the controls.
+     */
+    @Test fun theScrimIsUnderTheSubtitlesAndFadesWithTheControls() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val root = FrameLayout(activity)
+        val player = activity.layoutInflater.inflate(R.layout.tv_player_view, root, false) as PlayerView
+        root.addView(player)
+        activity.setContentView(root)
+        settle()
+        val inControls = player.findViewById<ControlsScrim>(androidx.media3.ui.R.id.exo_controls_background)
+        val twin = inControls.twin
+        val frame = player.findViewById<android.view.ViewGroup>(androidx.media3.ui.R.id.exo_content_frame)
+        val subtitles = player.subtitleView!!
+        assertTrue("the scrim is in the picture's frame", twin.parent === frame)
+        assertTrue("just under the subtitles", frame.indexOfChild(twin) == frame.indexOfChild(subtitles) - 1)
+        assertTrue("nothing's drawn with the controls, over the subtitles", inControls.background == null)
+
+        player.showController()
+        settle()
+        assertTrue("shown with the controls (${twin.alpha})", twin.alpha == 1f)
+        player.hideController()
+        settle()
+        assertTrue("gone with them (${twin.alpha})", twin.alpha == 0f)
     }
 
     private fun assertReads(what: String, fg: Int, bg: Int, needed: Double) {
