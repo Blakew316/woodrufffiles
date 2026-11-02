@@ -117,12 +117,9 @@ object TvLinks {
         synchronized(identity) {
             val p = prefs(c)
             p.getString(P_ID, null)?.let { return it }
-            val old = runCatching { SecretStore.get(c).get(K_ID) }.getOrNull()
-            if (old == null && savedSecretly(c, K_ID)) {
-                // Saved, but the Keystore can't be read just yet (some TVs, just after turning on):
-                // not a new identity for good, only one for now.
-                return interimId ?: UUID.randomUUID().toString().also { interimId = it }
-            }
+            // Saved, but the Keystore can't read it just yet (some TVs, just after turning on): not a
+            // new identity for good, only one for now.
+            val old = saved(c, K_ID) { return interimId ?: UUID.randomUUID().toString().also { interimId = it } }
             val id = old ?: UUID.randomUUID().toString()
             p.edit().putString(P_ID, id).apply()
             return id
@@ -136,8 +133,7 @@ object TvLinks {
         val p = prefs(c)
         if (!p.contains(P_NAME)) synchronized(identity) {
             if (!p.contains(P_NAME)) {
-                val old = runCatching { SecretStore.get(c).get(K_NAME) }.getOrNull()
-                if (old == null && savedSecretly(c, K_NAME)) return null // not readable yet: copied once it is
+                val old = saved(c, K_NAME) { return null } // not readable yet: copied once it is
                 p.edit().putString(P_NAME, old?.trim().orEmpty()).apply()
             }
         }
@@ -149,9 +145,18 @@ object TvLinks {
         runCatching { SecretStore.get(c).remove(K_NAME) }
     }
 
-    /** Whether the encrypted store holds [name] (readable or not). */
-    private fun savedSecretly(c: Context, name: String) =
-        c.applicationContext.getSharedPreferences("secrets", Context.MODE_PRIVATE).contains(name)
+    /**
+     * The encrypted store's [name], null when none is saved (or none any key can read: a value restored onto
+     * another device), or [notYet]'s answer while a saved one can't be read just now: the Keystore hasn't found
+     * its key yet, as on some TVs for a while after they turn on ([SecretStore.isUnreadableNow]). What would
+     * otherwise make a new value (this TV's id, its link key) or take the list as empty waits instead: a value
+     * made up then would replace the one every hub knows, for good.
+     */
+    private inline fun saved(c: Context, name: String, notYet: () -> String?): String? {
+        val store = SecretStore.get(c)
+        // Asked again when it isn't unreadable: another thread may have read it as the key turned up.
+        return store.get(name) ?: if (store.isUnreadableNow(name)) notYet() else store.get(name)
+    }
 
     /**
      * What other TVs use to reach this one. Only accepted for [LINK_ROUTES]. Null while the Keystore
@@ -159,10 +164,8 @@ object TvLinks {
      * down every hub's key, and each hub would say "Link again" for a TV that was never reset.
      */
     private fun linkKeyOrNull(c: Context): String? {
-        val store = SecretStore.get(c)
-        store.get(K_LINK_KEY)?.let { return it }
-        if (savedSecretly(c, K_LINK_KEY)) return null
-        return TransferServer.randomToken().also { store.put(K_LINK_KEY, it) }
+        saved(c, K_LINK_KEY) { return null }?.let { return it }
+        return TransferServer.randomToken().also { SecretStore.get(c).put(K_LINK_KEY, it) }
     }
 
     /** [linkKeyOrNull], for giving it to a TV that links: that waits for the Keystore rather than hand out a key that won't last. */
@@ -249,23 +252,42 @@ object TvLinks {
 
     // ---- The hub's list --------------------------------------------------------------------------
 
-    @Synchronized
+    /**
+     * The linked TVs, read from the encrypted store once per run. While the Keystore can't read the
+     * saved list yet (some TVs, for a while after they turn on) there are none for now, and the next
+     * call reads it again: taken as none for the whole run, the doorbell, messages and the shared keys
+     * would skip every TV, and the next change saved would unlink them all for good (see [edit]).
+     */
     fun load(c: Context) {
         appContext = c.applicationContext
         if (loaded) return
-        loaded = true
-        _linked.value = runCatching {
-            val arr = JSONArray(SecretStore.get(c).get(K_LINKED) ?: "[]")
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                LinkedTv(o.getString("id"), o.getString("name"), o.getString("base"), o.getString("key"))
+        // Read outside the lock: a Keystore still waking can take a moment, and nobody waits behind it.
+        val saved = saved(c, K_LINKED) { return }
+        synchronized(this) {
+            if (loaded) return
+            loaded = true
+            _linked.value = runCatching {
+                val arr = JSONArray(saved ?: "[]")
+                (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    LinkedTv(o.getString("id"), o.getString("name"), o.getString("base"), o.getString("key"))
+                }
+            }.getOrDefault(emptyList())
+            val p = prefs(c)
+            _refused.value = p.getStringSet(P_REFUSED, emptySet()).orEmpty().toSet()
+            runCatching { JSONObject(p.getString(P_SEEN, null) ?: "{}") }.getOrNull()?.let { o ->
+                o.keys().forEach { id -> o.optLong(id).takeIf { it > 0 }?.let { seen[id] = it; seenWritten[id] = it } }
             }
-        }.getOrDefault(emptyList())
-        val p = prefs(c)
-        _refused.value = p.getStringSet(P_REFUSED, emptySet()).orEmpty().toSet()
-        runCatching { JSONObject(p.getString(P_SEEN, null) ?: "{}") }.getOrNull()?.let { o ->
-            o.keys().forEach { id -> o.optLong(id).takeIf { it > 0 }?.let { seen[id] = it; seenWritten[id] = it } }
         }
+    }
+
+    /** Tests: forgets what this run of the app read (the linked TVs, an id for this run), as the next run would. */
+    @androidx.annotation.VisibleForTesting
+    internal fun forgetForTest() = synchronized(this) {
+        loaded = false
+        _linked.value = emptyList()
+        interimId = null
+        recent = null
     }
 
     @Synchronized
@@ -276,19 +298,30 @@ object TvLinks {
         _linked.value = list
     }
 
-    /** Changes the list in one step, so a TV linked or unlinked while another's new address is saved keeps both changes. */
+    /**
+     * Changes the list in one step, so a TV linked or unlinked while another's new address is saved keeps both
+     * changes. Never over a list this run couldn't read yet ([load]): saved over the real one, that would unlink
+     * every TV for good. False then, and nothing changes.
+     */
     @Synchronized
-    private fun edit(c: Context, change: (List<LinkedTv>) -> List<LinkedTv>) = save(c, change(_linked.value))
+    private fun edit(c: Context, change: (List<LinkedTv>) -> List<LinkedTv>): Boolean {
+        if (!loaded) return false
+        save(c, change(_linked.value))
+        return true
+    }
 
     fun remove(c: Context, id: String) {
         load(c)
-        edit(c) { list -> list.filter { it.id != id } }
-        forget(c, setOf(id))
+        if (edit(c) { list -> list.filter { it.id != id } }) forget(c, setOf(id))
     }
+
+    private const val LIST_NOT_YET = "This TV can’t read its list of linked TVs just now. Try again in a moment."
 
     /** Links the TV at [base] using the code it shows. */
     suspend fun link(c: Context, base: String, code: String, replacing: String? = null): LinkedTv = withContext(Dispatchers.IO) {
         load(c)
+        // Before the code goes to the other TV (which uses it up): the new link couldn't be kept yet.
+        if (!loaded) throw IOException(LIST_NOT_YET)
         val body = JSONObject().put("code", code.filter { it.isDigit() }).put("from", name(c))
         val r = try {
             request("$base/api/link", "POST", body.toString())
