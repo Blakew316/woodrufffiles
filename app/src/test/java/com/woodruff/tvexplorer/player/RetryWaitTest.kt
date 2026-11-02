@@ -62,6 +62,41 @@ class RetryWaitTest {
         assertEquals(1, tries)
     }
 
+    @Test fun aComebackWhileATryWasFailingCountsAndTheNextTryIsAtOnce() = runBlocking {
+        var tries = 0
+        val wait = RetryWait(this, comebacks, delayMs = 60_000) { tries++ }
+        wait.arm()
+        comebacks.value++ // the Wi-Fi rejoined: a try
+        delay(50)
+        assertEquals(1, tries)
+        // While that try was failing (names not resolving yet), the network passed Android's check.
+        comebacks.value++
+        wait.arm() // the try failed: stalled again
+        delay(50)
+        assertEquals(2, tries)
+        // And without news, the next one waits.
+        wait.arm()
+        delay(100)
+        assertEquals(2, tries)
+        wait.stop()
+    }
+
+    @Test fun afterAStopItCountsFromTheNetworkAsItIsThen() = runBlocking {
+        var tries = 0
+        val wait = RetryWait(this, comebacks, delayMs = 60_000) { tries++ }
+        wait.arm()
+        comebacks.value++
+        delay(50)
+        assertEquals(1, tries)
+        // It played again; later a new stall, long after that comeback: nothing to count.
+        wait.stop()
+        comebacks.value++
+        wait.arm()
+        delay(100)
+        assertEquals(1, tries)
+        wait.stop()
+    }
+
     @Test fun stoppedItNeverTries() = runBlocking {
         var tries = 0
         val wait = RetryWait(this, comebacks, delayMs = 200) { tries++ }
