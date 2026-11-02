@@ -793,6 +793,27 @@
   .np-track i { display:block; height:100%; width:100%; border-radius:3px; background:var(--label2); transform:translateX(-100%); transition:transform .9s linear; }
   .np-bar.on .np-track i { background:var(--label); }
   .np-times { display:flex; justify-content:space-between; margin-top:5px; font-size:12px; line-height:16px; letter-spacing:0; font-weight:500; color:var(--label2); font-variant-numeric:tabular-nums; }
+  /* Sign In (this TV's Google sign-ins, from the phone): a floating half sheet like the TV Screen's. Its service's square,
+     a Title 3 line, a few words, then Continue to Google (a real link, so it always opens) or what to do next. Its height
+     glides between states (resizeSheet); the icon squares are fixed colours in both themes. */
+  #si .sbody { padding:4px var(--mr) max(18px, calc(var(--safe-b) - 8px)) var(--ml); text-align:center; }
+  #si-t, #si-b, #si-b2, #si-note { text-wrap:balance; }   /* centred lines of even length, no word left alone on the last */
+  #si-ico { width:56px; height:56px; margin:4px auto 12px; border-radius:13px; display:flex; align-items:center; justify-content:center; color:#fff; background:var(--c, var(--gray)); }
+  #si-ico svg { width:34px; height:34px; }
+  #si-ico.done { background:none; color:var(--success); }
+  #si-ico.done svg { width:56px; height:56px; }
+  #si-t { font-size:20px; line-height:25px; font-weight:600; letter-spacing:-.45px; color:var(--label); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+  #si-b { margin:6px 0 0; font-size:15px; line-height:20px; letter-spacing:-.23px; color:var(--label2); display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+  #si-b2 { margin:10px 0 0; font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); }
+  #si .btn { width:100%; margin:20px 0 0; text-decoration:none; }
+  #si-go[aria-disabled=true] { pointer-events:none; opacity:.6; }
+  #si .btn .spin { color:var(--on-tint); }
+  #si-note { margin:10px 0 0; font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); }
+  #si-wait { display:flex; flex-direction:column; align-items:center; margin-top:14px; }
+  #si-wait .w { display:inline-flex; align-items:center; gap:8px; font-size:15px; line-height:20px; letter-spacing:-.23px; color:var(--label2); }
+  #si-wait .w .spin { width:18px; height:18px; }
+  #si-wait .link { margin-top:2px; padding:10px 14px; font-size:15px; line-height:20px; letter-spacing:-.23px; font-weight:600; }
+  #si-fin { display:flex; justify-content:center; margin-top:18px; }
   /* HUD: a capsule that drops in from the top */
   .hud { position:fixed; z-index:1100; left:50%; top:calc(var(--safe-t) + 8px); display:flex; align-items:center; gap:8px; max-width:calc(100% - 32px); padding:11px 18px 11px 13px; border-radius:24px;
     background:var(--glass-thick); -webkit-backdrop-filter:blur(30px) saturate(1.8); backdrop-filter:blur(30px) saturate(1.8); box-shadow:var(--glass-shadow), 0 10px 30px rgba(0,0,0,.14);
@@ -1061,7 +1082,11 @@
   </div></div>
 
   <div class="page" id="set-drive" data-title="Google Drive" data-hash="drive"><div class="scroller">
-    <div class="group"><div class="row"><span class="txt t">Status</span><span class="detail" id="g-status2">…</span></div></div>
+    <div class="group">
+      <div class="row"><span class="txt t">Status</span><span class="detail" id="g-status2">…</span></div>
+      <button class="row act tap" id="g-signin" aria-haspopup="dialog" hidden>Sign In to Google Drive</button>
+    </div>
+    <p class="foot" id="g-foot" hidden>Google doesn’t accept the Client ID or secret. Check them above, then sign in.</p>
     <div class="head">Keys from Google Cloud</div>
     <div class="group">
       <label class="row field"><span class="lbl">Client ID</span><input id="g-id" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="1234…apps.googleusercontent.com"></label>
@@ -1073,7 +1098,7 @@
 
   <div class="page" id="set-drive-help" data-title="How to Set Up"><div class="scroller">
     <div class="group">
-      <div class="row steps selectable">1. In <b>Google Cloud</b>, turn on the <b>Google Drive API</b>. On the consent screen, add your Gmail as a test user and the scopes <b>drive.readonly</b> and <b>drive.appdata</b>.<br>2. Create an <b>OAuth client ID</b> for a <b>Web application</b> with this redirect URI:<br><code id="g-redirect"></code><br>3. Paste its Client ID and secret on the Google Drive page and tap <b>Save</b>, then sign in with the code on the TV.</div>
+      <div class="row steps selectable">1. In <b>Google Cloud</b>, turn on the <b>Google Drive API</b>. On the consent screen, add your Gmail as a test user and the scopes <b>drive.readonly</b> and <b>drive.appdata</b>.<br>2. Create an <b>OAuth client ID</b> for a <b>Web application</b> with this redirect URI:<br><code id="g-redirect"></code><br>3. Paste its Client ID and secret on the Google Drive page and tap <b>Save</b>, then tap <b>Sign In to Google Drive</b> (or scan the code on the TV).</div>
       <button class="row act tap" id="g-copy">Copy Redirect URI</button>
     </div>
   </div></div>
@@ -1086,7 +1111,10 @@
   </div></div>
 
   <div class="page" id="set-cams" data-title="Cameras" data-hash="cameras"><div class="scroller">
-    <div class="group"><div class="row"><span class="txt t">Status</span><span class="detail" id="c-status2">…</span></div></div>
+    <div class="group">
+      <div class="row"><span class="txt t">Status</span><span class="detail" id="c-status2">…</span></div>
+      <button class="row act tap" id="c-signin" aria-haspopup="dialog" hidden>Connect Your Cameras</button>
+    </div>
     <div class="group"><label class="row field"><span class="lbl">Project ID</span><input id="c-project" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="1a2b3c4d-5e6f-…"></label></div>
     <div class="head">Doorbell Alerts</div>
     <div class="group">
@@ -1100,7 +1128,7 @@
 
   <div class="page" id="set-cams-help" data-title="How to Set Up"><div class="scroller">
     <div class="head">Cameras</div>
-    <div class="group"><div class="row steps selectable">1. In Google Cloud, turn on the <b>Smart Device Management API</b>.<br>2. At <b>console.nest.google.com/device-access</b>, pay Google's one-time fee and create a project with the same client ID as Google Drive.<br>3. Paste its <b>Project ID</b> on the Cameras page and tap <b>Save</b>, then open <b>Command center</b> on the TV and scan the code.</div></div>
+    <div class="group"><div class="row steps selectable">1. In Google Cloud, turn on the <b>Smart Device Management API</b>.<br>2. At <b>console.nest.google.com/device-access</b>, pay Google's one-time fee and create a project with the same client ID as Google Drive.<br>3. Paste its <b>Project ID</b> on the Cameras page and tap <b>Save</b>, then tap <b>Connect Your Cameras</b> (or open the <b>Command Center</b> on the TV and scan the code).</div></div>
     <div class="head">Doorbell Alerts</div>
     <div class="group"><div class="row steps selectable">Set this on one TV only. In the Device Access Console turn on <b>Pub/Sub</b> for your project, then in Google Cloud create a pull subscription to that topic and paste its full name. Connect the cameras again on the TV afterwards.</div></div>
   </div></div>
@@ -1222,6 +1250,22 @@
       <button id="scr-fwd30" data-mk="fwd30" aria-label="Forward 30 seconds"><i data-ic="fwd30"></i></button>
     </div>
     <button class="link" id="scr-next" data-mk="next" hidden>Next Episode</button>
+  </div>
+</div>
+<!-- Sign In: one of this TV's Google sign-ins, started on this phone and finished by the TV itself (phone-signin.md) -->
+<div class="msheet half" id="si" role="dialog" aria-modal="true" aria-label="Sign In">
+  <div class="grab"></div>
+  <div class="sbar"><button class="gb glass ic" id="si-close" aria-label="Close"><i data-ic="xmark"></i></button><span class="stt"><b>Sign In</b><small id="si-tv"></small></span><span></span></div>
+  <div class="sbody">
+    <div id="si-ico" aria-hidden="true"></div>
+    <div id="si-t" role="heading" aria-level="2"></div>
+    <p id="si-b"></p>
+    <p id="si-b2" hidden></p>
+    <a class="btn" id="si-go" target="_blank" rel="noopener noreferrer"></a>
+    <button class="btn" id="si-act" hidden></button>
+    <p id="si-note"></p>
+    <div id="si-wait" hidden><span class="w"><i data-ic="spin"></i><span>Waiting for Google…</span></span><button class="link" id="si-again">Start Again</button></div>
+    <div id="si-fin" hidden><i data-ic="spin"></i></div>
   </div>
 </div>
 <!-- Family Memories: one photo (or video), full screen -->
@@ -1936,7 +1980,7 @@
   // finger. Passive listeners only: pages scroll vertically on their own (touch-action: pan-y), a sideways
   // drag never scrolls, so nothing here ever holds up scrolling.
   var sw = null;
-  function overlayOpen() { return sheetOpen || dialogOpen || menuOpen || kbOpen || screenOpen || TS.open || !!(mv && (mv.open || mv.closing)); }
+  function overlayOpen() { return sheetOpen || dialogOpen || menuOpen || kbOpen || screenOpen || TS.open || SI.open || !!(mv && (mv.open || mv.closing)); }
   $('app').addEventListener('touchstart', function (e) {
     sw = null;
     if (!swipeBack || e.touches.length !== 1 || overlayOpen() || run[current]) return;
@@ -2005,6 +2049,7 @@
     var s = e.state && e.state.wf ? e.state : null;
     if (mv.open) closeViewer();
     if (TS.open) closeTs();   // a title sheet isn't a page: Back closes it
+    if (SI.open) closeSignIn();   // nor is the Sign In sheet
     if (hist.waiting) { hist.waiting = false; clearTimeout(hist.timer); hist.depth = s ? s.depth : 0; if (s) hist.tab = s.tab; syncHistory(); return; }
     if (!s) { hist.depth = 0; hist.tab = null; route(location.hash.length > 1 ? location.hash : '#' + current); return; }
     hist.depth = s.depth; hist.tab = s.tab;
@@ -2042,7 +2087,8 @@
   // #settings and #settings/<page>: tvs (and #tv), smoothness, phone, connections, drive, posters, cameras, mail,
   // weather, away, shortcuts (and share), crash. A page further in opens with the pages above it, so Back goes to them.
   var ALIAS = { tv: 'settings/tvs', files: 'send/files', notes: 'memories', photos: 'memories' };
-  // #settings/tvs/<id> (id: "this" or a linked TV's) opens that TV's page, with TVs and Settings under it.
+  // #settings/tvs/<id> (id: "this" or a linked TV's) opens that TV's page, with TVs and Settings under it;
+  // #settings/tvs/this/signin/<grant> (a banner's link when Google ended one of this TV's sign-ins) adds its Sign In sheet.
   function route(hash) {
     var h = hash.replace(/^#/, ''), parts = (ALIAS[h] || h).split('/'), tab = parts[0], sub = parts[1] === 'share' ? 'shortcuts' : parts[1];
     selectTab(tab);
@@ -2057,7 +2103,10 @@
       chain(p).forEach(function (x) { push(x, { animate: false }); });
       if (p.o.onShow) p.o.onShow(p);
     }
-    if (tvPage) { showTvPage(tvPage); push(PG['set-tv'], { animate: false }); loadTvHealth(); tvpFrame(); }
+    if (tvPage) {
+      showTvPage(tvPage); push(PG['set-tv'], { animate: false }); loadTvHealth(); tvpFrame();
+      if (tvPage === 'this' && parts[3] === 'signin' && SVC[parts[4]]) openSignIn(parts[4], true);
+    }
   }
   // Tapping the current tab again goes back to its first page, or scrolls it to the top, like iOS.
   function tapTab(tab) {
@@ -2367,7 +2416,7 @@
   }
   doc.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    if (menuOpen) closeMenu(); else if (dialogOpen) closeDialog(); else if (sheetOpen) closeSheet(); else if (TS.open) closeTs(); else if (screenOpen) closeScreen(); else if (kbOpen) closeKb();
+    if (menuOpen) closeMenu(); else if (dialogOpen) closeDialog(); else if (sheetOpen) closeSheet(); else if (TS.open) closeTs(); else if (SI.open) closeSignIn(); else if (screenOpen) closeScreen(); else if (kbOpen) closeKb();
   });
   // No pinch-zooming the app, and the page snaps back after the keyboard closes.
   doc.addEventListener('gesturestart', function (e) { e.preventDefault(); });
@@ -2915,19 +2964,19 @@
   // The report's sections, in the TV's words; [live]: its values may show amber and its rows act.
   function reportBlocks(r, live, mine) {
     var si = r.signIns || {}, keys = r.keys || {}, haveKeys = keys.googleClientId && keys.googleClientSecret;
+    function sheetFn(f) { f.sheet = true; return f; }   // (it opens a sheet: VoiceOver says so)
     function signIn(g) {   // what tapping a sign-in row does, when the phone can do something
-      var s = si[g] || {};
+      var s = si[g] || {}, keysSaved = haveKeys && (g !== 'cameras' || keys.camerasProject), unset = s.state === 'notSetUp' || s.state === 'notSignedIn';
       if (!live) return null;
-      if (s.state === 'expired') return function () { signInHelp(g); };
-      if (s.state === 'keysRejected') return function () { openPage('set-drive', this); };
-      if (mine && (s.state === 'notSetUp' || s.state === 'notSignedIn') && !(haveKeys && (g !== 'cameras' || keys.camerasProject))) {
-        return function () { openPage(g === 'cameras' && haveKeys ? 'set-cams' : 'set-drive', this); };
-      }
+      if (s.state === 'keysRejected') return function () { openPage('set-drive', this); };   // the keys are shared: fixed here, fixed everywhere
+      // Ended, or never made with the keys there: this TV signs in from here; another TV says where.
+      if (s.state === 'expired' || (unset && keysSaved)) return mine ? sheetFn(function () { openSignIn(g, s.state === 'expired'); }) : function () { signInHelp(g); };
+      if (mine && unset) return function () { openPage(g === 'cameras' && haveKeys ? 'set-cams' : 'set-drive', this); };
       return null;
     }
     var rows = [['drive', 'Google Drive', '#1a73e8', 'gDrive'], ['photos', 'Google Photos', '#1a73e8', 'gPhotos'], ['calendar', 'Google Calendar', '#1a73e8', 'gCal'], ['cameras', 'Cameras', 'var(--green)', 'gVideo']].map(function (g) {
       var s = si[g[0]] || {}, act = signIn(g[0]);
-      return { k: 'si-' + g[0], ico: g[3], c: g[2], t: g[1], d: s.text || '', warn: live && s.attention, tap: !!act, chev: !!act, fn: act, data: { grant: g[0] } };
+      return { k: 'si-' + g[0], ico: g[3], c: g[2], t: g[1], d: s.text || '', warn: live && s.attention, tap: !!act, chev: !!act, fn: act, sheet: !!(act && act.sheet), data: { grant: g[0] } };
     });
     var bell = si.doorbell || {};
     rows.push({ k: 'si-doorbell', ico: 'gBell', c: 'var(--red)', t: 'Doorbell Alerts', d: bell.text || 'Off', warn: live && bell.attention, data: { grant: 'doorbell' } });
@@ -2941,7 +2990,7 @@
     if (r.freeSpace) sk.push({ k: 'sk-space', t: 'Free Space', d: r.freeSpace.text, warn: live && r.freeSpace.attention });
     sk.push({ k: 'sk-keys', t: 'Keys', d: keys.text || '' });
     var B = [
-      { k: 'h-si', head: 'Sign-Ins' }, { k: 'g-si', group: rows },
+      { k: 'h-si', head: 'Sign-Ins' }, { k: 'g-si', id: 'tvp-signins', group: rows },
       { k: 'f-si', foot: 'Sign-ins aren’t shared between TVs. Offline and “Can’t reach Google” clear up by themselves.' },
       { k: 'h-up', head: 'Updates' }, { k: 'g-up', group: up },
       { k: 'h-st', head: 'Stability' }, { k: 'g-st', group: st }
@@ -2962,6 +3011,7 @@
     list.forEach(function (b, i) {
       var tag = b.group || b.head || b.title ? 'div' : 'p', cls = b.group ? 'group' : b.title ? 'head prom' : b.head ? 'head' : 'foot', n = old[b.k];
       if (!n || n.className !== cls) { n = el(tag, cls); n.dataset.k = b.k; }
+      if (b.id && n.id !== b.id) n.id = b.id;
       delete old[b.k];
       if (b.group) fillRows(n, b.group);
       else if (b.title) {
@@ -3027,6 +3077,7 @@
     }
     if (n._d) { swapText(n._d, o.d); setClass(n._d, 'detail' + (o.warn ? ' warn' : '')); }
     if (n.tagName === 'BUTTON') n.disabled = !!o.disabled;
+    if (o.sheet) n.setAttribute('aria-haspopup', 'dialog'); else n.removeAttribute('aria-haspopup');
     n.onclick = o.fn ? function () { o.fn.call(n); } : null;
     if (o.data) Object.keys(o.data).forEach(function (k) { if (n.dataset[k] !== o.data[k]) n.dataset[k] = o.data[k]; });
     return n;
@@ -3096,7 +3147,8 @@
   // ---- Fixes, from an attention row (its `fix`, as the TV decided) --------------------------------------
   function attSheet(it) {
     var name = tvName(tvp.id), acts = [];
-    if (it.fix === 'signin') acts.push({ label: 'How to Sign In', fn: function () { signInHelp(it.grant); } });
+    if (it.fix === 'signin' && tvp.id === 'this') acts.push({ label: it.grant === 'drive' ? 'Sign In Again' : 'Connect Again', fn: function () { openSignIn(it.grant, true); } });
+    else if (it.fix === 'signin') acts.push({ label: 'How to Sign In', fn: function () { signInHelp(it.grant); } });
     else if (it.fix === 'keys') acts.push({ label: 'Check the Google Keys', fn: function () { openPage('set-drive'); } });
     else if (it.fix === 'update') acts.push({ label: 'Check for Updates', fn: checkUpdates });
     else if (it.fix === 'install') acts.push({ label: 'Open Woodruff on ' + name, fn: openWoodruff });
@@ -3104,16 +3156,17 @@
     else return alertBox({ title: it.words, message: it.detail, actions: [{ label: 'OK', pref: true }] });
     sheet(it.words, it.detail, acts);
   }
-  // Sign-ins aren't shared between TVs and never travel over a link: the phone says where to do it.
-  function signInHelp(grant, forId) {
-    var id = forId || tvp.id, name = tvName(id), where = {
+  // Another TV: sign-ins aren't shared between TVs and never travel over a link, so the phone says where to do it (the
+  // TV serving this app signs in from its Sign In sheet instead).
+  function signInHelp(grant) {
+    var name = tvName(tvp.id), where = {
       drive: 'open Streaming and scan the code with your phone',
       photos: 'open Settings → Accounts → Google Photos',
       calendar: 'open Settings → Accounts → Google Calendar',
       cameras: 'open the Command Center and scan the code with your phone'
     }[grant] || 'open Settings → Accounts';
-    alertBox({ title: 'Sign In on ' + name, message: id === 'this' ? 'On ' + name + ', ' + where + '.'
-      : 'Sign-ins aren’t shared between TVs. Use ' + name + '’s own app on this phone, or on ' + name + ' ' + where + '. No ' + name + ' app yet? On ' + name + ', open Settings → TVs & phones → Connect a phone.',
+    alertBox({ title: 'Sign In on ' + name,
+      message: 'Sign-ins aren’t shared between TVs. Use ' + name + '’s own app on this phone, or on ' + name + ' ' + where + '. No ' + name + ' app yet? On ' + name + ', open Settings → TVs & phones → Connect a phone.',
       actions: [{ label: 'OK', pref: true }] });
   }
   function openWoodruff() {
@@ -3344,6 +3397,141 @@
     run(sh, d > 0 ? [{ transform: 'translateY(0)' }, { transform: 'translateY(' + d.toFixed(1) + 'px)' }] : [{ transform: 'translateY(' + (-d).toFixed(1) + 'px)' }, { transform: 'translateY(0)' }], { duration: s.ms, easing: s.easing })
       .onfinish = function () { if (sh._rs === l) { sh._rs = null; sh.style.minHeight = ''; } };
   }
+
+  // ---- Sign In: this TV's Google sign-ins, from this phone ---------------------------------------------
+  // The TV makes an attempt; this phone opens Google's page (a real link, so Safari never blocks it, and the Home Screen
+  // app shows it in iOS's own browser); Google's answer goes back to the TV over the home Wi-Fi and the TV finishes by
+  // itself, with no screen open there. The sheet asks the TV how it's going every 2 s while it's open and on screen, at
+  // once on coming back from Google, and never after it's over or 10 minutes. Only the TV serving this app: another TV
+  // says where to do it (signInHelp), since sign-ins aren't shared between TVs.
+  var SVC = {
+    drive: { c: '#1a73e8', ic: 'gDrive', title: 'Sign In to Google Drive', done: function (tv) { return 'Google Drive is back on ' + tv + '.'; } },
+    photos: { c: '#1a73e8', ic: 'gPhotos', title: 'Connect Google Photos', done: function (tv) { return 'To add photos, open Family Memories on ' + tv + ' and choose Add from Google Photos.'; } },
+    calendar: { c: '#1a73e8', ic: 'gCal', title: 'Connect Google Calendar', done: function (tv) { return 'Today’s events show on ' + tv + '’s Home in a moment.'; } },
+    cameras: { c: 'var(--green)', ic: 'gVideo', title: 'Connect Your Cameras', done: function (tv) { return tv + ' is loading your cameras.'; } }
+  };
+  var SI = { open: false, grant: 'drive', again: false, view: null, seq: 0, pseq: 0, timer: null, state: null, url: null, until: 0, tv: null, weekly: false, reason: '' };
+  // Over and done with: nothing more to ask the TV.
+  var SI_OVER = { done: 1, cancelled: 1, failed: 1, replaced: 1, expired: 1, nostart: 1, keys: 1, project: 1 };
+  // This page reached through Tailscale (100.64.0.0/10, or a *.ts.net name): Google's answer can't get to the TV from here.
+  var viaTailscale = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/.test(location.hostname) || /\.ts\.net$/i.test(location.hostname);
+  function siTv() { return SI.tv || hubName(); }
+  // [again]: Google ended this sign-in (the words say "Again"); the TV's answer puts it right if the phone guessed wrong.
+  function openSignIn(grant, again) {
+    if (SI.open || !SVC[grant]) return;
+    SI.open = true; SI.grant = grant; SI.again = !!again; SI.tv = null; SI.state = null; SI.url = null; SI.view = null;
+    var g = settings && settings.google, n = settings && settings.nest;   // what's missing first, when Settings already said
+    paintSignIn(g && g.state === 'notSetUp' ? 'keys' : grant === 'cameras' && n && !n.project ? 'project' : 'starting', true);
+    veil(true, closeSignIn); presentSheet($('si'));
+    if (SI.view === 'starting') startSignIn();
+  }
+  function closeSignIn(v, from, appFrom, lead) {
+    if (!SI.open) return;
+    SI.open = false; SI.seq++; clearTimeout(SI.timer);   // the TV still finishes if Google answers
+    dismissSheet($('si'), typeof v === 'number' ? v : 0, from, null, lead); veil(false);
+  }
+  // A new attempt (the TV replaces any earlier one for this sign-in): the link is ready by the time it's read.
+  function startSignIn() {
+    var seq = ++SI.seq; clearTimeout(SI.timer); SI.state = null; SI.url = null; SI.weekly = false; SI.reason = '';
+    if (SI.view !== 'starting') paintSignIn('starting');
+    fetch('/api/signin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grant: SI.grant }) }).then(function (r) {
+      return r.json().then(function (d) { return { r: r, d: d }; }, function () { return { r: r, d: null }; });
+    }).then(function (x) {
+      if (seq !== SI.seq || !SI.open) return;
+      var d = x.d || {};
+      if (!x.r.ok || !d.authUrl) return paintSignIn(d.need === 'keys' ? 'keys' : d.need === 'project' ? 'project' : 'nostart');
+      SI.state = d.state; SI.url = d.authUrl; SI.until = Date.now() + 6e5; SI.tv = d.tv || null;
+      if (typeof d.again === 'boolean') SI.again = d.again;
+      paintSignIn('ready');
+      SI.timer = setTimeout(pollSignIn, 2000);
+    }, function () { if (seq === SI.seq && SI.open) paintSignIn('nostart'); });
+  }
+  function pollSignIn() {
+    clearTimeout(SI.timer);
+    if (!SI.open || !SI.state || document.hidden || SI_OVER[SI.view]) return;
+    if (Date.now() > SI.until) return paintSignIn('expired');
+    var seq = SI.seq, p = ++SI.pseq;
+    api('/api/signin/status?state=' + q(SI.state) + '&grant=' + q(SI.grant)).then(function (d) {
+      if (seq !== SI.seq || !SI.open || SI_OVER[SI.view]) return;
+      if (d.status === 'finishing') { if (SI.view !== 'finishing') paintSignIn('finishing'); }
+      else if (d.status === 'signedIn') { SI.weekly = !!d.weekly; paintSignIn('done'); haptic(); signedInHere(); }
+      else if (d.status === 'failed') { SI.reason = d.message || ''; paintSignIn('failed'); }
+      else if (d.status === 'cancelled' || d.status === 'replaced' || d.status === 'expired') paintSignIn(d.status);
+    }, function () {}).then(function () {
+      if (seq === SI.seq && p === SI.pseq && SI.open && !SI_OVER[SI.view]) SI.timer = setTimeout(pollSignIn, 2000);
+    });
+  }
+  // Signed in: what this phone shows of it (Connections, the TV's page, Watch) catches up now, under the sheet.
+  function signedInHere() {
+    delete healthKept.this;
+    if (settings) loadSettings();
+    if (tvPageShowing() && tvp.id === 'this') loadTvHealth();
+    if (current === 'watch') loadHome(true);
+  }
+  // The sheet in one of its states, its height gliding there (only what changes fades from old to new).
+  function paintSignIn(view, still) {
+    SI.view = view;
+    var s = SVC[SI.grant], tv = siTv(), ts = viaTailscale, didnt = 'Signing In Didn’t Finish';
+    var title = s.title + (SI.again ? ' Again' : ''), readyTitle = ts ? 'Sign In at Home' : title;
+    var ready = ts ? 'Signing in only works on the home Wi-Fi: Google sends its answer straight to ' + tv + '. Connect this phone to the home Wi-Fi, then try.'
+      : SI.again ? 'Google ended ' + tv + '’s sign-in. Sign in with the same Google account and leave every box ticked.' + (SI.grant === 'drive' ? ' Your library and progress are kept.' : '')
+      : 'Google’s sign-in opens on this phone. Use the family’s Google account and leave every box ticked.';
+    var note = ts ? 'This phone reaches ' + tv + ' through Tailscale right now.' : 'Works on home Wi-Fi only.';
+    // [title, body, second paragraph, the link {label, tinted, spin}, the button, the note, waiting?, finishing?, icon]
+    var v = {
+      starting: [readyTitle, ready, '', { spin: true }, '', note],
+      ready: [readyTitle, ready, '', { label: 'Continue to Google', tinted: ts }, '', note],
+      waiting: [readyTitle, 'Finish on Google’s page, then come back here.', '', { label: 'Open Google Again', tinted: true }, '', '', true],
+      finishing: ['Signing In…', tv + ' is finishing with Google.', '', null, '', '', false, true],
+      done: [tv + ' Is Signed In', s.done(tv), SI.weekly ? 'Google ends sign-ins every 7 days while your Google Cloud consent screen is in Testing. To stop that, publish it (Google Cloud → OAuth consent screen → Publish app).' : '', null, 'Done', '', false, false, 'done'],
+      cancelled: [didnt, 'Google’s sign-in was cancelled. Try again when you’re ready.', '', null, 'Try Again', ''],
+      failed: [didnt, (SI.reason ? SI.reason + ' ' : '') + 'Try again.', '', null, 'Try Again', ''],
+      replaced: [didnt, 'Someone started signing in again, on another phone or the TV. Try again here if you still need to.', '', null, 'Try Again', ''],
+      expired: [didnt, 'Google didn’t send an answer. Check this phone is on the home Wi-Fi, then try again.', '', null, 'Try Again', ''],
+      nostart: [title, 'Couldn’t start signing in. Check that ' + tv + ' is on.', '', null, 'Try Again', ''],
+      keys: ['Set Up Google Keys First', tv + ' needs the Google Client ID and secret before it can sign in. They’re entered once and copied to every TV.', '', null, 'Set Up Google Drive', ''],
+      project: ['Add the Cameras Project First', 'Cameras need the Device Access Project ID. Add it once and every TV gets it.', '', null, 'Open Cameras Settings', '', false, false, 'cameras']
+    }[view];
+    var go = v[3], ic = v[8] === 'done' ? 'done' : v[8] === 'cameras' ? SVC.cameras : s;
+    var E = { ico: $('si-ico'), t: $('si-t'), b: $('si-b'), b2: $('si-b2'), go: $('si-go'), act: $('si-act'), note: $('si-note'), wait: $('si-wait'), fin: $('si-fin') };
+    // What each part becomes, as one string (so only the parts that change are faded).
+    var want = {
+      ico: ic === 'done' ? 'done' : ic.ic + ic.c, t: v[0], b: v[1], b2: v[2],
+      go: go ? (go.spin ? 'spin' : go.label + (go.tinted ? '|t' : '') + '|' + SI.url) : '', act: v[4], note: v[5], wait: v[6] ? 'on' : '', fin: v[7] ? 'on' : ''
+    };
+    var swap = Object.keys(want).filter(function (k) { return E[k]._w !== want[k]; }).map(function (k) { return E[k]; });
+    function apply() {
+      if (E.ico._w !== want.ico) {
+        E.ico.className = ic === 'done' ? 'done' : '';
+        E.ico.innerHTML = ic === 'done' ? I.okFill : I[ic.ic];
+        if (ic !== 'done') E.ico.style.setProperty('--c', ic.c); else E.ico.style.removeProperty('--c');
+      }
+      setText(E.t, v[0]); setText(E.b, v[1]); setText(E.b2, v[2]); setHidden(E.b2, !v[2]);
+      setHidden(E.go, !go);
+      if (go && E.go._w !== want.go) {
+        E.go.className = 'btn' + (go.tinted ? ' tinted' : '');
+        if (go.spin) { E.go.removeAttribute('href'); E.go.setAttribute('aria-disabled', 'true'); E.go.innerHTML = I.spin; }
+        else { E.go.href = SI.url; E.go.removeAttribute('aria-disabled'); E.go.textContent = go.label; }
+      }
+      setHidden(E.act, !v[4]); setText(E.act, v[4]);
+      setHidden(E.note, !v[5]); setText(E.note, v[5]);
+      setHidden(E.wait, !v[6]); setHidden(E.fin, !v[7]);
+      Object.keys(want).forEach(function (k) { E[k]._w = want[k]; });
+    }
+    setText($('si-tv'), tv);
+    if (still || !swap.length) apply(); else resizeSheet($('si'), apply, [], swap);
+  }
+  $('si-close').onclick = function () { closeSignIn(); };
+  sheetDrag($('si'), closeSignIn);
+  // Continue to Google: the link opens Google (nothing here holds it up); the sheet waits for the TV.
+  $('si-go').onclick = function () { if (SI.view === 'ready') paintSignIn('waiting'); };
+  $('si-again').onclick = function () { startSignIn(); };
+  $('si-act').onclick = function () {
+    var view = SI.view;
+    if (view === 'done') return closeSignIn();
+    if (view === 'keys' || view === 'project') { closeSignIn(); return openPage(view === 'keys' ? 'set-drive' : 'set-cams'); }
+    startSignIn();
+  };
 
   // ---- Keyboard -----------------------------------------------------------------------------------
   var field = null, typeTimer = null, pollTimer = null, kbOpen = false;
@@ -4110,8 +4298,8 @@
       down: ['gTv', 'Can’t Reach ' + name, 'Movies and TV Shows show here when ' + name + ' is on and this phone is on the same Wi-Fi (or Tailscale).', 'Try Again', again]
     }[st] || null;
   }
-  // Signing this TV in again happens on the TV (its own sign-in, never copied between TVs): the phone says where.
-  function watchSignIn() { signInHelp('drive', 'this'); }
+  // Signing in: this TV's own Google Drive sign-in, from this phone (never copied between TVs).
+  function watchSignIn() { openSignIn('drive', /^expired/.test(watchState())); }
 
   // A shelf's row: its tiles, kept by key across renders (so a picture never loads twice); hidden when empty.
   function shelf(id, items, make) {
@@ -4875,15 +5063,24 @@
     hello(on).then(function () { toast(on && device.topic ? 'On. Now subscribe in ntfy' : on ? 'On' : 'Off'); }, err);
   };
   $('p-copy').onclick = function () { if (device.topic) copy(device.topic, 'Topic copied'); };
+  // A message may carry a link (an address in this app, "#settings/tvs/this/signin/drive"): a tap opens it.
   function showAlert(m) {
     var b = $('alert');
-    function set() { setText($('alert-from'), 'From ' + (m.from || 'the TV')); setText($('alert-title'), m.title); setText($('alert-body'), m.body || ''); }
+    function set() { b._link = /^#[a-z]/.test(m.link || '') ? m.link : null; setText($('alert-from'), 'From ' + (m.from || 'the TV')); setText($('alert-title'), m.title); setText($('alert-body'), m.body || ''); }
     if (!b.classList.contains('show')) { set(); overlay(b, true, LOOK.banner, spring(0.5, 0.8)); }
     else swap(b, bannerTf, set);   // another one while it's up: the new one takes its place
     clearTimeout(showAlert.h); showAlert.h = setTimeout(hideAlert, 8000);
   }
   function hideAlert(v, from, lead) { if ($('alert').classList.contains('show')) overlay($('alert'), false, LOOK.banner, spring(0.35, 1, v || 0), from, null, lead); }
-  $('alert').onclick = function () { hideAlert(); };
+  // A tap puts it away and opens its link, over whatever was open; a swipe up only puts it away.
+  $('alert').onclick = function () {
+    var link = $('alert')._link;
+    hideAlert();
+    if (!link) return;
+    if (menuOpen) closeMenu(); if (dialogOpen) closeDialog(); if (sheetOpen) closeSheet(); if (TS.open) closeTs();
+    if (SI.open) closeSignIn(); if (screenOpen) closeScreen(); if (kbOpen) closeKb(); if (mv.open) closeViewer();
+    route(link);
+  };
   // A banner follows a finger: up and away (let go moving up, or past a third of its height, and it goes, at the
   // finger's speed), or down a little, rubber-banded; anything less springs back. The banner takes no pan
   // (touch-action: none), so these stay passive.
@@ -4911,12 +5108,21 @@
     }
     b.addEventListener('touchend', end, { passive: true }); b.addEventListener('touchcancel', end, { passive: true });
   })();
+  // Each message once, however often it comes (it may come again, or from two TVs): the last 50 ids are kept.
+  var seenIds = (function () { try { var a = JSON.parse(stored('woodruff.seen') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
+  function firstSight(id) {
+    if (!id) return true;
+    if (seenIds.indexOf(id) >= 0) return false;
+    seenIds.push(id); if (seenIds.length > 50) seenIds = seenIds.slice(-50);
+    store('woodruff.seen', JSON.stringify(seenIds));
+    return true;
+  }
   function checkInbox() {
     if (!device.name || document.hidden) return;
-    api('/api/inbox?id=' + q(device.id)).then(function (d) { d.messages.forEach(showAlert); }, function () {});
+    api('/api/inbox?id=' + q(device.id)).then(function (d) { d.messages.forEach(function (m) { if (firstSight(m.id)) showAlert(m); }); }, function () {});
   }
   setInterval(checkInbox, 5000);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); loadSmooth(); loadTvHealth(); tvpFrame(); if (current === 'watch') loadHome(); } });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); loadSmooth(); loadTvHealth(); tvpFrame(); pollSignIn(); if (current === 'watch') loadHome(); } });
 
   // ---- Settings -----------------------------------------------------------------------------------
   var settings = null, PG = {};
@@ -4934,19 +5140,31 @@
   }
   function chain(p) { var c = [p]; while (p.o.parent && PG[p.o.parent]) { p = PG[p.o.parent]; c.unshift(p); } return c; }
   function loadSettings() { api('/api/settings').then(renderSettings, err); }
-  function status(ids, text, ok) { ids.forEach(function (id) { swapText($(id), text); setClass($(id), 'detail' + (ok ? ' on' : '')); }); }
+  function status(ids, text, warn) { ids.forEach(function (id) { swapText($(id), text); setClass($(id), 'detail' + (warn ? ' warn' : '')); }); }
+  // A sign-in as the TV's Settings → Accounts says it (offline never changes it), from its state.
+  var ACCOUNT = { signedIn: 'Signed in', expired: 'Sign-in ended', keysRejected: 'Keys not accepted', notSignedIn: 'Not signed in', notSetUp: 'Not set up' };
+  function needsPerson(state) { return state === 'expired' || state === 'keysRejected'; }
   // What's on the page on screen glides into its new state (rows coming and going, words changing); the rest
   // just changes.
   function renderSettings(s) { glideTop(function () { applySettings(s); }); }
   function applySettings(s) {
     settings = s;
-    var g = s.google, on = [];
-    status(['g-status', 'g-status2'], g.connected ? 'Connected' : g.hasSecret ? 'Sign in on TV' : 'Not set up', g.connected);
+    var g = s.google, on = [], gs = g.state || (g.connected ? 'signedIn' : g.hasSecret ? 'notSignedIn' : 'notSetUp');
+    status(['g-status', 'g-status2'], g.text || ACCOUNT[gs], needsPerson(gs));
+    // Sign In from here when it can work: keys saved, and not signed in (or Google ended it). Keys Google turns down come first.
+    var gIn = gs === 'notSignedIn' ? 'Sign In to Google Drive' : gs === 'expired' ? 'Sign In to Google Drive Again' : '';
+    setHidden($('g-signin'), !gIn); if (gIn) swapText($('g-signin'), gIn);
+    $('g-signin').onclick = function () { openSignIn('drive', gs === 'expired'); };
+    setHidden($('g-foot'), gs !== 'keysRejected');
     if (!$('g-id').value) $('g-id').value = g.clientId || '';
     $('g-redirect').textContent = g.redirectUri;
-    status(['t-status', 't-status2'], s.tmdb ? 'On' : 'Off', s.tmdb);
+    status(['t-status', 't-status2'], s.tmdb ? 'On' : 'Off', false);
     if (s.nest) {
-      status(['c-status', 'c-status2'], s.nest.connected ? 'Connected' : s.nest.project ? 'Sign in on TV' : 'Not set up', s.nest.connected);
+      var cs = s.nest.state || (s.nest.connected ? 'signedIn' : s.nest.project && g.hasSecret ? 'notSignedIn' : 'notSetUp');
+      status(['c-status', 'c-status2'], s.nest.text || (cs === 'signedIn' ? 'Connected' : needsPerson(cs) ? ACCOUNT[cs] : 'Not connected'), needsPerson(cs));
+      var cIn = cs === 'notSignedIn' ? 'Connect Your Cameras' : cs === 'expired' ? 'Connect Your Cameras Again' : '';
+      setHidden($('c-signin'), !cIn); if (cIn) swapText($('c-signin'), cIn);
+      $('c-signin').onclick = function () { openSignIn('cameras', cs === 'expired'); };
       if (!$('c-project').value) $('c-project').value = s.nest.project || '';
       if (!$('c-doorbell').value) $('c-doorbell').value = s.nest.doorbell || '';
       if ($('c-person').checked !== !!s.nest.person) $('c-person').checked = !!s.nest.person;
@@ -5072,7 +5290,10 @@
   $('g-save').onclick = function () {
     var id = $('g-id').value.trim(), secret = $('g-secret').value.trim();
     if (!secret && settings && settings.google.hasSecret && id === settings.google.clientId) return toast('Nothing changed');
-    post('/api/settings/google', { client_id: id, client_secret: secret }).then(function (s) { $('g-secret').value = ''; renderSettings(s); toast('Saved. Look at the TV to sign in'); }, err);
+    post('/api/settings/google', { client_id: id, client_secret: secret }).then(function (s) {
+      $('g-secret').value = ''; renderSettings(s);
+      toast(s.google && s.google.state === 'notSignedIn' ? 'Saved. Now sign in to Google Drive' : 'Saved');   // and the Sign In row glides in
+    }, err);
   };
   $('t-save').onclick = function () {
     var k = $('t-key').value.trim(); if (!k) return toast('Paste the TMDB key first', true);
@@ -5081,7 +5302,10 @@
   $('c-person').onchange = function () { post('/api/settings/nest', { person: $('c-person').checked }).then(renderSettings, err); };
   $('c-motion').onchange = function () { post('/api/settings/nest', { motion: $('c-motion').checked }).then(renderSettings, err); };
   $('c-save').onclick = function () {
-    post('/api/settings/nest', { project: $('c-project').value.trim(), doorbell: $('c-doorbell').value.trim() }).then(function (s) { renderSettings(s); toast('Saved. Open Command center on the TV'); }, err);
+    post('/api/settings/nest', { project: $('c-project').value.trim(), doorbell: $('c-doorbell').value.trim() }).then(function (s) {
+      renderSettings(s);
+      toast(s.nest && s.nest.state === 'notSignedIn' ? 'Saved. Now connect your cameras' : 'Saved');
+    }, err);
   };
   $('m-add').onclick = function () {
     var b = $('m-add'); b.disabled = true; b.innerHTML = I.spin;
