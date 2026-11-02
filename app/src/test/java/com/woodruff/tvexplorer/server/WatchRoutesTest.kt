@@ -72,6 +72,9 @@ class WatchRoutesTest {
         WatchHome.forget()
     }
 
+    /** A library's saved listing, as [ListingCache] names its file. */
+    private fun saved(place: DrivePlace.Named) = File(File(c.cacheDir, "listings"), "named-${place.title}.json")
+
     /** A folder's listing as the TV saves it after listing it once. */
     private fun folder(id: String, files: List<DriveFile>) {
         val d = File(c.cacheDir, "folders").apply { mkdirs() }
@@ -122,6 +125,19 @@ class WatchRoutesTest {
         Watched.mark(c, "drive:m3")
         assertFalse("Orbit" in titles(json(get("/api/library", "place" to "movies", "unwatched" to "1"))))
         assertEquals(listOf("The Lighthouse"), titles(json(get("/api/library", "place" to "shows", "unwatched" to "1"))))
+    }
+
+    @Test fun aLibraryTheListingLimitCutSaysSoOnThePhone() {
+        // Listed in full: the grid has no "over 20,000 files" line.
+        assertTrue(json(get("/api/library", "place" to "movies")).isNull("capped"))
+        // Saved as the TV saves a library Drive had more of than its limit: the phone's grid says so.
+        val before = ListingCache.savedAt(c, DrivePlace.Movies)
+        ListingCache.write(c, DrivePlace.Movies, movies, cutAt = 20_000)
+        saved(DrivePlace.Movies).setLastModified(before + 1_000) // a new saved copy, even within the same millisecond
+        val cut = json(get("/api/library", "place" to "movies"))
+        assertEquals(20_000, cut.getInt("capped"))
+        assertEquals(4, cut.getInt("count"))
+        assertTrue(json(get("/api/library", "place" to "shows")).isNull("capped"))
     }
 
     @Test fun searchGroupsTheTvsOneRankedList() {

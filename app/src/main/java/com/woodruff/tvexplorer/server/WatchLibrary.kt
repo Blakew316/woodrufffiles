@@ -4,6 +4,7 @@ import android.content.Context
 import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DriveHttpException
+import com.woodruff.tvexplorer.cloud.DriveListing
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.cloud.Library
@@ -91,11 +92,15 @@ object WatchLibrary {
     }
 
     private suspend fun listNow(c: Context) {
+        // Read first, as the TV's own listing does: signed out meanwhile, nothing of this listing is saved.
+        val gen = ListingCache.generation()
         val token = GoogleAuth.token(c) ?: run { listFailedAt = System.currentTimeMillis(); return }
         for ((place, mode) in listOf(DrivePlace.Movies to Tmdb.Mode.MOVIES, DrivePlace.TvShows to Tmdb.Mode.SHOWS)) {
             try {
-                val files = Library.prepare(Library.withInfo(listFresh(token, place)))
-                ListingCache.write(c, place, Library.prepare(Tmdb.fill(c, files, mode)))
+                val listing = listFresh(token, place)
+                val files = Library.prepare(Library.withInfo(listing.files))
+                // Saved with where the listing limit cut it, so the TV's own screen and the phone both say so.
+                ListingCache.write(c, place, Library.prepare(Tmdb.fill(c, files, mode)), cutAt = listing.cutAt, gen = gen)
                 missing = missing - place.title
             } catch (e: CancellationException) {
                 throw e
@@ -107,8 +112,11 @@ object WatchLibrary {
         }
     }
 
-    /** A library listed from Drive with its posters (the one call to adapt if `DriveApi.list` changes how it pages). */
-    private suspend fun listFresh(token: String, place: DrivePlace): List<DriveFile> = DriveApi.withPosters(token, DriveApi.list(token, place))
+    /** A library listed from Drive (up to [DriveApi.LIBRARY_LIMIT] entries) with its posters, and where the limit cut it. */
+    private suspend fun listFresh(token: String, place: DrivePlace): DriveListing {
+        val listing = DriveApi.listing(token, place)
+        return listing.copy(files = DriveApi.withPosters(token, listing.files))
+    }
 
     /** Signed out, or the phone asked for something that changed what Watch shows: built afresh next time. */
     fun changed() { WatchHome.forget() }
