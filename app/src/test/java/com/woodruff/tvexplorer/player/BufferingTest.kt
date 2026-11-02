@@ -103,9 +103,25 @@ class BufferingTest {
         clock.update(true, Player.STATE_BUFFERING, false, now = 0)
         // The connection failed (idle), and the player prepares again at once.
         clock.update(true, Player.STATE_IDLE, false, now = 3_000)
-        assertNull(clock.waitedMs(Player.STATE_IDLE, 3_000))
+        assertEquals(3_000L, clock.waitedMs(Player.STATE_IDLE, 3_000))
         clock.update(true, Player.STATE_BUFFERING, false, now = 3_010)
         assertEquals(12_000L, clock.waitedMs(Player.STATE_BUFFERING, 12_000))
+    }
+
+    @Test fun theRingStaysUpWhileARefusedTokenIsDroppedBeforeTheNextTry() {
+        // Drive turned the token down: the player is idle for a moment while it's dropped (off the
+        // main thread), then tries again. The ring that was up stays up, and nothing new appears for
+        // a wait that was too short to show one.
+        val clock = WaitClock()
+        clock.update(true, Player.STATE_BUFFERING, false, now = 0)
+        clock.update(true, Player.STATE_IDLE, false, now = 3_000)
+        assertEquals(BufferingLook(ring = true, caption = null), look(clock.waitedMs(Player.STATE_IDLE, 3_020)))
+        val short = WaitClock().apply { update(true, Player.STATE_BUFFERING, false, now = 0); update(true, Player.STATE_IDLE, false, now = 200) }
+        assertNull(look(short.waitedMs(Player.STATE_IDLE, 210)))
+        // Nothing was waiting (a film not started yet, or paused): idle is no wait.
+        assertNull(WaitClock().waitedMs(Player.STATE_IDLE, 5_000))
+        val paused = WaitClock().apply { update(true, Player.STATE_BUFFERING, false, now = 0); update(false, Player.STATE_IDLE, false, now = 1_000) }
+        assertNull(paused.waitedMs(Player.STATE_IDLE, 2_000))
     }
 
     @Test fun pausingEndsTheWaitAndPlayingAgainStartsANewOne() {

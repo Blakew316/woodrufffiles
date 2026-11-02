@@ -63,9 +63,11 @@ import java.text.DateFormat
  * (which stays exactly as it was underneath). Back returns there; Left / Right go through the other
  * cameras. A ring while it's up shows that camera, with the time it rang. Over anything but a film
  * it closes by itself 2 minutes after the last key press, and when it's left (Home, standby), so a
- * camera nobody is watching doesn't stream on with the doorbell's sound.
+ * camera nobody is watching doesn't stream on with the doorbell's sound. While it's up, no update
+ * restarts Woodruff under it ([com.woodruff.tvexplorer.update.OnScreen.Live]); one waiting goes in
+ * once it has closed, and puts back what was under it.
  */
-class DoorbellActivity : ComponentActivity() {
+class DoorbellActivity : ComponentActivity(), com.woodruff.tvexplorer.update.OnScreen.Live {
     /** What the camera opened over: what Back returns to, and whether it closes by itself. */
     enum class Origin { FILM, SLIDESHOW, SCREENSAVER, SCREEN }
 

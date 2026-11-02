@@ -58,8 +58,14 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private var savedPosition: Long? = null
     /** The queue as it was when the player last stopped (it can grow: see [fillQueueFromFolder]). */
     private var savedQueue: Pair<List<String>, List<String>>? = null
-    /** One retry with a fresh Google token after a sign-in error, per item. */
-    private var retriedKey: String? = null
+    /**
+     * The one try a Drive film gets at once when the connection or Google fails it, before it stalls
+     * (once per film, until it plays): with a new Google token when Drive refused the one it had.
+     */
+    private val retryAtOnce by lazy {
+        val app = applicationContext
+        RetryAtOnce(lifecycleScope, current = { player }) { GoogleAuth.forgetAccess(app) }
+    }
     /**
      * Waiting for the connection (or Google) to come back, on this item: retries without skipping
      * it ([stalled]). [stall] is why, which the loading ring says, and [stalledSince] since when.
@@ -1329,13 +1335,10 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     // The connection or Google, not this file: every other item would fail the same way.
                     val kind = PlaybackErrors.stallOf(http, error.errorCode, drive)
                     if (kind != null) {
-                        // Google Drive turned the request down (sign-in ran out, a hiccup): try this episode
-                        // again at once, from where it was, with a current token.
-                        if (drive && retriedKey != key) {
-                            retriedKey = key
-                            p.prepare()
-                            return
-                        }
+                        // A hiccup, or Google Drive turning the token down: try this episode again at
+                        // once, from where it was; with a new token when Drive refused the one it had
+                        // (dropped off the main thread first: see RetryAtOnce).
+                        if (retryAtOnce.tryAgain(p, key, http, drive)) return
                         // Stay on it and try again (it used to skip ahead, item after item, until the
                         // Wi-Fi came back many episodes later), the ring saying what's going on.
                         stalled(p, key, kind)
@@ -1354,7 +1357,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying) { retriedKey = null; clearStall() }
+                    if (isPlaying) { retryAtOnce.played(); clearStall() }
                     updateLoading()
                     if (leader) sendSync()
                 }
@@ -1597,15 +1600,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // carries every range request, so a start (3-4 requests for an MKV) and each seek no longer
         // wait for a new connection and handshake. Redirects between http and https are still followed.
         val http = OkHttpDataSource.Factory(streamClient)
-        val authed = ResolvingDataSource.Factory(http) { spec ->
-            // Only Drive's own file URLs get the token (see carriesDriveToken). A redirect can't take
-            // it anywhere else: OkHttp drops the header when a redirect changes host, port or scheme
-            // (the old data source sent it on to any host a redirect named).
-            val uri = spec.uri
-            if (carriesDriveToken(uri.scheme, uri.host, uri.path)) {
-                spec.withAdditionalHeaders(mapOf("Authorization" to "Bearer ${token()}"))
-            } else spec
-        }
+        val authed = driveAuthorized(http, ::token)
         return SidecarLoading.dataSourceFactory(DefaultDataSource.Factory(this, FilmStarts.dataSourceFactory(applicationContext, authed)))
     }
 
@@ -1802,6 +1797,20 @@ internal fun giveWaitingItems(p: Player, given: (MediaItem) -> MediaItem) {
  */
 internal fun carriesDriveToken(scheme: String?, host: String?, path: String?): Boolean =
     scheme == "https" && host == "www.googleapis.com" && path.orEmpty().startsWith("/drive/")
+
+/**
+ * [upstream], with each of Drive's own file requests carrying the TV's Google token, asked for afresh
+ * at every request ([token], on the loading thread: it may wait for a renewal), so a token renewed or
+ * dropped meanwhile ([RetryAtOnce]) is never offered again. Only Drive's own file URLs get it
+ * ([carriesDriveToken]). A redirect can't take it anywhere else: OkHttp drops the header when a
+ * redirect changes host, port or scheme (the old data source sent it on to any host a redirect named).
+ */
+@OptIn(UnstableApi::class)
+internal fun driveAuthorized(upstream: androidx.media3.datasource.DataSource.Factory, token: () -> String): androidx.media3.datasource.DataSource.Factory =
+    ResolvingDataSource.Factory(upstream) { spec ->
+        val uri = spec.uri
+        if (carriesDriveToken(uri.scheme, uri.host, uri.path)) spec.withAdditionalHeaders(mapOf("Authorization" to "Bearer ${token()}")) else spec
+    }
 
 /**
  * How long before the Drive token runs out the player renews it: just inside its last minute, the

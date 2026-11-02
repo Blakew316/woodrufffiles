@@ -104,7 +104,7 @@ import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.StatusBadge
 import com.woodruff.tvexplorer.ui.components.TvIcon
 import com.woodruff.tvexplorer.ui.components.rememberOfflineShown
-import com.woodruff.tvexplorer.ui.components.tryFocus
+import com.woodruff.tvexplorer.ui.motion.tryFocus
 import com.woodruff.tvexplorer.ui.components.UsageBar
 import com.woodruff.tvexplorer.ui.components.icon
 import com.woodruff.tvexplorer.ui.icons.Sym

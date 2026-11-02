@@ -39,12 +39,12 @@ import kotlin.math.abs
  * signed with the same key as the installed app.
  *
  * Android 12+ lets an app update itself without a prompt. Silent installs wait until nobody is
- * using Woodruff ([quietNow]: nothing playing, no key pressed anywhere in it for 2 minutes, no copy
- * or transfer under way, a paused film left for half an hour), since an update restarts it. What
- * was on screen comes back by itself afterwards ([Restore]): the slideshow, the cameras, the photo,
- * the paused film at its spot, the screen. Some TVs still ask for a press for every update (and
- * Android 11 and older always do): that update is offered the next time someone opens Woodruff
- * instead ([offer]).
+ * using Woodruff ([quietNow]: nothing playing, the doorbell's camera not up, no key pressed anywhere
+ * in it for 2 minutes, no copy or transfer under way, a paused film left for half an hour), since an
+ * update restarts it. What was on screen comes back by itself afterwards ([Restore]): the slideshow,
+ * the cameras, the photo, the paused film at its spot, the screen. Some TVs still ask for a press for
+ * every update (and Android 11 and older always do): that update is offered the next time someone
+ * opens Woodruff instead ([offer]).
  *
  * On Android 9+ the update brings its speed profile (a .dm file published with the release) in the
  * same install, as Play and adb do: Android compiles the new code while installing, instead of
@@ -232,7 +232,7 @@ object Updater {
                 // What's up, asked of the screens themselves: whether it's a film playing, and what to
                 // put back once the update is in (Woodruff restarts).
                 val now = OnScreen.momentNow(app) ?: return@launch
-                if (quietNow(Presence.sinceUseMs(), now.film, Presence.isBusy, now.screenOn)) {
+                if (quietNow(Presence.sinceUseMs(), now.film, Presence.isBusy, now.screenOn, now.live)) {
                     startInstall(app, How.BY_ITSELF, reopen = now.route)
                 }
             }
@@ -242,14 +242,16 @@ object Updater {
     /**
      * Whether an update may restart Woodruff now, with no one asked: nothing that mustn't be cut short
      * is running ([busy]: a copy, a file from the phone, a Google Photos pick), its player isn't
-     * playing, and nobody has pressed a key in it for [IDLE_MS] — or [PAUSED_IDLE_MS] when a film is
-     * paused in it (on screen, or under the TV's screensaver), since someone who paused may well be
-     * back. With the TV's screen off nobody is watching anything (but a film playing still isn't
-     * interrupted). What was on screen comes back afterwards. Visible for tests.
+     * playing, the doorbell's camera isn't up ([live], see [OnScreen.Live]), and nobody has pressed a
+     * key in it for [IDLE_MS] — or [PAUSED_IDLE_MS] when a film is paused in it (on screen, or under
+     * the TV's screensaver), since someone who paused may well be back. With the TV's screen off nobody
+     * is watching anything (but a film playing still isn't interrupted). What was on screen comes back
+     * afterwards. Visible for tests.
      */
-    internal fun quietNow(sinceUseMs: Long, film: OnScreen.Film, busy: Boolean, screenOn: Boolean): Boolean = when {
+    internal fun quietNow(sinceUseMs: Long, film: OnScreen.Film, busy: Boolean, screenOn: Boolean, live: Boolean = false): Boolean = when {
         busy -> false
         film == OnScreen.Film.PLAYING -> false
+        live -> false
         !screenOn -> true
         film == OnScreen.Film.PAUSED -> sinceUseMs >= PAUSED_IDLE_MS
         else -> sinceUseMs >= IDLE_MS
@@ -337,7 +339,7 @@ object Updater {
             return
         }
         val moment = OnScreen.momentNow(app)
-        if (!mayInstallUrgently(moment?.film ?: OnScreen.Film.NONE, Presence.isBusy)) return
+        if (!mayInstallUrgently(moment?.film ?: OnScreen.Film.NONE, Presence.isBusy, moment?.live == true)) return
         // A screen that didn't answer in time is up but stuck: its Home comes back.
         val route = moment?.route ?: if (mainScreenInFront()) Restore.App(Screen.HOME) else null
         startInstall(app, How.URGENT, reopen = route)
@@ -352,10 +354,12 @@ object Updater {
 
     /**
      * Whether a fix after an early close may restart Woodruff now: even with someone using it, but never
-     * over a film that's playing (it goes in once the film is paused or over) nor a job that mustn't be
-     * cut short ([busy]). Visible for tests.
+     * over a film that's playing (it goes in once the film is paused or over), the doorbell's camera
+     * ([live]: it goes in once the camera closes), nor a job that mustn't be cut short ([busy]).
+     * Visible for tests.
      */
-    internal fun mayInstallUrgently(film: OnScreen.Film, busy: Boolean): Boolean = !busy && film != OnScreen.Film.PLAYING
+    internal fun mayInstallUrgently(film: OnScreen.Film, busy: Boolean, live: Boolean = false): Boolean =
+        !busy && !live && film != OnScreen.Film.PLAYING
 
     /**
      * Whether this profile forbids apps from outside the Play Store (a kids profile, parental controls, a

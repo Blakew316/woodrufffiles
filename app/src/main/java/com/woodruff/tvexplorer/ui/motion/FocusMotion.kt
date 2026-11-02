@@ -436,6 +436,15 @@ private class WholeElementResponder : BringIntoViewResponder {
 }
 
 /**
+ * Asks for the focus, saying whether it was given: false while nothing is attached to the requester yet
+ * (its item isn't composed, or its window not up), or it can't take the focus. A request like that doesn't
+ * throw any more; it does nothing, so checking for an exception (runCatching { requestFocus() }) said yes to
+ * every one of them, and the fallbacks behind it never ran.
+ */
+fun androidx.compose.ui.focus.FocusRequester.tryFocus(): Boolean =
+    runCatching { requestFocus(androidx.compose.ui.focus.FocusDirection.Enter) }.getOrDefault(false)
+
+/**
  * Focus anywhere inside asks the scrolling parents to show this whole element (a banner, a page's
  * header), in one scroll, instead of just the focused button and then a second scroll for the rest.
  */

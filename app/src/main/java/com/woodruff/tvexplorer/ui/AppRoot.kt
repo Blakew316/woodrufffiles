@@ -103,6 +103,7 @@ import com.woodruff.tvexplorer.ui.motion.TvCard
 import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
 import com.woodruff.tvexplorer.ui.motion.rememberFocusMotionState
 import com.woodruff.tvexplorer.ui.motion.rememberFocusPlatter
+import com.woodruff.tvexplorer.ui.motion.tryFocus
 import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.rememberRowTint
 import androidx.compose.animation.EnterExitState
@@ -140,7 +141,8 @@ fun AppRoot(vm: MainViewModel) {
     val screenFocus = remember { FocusRequester() }
     val switchScope = rememberCoroutineScope()
     val enterScreen: () -> Unit = {
-        if (runCatching { screenFocus.requestFocus() }.isFailure) runCatching { contentFocus.requestFocus() }
+        // The screen on show; if it can't take it yet (still coming in), anywhere in the content.
+        if (!screenFocus.tryFocus()) contentFocus.tryFocus()
     }
     var railFocused by remember { mutableStateOf(false) }
     var contentFocused by remember { mutableStateOf(false) }
@@ -151,21 +153,13 @@ fun AppRoot(vm: MainViewModel) {
     val railActive = remember { FocusRequester() }
     val open = railFocused || RailPreview.open
 
-    // The remote's search button (MainActivity hands it over): Search, listening if the TV can, or, already
-    // open, listening again (see SearchPages.searchKey).
-    LaunchedEffect(Unit) { VoiceSearch.requests.collect { com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey() } }
-    // Search on screen: the smoothness meter counts its frames as "Search".
-    val searchOpen by remember { com.woodruff.tvexplorer.ui.screens.SearchPages.request.map { it != null }.distinctUntilChanged() }
-        .collectAsStateWithLifecycle(false)
+    // The remote's Search button, pressed in this window or any of its pop-ups (a title page, a menu, the
+    // filters, Search itself: SearchKey): Search, listening if the TV can, or, already open, listening again
+    // (see SearchPages.searchKey), never a second Search.
+    LaunchedEffect(Unit) { SearchKey.presses.collect { com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey() } }
 
     Box(
-        Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background))
-            // The remote's voice button, if a TV ever hands it to apps (most keep it for their assistant): as Search's.
-            .onKeyEvent { e ->
-                if (e.nativeKeyEvent.keyCode != android.view.KeyEvent.KEYCODE_VOICE_ASSIST) return@onKeyEvent false
-                if (e.type == KeyEventType.KeyUp) com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey()
-                true
-            },
+        Modifier.fillMaxSize().then(if (Appearance.background == null) Modifier.ambientBackdrop() else Modifier.background(Palette.background)),
     ) {
         // Optional background photo (Settings → Screensaver & background), dimmed so text stays
         // readable. Dimmed as it's drawn (a colour filter), not by a see-through layer over the
@@ -214,7 +208,7 @@ fun AppRoot(vm: MainViewModel) {
                         if (!leaving) Modifier.focusRequester(screenFocus).focusGroup()
                         // A screen on its way out never keeps the focus: a press that lands in it goes
                         // on into the new screen.
-                        else Modifier.onFocusChanged { if (it.hasFocus) switchScope.launch { runCatching { screenFocus.requestFocus() } } }.focusGroup()
+                        else Modifier.onFocusChanged { if (it.hasFocus) switchScope.launch { screenFocus.tryFocus() } }.focusGroup()
                     },
                     layer = { shown, entering, _ ->
                         alpha = shown
@@ -353,7 +347,8 @@ fun AppRoot(vm: MainViewModel) {
     LaunchedEffect(railWanted) {
         if (!railWanted) return@LaunchedEffect
         withFrameNanos {}
-        if (runCatching { railActive.requestFocus() }.isFailure || !railFocused) runCatching { homeFocus.requestFocus() }
+        // The current screen's item; Home's when the screen has none in the menu (or it didn't take it).
+        if (!railActive.tryFocus() || !railFocused) homeFocus.tryFocus()
         withFrameNanos {}
         railWanted = false
     }
@@ -376,9 +371,9 @@ fun AppRoot(vm: MainViewModel) {
         if (!railFocused && !contentFocused) enterScreen()
     }
     // The smoothness meter's name for what's on screen: Movies and TV Shows apart, and set again on
-    // coming back from the player (which counts its frames as "Player").
+    // coming back from the player (which counts its frames as "Player"). This window's own frames only:
+    // a page over it (Search, a title page) counts its frames under its own name.
     val frameLabel = when {
-        searchOpen -> "Search"
         screen == Screen.DRIVE -> driveTop?.title ?: "Google Drive"
         else -> screen.name.lowercase().replaceFirstChar { it.uppercase() }
     }
@@ -505,7 +500,9 @@ private fun CommandHub(screen: Screen, vm: MainViewModel) {
     // the chosen pill instead, stepping across from the first (the pills have no handles of their own).
     LaunchedEffect(screen) {
         withFrameNanos {} // once the pills are laid out
-        if (!hubFocused && runCatching { tabsFocus.requestFocus() }.isSuccess) {
+        // (Only if the pills took it: with a camera full screen they're not there, and stepping Right would
+        // move whatever does have the focus.)
+        if (!hubFocused && tabsFocus.tryFocus()) {
             repeat(chosen) { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right) }
         }
     }
@@ -538,14 +535,6 @@ internal fun untilNextMinute(now: Long): Long = 60_000 - now.mod(60_000L) + 50
  * straight Home; Home is chosen in the sidebar.
  */
 internal val LocalOpenSidebar = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
-
-/**
- * The remote's search button, pressed in the main window (MainActivity forwards it here): it opens Search,
- * listening when the TV can ([com.woodruff.tvexplorer.ui.screens.SearchPages.searchKey]).
- */
-internal object VoiceSearch {
-    val requests = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-}
 
 /** Gallery hook: draws the menu open without giving it focus. */
 internal object RailPreview { var open by mutableStateOf(false) }

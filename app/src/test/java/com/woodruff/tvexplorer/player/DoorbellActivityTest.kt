@@ -48,6 +48,16 @@ class DoorbellActivityTest {
 
     private fun wait(d: Duration) = shadowOf(Looper.getMainLooper()).idleFor(d)
 
+    @Test fun whileItsUpNoUpdateRestartsWoodruffUnderIt() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val c = open(DoorbellActivity.Origin.SCREEN)
+        assertTrue(com.woodruff.tvexplorer.update.OnScreen.moment(app).live)
+        c.pause().stop().destroy()
+        opened.clear()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(com.woodruff.tvexplorer.update.OnScreen.moment(app).live)
+    }
+
     @Test fun overTheSlideshowItClosesByItselfAfterTwoMinutes() {
         val c = open(DoorbellActivity.Origin.SLIDESHOW)
         wait(Duration.ofSeconds(119))

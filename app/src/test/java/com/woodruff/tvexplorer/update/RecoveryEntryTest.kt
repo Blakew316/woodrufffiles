@@ -121,9 +121,10 @@ class RecoveryEntryTest {
         controller.get().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER))
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(1, EarlyCrashes.count(app))
-        // The main screen started over, as the app this time.
+        // The main screen started over, as the app this time: the same window made again, no second one.
         val again = controller.get()
         assertFalse(content(again) is RecoveryView)
+        assertNull(shadowOf(app).nextStartedActivity)
         // And this start is watched: one more close while starting brings the recovery screen back.
         EarlyCrashes.crashed(app, null)
         assertTrue(EarlyCrashes.needsRecovery(app))

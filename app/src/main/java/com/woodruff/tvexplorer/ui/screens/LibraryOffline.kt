@@ -28,7 +28,7 @@ import com.woodruff.tvexplorer.cloud.said
 import com.woodruff.tvexplorer.ui.components.FieldStatus
 import com.woodruff.tvexplorer.ui.components.OfflineWords
 import com.woodruff.tvexplorer.ui.components.TvIcon
-import com.woodruff.tvexplorer.ui.components.tryFocus
+import com.woodruff.tvexplorer.ui.motion.tryFocus
 import com.woodruff.tvexplorer.ui.icons.Sym
 import com.woodruff.tvexplorer.ui.theme.Palette
 
