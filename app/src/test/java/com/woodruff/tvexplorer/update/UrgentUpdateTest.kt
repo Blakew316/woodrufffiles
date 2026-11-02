@@ -20,6 +20,7 @@ import com.woodruff.tvexplorer.update.Updater.State
 import com.woodruff.tvexplorer.update.Updater.Step
 import com.woodruff.tvexplorer.util.EarlyCrashes
 import com.woodruff.tvexplorer.util.Presence
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -183,6 +184,33 @@ class UrgentUpdateTest {
         } finally {
             Presence.end(copy)
         }
+    }
+
+    @Test fun aFixWaitsForTheDoorbellsCameraToClose() {
+        assertFalse(Updater.mayInstallUrgently(Film.NONE, busy = false, live = true))
+        assertFalse(Updater.mayInstallUrgently(Film.PAUSED, busy = false, live = true))
+        closedWhileStarting()
+        readyToInstall()
+        // The doorbell rang and its camera is up: the fix doesn't restart Woodruff under it (it never even
+        // starts installing: every step the updater takes is seen here as it takes it).
+        val steps = java.util.concurrent.CopyOnWriteArrayList<Step>()
+        val watch = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined).launch { Updater.state.collect { steps += it.step } }
+        val doorbell = org.robolectric.Robolectric.buildActivity(FakeDoorbell::class.java).setup()
+        try {
+            Updater.atStart(app)
+            waitUntil("it's ready") { Updater.state.value.step == Step.READY }
+            // Long enough for the updater to ask the screens what's up (on the main thread) and act on it.
+            repeat(50) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(20) }
+            assertEquals(Step.READY, Updater.state.value.step)
+            assertFalse("installing under the doorbell's camera: $steps", Step.INSTALLING in steps)
+        } finally {
+            watch.cancel()
+            doorbell.pause().stop().destroy()
+        }
+        // Closed: the next look puts it in.
+        Updater.maybeAuto(app)
+        waitUntil("the fix installs") { Updater.state.value.step == Step.INSTALLING }
+        waitUntil("the installer answers") { Updater.state.value.step != Step.INSTALLING }
     }
 
     @Test fun aNoToAndroidsPromptIsRespected() {

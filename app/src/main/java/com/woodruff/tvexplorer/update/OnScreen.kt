@@ -95,11 +95,21 @@ object OnScreen : Application.ActivityLifecycleCallbacks {
     enum class Film { NONE, PLAYING, PAUSED }
 
     /**
+     * A Woodruff screen showing something live, that an update never restarts Woodruff under while it's
+     * up, as it never does under a film that plays: the doorbell's camera, with its sound, over whatever
+     * showed when the doorbell rang (it covers the main window, so Woodruff's main screen isn't "in
+     * front" meanwhile, but someone is looking at the door). It closes by itself 2 minutes after the
+     * last key press, except over a film; the update goes in after that, putting back what's under it.
+     */
+    interface Live
+
+    /**
      * What's on screen now, for an update deciding whether to go ahead: what to put back afterwards
      * (null: Woodruff isn't on screen, so it doesn't open again), whether that's Woodruff's player
-     * and playing, and whether the TV's screen is on at all.
+     * and playing, whether the TV's screen is on at all, and whether a [Live] screen is up ([live]:
+     * started, so on screen, not merely under the TV's screensaver).
      */
-    data class Moment(val route: Restore.Route?, val film: Film, val screenOn: Boolean)
+    data class Moment(val route: Restore.Route?, val film: Film, val screenOn: Boolean, val live: Boolean = false)
 
     /** [Moment] now. Main thread (the screens are asked what they show). */
     fun moment(c: Context): Moment {
@@ -127,7 +137,7 @@ object OnScreen : Application.ActivityLifecycleCallbacks {
             route.playing && showing.isStarted(shown) -> Film.PLAYING
             else -> Film.PAUSED
         }
-        return Moment(full, film, screenOn)
+        return Moment(full, film, screenOn, live = showing.anyStarted { it is Live })
     }
 
     private fun routeOf(a: Activity): Restore.Route? = runCatching { (a as? Restore.Restorable)?.restoreRoute() }.getOrNull()
@@ -282,6 +292,9 @@ internal class Showing(private val clock: () -> Long) {
     }
 
     fun isStarted(key: Any?): Boolean = key != null && key in started
+
+    /** Whether any started screen is one [which] picks. */
+    fun anyStarted(which: (Any) -> Boolean): Boolean = started.any(which)
 
     /** Whether a screen other than [key] (and not one [except] lets pass) is started too. */
     fun startedBesides(key: Any, except: (Any) -> Boolean = { false }): Boolean = started.any { it !== key && !except(it) }

@@ -128,6 +128,35 @@ class OnScreenTest {
         assertEquals(Restore.Slideshow(memories = false, under = App(Screen.SETTINGS)), OnScreen.moment(app).route)
     }
 
+    @Test fun theDoorbellsCameraOverAScreenIsOnScreenAndLive() {
+        val main = open<FakeMain>()
+        // A ring over Settings: the doorbell's camera covers the main window (which stops), and an update
+        // waits; what it would put back is still the screen under it.
+        val doorbell = open<FakeDoorbell>()
+        main.pause().stop()
+        val up = OnScreen.moment(app)
+        assertEquals(OnScreen.Moment(App(Screen.SETTINGS), Film.NONE, screenOn = true, live = true), up)
+        now += 60 * minute
+        assertFalse(Updater.quietNow(Presence.sinceUseMs(), up.film, busy = false, screenOn = up.screenOn, live = up.live))
+        assertFalse(Updater.mayInstallUrgently(up.film, busy = false, live = up.live))
+        // Back: the screen again, and nothing live any more.
+        main.restart()
+        doorbell.pause().stop().destroy()
+        main.resume()
+        assertEquals(OnScreen.Moment(App(Screen.SETTINGS), Film.NONE, screenOn = true, live = false), OnScreen.moment(app))
+    }
+
+    @Test fun theDoorbellsCameraOverTheTvsScreensaverIsLiveWithNothingToPutBack() {
+        // Opened from the TV's own screensaver, in a task of its own: nothing of Woodruff's under it to
+        // put back, but no update restarts it under someone looking at the door either.
+        val doorbell = open<FakeDoorbell>()
+        assertEquals(OnScreen.Moment(null, Film.NONE, screenOn = true, live = true), OnScreen.moment(app))
+        // The screen going off stops it: nobody is looking any more.
+        broadcast(Intent.ACTION_SCREEN_OFF)
+        doorbell.pause().stop()
+        assertFalse(OnScreen.moment(app).live)
+    }
+
     @Test fun aWoodruffLeftForAnotherAppDoesntOpenAgain() {
         val main = open<FakeMain>()
         main.pause().stop()
@@ -188,5 +217,5 @@ class FakeSlideshow : Activity(), Restore.Restorable {
     override fun restoreRoute(): Restore.Route = Restore.Slideshow(memories = false)
 }
 
-/** Stands in for the doorbell's camera, which can't say what it shows. */
-class FakeDoorbell : Activity()
+/** Stands in for the doorbell's camera, which can't say what it shows, and is live. */
+class FakeDoorbell : Activity(), OnScreen.Live

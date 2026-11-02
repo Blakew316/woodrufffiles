@@ -9,8 +9,8 @@ import org.junit.Test
 class QuietNowTest {
     private val minute = 60_000L
 
-    private fun quiet(sinceUse: Long, film: Film = Film.NONE, busy: Boolean = false, screenOn: Boolean = true) =
-        Updater.quietNow(sinceUse, film, busy, screenOn)
+    private fun quiet(sinceUse: Long, film: Film = Film.NONE, busy: Boolean = false, screenOn: Boolean = true, live: Boolean = false) =
+        Updater.quietNow(sinceUse, film, busy, screenOn, live)
 
     @Test fun twoMinutesWithoutAKeyAnywhereIsQuiet() {
         assertFalse(quiet(Updater.IDLE_MS - 1))
@@ -37,4 +37,12 @@ class QuietNowTest {
     }
 
     @Test fun withTheScreenOffNobodyIsWatching() = assertTrue(quiet(0, screenOn = false))
+
+    @Test fun theDoorbellsCameraUpIsNeverRestartedUnder() {
+        // Someone looking at who's at the door, however long without a key (over a film it stays up).
+        assertFalse(quiet(10 * 60 * minute, live = true))
+        assertFalse(quiet(10 * 60 * minute, Film.PAUSED, live = true))
+        // Once it's closed, the usual rules.
+        assertTrue(quiet(Updater.IDLE_MS, live = false))
+    }
 }
