@@ -88,8 +88,11 @@ fun LibraryHeader(
     more: List<MenuAction> = emptyList(),
     /** In place of the title: a switch between libraries (Streaming's Movies / TV Shows). */
     switcher: (@Composable () -> Unit)? = null,
-    /** The search field's hint ("Search your saved library" when the posters are the saved copy). */
-    hint: String = "Search $title",
+    /**
+     * The search field's hint: "Search Movies & TV Shows" (it opens Search, which looks in both libraries
+     * whichever one it's in), or "Search your saved library" when the posters are the saved copy.
+     */
+    hint: String = SEARCH_BOX,
     /** Why the posters may be out of date ("Offline", "Back online"), at the search field's end; null when they're current. */
     status: FieldStatus? = null,
     /** Where the listing limit cut this library because Drive has more (0: it's all there): said under the row. */
