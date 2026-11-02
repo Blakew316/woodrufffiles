@@ -109,7 +109,7 @@ object TvLinks {
     init {
         // A list read as "not yet" while the Keystore was still waking is read again the moment it finds its key, for
         // the screens showing it (Settings, the Announce dialog) and the doorbell's relay, not whenever something next asks.
-        SecretStore.whenKeyBack { appContext?.let { load(it) } }
+        SecretStore.whenKeyBack { c -> load(c) }
     }
 
     // ---- This TV ---------------------------------------------------------------------------

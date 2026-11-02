@@ -342,27 +342,29 @@ class SecretStore internal constructor(
         @Volatile private var instance: SecretStore? = null
         fun get(context: Context): SecretStore =
             instance ?: synchronized(this) {
-                instance ?: SecretStore(context, background = ::onItsOwnThread, onKeyBack = { onItsOwnThread(::keyBack) }).also { instance = it }
+                instance ?: context.applicationContext.let { app ->
+                    SecretStore(app, background = ::onItsOwnThread, onKeyBack = { onItsOwnThread { keyBack(app) } })
+                }.also { instance = it }
             }
 
         private fun onItsOwnThread(r: Runnable) = Thread(r, "secrets-key").apply { isDaemon = true }.start()
 
-        private val keyBackListeners = CopyOnWriteArrayList<() -> Unit>()
+        private val keyBackListeners = CopyOnWriteArrayList<(Context) -> Unit>()
 
         /**
          * Runs [action] whenever the app's store finds its key after it was missing (at most once a run, on a
          * background thread): for what was read once a run as "not yet" while the Keystore was still waking
          * ([isUnreadableNow]), such as the linked TVs and the paired phones, to read again at once.
          */
-        fun whenKeyBack(action: () -> Unit) { keyBackListeners += action }
+        fun whenKeyBack(action: (Context) -> Unit) { keyBackListeners += action }
 
         /**
          * The app's store found its key after it was missing: whatever waits to try again (on the network coming back:
          * the libraries, the calendar, the cameras, the doorbell) tries now, and what was read as "not yet" reads again.
          */
-        internal fun keyBack() {
+        internal fun keyBack(c: Context) {
             NetworkWatch.tryAgainNow()
-            keyBackListeners.forEach { action -> runCatching(action).onFailure { Log.w(TAG, "reading again with the key back failed", it) } }
+            keyBackListeners.forEach { action -> runCatching { action(c) }.onFailure { Log.w(TAG, "reading again with the key back failed", it) } }
         }
 
         /**

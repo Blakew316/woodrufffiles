@@ -49,13 +49,16 @@ class ListsAfterKeystoreWakesTest {
     private var swapped = false
     private var before: SecretStore? = null
 
-    /** A run of the app; [waking]: its store looks for the key in the background ([started]) and, once found, tells the app. */
-    private fun run(waking: Boolean = false) = SecretStore(
-        app, vault, onMainThread = { false }, clock = { now },
+    /**
+     * A run of the app; [waking]: its store looks for the key in the background ([started]) and, once found, tells the
+     * app. [mainThread]: reads that never wait, as a screen's are.
+     */
+    private fun run(waking: Boolean = false, mainThread: Boolean = false) = SecretStore(
+        app, vault, onMainThread = { mainThread }, clock = { now },
         // The Keystore finds its key at the background look's second look.
         pause = { ms -> now += ms; if (ms == SecretStore.RELOOK_MS && ++relooks >= 2) vault.missing = false },
         background = if (waking) ({ r: Runnable -> started = r }) else null,
-        onKeyBack = if (waking) SecretStore::keyBack else ({}),
+        onKeyBack = if (waking) ({ SecretStore.keyBack(app) }) else ({}),
     )
     private var relooks = 0
 
@@ -102,6 +105,29 @@ class ListsAfterKeystoreWakesTest {
         assertTrue(TvLinks.listRead)
         assertEquals(listOf("woodruff-den-topic"), Phones.items.value.map { it.topic })
         assertEquals(waiting + 1, NetworkWatch.comebacks.value)
+    }
+
+    @Test fun aScreenReadingTheListsOnTheMainThreadWhileTheKeystoreWakesDoesntKeepThemAway() {
+        run().apply {
+            put("tvs.linked", JSONArray().put(JSONObject().put("id", "den-1").put("name", "Den").put("base", "http://den.local:8080").put("key", "den-key")).toString())
+            put("phones", JSONArray().put(JSONObject().put("id", "phone-den-0001").put("name", "Den iPad").put("topic", "woodruff-den-topic")).toString())
+        }
+        vault.missing = true
+        // Settings or the Announce dialog asks first, on the main thread, which looks once and never waits.
+        before = SecretStore.swapForTest(run(mainThread = true))
+        swapped = true
+        TvLinks.forgetForTest()
+        Phones.forgetForTest()
+        TvLinks.load(app)
+        Phones.load(app)
+        assertTrue(TvLinks.linked.value.isEmpty())
+        assertTrue(Phones.items.value.isEmpty())
+        // The Keystore wakes: the next look reads both.
+        vault.missing = false
+        TvLinks.load(app)
+        Phones.load(app)
+        assertEquals(listOf("den-1"), TvLinks.linked.value.map { it.id })
+        assertEquals(listOf("phone-den-0001"), Phones.items.value.map { it.id })
     }
 
     @Test fun aListThatWasNeverSavedIsReadAtOnce() {
