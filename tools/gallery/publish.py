@@ -23,6 +23,15 @@ TITLES = {
     'drive-signin-again': 'Google Drive · sign in again', 'home-offline': 'Home · offline',
     'command-center-offline': 'Command center · offline', 'home-signin-notice': 'Home · sign-in ended notice',
     'movies-truncated': 'Movies · very large library', 'settings-accounts-ended': 'Settings › Accounts · sign-ins ended',
+    'update-offer': 'An update offered as Woodruff opens', 'update-offer-retry': 'An update offered again after a try',
+    'settings-updates': 'Settings › Updates', 'settings-updates-asks': 'Settings › Updates · a TV that asks first',
+    'settings-updated': 'Settings · the day after an update', 'player-restored': 'Player · back where you left it',
+    'restore-gone': 'After an update · the video has gone',
+    'phone-waiting': 'Phone connection · waiting for the network', 'phone-waiting-focused': 'Phone connection · waiting, Network settings focused',
+    'phone-off': 'Phone connection · couldn’t start', 'settings-start': 'Settings › TVs & phones › Start when the TV turns on',
+    'settings-popups': 'Settings › Advanced › Pop-ups over other apps',
+    'recovery': 'Recovery screen', 'recovery-ready': 'Recovery screen · fix ready',
+    'recovery-details': 'Recovery screen · what happened',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -38,8 +47,11 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
 
 ORDER = ['home', 'home-menu', 'home-notice', 'home-offline', 'home-signin-notice', 'movies', 'tv-shows', 'movies-offline', 'movies-cant-reach',
          'tv-shows-back-online', 'movies-offline-empty', 'tv-shows-trying', 'movies-keys', 'drive-signin-again', 'movies-truncated',
-         'command-center', 'command-center-offline', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings', 'settings-accounts-ended',
-         'player', 'player-menu', 'player-up-next', 'files', 'tv', 'keyboard', 'send']
+         'command-center', 'command-center-offline', 'google-drive', 'mail', 'notifications', 'notes', 'apps',
+         'phone', 'phone-waiting', 'phone-waiting-focused', 'phone-off',
+         'settings', 'settings-accounts-ended', 'settings-updated', 'settings-updates', 'settings-updates-asks', 'settings-start', 'settings-popups',
+         'update-offer', 'update-offer-retry', 'recovery', 'recovery-ready', 'recovery-details',
+         'player', 'player-menu', 'player-up-next', 'player-restored', 'restore-gone', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {

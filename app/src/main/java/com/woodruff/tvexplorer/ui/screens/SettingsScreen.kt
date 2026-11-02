@@ -248,7 +248,8 @@ fun SettingsScreen(vm: MainViewModel) {
                 opener(SettingsPage.SCREENSAVER, if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min"),
                 opener(SettingsPage.DEVICES, facts.tvName),
                 opener(SettingsPage.STORAGE, roots.firstOrNull { it.totalBytes > 0 }?.let { "${Format.bytes(it.freeBytes)} free" }),
-                opener(SettingsPage.UPDATES, updateStatus(update)),
+                // For a day after an update, "Updated today": no notice says so (update/Restore).
+                opener(SettingsPage.UPDATES, versionStatus(update, updatedLately(context, installed, short = true))),
                 opener(SettingsPage.ADVANCED, null, spaced = true),
             )
         }
@@ -366,7 +367,11 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) },
             opener(SettingsPage.PHONES, count(phones.size, "phone", "None yet")),
             opener(SettingsPage.TVS, if (linkedTvs.isEmpty()) "None linked" else "${linkedTvs.size} linked"),
-            SettingItem(Sym.PowerSettingsNew, "Start when the TV turns on", onOff(facts.autoStart), about = "Opens Woodruff Family when the TV starts. OK turns it on or off.") { AutoStart.setEnabled(context, !facts.autoStart); changed() },
+            // What TransferService runs: started at boot (BootReceiver) and brought back by Android after a kill.
+            SettingItem(
+                Sym.PowerSettingsNew, "Start when the TV turns on", onOff(facts.autoStart),
+                about = "The phone connection, doorbell alerts, mail and updates start with the TV and come back by themselves, without anyone opening Woodruff. OK turns it on or off.",
+            ) { AutoStart.setEnabled(context, !facts.autoStart); changed() },
         )
         SettingsPage.PHONES ->
             if (phones.isEmpty()) listOf(SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) })
@@ -399,12 +404,16 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone's camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
         )
         SettingsPage.UPDATES -> listOf(
-            SettingItem(Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update), about = "OK checks for an update, or installs one that's ready.") {
+            SettingItem(
+                Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", versionStatus(update, updatedLately(context, installed)), about = "OK checks for an update, or installs one that's ready.",
+                // Why this TV offers each update instead of installing it by itself (Updater.needsPress).
+                detail = if (facts.autoUpdate && Updater.asksEachTime(context)) "This TV asks before each update, so it's offered when you open Woodruff." else null,
+            ) {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
             SettingItem(Sym.Autorenew, "Install updates automatically", onOff(facts.autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !facts.autoUpdate); changed() },
-            // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
-            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
+            // One TV gets each update first; the rest only take one it has had for a day, so a bad build never reaches them all.
+            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update first. The others only take one it has had for a whole day, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
             // How this copy came to be: a fresh install (after an uninstall) is what erases every sign-in.
             SettingItem(
                 Sym.Info, "This copy", installed.summary(), spaced = true,
@@ -426,7 +435,16 @@ fun SettingsScreen(vm: MainViewModel) {
                 Sym.NotificationsActive, "Doorbell alerts", doorbellStatus ?: if (facts.doorbellWatching) "Watching" else "Off",
                 about = "Doorbell presses pop up on this TV. Set it up in the phone app.",
             ),
-            SettingItem(Sym.NotificationsActive, "Pop-ups over other apps", onOff(facts.overlay), about = "Lets alerts show while another app is open.") {
+            SettingItem(
+                Sym.NotificationsActive, "Pop-ups over other apps", onOff(facts.overlay),
+                // Android 12+ lets a background service come back after a kill only for apps allowed this (TransferService),
+                // and Android 10+ lets Woodruff open again by itself after an update (update/Restore) only for them.
+                about = when {
+                    Build.VERSION.SDK_INT >= 31 -> "Lets alerts show while another app is open, Woodruff open again where it was after an update, and the phone connection come back by itself after Android closes Woodruff to free memory."
+                    Build.VERSION.SDK_INT >= 29 -> "Lets alerts show while another app is open, and Woodruff open again where it was after an update."
+                    else -> "Lets alerts show while another app is open."
+                },
+            ) {
                 if (!facts.overlay) {
                     val r = Opener.firstThatStarts(
                         context,

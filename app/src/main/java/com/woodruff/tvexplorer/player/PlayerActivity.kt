@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit
  * position is saved so playback resumes and shows up under "Continue watching".
  */
 @OptIn(UnstableApi::class)
-class PlayerActivity : ComponentActivity() {
+class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Restore.Restorable {
     private var player: ExoPlayer? = null
     private lateinit var view: PlayerView
     private lateinit var timeBar: TvTimeBar
@@ -990,8 +990,8 @@ class PlayerActivity : ComponentActivity() {
             p.setMediaItems(items, start, startPos)
             applyShowTracks(p)
             // Back to it (from the doorbell, the screensaver): as it was, so paused stays paused. A
-            // new film plays.
-            p.playWhenReady = savedPlayWhenReady ?: true
+            // new film plays, unless it's one put back after an update (paused at its spot).
+            p.playWhenReady = savedPlayWhenReady ?: !intent.getBooleanExtra(com.woodruff.tvexplorer.update.Restore.EXTRA_PAUSED, false)
             waitingForPicture = "Start" to android.os.SystemClock.elapsedRealtime()
             p.prepare()
             view.player = p
@@ -1048,6 +1048,21 @@ class PlayerActivity : ComponentActivity() {
         heldForRate = false
         player = null
         super.onStop()
+    }
+
+    /**
+     * What's playing and where, so an update puts it back paused at this spot (update/Restore); and
+     * whether it's playing, or about to by itself (Up next counting down, the TV switching its
+     * refresh rate), which no update interrupts. Main thread.
+     */
+    override fun restoreRoute(): com.woodruff.tvexplorer.update.Restore.Route? {
+        val p = player
+        val items = p?.let { (0 until it.mediaItemCount).map { i -> it.getMediaItemAt(i) } }
+        val (keys, titles) = items?.let { l -> l.map { it.mediaId } to l.map { it.mediaMetadata.title?.toString().orEmpty() } } ?: savedQueue ?: return null
+        return com.woodruff.tvexplorer.update.Restore.film(
+            keys, titles, p?.currentMediaItemIndex ?: savedIndex ?: 0, p?.currentPosition ?: savedPosition ?: 0L,
+            playing = p != null && (p.playWhenReady || heldForRate || upNextPanel.shown),
+        )
     }
 
     /**

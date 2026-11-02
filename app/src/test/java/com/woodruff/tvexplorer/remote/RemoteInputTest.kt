@@ -6,7 +6,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
+/** Typing from the phone counts as someone using Woodruff (util/Presence), which reads Android's clock. */
+@RunWith(androidx.test.ext.junit.runners.AndroidJUnit4::class)
+@Config(sdk = [34])
 class RemoteInputTest {
     private val ids = mutableListOf<Long>()
 
@@ -37,7 +42,9 @@ class RemoteInputTest {
 
     @Test fun typingUpdatesTheSharedText() {
         val id = field("Search", "old")
+        com.woodruff.tvexplorer.notify.AppVisibility.lastInput = 0
         assertTrue(RemoteInput.type(null, "new text", submit = false))
+        assertTrue(com.woodruff.tvexplorer.notify.AppVisibility.lastInput > 0)
         assertEquals("new text", RemoteInput.target?.text)
         assertEquals(id, RemoteInput.target?.id)
     }

@@ -129,7 +129,7 @@ class TransferServer(
     private fun download(f: File): Response {
         if (!f.isFile) throw IllegalArgumentException("Not a file")
         onActivity("Sent ${f.name}")
-        return newFixedLengthResponse(Response.Status.OK, FileTypes.mimeOf(f.name), FileInputStream(f), f.length()).apply {
+        return newFixedLengthResponse(Response.Status.OK, FileTypes.mimeOf(f.name), WhileSending(FileInputStream(f)), f.length()).apply {
             addHeader("Content-Disposition", "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(f.name, "UTF-8").replace("+", "%20"))
         }
     }
@@ -189,7 +189,8 @@ class TransferServer(
  * Saves a request's body as [target]: the raw file bytes (sent by fetch/XHR, not multipart, so they stream), written
  * aside and renamed into place, so the file is never seen half-written and a failed upload leaves nothing behind.
  */
-internal fun receiveFile(s: IHTTPSession, target: File) {
+internal fun receiveFile(s: IHTTPSession, target: File) = com.woodruff.tvexplorer.util.Presence.busy {
+    // A file coming from the phone: an update waits for it (cut short, it would leave a part-file behind).
     val length = s.headers["content-length"]?.toLongOrNull() ?: throw IllegalArgumentException("Missing Content-Length")
     val partial = File(target.parentFile, ".${target.name}.part")
     try {
@@ -209,5 +210,18 @@ internal fun receiveFile(s: IHTTPSession, target: File) {
     } catch (e: IOException) {
         partial.delete()
         throw e
+    }
+}
+
+/**
+ * A file on its way to the phone: counts as a job an update waits for ([com.woodruff.tvexplorer.util.Presence])
+ * from when it's opened until the server closes it, sent or not (NanoHTTPD closes every response).
+ */
+internal class WhileSending(stream: java.io.InputStream) : java.io.FilterInputStream(stream) {
+    private val job = com.woodruff.tvexplorer.util.Presence.begin()
+
+    override fun close() {
+        com.woodruff.tvexplorer.util.Presence.end(job)
+        super.close()
     }
 }

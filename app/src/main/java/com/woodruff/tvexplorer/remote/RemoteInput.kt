@@ -45,6 +45,8 @@ object RemoteInput {
     /** Returns false when no text box is open on the TV. */
     fun type(id: Long?, text: String, submit: Boolean): Boolean {
         val f = (if (id != null) stack.value.firstOrNull { it.id == id } else null) ?: target ?: return false
+        // Typing into the TV from the phone is someone using Woodruff.
+        com.woodruff.tvexplorer.util.Presence.pressed()
         updateText(f.id, text)
         return typed.tryEmit(Typed(f.id, text, submit))
     }

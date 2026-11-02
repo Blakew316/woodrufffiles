@@ -12,15 +12,24 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.woodruff.tvexplorer.util.CrashLog.install(this)
+        // After this version closed while starting, every start looks for a fix at once (EarlyCrashes).
+        com.woodruff.tvexplorer.update.Updater.atStart(this)
+        // Every Woodruff screen from its first one: key presses anywhere count as use, and what's up
+        // can be put back after an update (OnScreen).
+        com.woodruff.tvexplorer.update.OnScreen.install(this)
         // Read in the background, before any screen asks (a screen's first read otherwise waits on
         // the disk or the Keystore on the main thread, in the middle of drawing).
         Thread({
             // Asking for a settings file starts reading it in, on a thread of its own.
             SETTINGS_FILES.forEach { runCatching { getSharedPreferences(it, Context.MODE_PRIVATE) } }
+            val secrets = runCatching { com.woodruff.tvexplorer.settings.SecretStore.get(this) }.getOrNull()
+            // What the first screen reads on the main thread as it's drawn (whether Drive and the
+            // cameras are signed in), decrypted first, so those reads find them ready.
+            FIRST_SCREEN_SECRETS.forEach { name -> runCatching { secrets?.get(name) } }
             // Which show each played episode belongs to: Home's Continue watching reads it at once.
             runCatching { com.woodruff.tvexplorer.cloud.EpisodeShows.load(this) }
-            // The saved keys and tokens, decrypted.
-            runCatching { com.woodruff.tvexplorer.settings.SecretStore.get(this).warmAll() }
+            // The rest of the saved keys and tokens, decrypted.
+            runCatching { secrets?.warmAll() }
             // The posters' ✓s: the first question about any title reads them all in.
             runCatching { com.woodruff.tvexplorer.player.Watched.isWatched(this, "") }
         }, "startup-warmup").apply { priority = Thread.NORM_PRIORITY + 1 }.start()
@@ -55,9 +64,18 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
     private companion object {
         /** Every settings file the app keeps (the names it passes to getSharedPreferences). */
         val SETTINGS_FILES = listOf(
-            "settings", "appearance", "notices", "secrets", "recent", "episode_shows", "watched", "player_shows",
-            "player", "updates", "weather", "chime", "board", "doorbell", "family_sync", "mail_poll", "startup",
-            "google_oauth",
+            "settings", "appearance", "notices", "secrets", "secrets_meta", "recent", "episode_shows", "watched",
+            "player_shows", "player", "updates", "weather", "chime", "board", "doorbell", "family_sync", "mail_poll",
+            "startup", "google_oauth",
+        )
+
+        /**
+         * The secrets the first screen reads on the main thread: Drive's sign-in check as the app's
+         * screens are set up, and the Home dashboard's camera panel.
+         */
+        val FIRST_SCREEN_SECRETS = listOf(
+            GoogleAuth.Grant.DRIVE.refreshKey, GoogleAuth.K_CLIENT_ID, GoogleAuth.K_CLIENT_SECRET,
+            GoogleAuth.K_NEST_PROJECT, GoogleAuth.Grant.NEST.refreshKey,
         )
     }
 }

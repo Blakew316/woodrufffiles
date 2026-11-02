@@ -241,7 +241,7 @@ class SlideshowDream : DreamService() {
 }
 
 /** In-app slideshow: started from Settings or after the idle timeout. Any button closes it. */
-class SlideshowActivity : Activity() {
+class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Restorable {
     private lateinit var view: SlideshowView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -256,11 +256,17 @@ class SlideshowActivity : Activity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean { finish(); return true }
 
+    /** After an update, the slideshow runs again (update/Restore). */
+    override fun restoreRoute(): com.woodruff.tvexplorer.update.Restore.Route =
+        com.woodruff.tvexplorer.update.Restore.Slideshow(memories = view.memoriesOnly)
+
     companion object {
         private const val EXTRA_MEMORIES = "memories"
-        fun start(context: Context, memories: Boolean = false) = context.startActivity(
-            Intent(context, SlideshowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(EXTRA_MEMORIES, memories),
-        )
+        fun start(context: Context, memories: Boolean = false) = context.startActivity(intent(context, memories))
+
+        /** [memories]: only today's "On this day" photos. */
+        fun intent(context: Context, memories: Boolean = false): Intent =
+            Intent(context, SlideshowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(EXTRA_MEMORIES, memories)
     }
 }
 

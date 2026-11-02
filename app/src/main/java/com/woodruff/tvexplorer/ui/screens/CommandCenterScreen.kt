@@ -37,6 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -130,6 +131,9 @@ internal var openCameraAt: Int? = null
 /** Show this camera full screen while the Command center is already open (a doorbell ring). */
 internal val cameraRequests = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 1)
 
+/** The camera full screen now (its name, and its place in the list), for an update to put back; null when none is. Main thread. */
+internal var fullCamera: Pair<String, Int>? = null
+
 /**
  * Command center: live Google Home / Nest cameras, either on their own or next to the latest
  * notifications ("all on one"). Select a camera for full screen; Left/Right flips
@@ -171,7 +175,9 @@ fun CommandCenterScreen(vm: MainViewModel) {
     // only to stop again.
     val glide = remember { FullScreenGlide(shown = isFull, gridUnder = fullIndex == null) }
     LaunchedEffect(isFull) { if (isFull) glide.open() else glide.close() }
-    DisposableEffect(Unit) { onDispose { cameraFullScreen.value = false } }
+    DisposableEffect(Unit) { onDispose { cameraFullScreen.value = false; fullCamera = null } }
+    // What an update puts back (update/Restore): the same camera full screen.
+    SideEffect { fullCamera = if (isFull) fullIndex?.let { i -> cams.getOrNull(i)?.let { it.name to i } } else null }
 
     Box(Modifier.fillMaxSize()) {
         // The grid, also under a camera opening from it (or closing back to it) until that covers it.

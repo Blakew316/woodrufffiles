@@ -5,6 +5,7 @@ import android.view.Choreographer
 import android.view.KeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import com.woodruff.tvexplorer.util.Presence
 
 /**
  * Holding an arrow: Android repeats it about 20 times a second. A repeat is let through only once the
@@ -54,7 +55,16 @@ object DpadGate {
     }
 }
 
-private val dropRepeat: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { DpadGate.shouldDrop(it.nativeKeyEvent) }
+private val dropRepeat: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = {
+    // A dialog window's keys reach no activity: this is where they count as someone using Woodruff
+    // (an update waits, the in-app slideshow waits), as an activity's keys do through its window.
+    Presence.pressed()
+    DpadGate.shouldDrop(it.nativeKeyEvent)
+}
 
-/** The same for a dialog window, whose keys never pass through the activity's dispatchKeyEvent. */
+/**
+ * The same for a dialog window, whose keys never pass through the activity's dispatchKeyEvent. Every
+ * Dialog root has it (title pages, menus, filters, search, every DialogFrame): it's also where their
+ * key presses count as use ([Presence]).
+ */
 fun Modifier.dpadGate(): Modifier = onPreviewKeyEvent(dropRepeat)

@@ -48,7 +48,7 @@ import java.io.File
  * One photo cross-fades into the next. Opened again while it's up (a phone showing another photo from Family
  * Memories), it changes the photo it shows instead of another viewer opening over it.
  */
-class ImageViewerActivity : ComponentActivity() {
+class ImageViewerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Restore.Restorable {
     override fun onStart() { super.onStart(); com.woodruff.tvexplorer.remote.TvScreen.attach(this) }
     override fun onStop() { com.woodruff.tvexplorer.remote.TvScreen.detach(this); super.onStop() }
 
@@ -57,6 +57,12 @@ class ImageViewerActivity : ComponentActivity() {
     private var titles by mutableStateOf<List<String>>(emptyList())
     private var index by mutableIntStateOf(0)
     private var rotation by mutableFloatStateOf(0f)
+    /** Its slideshow: 0 = off, otherwise a run token (OK starts and stops it). */
+    private var slideshow by mutableIntStateOf(0)
+
+    /** The photo on screen among the rest, and whether its slideshow runs: an update puts it back (update/Restore). */
+    override fun restoreRoute(): com.woodruff.tvexplorer.update.Restore.Route? =
+        com.woodruff.tvexplorer.update.Restore.photo(paths, titles, index, slideshow != 0)
 
     /** Takes what [intent] asks to show; false when it names no photo. */
     private fun take(intent: Intent): Boolean {
@@ -78,11 +84,12 @@ class ImageViewerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!take(intent)) { finish(); return }
+        // Put back after an update with its slideshow running: it carries on.
+        if (intent.getBooleanExtra(com.woodruff.tvexplorer.update.Restore.EXTRA_SLIDESHOW, false)) slideshow = (1..Int.MAX_VALUE).random()
         // The app's motion plays at its own speed, even on a TV with Android's animations turned off.
         window.decorView.useAppMotion(lifecycle)
 
         setContent {
-            var slideshow by remember { mutableIntStateOf(0) } // 0 = off, otherwise a run token
             val focus = remember { FocusRequester() }
             val context = LocalContext.current
             val needsDrive = remember(paths) { paths.any { MediaRef.parse(it).needsDriveAuth } }
