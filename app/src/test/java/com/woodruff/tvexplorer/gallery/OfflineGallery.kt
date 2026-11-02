@@ -248,6 +248,11 @@ class OfflineGallery {
         compose.setContent {
             TvExplorerTheme { Box(Modifier.fillMaxSize().background(Palette.background)) { AppRoot(vm) } }
         }
+        // Woodruff starts on Home, as on a TV, and settles there first: AppRoot's start-up check (the
+        // side menu takes the focus if the screen hasn't within 400 ms) must not run during the trip
+        // through Settings below, or the first shot shows the side menu open over Home.
+        compose.mainClock.advanceTimeBy(1_500)
+        settle()
         for (light in listOf(false, true)) {
             // The samples aren't state: Home is opened afresh to read them.
             compose.runOnIdle { Palette.light = light; seedNotices(); seedOffline(); vm.show(Screen.SETTINGS) }
