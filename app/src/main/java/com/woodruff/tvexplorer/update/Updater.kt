@@ -394,7 +394,7 @@ object Updater {
     internal fun resetForTest() {
         _state.value = State(); _offer.value = null
         session = -1; letGoSessions.clear(); failures = 0; retryAt = 0
-        urgentClaim.set(0); lastAttempt = 0
+        urgentClaim.set(0); lastAttempt = 0; lastList = null
         listReleases = { emptyList() }
         fetchFile = { _, _, _, _ -> throw IOException("no downloads in tests") }
     }
@@ -979,18 +979,34 @@ object Updater {
         return true
     }
 
+    /**
+     * The list last read in full and the tag GitHub gave it ("ETag"). Asked again with that tag, an
+     * unchanged list comes back as "not modified" with nothing else: a few hundred bytes instead of
+     * the whole page (about 360 KB), which matters for a TV checking every few minutes after an early
+     * close, all night if nobody opens Woodruff. Kept for this run only.
+     */
+    @Volatile private var lastList: Pair<String, List<Release>>? = null
+
     /** The newest releases, read straight off the connection (only the parts updating needs are kept). */
-    private fun fetchReleases(): List<Release> {
-        val conn = (URL(RELEASES).openConnection() as HttpURLConnection).apply {
+    private fun fetchReleases(): List<Release> = fetchReleasesFrom(RELEASES)
+
+    /** [fetchReleases] from [address]. Visible for tests (a server of their own on this machine). */
+    internal fun fetchReleasesFrom(address: String): List<Release> {
+        val known = lastList
+        val conn = (URL(address).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000; readTimeout = 20_000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "WoodruffFamily/${BuildConfig.VERSION_NAME}")
+            known?.let { setRequestProperty("If-None-Match", it.first) }
         }
         try {
             val code = conn.responseCode
+            if (code == HttpURLConnection.HTTP_NOT_MODIFIED && known != null) return known.second
             if (code == 403 || code == 429) throw UpdateProblem("The update server is busy · trying again soon")
             if (code !in 200..299) throw UpdateProblem("Couldn’t check · trying again soon")
-            return conn.inputStream.bufferedReader().use { parseReleases(it) }
+            val list = conn.inputStream.bufferedReader().use { parseReleases(it) }
+            lastList = conn.getHeaderField("ETag")?.takeIf { it.isNotBlank() }?.let { it to list }
+            return list
         } finally {
             conn.disconnect()
         }
