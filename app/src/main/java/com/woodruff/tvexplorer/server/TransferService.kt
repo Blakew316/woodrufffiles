@@ -131,7 +131,7 @@ class TransferService : Service() {
 
     /**
      * Shows the ongoing notification as the service enters the foreground. False when Android refuses:
-     * on Android 12 and later a restart from the background needs an exemption (see the class).
+     * on Android 12 and later a restart from the background may need an exemption (see the class).
      */
     private fun enterForeground(): Boolean = try {
         foreground(this, NOTIFICATION_ID, notification(look(_state.value)), foregroundType())
