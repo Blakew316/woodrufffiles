@@ -30,8 +30,6 @@ object Phones {
     private const val KEY = "phones"
     private const val NTFY = "https://ntfy.sh/"
     private val ID = Regex("[A-Za-z0-9-]{8,64}")
-    private val _items = MutableStateFlow<List<Phone>>(emptyList())
-    val items: StateFlow<List<Phone>> = _items
 
     init {
         // A list read as "not yet" while the Keystore was still waking is read again the moment it finds its key, for
@@ -39,6 +37,8 @@ object Phones {
         SecretStore.whenKeyBack { c -> load(c) }
     }
 
+    private val _items = MutableStateFlow<List<Phone>>(emptyList())
+    val items: StateFlow<List<Phone>> = _items
     @Volatile private var loaded = false
 
     /** What a phone checking in (or a change asked for) hears while this run can't read the saved list yet ([load]). */
