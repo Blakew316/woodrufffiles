@@ -126,8 +126,10 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
         // An update that needs a press is offered now, as Woodruff comes on screen, unless it was
-        // opened for something in particular (a notification, the doorbell): that comes first.
-        com.woodruff.tvexplorer.update.Updater.maybeAuto(this, opening = true, offer = hasAccess && !openedFor)
+        // opened for something in particular (a notification, the doorbell): that comes first. Nor
+        // when this is someone coming back from a film, a photo or the doorbell: still using it.
+        val offer = hasAccess && !openedFor && !com.woodruff.tvexplorer.update.OnScreen.backFromInside(this)
+        com.woodruff.tvexplorer.update.Updater.maybeAuto(this, opening = true, offer = offer)
         openedFor = false
     }
 

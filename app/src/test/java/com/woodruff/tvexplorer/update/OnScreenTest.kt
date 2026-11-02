@@ -150,6 +150,19 @@ class OnScreenTest {
         assertNull(OnScreen.moment(app).route)
     }
 
+    @Test fun comingBackFromAFilmIsStillUsingWoodruffNotOpeningIt() {
+        val main = open<FakeMain>()
+        // Opened: nothing of Woodruff's was up before it (an update may be offered).
+        assertFalse(OnScreen.backFromInside(main.get()))
+        val player = open<FakePlayer>()
+        main.pause().stop()
+        // Back at the end of the film: the main window starts again while the player is still up.
+        main.restart()
+        assertTrue(OnScreen.backFromInside(main.get()))
+        player.pause().stop().destroy()
+        main.resume()
+    }
+
     @Test fun someonePressingInstallComesBackToTheirScreen() {
         open<FakeMain>()
         assertEquals(App(Screen.SETTINGS), OnScreen.routeNow(app))
