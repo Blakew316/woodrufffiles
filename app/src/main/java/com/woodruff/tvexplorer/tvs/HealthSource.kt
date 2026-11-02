@@ -51,6 +51,8 @@ object Health {
         synchronized(this) { if (started) return; started = true }
         val app = c.applicationContext
         SignIns.init(app)
+        // The phones are told when Google ends one of this TV's sign-ins (and, on the hub, a linked TV's).
+        SignInAlerts.init(app)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             Updater.state.collect { s -> if (s.step == Updater.Step.READY && s.latest != null) noteReady(app, s.latest) }
         }
@@ -73,6 +75,9 @@ object Health {
         prefs(c).edit().putLong(K_CRASH_CLEARED, System.currentTimeMillis()).apply()
         kept = null
     }
+
+    /** Something the report says just changed (a sign-in made from the phone): the next ask makes a fresh one. */
+    fun forget() { kept = null }
 
     /**
      * This TV's report, at most 10 s old ([fresh]: made now). [probe]: someone is looking at the

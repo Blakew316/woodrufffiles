@@ -80,17 +80,26 @@ object Phones {
     /**
      * Sends to the given phones (all when [ids] is null). Returns how many phones it was sent to;
      * ntfy delivery happens in the background and failures are only logged.
+     *
+     * [id]: the message's own id, so a phone shows it once however often it arrives. [link]: an address in the
+     * phone app ("#settings/tvs/this"), opened when the banner is tapped; it never goes to ntfy (a pushed address
+     * would carry the pairing key). [pushTitle] and [pushBody]: different words for the Lock Screen, where the
+     * banner's "Tap to…" can't be done.
      */
-    fun announce(c: Context, ids: Collection<String>?, title: String, body: String, from: String?): Int {
+    fun announce(
+        c: Context, ids: Collection<String>?, title: String, body: String, from: String?,
+        id: String? = null, link: String? = null, pushTitle: String = title, pushBody: String = body,
+    ): Int {
         load(c)
         val targets = _items.value.filter { ids == null || it.id in ids }
         val msg = JSONObject().put("title", title).put("body", body).put("from", from ?: "TV").put("at", System.currentTimeMillis())
+            .apply { id?.let { put("id", it) }; link?.let { put("link", it) } }
         targets.forEach { p ->
             val box = inbox.getOrPut(p.id) { mutableListOf() }
             synchronized(box) { box.add(msg); while (box.size > 20) box.removeAt(0) }
         }
         val pushTo = targets.mapNotNull { it.topic }
-        if (pushTo.isNotEmpty()) thread(name = "ntfy") { pushTo.forEach { push(it, title, body) } }
+        if (pushTo.isNotEmpty()) thread(name = "ntfy") { pushTo.forEach { push(it, pushTitle, pushBody) } }
         return targets.size
     }
 

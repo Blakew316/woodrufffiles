@@ -302,8 +302,14 @@ data class HealthReport(
     /** The about sentence: "Google Drive’s sign-in ended, and the last update didn’t install." or "Everything’s working." */
     val sentence: String get() = sentenceOf(attention)
 
-    /** What /api/status and /api/tvs carry: good or attention, how many, and the first, capitalised. */
-    val summary: HealthSummary get() = HealthSummary(if (good) "good" else "attention", attention.size, attention.firstOrNull()?.words?.let(::capitalised))
+    /**
+     * What /api/status and /api/tvs carry: good or attention, how many, the first, capitalised, and which sign-ins
+     * Google ended and when (the hub tells its phones about those once each: [SignInAlerts]).
+     */
+    val summary: HealthSummary get() = HealthSummary(
+        if (good) "good" else "attention", attention.size, attention.firstOrNull()?.words?.let(::capitalised),
+        signIns.entries.mapNotNull { (g, s) -> s.since?.takeIf { s.state == SignInState.EXPIRED }?.let { g.json to it } }.toMap(),
+    )
 
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("at", at).put("android", android).put("version", version)
@@ -380,17 +386,22 @@ data class HealthReport(
     }
 }
 
-/** A report in a few words, for lists: [status] "good" or "attention", how many things, and the first. */
-data class HealthSummary(val status: String, val count: Int, val first: String?) {
+/**
+ * A report in a few words, for lists: [status] "good" or "attention", how many things, and the first. [ended]: the
+ * sign-ins Google ended (by [HealthGrant.json]) and since when, by that TV's clock (a Woodruff from before sends none).
+ */
+data class HealthSummary(val status: String, val count: Int, val first: String?, val ended: Map<String, Long> = emptyMap()) {
     val attention: Boolean get() = status == "attention"
 
     fun toJson(): JSONObject = JSONObject().put("status", status).put("count", count).put("first", first ?: JSONObject.NULL)
+        .apply { if (ended.isNotEmpty()) put("ended", JSONObject().apply { ended.forEach { (g, at) -> put(g, at) } }) }
 
     companion object {
         fun fromJson(o: JSONObject?): HealthSummary? {
             o ?: return null
             val status = o.optString("status").ifEmpty { return null }
-            return HealthSummary(status, o.optInt("count"), o.optString("first").takeIf { it.isNotEmpty() && it != "null" })
+            val ended = o.optJSONObject("ended")?.let { e -> e.keys().asSequence().mapNotNull { g -> e.optLong(g).takeIf { it > 0 }?.let { g to it } }.toMap() }
+            return HealthSummary(status, o.optInt("count"), o.optString("first").takeIf { it.isNotEmpty() && it != "null" }, ended.orEmpty())
         }
     }
 }

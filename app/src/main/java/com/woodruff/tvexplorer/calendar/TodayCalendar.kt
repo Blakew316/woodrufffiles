@@ -175,6 +175,18 @@ object TodayCalendar {
 
     fun cancelSignIn() { signInJob?.cancel(); _state.update { it.copy(qrUrl = null) } }
 
+    /**
+     * Connected from the phone app ([com.woodruff.tvexplorer.server.PhoneSignIn] already swapped Google's code for
+     * tokens): today's events load, and keep refreshing, with no screen open. Any thread.
+     */
+    fun signedIn() {
+        scope.launch {
+            signInJob?.cancel()
+            _state.update { it.copy(connected = true, qrUrl = null, error = null) }
+            startLoop()
+        }
+    }
+
     fun signOut(done: () -> Unit = {}) {
         scope.launch {
             loopJob?.cancel()

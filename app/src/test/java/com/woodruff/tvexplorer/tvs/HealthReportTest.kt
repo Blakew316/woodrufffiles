@@ -77,7 +77,8 @@ class HealthReportTest {
         assertEquals("signin", r.attention[0].fix)
         assertEquals("drive", r.attention[0].grant)
         assertEquals("Google Drive’s sign-in ended, and the cameras’ sign-in ended.", r.sentence)
-        assertEquals(HealthSummary("attention", 2, "Google Drive’s sign-in ended"), r.summary)
+        // The summary names what ended and since when (the hub tells its phones once per ending).
+        assertEquals(HealthSummary("attention", 2, "Google Drive’s sign-in ended", mapOf("drive" to at(2026, 11, 1, 21, 0))), r.summary)
     }
 
     @Test fun keysGoogleTurnsDownAreOneItemWhateverHowManySignInsSayIt() {
