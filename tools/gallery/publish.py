@@ -13,7 +13,7 @@ TITLES = {
     'home': 'Home', 'home-menu': 'Home · menu open', 'home-notice': 'Home · a notice', 'movies': 'Movies (sample posters)', 'tv-shows': 'TV Shows (sample posters)', 'command-center': 'Command center', 'google-drive': 'Google Drive', 'mail': 'Mail',
     'notifications': 'Notifications', 'notes': 'Notes', 'apps': 'Apps', 'phone': 'Phone connection',
     'settings': 'Settings', 'files': 'Send › Photos & Files', 'tv': 'TV', 'remote': 'Remote', 'keyboard': 'Keyboard', 'send': 'Send',
-    'files-actions': 'File actions', 'memories': 'Family Memories', 'memories-photo': 'Family Memories › a photo',
+    'files-scrolled': 'Send › Photos & Files · scrolled', 'files-actions': 'File actions', 'memories': 'Family Memories', 'memories-photo': 'Family Memories › a photo',
     'settings-drive': 'Settings › Connections › Google Drive',
     'tv-screen': 'Settings › TVs › TV Screen', 'settings-tvs': 'Settings › TVs', 'send-to': 'Send › To',
     'player': 'Player', 'player-menu': 'Player › Subtitles menu', 'player-up-next': 'Player › Up next',
@@ -105,7 +105,7 @@ ORDER = ['home', 'home-menu', 'home-notice', 'home-person-notice', 'home-cameras
 PHONE_ORDER = ['remote', 'keyboard',
                'watch', 'watch-scrolled', 'watch-title-movie', 'watch-title-show', 'watch-play-on', 'watch-context', 'watch-movies',
                'watch-search', 'watch-now-playing', 'watch-offline', 'watch-signin', 'watch-loading',
-               'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs',
+               'send', 'send-to', 'files', 'files-scrolled', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs',
                'settings-tv', 'settings-tv-attention', 'settings-tv-attention-sheet', 'settings-tv-off', 'settings-tv-link', 'settings-tv-relink',
                'tv-screen', 'settings-drive', 'signin', 'signin-waiting', 'signin-done', 'signin-banner', 'signin-linked']
 # Phone polish (L4-5): each new shot after the one it belongs with.
