@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.media3.ui.PlayerView
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -32,7 +33,16 @@ class PlayerComesBackTest {
     /** The player opened on a film (a stand-in file: nothing plays on the JVM, the queue is what counts). */
     private fun open(): ActivityController<PlayerActivity> {
         val film = File(app.cacheDir, "Midnight Harbor (2024).mp4").apply { writeBytes(ByteArray(64)) }
-        return Robolectric.buildActivity(PlayerActivity::class.java, PlayerActivity.intent(app, listOf(film.path), listOf("Midnight Harbor (2024)"), film.path)).setup()
+        return Robolectric.buildActivity(PlayerActivity::class.java, PlayerActivity.intent(app, listOf(film.path), listOf("Midnight Harbor (2024)"), film.path)).setup().also { opened += it }
+    }
+
+    /** Every player a test opened, closed at its end: one left up would count as Woodruff on screen for every later test. */
+    private val opened = mutableListOf<ActivityController<PlayerActivity>>()
+
+    @After fun closeEveryPlayer() {
+        opened.forEach { if (!it.get().isDestroyed) it.close() }
+        opened.clear()
+        shadowOf(Looper.getMainLooper()).idle()
     }
 
     private fun playerView(c: ActivityController<PlayerActivity>): PlayerView {
@@ -73,7 +83,7 @@ class PlayerComesBackTest {
     fun madeAgainAfterAndroidClosedWoodruffItIsAtTheSameSpotNotTheStartItOpenedWith() {
         // "Start over" opened it at 0:00; 42 s in, the TV's Home, and Android closes Woodruff.
         val film = File(File(app.cacheDir, "start-over").apply { mkdirs() }, "Midnight Harbor (2024).mp4").apply { writeBytes(ByteArray(64)) }
-        val c = Robolectric.buildActivity(PlayerActivity::class.java, PlayerActivity.intent(app, listOf(film.path), listOf("Midnight Harbor (2024)"), film.path, positionMs = 0L)).setup()
+        val c = Robolectric.buildActivity(PlayerActivity::class.java, PlayerActivity.intent(app, listOf(film.path), listOf("Midnight Harbor (2024)"), film.path, positionMs = 0L)).setup().also { opened += it }
         idle()
         playerView(c).player!!.seekTo(42_000)
         c.userLeaving()
@@ -85,7 +95,7 @@ class PlayerComesBackTest {
         assertEquals(listOf(film.path), kept.keys)
         assertEquals(42_000L, kept.positionMs)
         // Made again from what Android kept: the same film at 0:42, paused, not 0:00.
-        val again = Robolectric.buildActivity(PlayerActivity::class.java, c.intent).setup(saved)
+        val again = Robolectric.buildActivity(PlayerActivity::class.java, c.intent).setup(saved).also { opened += it }
         val player = playerView(again).player!!
         assertEquals(film.path, player.currentMediaItem?.mediaId)
         assertEquals(42_000L, player.currentPosition)
@@ -102,7 +112,7 @@ class PlayerComesBackTest {
         c.saveInstanceState(saved)
         c.destroy()
         // Made again from what Android kept, as after Woodruff was closed to free memory.
-        val again = Robolectric.buildActivity(PlayerActivity::class.java, c.intent).setup(saved)
+        val again = Robolectric.buildActivity(PlayerActivity::class.java, c.intent).setup(saved).also { opened += it }
         idle()
         assertFalse(playerView(again).player!!.playWhenReady)
     }

@@ -49,6 +49,7 @@ class PendingPlayTest {
     @Before fun anotherAppInFront() {
         clean()
         ShadowSettings.setCanDrawOverlays(false)
+        assertFalse("a test before this one left one of Woodruff's screens up (started, never stopped)", TvScreen.onScreen)
     }
 
     @After fun clean() {
