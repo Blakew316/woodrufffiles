@@ -43,6 +43,19 @@ class SubtitleTracksTest {
         )
     }
 
+    @Test fun foreignSpeechGetsFullEnglishSubtitlesBeforeSdhAndSignsOnly() {
+        // "Heat.en.forced.srt", "Heat.en.sdh.srt" and "Heat.en.srt" beside a film in French: as a
+        // folder sorts them, the plain English comes last, and it's the one to show.
+        val beside = listOf(SubtitleTrack("fr"), SubtitleTrack("en", forced = true), SubtitleTrack("en", sdh = true), SubtitleTrack("en"))
+        assertEquals(3, SubtitleTracks.englishForForeignSpeech(beside))
+        // Only SDH and signs-only: SDH, which has all the dialogue.
+        assertEquals(1, SubtitleTracks.englishForForeignSpeech(listOf(SubtitleTrack("en", forced = true), SubtitleTrack("eng", sdh = true))))
+        // Only signs-only: better than nothing.
+        assertEquals(0, SubtitleTracks.englishForForeignSpeech(listOf(SubtitleTrack("en-GB", forced = true))))
+        // No English at all, or none that says so.
+        assertEquals(null, SubtitleTracks.englishForForeignSpeech(listOf(SubtitleTrack("fr"), SubtitleTrack(null), SubtitleTrack("und"))))
+    }
+
     @Test fun rowsThatWouldReadTheSameAreNumberedInOrder() {
         // The film's own English, then two subtitle files beside it that say English too.
         val labels = SubtitleTracks.labels(listOf(SubtitleTrack("en"), SubtitleTrack("en"), SubtitleTrack("es"), SubtitleTrack("en"), SubtitleTrack(null), SubtitleTrack("und")), en)

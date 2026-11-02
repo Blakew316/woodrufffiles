@@ -112,6 +112,19 @@ internal object SubtitleTracks {
             sizeRow
     }
 
+    /**
+     * Which of [tracks] comes on by itself for speech that isn't English: an English one, full
+     * dialogue before SDH (the sounds described too, as "Heat.en.sdh.srt" files often sit beside a
+     * plain "Heat.en.srt", and sort first), and either before signs-only ("forced") ones. Null when
+     * there's no English track.
+     */
+    fun englishForForeignSpeech(tracks: List<SubtitleTrack>): Int? {
+        val english = tracks.indices.filter { ShowPrefs.isEnglish(tracks[it].language) }
+        return english.firstOrNull { !tracks[it].forced && !tracks[it].sdh }
+            ?: english.firstOrNull { !tracks[it].forced }
+            ?: english.firstOrNull()
+    }
+
     /** The Subtitle size menu: Small, Standard, Large, the current one ticked. */
     fun sizeRows(current: SubtitleSize, choose: (SubtitleSize) -> Unit): List<TvMenu.Row> =
         SubtitleSize.entries.map { s -> TvMenu.Row(s.label, checked = s == current) { choose(s) } }

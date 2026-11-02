@@ -901,11 +901,12 @@ class PlayerActivity : ComponentActivity() {
             }
             return
         }
-        // English subtitles in the file: full ones before "forced" (signs-only) ones.
-        val choices = tracks.groups.filter { it.type == text }.flatMap { g -> (0 until g.length).map { g to it } }
-            .filter { (g, i) -> g.isTrackSupported(i) && ShowPrefs.isEnglish(g.getTrackFormat(i).language) }
-        val (group, index) = choices.firstOrNull { (g, i) -> g.getTrackFormat(i).selectionFlags and androidx.media3.common.C.SELECTION_FLAG_FORCED == 0 }
-            ?: choices.firstOrNull() ?: return
+        // English subtitles in the file (or beside it): full ones before SDH, and both before "forced"
+        // (signs-only) ones.
+        val choices = SubtitleTracks.of(tracks)
+        val pick = SubtitleTracks.englishForForeignSpeech(choices.map { it.track })?.let(choices::get) ?: return
+        val group = pick.group
+        val index = pick.index
         if (group.isTrackSelected(index)) return
         autoSubsOn = true
         setOwnParams(
