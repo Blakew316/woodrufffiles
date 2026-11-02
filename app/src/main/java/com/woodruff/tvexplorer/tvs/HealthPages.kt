@@ -163,7 +163,11 @@ fun reportRows(v: TvHealthView, clock: HealthClock, checking: Boolean = false, a
         rows += HealthRow("doorbell", RowIcon.DOORBELL, "Doorbell alerts", r.doorbell.text, on(r.doorbell.failing), r.doorbell.detail)
         // Updates.
         val waiting = r.updates.attention
-        val updatesAbout = listOfNotNull(UPDATES_ABOUT.takeIf { r.updates.auto }, waitingDetail(v.name).takeIf { waiting }).joinToString(" ").ifEmpty { null }
+        // Updates install by themselves, unless this TV asks before each one (then each is offered).
+        val updatesAbout = listOfNotNull(
+            (if (r.updates.asks) asksDetail(v.name, v.isThis) else UPDATES_ABOUT).takeIf { r.updates.auto },
+            waitingDetail(v.name).takeIf { waiting },
+        ).joinToString(" ").ifEmpty { null }
         rows += HealthRow(
             "version", RowIcon.UPDATE, "Version ${r.version}", r.updates.text, on(waiting), updatesAbout,
             detail = listOfNotNull(r.installed.summary.ifEmpty { null }, r.updates.reason).joinToString("\n").ifEmpty { null },

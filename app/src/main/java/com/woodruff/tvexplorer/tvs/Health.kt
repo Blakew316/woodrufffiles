@@ -129,8 +129,10 @@ fun doorbellFact(subscribed: Boolean, status: String?, networkUp: Boolean): Door
 private val NETWORK_WORDS = listOf("reach google", "resolve host", "timeout", "timed out", "failed to connect", "connection", "network", "ssl", "unreachable", "no route")
 
 /**
- * An update's failure in the family's words. Updater's own messages are already plain; a raw one
- * from the package installer or the network (a code, an exception) is put into words here.
+ * An update's failure in the family's words, as a sentence. Updater's own messages are already
+ * plain, written to follow "last try:" in Settings ("the TV is out of space"), so they only gain a
+ * capital and a full stop; a raw one from the package installer or the network (a code, an
+ * exception) is put into words here.
  */
 fun plainUpdateReason(message: String?): String? {
     val m = message?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -145,7 +147,7 @@ fun plainUpdateReason(message: String?): String? {
         "github answered" in low || "http" in low -> "GitHub didn’t answer. It tries again by itself."
         NETWORK_WORDS.any { it in low } -> "The TV couldn’t reach GitHub. It tries again by itself."
         "exception" in low || "java." in low -> "The package installer said no."
-        else -> if (m.endsWith('.')) m else "$m."
+        else -> capitalised(if (m.endsWith('.')) m else "$m.")
     }
 }
 
@@ -219,6 +221,14 @@ data class UpdateFact(
     val readySince: Long? = null,
     val auto: Boolean = true,
     val testTv: Boolean = false,
+    /**
+     * Whether the update this is about needs someone's press to install (Updater.needsPress): always
+     * on Android 11 and older, on 12+ only once Android asked for one. One that doesn't installs by
+     * itself when nobody is using Woodruff, however long it has been ready, so it never waits for a press.
+     */
+    val needsPress: Boolean = true,
+    /** This TV asks before each update (Updater.asksEachTime), so each one is offered as Woodruff opens. */
+    val asks: Boolean = false,
 )
 
 /** How this copy of Woodruff came to be ([com.woodruff.tvexplorer.update.Updater.installFacts]). */
@@ -266,7 +276,8 @@ data class SignInRow(val state: SignInState, val text: String, val since: Long? 
     val attention: Boolean get() = state.needsAttention
 }
 
-data class UpdatesRow(val step: String, val text: String, val attention: Boolean, val auto: Boolean, val testTv: Boolean, val reason: String? = null)
+/** The Version row: [asks] is a TV whose updates each wait to be offered (a report from an older Woodruff never says so). */
+data class UpdatesRow(val step: String, val text: String, val attention: Boolean, val auto: Boolean, val testTv: Boolean, val reason: String? = null, val asks: Boolean = false)
 data class LastTryRow(val text: String, val reason: String)
 data class PermissionRow(val allowed: Boolean, val text: String, val attention: Boolean)
 data class CrashRow(val at: Long, val text: String, val attention: Boolean, val summary: String, val lines: String, val report: String)
@@ -316,7 +327,7 @@ data class HealthReport(
         })
         .put("installedBy", JSONObject().put("summary", installed.summary).put("by", installed.by).put("firstInstall", installed.firstInstall).put("lastUpdate", installed.lastUpdate))
         .put("updates", JSONObject().put("step", updates.step).put("text", updates.text).put("attention", updates.attention)
-            .put("auto", updates.auto).put("testTv", updates.testTv).apply { updates.reason?.let { put("reason", it) } })
+            .put("auto", updates.auto).put("testTv", updates.testTv).put("asks", updates.asks).apply { updates.reason?.let { put("reason", it) } })
         .put("lastUpdateTry", lastUpdateTry?.let { JSONObject().put("text", it.text).put("reason", it.reason) } ?: JSONObject.NULL)
         .put("installPermission", installPermission?.let { JSONObject().put("allowed", it.allowed).put("text", it.text).put("attention", it.attention) } ?: JSONObject.NULL)
         .put("signIns", JSONObject().apply {
@@ -354,7 +365,7 @@ data class HealthReport(
                     }
                 }.orEmpty(),
                 installed = InstallFact(ib?.optString("summary").orEmpty(), ib?.optString("by").orEmpty(), ib?.optLong("firstInstall") ?: 0, ib?.optLong("lastUpdate") ?: 0),
-                updates = UpdatesRow(u.optString("step"), u.optString("text"), u.optBoolean("attention"), u.optBoolean("auto", true), u.optBoolean("testTv"), u.optString("reason").ifEmpty { null }),
+                updates = UpdatesRow(u.optString("step"), u.optString("text"), u.optBoolean("attention"), u.optBoolean("auto", true), u.optBoolean("testTv"), u.optString("reason").ifEmpty { null }, u.optBoolean("asks")),
                 lastUpdateTry = o.optJSONObject("lastUpdateTry")?.let { LastTryRow(it.optString("text"), it.optString("reason")) },
                 installPermission = o.optJSONObject("installPermission")?.let { PermissionRow(it.optBoolean("allowed"), it.optString("text"), it.optBoolean("attention")) },
                 signIns = HealthGrant.entries.associateWith { g ->
@@ -406,6 +417,10 @@ internal const val UPDATES_ABOUT = "Updates install by themselves when nobody is
 internal fun permissionDetail(tv: String) = "Woodruff needs this to install its own updates. In $tv’s settings, allow Woodruff Family under Install unknown apps."
 internal fun spaceDetail(tv: String) = "Updates and saved posters need room. Free some in Storage & apps on $tv."
 internal fun waitingDetail(tv: String) = "On $tv, press Install when it asks."
+/** The Version row's about for a TV that asks before each update: Settings → Updates' own words on this TV. */
+internal fun asksDetail(tv: String, isThis: Boolean) =
+    if (isThis) "This TV asks before each update, so it’s offered when you open Woodruff."
+    else "$tv asks before each update, so it’s offered when you open Woodruff there."
 
 /** [s] with its first letter capitalised: on the phone each fragment starts its own row. */
 fun capitalised(s: String): String = s.replaceFirstChar { it.uppercaseChar() }
@@ -485,7 +500,9 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
     val failed = u.step == "ready" && !u.message.isNullOrBlank()
     val reason = plainUpdateReason(u.message)
     if (failed) items += HealthItem("update.failed", "the last update didn’t install", reason ?: "The package installer said no.", "update")
-    val waiting = !failed && u.step == "ready" && (u.readySince ?: now) <= now - DAY
+    // Waiting for one press: ready for a day, and it can't go in by itself (Updater.needsPress). One
+    // that can is installing at the next quiet moment: nothing for a person to do.
+    val waiting = !failed && u.step == "ready" && u.needsPress && (u.readySince ?: now) <= now - DAY
     if (waiting) items += HealthItem("update.waiting", "an update is waiting for one press", waitingDetail(tv), "install")
     // Android 8 to 11 put every update to "Install unknown apps"; 12+ installs Woodruff's own updates
     // without it (a Sony answers no there while its settings say yes), and a build that needs a press
@@ -540,7 +557,7 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
         id = f.id, name = tv, at = now, android = f.sdk, version = f.version,
         attention = items,
         installed = f.installed,
-        updates = UpdatesRow(u.step, updateWords(u), waiting, u.auto, u.testTv, if (u.step == "error") plainUpdateReason(u.message) else null),
+        updates = UpdatesRow(u.step, updateWords(u), waiting, u.auto, u.testTv, if (u.step == "error") plainUpdateReason(u.message) else null, u.asks),
         lastUpdateTry = if (failed) LastTryRow("Didn’t install", reason ?: "The package installer said no.") else null,
         installPermission = f.installAllowed?.let { PermissionRow(it, if (it) "Allowed" else "Not allowed", notAllowed) },
         signIns = signIns,

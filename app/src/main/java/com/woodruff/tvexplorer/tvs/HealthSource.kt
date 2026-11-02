@@ -118,6 +118,7 @@ object Health {
             update = UpdateFact(
                 step = stepName(u.step), latestName = u.latestName, progress = u.progress, message = u.message,
                 readySince = readySince, auto = Updater.autoEnabled(c), testTv = Updater.isTestTv(c),
+                needsPress = u.latest?.let { Updater.needsPress(c, it) } ?: true, asks = Updater.asksEachTime(c),
             ),
             installed = InstallFact(installed.summary(), installed.installedBy, installed.firstInstall, installed.lastUpdate),
             installAllowed = if (Build.VERSION.SDK_INT >= 26) runCatching { c.packageManager.canRequestPackageInstalls() }.getOrNull() else null,

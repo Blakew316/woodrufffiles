@@ -48,6 +48,20 @@ class HealthPagesTest {
         assertEquals("Bedroom needs attention", healthOverview(me, listOf(bedroom)))
     }
 
+    @Test fun aTvThatAsksBeforeEachUpdateSaysSoInsteadOfInstallingByItself() {
+        fun versionAbout(v: TvHealthView) = reportRows(v, clock()).first { it.key == "version" }.about
+        val asks = report(facts(name = "Living Room", update = UpdateFact("upToDate", "2.0.171", asks = true)))
+        assertEquals("This TV asks before each update, so it’s offered when you open Woodruff.", versionAbout(view("Living Room", TvHealthKind.GOOD, asks, isThis = true)))
+        // A linked TV's report says it by its name, also after the report's trip to the hub as JSON.
+        val there = HealthReport.fromJson(report(facts(update = UpdateFact("upToDate", "2.0.171", asks = true))).toJson())!!
+        assertTrue(there.updates.asks)
+        assertEquals("Den asks before each update, so it’s offered when you open Woodruff there.", versionAbout(view("Den", TvHealthKind.GOOD, there)))
+        // A TV that installs by itself, and a report from a Woodruff that doesn't say.
+        assertEquals("Updates install by themselves when nobody is using Woodruff.", versionAbout(view("Den", TvHealthKind.GOOD, good)))
+        val old = JSONObject(good.toJson().toString()).apply { getJSONObject("updates").remove("asks") }
+        assertFalse(HealthReport.fromJson(old)!!.updates.asks)
+    }
+
     @Test fun theTvListSaysHowEachIs() {
         val c = clock()
         assertEquals("All good", listStatus(view("Living Room", TvHealthKind.GOOD), c))

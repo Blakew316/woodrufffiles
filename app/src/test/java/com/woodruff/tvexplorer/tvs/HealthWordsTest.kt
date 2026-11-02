@@ -49,9 +49,13 @@ class HealthWordsTest {
         assertEquals("The package installer said no.", plainUpdateReason("INSTALL_FAILED_INTERNAL_ERROR"))
         assertEquals("GitHub didn’t answer. It tries again by itself.", plainUpdateReason("GitHub answered 403"))
         assertEquals("The TV couldn’t reach GitHub. It tries again by itself.", plainUpdateReason("timeout"))
-        // Updater's own words stay as they are.
+        // Updater's own words stay as they are, as sentences: it writes them to follow "last try:" in Settings.
         assertEquals("The update didn't install.", plainUpdateReason("The update didn't install"))
         assertEquals("Android asked for a press.", plainUpdateReason("Android asked for a press."))
+        assertEquals("The TV is out of space.", plainUpdateReason("the TV is out of space"))
+        assertEquals("This TV doesn’t allow it.", plainUpdateReason("this TV doesn’t allow it"))
+        assertEquals("The TV’s install screen didn’t open.", plainUpdateReason("the TV’s install screen didn’t open"))
+        assertEquals("Couldn’t connect · trying again soon.", plainUpdateReason("Couldn’t connect · trying again soon"))
     }
 
     @Test fun theDoorbellInTheReportsWords() {

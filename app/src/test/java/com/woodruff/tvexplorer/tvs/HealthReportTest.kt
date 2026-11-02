@@ -105,6 +105,23 @@ class HealthReportTest {
         assertTrue(r.updates.attention)
     }
 
+    @Test fun anUpdateThatInstallsByItselfNeverWaitsForAPress() {
+        // Android 12+ that hasn't asked for a press for this build (Updater.needsPress): it goes in at
+        // the next moment nobody is using Woodruff, however long that takes. Nothing for a person to do.
+        val r = report(facts(update = UpdateFact("ready", "2.0.172", readySince = now - 3 * DAY, needsPress = false)))
+        assertTrue(r.good)
+        assertFalse(r.updates.attention)
+        assertEquals("2.0.172 ready", r.updates.text)
+    }
+
+    @Test fun updatersOwnReasonsReadAsSentences() {
+        // Updater words a failed install to follow "last try:" in Settings; the report makes it a sentence.
+        val r = report(facts(update = UpdateFact("ready", "2.0.172", message = "the TV is out of space")))
+        assertEquals(listOf("update.failed"), ids(r))
+        assertEquals("The TV is out of space.", r.lastUpdateTry!!.reason)
+        assertEquals("The TV is out of space.", r.attention[0].detail)
+    }
+
     @Test fun installingAppsNotAllowedMattersWhereEveryUpdateNeedsIt() {
         // Android 8 to 11, automatic updates on.
         val r = report(facts(installAllowed = false, sdk = 29))
