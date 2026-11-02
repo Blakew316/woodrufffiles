@@ -115,6 +115,10 @@ class PlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         recent = RecentStore(this)
         com.woodruff.tvexplorer.cloud.EpisodeShows.load(this) // which show name-less episodes belong to
+        // The starts of films kept on this TV, opened ahead of the film's first request (it reads its
+        // index from disk): Continue watching then asks Drive for one thing instead of three.
+        val app = applicationContext
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { FilmStarts.warm(app) }
         val root = android.widget.FrameLayout(this)
         // The film, under Woodruff's own tvOS-style controls (layout/tv_player_controls): what's
         // playing at the bottom left, round buttons at the bottom right, the scrub bar under them.
@@ -439,6 +443,31 @@ class PlayerActivity : ComponentActivity() {
         stalledSince = null
         stopTrying()
         view.controllerAutoShow = true
+    }
+
+    /** Films started again from Drive alone after trouble with this TV's copy of their start (once each). */
+    private val startedAgainFromDrive = HashSet<String>()
+
+    /**
+     * The start of [key] kept on this TV ([FilmStarts]) let it down: it was out of date (the file was
+     * replaced in Drive, found as Drive answered), or the film couldn't be parsed after its start
+     * came from the TV (a copy cut short by a power cut, say). Once per film, the kept start is
+     * thrown away and the film starts again from Drive, from where it was, without a word: the ring
+     * stays up meanwhile. False when this isn't that, or it has been tried already.
+     */
+    private fun startAgainFromDrive(p: ExoPlayer, key: String, error: PlaybackException): Boolean {
+        val stale = FilmStarts.isStale(error)
+        val unreadable = error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+        if (!stale && !(unreadable && FilmStarts.readFromCopy(key))) return false
+        if (!startedAgainFromDrive.add(key)) return false
+        android.util.Log.i("Player", "Starting $key again from Drive alone (${if (stale) "it changed" else "its kept start didn't read"})")
+        lifecycleScope.launch {
+            // Out of date: already thrown away as it was found. Unreadable: thrown away here (disk).
+            if (!stale) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { FilmStarts.forget(key) }
+            if (player === p && p.playbackState == Player.STATE_IDLE) p.prepare()
+        }
+        return true
     }
 
     // ---- Watch together ----------------------------------------------------------------------
@@ -1008,6 +1037,7 @@ class PlayerActivity : ComponentActivity() {
         stalledSince = null
         view.controllerAutoShow = true
         waitClock.reset()
+        startedAgainFromDrive.clear()
         // Knowing when the Wi-Fi comes back, a stalled film tries again that moment (once per process).
         com.woodruff.tvexplorer.util.NetworkWatch.start(applicationContext)
         rateMatchedFor = null
@@ -1030,7 +1060,8 @@ class PlayerActivity : ComponentActivity() {
         keptBehindMs = backBufferMs(heapMb)
         // The TV's own decoders (and sound passed straight through to a soundbar) first; FFmpeg's
         // for the sound the TV can't play itself, so DTS and TrueHD films aren't silent.
-        player = ExoPlayer.Builder(this, playerRenderers(this)).setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()))
+        player = ExoPlayer.Builder(this, playerRenderers(this))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()).setLoadErrorHandlingPolicy(FilmStartsErrorPolicy()))
             .setLoadControl(playerLoadControl(heapMb))
             // Seeks land on the first clean frame just after the spot (SeekAim); the viewer's are aimed
             // one by one (aimAt), and this covers the rest (a voice "rewind"). Watch together's leader
@@ -1050,6 +1081,9 @@ class PlayerActivity : ComponentActivity() {
             p.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     val key = p.currentMediaItem?.mediaId
+                    // The start of this film kept on the TV was out of date (a new version in Drive), or
+                    // the film couldn't be read from it: once, start it again from Drive alone.
+                    if (key != null && startAgainFromDrive(p, key, error)) return
                     val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
                     val drive = key?.startsWith("drive:") == true
                     // The connection or Google, not this file: every other item would fail the same way.
@@ -1101,7 +1135,10 @@ class PlayerActivity : ComponentActivity() {
                     // How long Play or a seek took to show a picture (adb logcat -s Player), to
                     // compare builds on a real TV.
                     waitingForPicture?.let { (what, since) ->
-                        android.util.Log.i("Player", "$what: picture after ${android.os.SystemClock.elapsedRealtime() - since} ms")
+                        // A start whose header and index came from this TV's copy (FilmStarts) says so.
+                        val copy = what == "Start" && p.currentMediaItem?.mediaId?.let { FilmStarts.readFromCopy(it, since) } == true
+                        val label = if (copy) "$what (header and index from this TV)" else what
+                        android.util.Log.i("Player", "$label: picture after ${android.os.SystemClock.elapsedRealtime() - since} ms")
                     }
                     waitingForPicture = null
                     // A film's first picture: its sound is looked at a moment later (once).
@@ -1292,7 +1329,10 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    /** Local files pass straight through; Drive URLs get an Authorization header per request. */
+    /**
+     * Local files pass straight through; Drive URLs get an Authorization header per request, and
+     * the start of each Drive film (its header and index) is kept on the TV ([FilmStarts]).
+     */
     private fun dataSources(): DefaultDataSource.Factory {
         // Over OkHttp, on the app's shared connections: one kept-open (HTTP/2) connection to Drive
         // carries every range request, so a start (3-4 requests for an MKV) and each seek no longer
@@ -1307,7 +1347,7 @@ class PlayerActivity : ComponentActivity() {
                 spec.withAdditionalHeaders(mapOf("Authorization" to "Bearer ${token()}"))
             } else spec
         }
-        return DefaultDataSource.Factory(this, authed)
+        return DefaultDataSource.Factory(this, FilmStarts.dataSourceFactory(applicationContext, authed))
     }
 
     /**
