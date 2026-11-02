@@ -248,6 +248,10 @@ class OfflineGallery {
         compose.setContent {
             TvExplorerTheme { Box(Modifier.fillMaxSize().background(Palette.background)) { AppRoot(vm) } }
         }
+        // Home takes the focus as Woodruff opens (switching screens before that left it in the side
+        // menu, which then covered the shot).
+        compose.mainClock.advanceTimeBy(1_500)
+        settle()
         for (light in listOf(false, true)) {
             // The samples aren't state: Home is opened afresh to read them.
             compose.runOnIdle { Palette.light = light; seedNotices(); seedOffline(); vm.show(Screen.SETTINGS) }
