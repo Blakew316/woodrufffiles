@@ -272,6 +272,7 @@ class TitleGallery {
     /** Home: a resume tile, the pause, then three shows with new episodes (NEW badges), the first focused. */
     @Test
     fun drawHome() {
+        freshSamples(app)
         Notes.load(app)
         Notes.save(app, null, "Groceries", "Milk\nEggs\nCoffee beans\nBananas", pinned = true)
         Notices.load(app)

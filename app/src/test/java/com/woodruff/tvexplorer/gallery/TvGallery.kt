@@ -82,7 +82,9 @@ class TvGallery {
                     compose.mainClock.advanceTimeBy(1_000)
                     compose.waitForIdle()
                     compose.onRoot().captureRoboImage(File(out, "tv-home-notice-${if (light) "light" else "dark"}.png").path)
-                    compose.runOnIdle { Notices.dismissLatest() }
+                    // Back to the sample notices alone: the screens after it, and the light theme's
+                    // Home, show the same ones as the dark theme's (not the doorbell's once, then twice).
+                    compose.runOnIdle { seedNotices(app) }
                     compose.mainClock.advanceTimeBy(1_000)
                 }
             }
@@ -91,16 +93,12 @@ class TvGallery {
 
     /** Sample content so screens aren't empty. Nothing here touches the encrypted store. */
     private fun seed(app: Application) {
+        freshSamples(app)
         Notes.load(app)
         Notes.save(app, null, "Groceries", "Milk\nEggs\nCoffee beans\nBananas", pinned = true)
         Notes.save(app, null, "Wi-Fi for guests", "Network: Woodruff-Guest\nPassword is on the fridge")
         Notes.save(app, null, "Movie night", "Friday 7pm: popcorn, blankets, pick a film")
-        Notices.load(app)
-        Notices.post(app, NoticeSource.PHONE, "Dinner's ready", "Come downstairs when you can")
-        Notices.post(app, NoticeSource.MAIL, "Your order has shipped", "Arriving Thursday")
-        Notices.post(app, NoticeSource.SYSTEM, "Movie starts in 5 minutes", "")
-        Notices.markAllRead(app)
-        Notices.dismissLatest() // no pop-up over the screens
+        seedNotices(app)
         // Home dashboard: things in progress, the family's TVs and cameras (no network in the gallery).
         RecentStore(app).apply {
             save("drive:sample-3", "Paper Planes (2022)", 3_000_000, 5_600_000)
@@ -113,5 +111,16 @@ class TvGallery {
             TvStatus("bed", "Bedroom", false, false, null),
         )
         DashboardSamples.cameras = listOf("Front Door", "Backyard", "Garage", "Driveway")
+    }
+
+    /** The sample notices, and only those, all read, with no pop-up over the screens. */
+    private fun seedNotices(app: Application) {
+        Notices.load(app)
+        Notices.clear(app)
+        Notices.post(app, NoticeSource.PHONE, "Dinner's ready", "Come downstairs when you can")
+        Notices.post(app, NoticeSource.MAIL, "Your order has shipped", "Arriving Thursday")
+        Notices.post(app, NoticeSource.SYSTEM, "Movie starts in 5 minutes", "")
+        Notices.markAllRead(app)
+        Notices.dismissLatest()
     }
 }

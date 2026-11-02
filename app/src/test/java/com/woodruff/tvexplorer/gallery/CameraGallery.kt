@@ -131,6 +131,7 @@ class CameraGallery {
 
     /** Home's sample content, as the main gallery has it (no network, nothing encrypted), and four cameras. */
     private fun seed() {
+        freshSamples(app)
         Notes.load(app)
         if (Notes.items.value.isEmpty()) {
             Notes.save(app, null, "Groceries", "Milk\nEggs\nCoffee beans\nBananas", pinned = true)

@@ -311,6 +311,7 @@ class OfflineGallery {
 
     /** Home and the Command Center as the gallery's other shots have them, with the cameras and calendar offline. */
     private fun seed() {
+        freshSamples(app)
         Notes.load(app)
         Notes.save(app, null, "Groceries", "Milk\nEggs\nCoffee beans\nBananas", pinned = true)
         seedNotices()
