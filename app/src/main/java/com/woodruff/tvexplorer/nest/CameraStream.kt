@@ -158,7 +158,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
             var stopOld: String? = null
             try {
                 Gate.awaitTurn()
-                keepUp(connect(start), health, start, mark)
+                keepUp(connect(start), health, start)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -191,7 +191,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
      * Keeps connection [c] going until it should be dropped (it returns only by throwing): judges its
      * frames twice a second ([StreamHealth]), and extends Google's session every four minutes.
      */
-    private suspend fun keepUp(c: Connection, health: StreamHealth, start: StartLog, mark: Int) {
+    private suspend fun keepUp(c: Connection, health: StreamHealth, start: StartLog) {
         var renewAt = clock() + EXTEND_EVERY_MS
         var stalled = false
         while (true) {
@@ -203,9 +203,10 @@ class CameraStream(private val context: Context, private val camera: Camera) {
             if (status is Status.Stalled) {
                 if (!stalled) CameraTimings.stalled()
                 stalled = true
-                // The network came back while the picture was stuck: the old connection's way out
-                // has likely gone with it, so it's made again now rather than in 15 s.
-                if (NetworkWatch.comebacks.value != mark) throw NetworkChanged()
+                // The network came back after the picture stopped: the old connection's way out has
+                // likely gone with it, so it's made again now rather than in 15 s. (A comeback while
+                // it was connecting, or long ago with frames flowing since, says nothing of this stall.)
+                if (NetworkWatch.comebacks.value != c.frames.network) throw NetworkChanged()
             } else {
                 stalled = false
             }
@@ -473,19 +474,24 @@ class CameraStream(private val context: Context, private val camera: Camera) {
 
     /**
      * When a connection's frames arrive (on WebRTC's decoder thread): its first and its latest, by the
-     * uptime clock. A sink on the picture that draws nothing, so the stream knows its frames are coming
-     * whatever its views do with them (a tile skips most).
+     * uptime clock, and the network's comebacks then ([network], [NetworkWatch.comebacks]). A sink on
+     * the picture that draws nothing, so the stream knows its frames are coming whatever its views do
+     * with them (a tile skips most).
      */
     private class FrameClock : VideoSink {
         @Volatile var first = 0L
             private set
         @Volatile var last = 0L
             private set
+        /** [NetworkWatch.comebacks] as the latest frame came: a different count later means the network came back since. */
+        @Volatile var network = NetworkWatch.comebacks.value
+            private set
 
         override fun onFrame(frame: VideoFrame) {
             val now = clock()
             if (first == 0L) first = now
             last = now
+            network = NetworkWatch.comebacks.value
         }
     }
 
