@@ -233,6 +233,12 @@ fun SettingsScreen(vm: MainViewModel) {
     }
 
     val installed = remember(v) { Updater.installFacts(context) }
+    // For a day after an update, when it was ("Updated today at 3:12 AM"): no notice says so (update/Restore).
+    val (updatedAt, updatedDay) = remember(installed) {
+        val now = System.currentTimeMillis()
+        val time = android.text.format.DateFormat.getTimeFormat(context)
+        updatedLately(installed.firstInstall, installed.lastUpdate, now, time) to updatedLately(installed.firstInstall, installed.lastUpdate, now, time, short = true)
+    }
     fun rows(page: SettingsPage): List<SettingItem> = when (page) {
         SettingsPage.HOME -> {
             val linked = listOf(facts.connected, facts.photosConnected, calendar.connected, facts.nestConnected).count { it } + facts.accounts.size
@@ -242,7 +248,7 @@ fun SettingsScreen(vm: MainViewModel) {
                 opener(SettingsPage.SCREENSAVER, if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min"),
                 opener(SettingsPage.DEVICES, facts.tvName),
                 opener(SettingsPage.STORAGE, roots.firstOrNull { it.totalBytes > 0 }?.let { "${Format.bytes(it.freeBytes)} free" }),
-                opener(SettingsPage.UPDATES, updateStatus(update)),
+                opener(SettingsPage.UPDATES, versionStatus(update, updatedDay)),
                 opener(SettingsPage.ADVANCED, null, spaced = true),
             )
         }
@@ -378,7 +384,7 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsPage.UPDATES -> listOf(
             SettingItem(
-                Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update), about = "OK checks for an update, or installs one that's ready.",
+                Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", versionStatus(update, updatedAt), about = "OK checks for an update, or installs one that's ready.",
                 // Why this TV offers each update instead of installing it by itself (Updater.needsPress).
                 detail = if (facts.autoUpdate && Updater.asksEachTime(context)) "This TV asks before each update, so it's offered when you open Woodruff." else null,
             ) {

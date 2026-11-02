@@ -52,6 +52,34 @@ private fun installsBlockedByProfile(context: Context): Boolean {
     }.getOrDefault(false)
 }
 
+/**
+ * What Settings shows next to the version, and on its first page by Updates: for a day after an
+ * update, when it was ([updated], from [updatedLately]: no notice says so, this is where anyone
+ * curious looks), unless there's news since (a check, a download, an update waiting); otherwise
+ * [updateStatus].
+ */
+fun versionStatus(s: Updater.State, updated: String?): String =
+    if (updated != null && (s.step == Updater.Step.IDLE || (s.step == Updater.Step.UP_TO_DATE && s.message == null))) updated
+    else updateStatus(s)
+
+/**
+ * "Updated today at 3:12 AM" ("yesterday at…" on day two) for a day after this copy of Woodruff was
+ * updated ([lastUpdate], as Android keeps it); null after that, or when it was installed fresh rather
+ * than updated ([firstInstall]). [time] writes the time as the TV does; [short]: just "Updated
+ * today", for Settings' first page. Visible for tests.
+ */
+internal fun updatedLately(
+    firstInstall: Long, lastUpdate: Long, now: Long, time: java.text.DateFormat, short: Boolean = false,
+    zone: java.util.TimeZone = java.util.TimeZone.getDefault(),
+): String? {
+    if (lastUpdate <= firstInstall + 60_000 || now < lastUpdate || now - lastUpdate >= 24 * 3_600_000L) return null
+    fun day(ms: Long) = java.util.Calendar.getInstance(zone).apply { timeInMillis = ms }.let { it.get(java.util.Calendar.YEAR) * 400 + it.get(java.util.Calendar.DAY_OF_YEAR) }
+    val word = if (day(lastUpdate) == day(now)) "today" else "yesterday"
+    if (short) return "Updated $word"
+    val clock = (time.clone() as java.text.DateFormat).apply { timeZone = zone }
+    return "Updated $word at ${clock.format(java.util.Date(lastUpdate))}"
+}
+
 /** What Settings shows next to the version. */
 fun updateStatus(s: Updater.State): String = when (s.step) {
     Updater.Step.IDLE -> "Check for updates"

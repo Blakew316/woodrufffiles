@@ -41,8 +41,9 @@ import java.time.Duration
 
 /**
  * Updates on a TV that asks for a press before each one (as a Sony does): the offer as Woodruff
- * opens, over Home, and Settings → Updates saying why. Dark and light, at a TV's 960x540dp. Only
- * runs with `-Pgallery`.
+ * opens, over Home, and Settings → Updates saying why. Then the morning after an update that went in
+ * by itself overnight: Settings says "Updated today at 3:12 AM", the one place that says so (no
+ * notice). Dark and light, at a TV's 960x540dp. Only runs with `-Pgallery`.
  */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -84,15 +85,39 @@ class UpdateGallery {
                 settle()
             }
         }
-        // Settings → Updates, reached as on the TV: down to Updates, then into it (its first row, the version).
+        // Settings → Updates on this TV, which asks before each update: why it's offered instead.
+        settings(vm, out, page = "settings-updates-asks")
+
+        // Updated by itself at 3:12 AM (yesterday's, if it isn't that late yet): Settings' first page
+        // says "Updated today" by Updates, and the version row the time.
+        val updated = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 3); set(java.util.Calendar.MINUTE, 12); set(java.util.Calendar.SECOND, 0)
+            if (timeInMillis > System.currentTimeMillis() - 60_000) add(java.util.Calendar.DAY_OF_MONTH, -1)
+        }.timeInMillis
+        shadowOf(app.packageManager).getInternalMutablePackageInfo(app.packageName).apply {
+            firstInstallTime = updated - 20 * 24 * 3_600_000L
+            lastUpdateTime = updated
+        }
+        Updater.onResult(app, PackageInstaller.STATUS_SUCCESS, null, null, how = Updater.How.BY_ITSELF, build = Updater.current)
+        settings(vm, out, home = "settings-updated", page = "settings-updates")
+    }
+
+    /**
+     * Settings → Updates, reached as on the TV: down to Updates ([home]: the first page then, with
+     * Updates focused), then into it ([page]: its first row is the version).
+     */
+    @OptIn(ExperimentalTestApi::class)
+    private fun settings(vm: MainViewModel, out: File, home: String? = null, page: String) {
         for (light in listOf(false, true)) {
             val scheme = if (light) "light" else "dark"
             compose.runOnIdle { Palette.light = light; vm.show(Screen.SETTINGS) }
             settle()
             repeat(5) { compose.onRoot().performKeyInput { pressKey(Key.DirectionDown) }; settle(4) }
+            settle()
+            home?.let { captureScreenRoboImage(File(out, "tv-$it-$scheme.png").path) }
             compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
             settle()
-            captureScreenRoboImage(File(out, "tv-settings-updates-$scheme.png").path)
+            captureScreenRoboImage(File(out, "tv-$page-$scheme.png").path)
             compose.onRoot().performKeyInput { pressKey(Key.Back) }
             settle()
             compose.runOnIdle { vm.show(Screen.HOME) }
