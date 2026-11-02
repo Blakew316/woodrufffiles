@@ -89,9 +89,15 @@ class MainActivity : ComponentActivity() {
         AppVisibility.foreground = true
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
-        com.woodruff.tvexplorer.update.Updater.maybeAuto(this, opening = true)
+        // An update that needs a press is offered now, as Woodruff comes on screen, unless it was
+        // opened for something in particular (a notification, the doorbell): that comes first.
+        com.woodruff.tvexplorer.update.Updater.maybeAuto(this, opening = true, offer = hasAccess && !openedFor)
+        openedFor = false
         armIdle()
     }
+
+    /** This start was for a particular screen ([EXTRA_OPEN]): no update offer in front of it. */
+    private var openedFor = false
 
     override fun onStop() {
         TvScreen.detach(this)
@@ -151,6 +157,8 @@ class MainActivity : ComponentActivity() {
 
     /** Notification taps land on the matching screen. */
     private fun handleOpen(intent: Intent?) {
+        // (Only when this brings Woodruff on screen: a tap while it's showing starts nothing.)
+        openedFor = intent?.getStringExtra(EXTRA_OPEN) != null && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
         when (intent?.getStringExtra(EXTRA_OPEN)) {
             "notifications" -> vm.show(Screen.NOTIFICATIONS)
             "home" -> vm.show(Screen.HOME)

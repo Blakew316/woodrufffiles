@@ -373,7 +373,11 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone's camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
         )
         SettingsPage.UPDATES -> listOf(
-            SettingItem(Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update), about = "OK checks for an update, or installs one that's ready.") {
+            SettingItem(
+                Sym.SystemUpdate, "Version ${BuildConfig.VERSION_NAME}", updateStatus(update), about = "OK checks for an update, or installs one that's ready.",
+                // Why this TV offers each update instead of installing it by itself (Updater.needsPress).
+                detail = if (facts.autoUpdate && Updater.asksEachTime(context)) "This TV asks before each update, so it's offered when you open Woodruff." else null,
+            ) {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
             SettingItem(Sym.Autorenew, "Install updates automatically", onOff(facts.autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !facts.autoUpdate); changed() },

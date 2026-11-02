@@ -27,6 +27,8 @@ import java.io.IOException
 import java.io.Reader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 
 /**
  * Keeps Woodruff up to date from this project's GitHub releases. Release "v2.0.N" is built with
@@ -34,10 +36,11 @@ import java.net.URL
  * newer version), and handed to Android's package installer, which also refuses anything not
  * signed with the same key as the installed app.
  *
- * Android 12+ lets an app update itself without a prompt once that app installed the current copy
- * (the very first update, after an install from Downloader, shows one "Update" prompt). Silent
- * installs wait until nobody is using Woodruff (nothing playing, no button pressed for 2 minutes),
- * since an update restarts it; if it was on screen, it opens again by itself.
+ * Android 12+ lets an app update itself without a prompt. Silent installs wait until nobody is
+ * using Woodruff (nothing playing, no button pressed for 2 minutes), since an update restarts it;
+ * if it was on screen, it opens again by itself. Some TVs still ask for a press for every update
+ * (and Android 11 and older always do): that update is offered the next time someone opens
+ * Woodruff instead ([offer]).
  *
  * On Android 9+ the update brings its speed profile (a .dm file published with the release) in the
  * same install, as Play and adb do: Android compiles the new code while installing, instead of
@@ -51,18 +54,42 @@ object Updater {
     private val PROFILE_NAME = Regex("""WoodruffFamily-api(\d+)(?:-(\d+))?\.dm""")
     /** Which build's speed profile went into an install (0: none), so a refusal can be retried without it. */
     internal const val EXTRA_PROFILE = "com.woodruff.tvexplorer.update.PROFILE"
-    /** Whether someone chose Install (else it went in on its own), and which build: see [K_ASKED]. */
-    internal const val EXTRA_MANUAL = "com.woodruff.tvexplorer.update.MANUAL"
+    /** Who started the install ([How.code]), which build, and its installer session: see [onResult]. */
+    internal const val EXTRA_HOW = "com.woodruff.tvexplorer.update.HOW"
     internal const val EXTRA_BUILD = "com.woodruff.tvexplorer.update.BUILD"
+    internal const val EXTRA_SESSION = "com.woodruff.tvexplorer.update.SESSION"
     private const val PREFS = "updates"
     private const val HOUR = 3_600_000L
     /** In the background (the phone-connection service's loop). */
-    private const val CHECK_EVERY_MS = 3_600_000L
+    private const val CHECK_EVERY_MS = HOUR
     /** When Woodruff is opened: often enough that a fresh release shows up the next time you open it. */
     private const val CHECK_ON_OPEN_MS = 10 * 60_000L
     private const val IDLE_MS = 2 * 60_000L
     /** How long a build must be the newest before the TVs other than the test TV take it. */
     internal const val SETTLE_MS = 24 * HOUR
+    /** "Later" on an offered update: not offered again for this long (Settings → Updates still installs it). */
+    private const val OFFER_LATER_MS = 12 * HOUR
+    /** How long Android's own prompt may wait for an answer before a background install may go ahead. */
+    private const val PROMPT_WAIT_MS = 10 * 60_000L
+    /** Woodruff opens again after an update only if the install started this recently. */
+    private const val REOPEN_WITHIN_MS = HOUR
+
+    // Saved in the "updates" settings file.
+    /** The build Android asked a press for when it tried to go in by itself: it's offered instead from then on. */
+    private const val K_ASKED = "askedFor"
+    /** This TV asked for a press the last time an update tried to go in by itself (Settings → Updates says so). */
+    private const val K_ASKS = "asksEachTime"
+    /** Android's own prompt has worked on this TV: later offers open it straight away (one press). */
+    private const val K_PROMPT_WORKS = "promptWorks"
+    /** Android's prompt is on screen for an install (until then): no background install meanwhile. */
+    private const val K_PROMPT_UNTIL = "promptUntil"
+    private const val K_LATER_FOR = "offerLaterFor"
+    private const val K_LATER_UNTIL = "offerLaterUntil"
+    /** Woodruff was on screen as this build started installing (and when): it opens again once it's in. */
+    private const val K_REOPEN_FOR = "reopenFor"
+    private const val K_REOPEN_AT = "reopenAt"
+    /** What 2.0.165 and older saved instead (no build, no time): still honoured once. */
+    private const val K_REOPEN_OLD = "reopen"
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
 
@@ -76,10 +103,32 @@ object Updater {
         val latestName: String? get() = latest?.let { "2.0.$it" }
     }
 
+    /** Who started an install, which decides what happens when Android asks for a press ([onResult]). */
+    enum class How(internal val code: Int) {
+        /** By itself, in the background: nobody chose it, and nobody may be watching. */
+        BY_ITSELF(1),
+        /** Offered as Woodruff came on screen ([offer]). */
+        OFFERED(2),
+        /** Someone chose Install. */
+        CHOSEN(3);
+
+        internal companion object {
+            fun of(code: Int): How? = entries.firstOrNull { it.code == code }
+        }
+    }
+
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Mutex()
+
+    private val _offer = MutableStateFlow<Int?>(null)
+    /**
+     * A downloaded update that needs someone's press, to offer now that Woodruff has come on screen
+     * (UpdatePrompt shows it); null when there's nothing to offer. Set only as Woodruff opens, never in
+     * the middle of using it or while nobody's there.
+     */
+    val offer: StateFlow<Int?> = _offer.asStateFlow()
 
     val current: Int get() = BuildConfig.VERSION_CODE
 
@@ -96,29 +145,34 @@ object Updater {
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /**
-     * Can this update go in without a prompt? Android 12+ lets an app with
-     * UPDATE_PACKAGES_WITHOUT_USER_ACTION update itself without asking, whoever installed it
-     * (Downloader, or Woodruff itself), so it's tried. It isn't held back by "Install unknown apps"
-     * answering no: a Sony answered no while its Settings showed it allowed, and its updates then
-     * waited for a button press every time. If Android asks anyway for a build ([K_ASKED]), that
-     * build waits for the prompt the next time Woodruff is on screen instead of being retried.
+     * Whether [build] needs someone's press to install: always on Android 11 and older; on 12+ only once
+     * Android has asked for one for it ([K_ASKED]). Android 12+ lets an app with
+     * UPDATE_PACKAGES_WITHOUT_USER_ACTION update itself without asking, whoever installed it, so every
+     * build tries that first. It isn't held back by "Install unknown apps" answering no: a Sony answered
+     * no while its Settings showed it allowed. If Android asks anyway, the build is offered instead.
      */
-    fun canInstallSilently(c: Context): Boolean {
-        if (Build.VERSION.SDK_INT < 31) return false
-        val build = _state.value.latest ?: return true
-        return prefs(c).getInt(K_ASKED, 0) != build
-    }
+    fun needsPress(c: Context, build: Int): Boolean =
+        Build.VERSION.SDK_INT < 31 || prefs(c).getInt(K_ASKED, 0) == build
 
-    /** The build Android asked about (a prompt) when it was installed silently: it waits for someone to press Install. */
-    private const val K_ASKED = "askedFor"
+    /** This TV asked for a press the last time an update tried to install by itself. */
+    fun asksEachTime(c: Context): Boolean = Build.VERSION.SDK_INT < 31 || prefs(c).getBoolean(K_ASKS, false)
+
+    /** Android's own install prompt has worked here, so an offer can open it directly (one press). */
+    fun promptWorked(c: Context): Boolean = prefs(c).getBoolean(K_PROMPT_WORKS, false)
+
+    private fun canInstallSilently(c: Context): Boolean {
+        val build = _state.value.latest ?: return Build.VERSION.SDK_INT >= 31
+        return !needsPress(c, build)
+    }
 
     /**
      * The background routine: check and download (at most hourly, or every 10 minutes when
-     * [opening] the app); then install right away if that needs no prompt and nobody is using
-     * Woodruff. Called by the phone-connection service's loop and when the app opens. Does nothing
-     * when automatic updates are off.
+     * [opening] the app); then install right away if that needs no press and nobody is using
+     * Woodruff. Called by the phone-connection service's loop and when the app opens; with [offer]
+     * as Woodruff comes on screen, a downloaded update that needs a press is offered first. Does
+     * nothing when automatic updates are off.
      */
-    fun maybeAuto(c: Context, opening: Boolean = false) {
+    fun maybeAuto(c: Context, opening: Boolean = false, offer: Boolean = false) {
         val app = c.applicationContext
         if (!autoEnabled(app)) return
         scope.launch {
@@ -126,6 +180,8 @@ object Updater {
             // After a restart: an update downloaded and checked earlier is ready again at once,
             // instead of after the next check (up to an hour, or a day's wait on other TVs).
             if (_state.value.step == Step.IDLE) restoreReady(app)
+            // Before checking, which can take a while: the offer belongs to the moment Woodruff opens.
+            if (offer) offerIfDue(app)
             val every = if (opening) CHECK_ON_OPEN_MS else CHECK_EVERY_MS
             val now = System.currentTimeMillis()
             // After a failed check, try again sooner — but not on every pass: GitHub allows 60 checks
@@ -134,10 +190,12 @@ object Updater {
             if (now - p.getLong("lastCheck", 0) >= every || retryError) {
                 checkAndDownload(app)
             }
-            if (_state.value.step == Step.READY && canInstallSilently(app) && idle() && System.currentTimeMillis() >= retryAt) {
-                // On screen but untouched: Woodruff restarts, so open it again afterwards.
-                if (AppVisibility.foreground) prefs(app).edit().putBoolean("reopen", true).apply()
-                install(app, manual = false)
+            val afterCheck = System.currentTimeMillis()
+            if (_state.value.step == Step.READY && canInstallSilently(app) && idle() && afterCheck >= retryAt &&
+                afterCheck >= p.getLong(K_PROMPT_UNTIL, 0)
+            ) {
+                // On screen but untouched: Woodruff restarts, so it opens again afterwards.
+                startInstall(app, How.BY_ITSELF, reopen = AppVisibility.foreground)
             }
         }
     }
@@ -149,11 +207,61 @@ object Updater {
     private fun idle(): Boolean = NowPlaying.ownPlayer == null &&
         (!AppVisibility.foreground || System.currentTimeMillis() - AppVisibility.lastInput >= IDLE_MS)
 
-    /** After an update that installed while Woodruff was on screen: reopen it (once). */
+    private fun offerIfDue(c: Context) {
+        val s = _state.value
+        if (offerDue(c, s, System.currentTimeMillis())) _offer.value = s.latest
+    }
+
+    /**
+     * Whether [s] is an update to offer as Woodruff opens, at [now]: downloaded, needing a press, not
+     * put off with Later (or a no to Android's prompt) lately, and no Android prompt up for it already.
+     * Visible for tests.
+     */
+    internal fun offerDue(c: Context, s: State, now: Long): Boolean {
+        val build = s.latest ?: return false
+        val p = prefs(c)
+        val putOff = p.getInt(K_LATER_FOR, 0) == build && now < p.getLong(K_LATER_UNTIL, 0)
+        return s.step == Step.READY && needsPress(c, build) && !putOff && now >= p.getLong(K_PROMPT_UNTIL, 0)
+    }
+
+    /** Back to how a fresh run starts: the tests share this one object. */
+    internal fun resetForTest() {
+        _state.value = State(); _offer.value = null
+        session = -1; letGoSessions.clear(); failures = 0; retryAt = 0
+    }
+
+    /** The offer was shown (or Android's own prompt opened for it). */
+    fun offered() { _offer.value = null }
+
+    /** "Later" on the offer of [build]: not offered again for [OFFER_LATER_MS]; Settings → Updates still installs it. */
+    fun later(c: Context, build: Int) {
+        offered()
+        prefs(c).edit().putInt(K_LATER_FOR, build).putLong(K_LATER_UNTIL, System.currentTimeMillis() + OFFER_LATER_MS).apply()
+    }
+
+    /** After an update: whether Woodruff was on screen as it started, so it opens again (once). */
     fun takeReopen(c: Context): Boolean {
         val p = prefs(c)
-        return p.getBoolean("reopen", false).also { if (it) p.edit().remove("reopen").apply() }
+        val due = reopenDue(p.getInt(K_REOPEN_FOR, 0), p.getLong(K_REOPEN_AT, 0), current, System.currentTimeMillis()) ||
+            p.getBoolean(K_REOPEN_OLD, false)
+        p.edit().remove(K_REOPEN_FOR).remove(K_REOPEN_AT).remove(K_REOPEN_OLD).apply()
+        return due
     }
+
+    /**
+     * Whether to open Woodruff again now that build [installed] is in: Woodruff was on screen when
+     * [forBuild] started installing at [at], it's that build, and not long ago. A flag left by an
+     * install that never finished must not open Woodruff over another app after a later update.
+     * Visible for tests.
+     */
+    internal fun reopenDue(forBuild: Int, at: Long, installed: Int, now: Long): Boolean =
+        forBuild > 0 && forBuild == installed && abs(now - at) < REOPEN_WITHIN_MS
+
+    /** Written at once (on the install's background thread): the install ends this run of Woodruff moments later. */
+    private fun setReopen(c: Context, build: Int) =
+        prefs(c).edit().putInt(K_REOPEN_FOR, build).putLong(K_REOPEN_AT, System.currentTimeMillis()).remove(K_REOPEN_OLD).commit()
+
+    private fun clearReopen(c: Context) = prefs(c).edit().remove(K_REOPEN_FOR).remove(K_REOPEN_AT).remove(K_REOPEN_OLD).apply()
 
     /**
      * How this copy of Woodruff came to be, for Settings → Updates and the phone's TV report: when it
@@ -178,8 +286,9 @@ object Updater {
     }
 
     data class InstallFacts(val firstInstall: Long, val lastUpdate: Long, val installedBy: String, val signInsLostAt: Long?) {
-        /** "Installed fresh Oct 31 · updated Nov 2 by Woodruff itself". */
+        /** "Installed fresh Oct 31 · updated Nov 2 by Woodruff itself" (a time Android didn't give is left out). */
         fun summary(): String {
+            if (firstInstall <= 0) return "Installed by $installedBy"
             val fresh = "Installed fresh ${day(firstInstall)}"
             return if (lastUpdate > firstInstall + 60_000) "$fresh · updated ${day(lastUpdate)} by $installedBy" else "$fresh by $installedBy"
         }
@@ -373,97 +482,247 @@ object Updater {
         return code.takeIf { info.packageName == c.packageName && it > current }
     }
 
+    /** The installer session whose answer counts (the latest one started); -1 when none in this run. */
+    @Volatile private var session = -1
+    /** Sessions let go of on purpose: their "aborted" answers are expected, not a refusal. */
+    private val letGoSessions = ConcurrentHashMap.newKeySet<Int>()
+
+    /** Ends an installer session that's waiting for a press nobody will give; it holds a copy of the update. */
+    private fun letGo(installer: PackageInstaller, id: Int) {
+        letGoSessions.add(id)
+        runCatching { installer.abandonSession(id) }.onFailure { Log.w("Updater", "couldn't let go of install $id", it) }
+    }
+
     /**
-     * Hands the downloaded APK to the package installer. With a prompt, Android shows its
+     * Hands the downloaded APK to the package installer. With a press needed, Android shows its
      * "Update" screen (only possible while Woodruff is on screen); without, it just installs and
-     * Woodruff restarts (the phone connection comes back by itself). [manual]: someone chose
-     * Install; false when it installs on its own.
+     * Woodruff restarts (the phone connection comes back by itself). [how]: who started it; when
+     * someone's at Woodruff ([How.OFFERED], [How.CHOSEN]) it opens again after the update.
      */
-    fun install(c: Context, manual: Boolean = true) {
-        val app = c.applicationContext
-        val file = apkFile(app)
-        if (_state.value.step != Step.READY) return
-        // Android can clear the app's cache, update and all: fetch it again (Install then works
-        // once it's back) rather than doing nothing. Not as a manual check when installing on its
-        // own: that fetched the newest release at once, skipping the test TV's day.
-        if (!file.exists()) { scope.launch { checkAndDownload(app, manual) }; return }
-        // This build's speed profile goes in too (Android 9+), unless this TV already turned it down.
-        val build = _state.value.latest ?: 0
-        val profile = profileFile(app, build).takeIf {
-            Build.VERSION.SDK_INT >= 28 && it.exists() && prefs(app).getInt("profileRefused", 0) != build
-        }
-        _state.update { it.copy(step = Step.INSTALLING) }
+    fun install(c: Context, how: How = How.CHOSEN) = startInstall(c.applicationContext, how, reopen = how != How.BY_ITSELF)
+
+    /**
+     * [reopen]: whether Woodruff opens again once the update is in; null leaves that as it was (a
+     * retry). Called from the screen too: only the claim happens here, the files are looked at in
+     * the background.
+     */
+    private fun startInstall(app: Context, how: How, reopen: Boolean?) {
+        // Claimed at once, so a second press (or the background loop) can't start another meanwhile.
+        val ready = _state.value
+        if (ready.step != Step.READY || !_state.compareAndSet(ready, ready.copy(step = Step.INSTALLING))) return
+        _offer.value = null
+        val build = ready.latest ?: 0
         scope.launch {
+            val file = apkFile(app)
+            if (!file.exists()) {
+                // Android can clear the app's cache, update and all: fetch it again (Install then works
+                // once it's back) rather than doing nothing. Only as a manual check when someone chose
+                // it: otherwise that would fetch the newest release at once, skipping the test TV's day.
+                _state.update { it.copy(step = Step.READY) }
+                checkAndDownload(app, manual = how == How.CHOSEN)
+                return@launch
+            }
+            // This build's speed profile goes in too (Android 9+), unless this TV already turned it down.
+            val profile = profileFile(app, build).takeIf {
+                Build.VERSION.SDK_INT >= 28 && it.exists() && prefs(app).getInt("profileRefused", 0) != build
+            }
+            when (reopen) {
+                true -> setReopen(app, build)
+                false -> clearReopen(app)
+                null -> Unit
+            }
+            val installer = app.packageManager.packageInstaller
             var id = -1
             var addedProfile = false
             try {
-                val installer = app.packageManager.packageInstaller
+                // Earlier tries nobody answered (a prompt left on screen, a run cut short) each hold a
+                // copy of the update: let go of them first. (Not one that's installing right now.)
+                runCatching { installer.mySessions }.getOrDefault(emptyList()).filter { !it.isActive }.forEach { letGo(installer, it.sessionId) }
                 val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
                     setAppPackageName(app.packageName)
                     if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
                     setSize(file.length())
                 }
                 id = installer.createSession(params)
-                installer.openSession(id).use { session ->
-                    session.openWrite("base.apk", 0, file.length()).use { out ->
+                session = id
+                installer.openSession(id).use { s ->
+                    s.openWrite("base.apk", 0, file.length()).use { out ->
                         file.inputStream().use { it.copyTo(out, 256 * 1024) }
-                        session.fsync(out)
+                        s.fsync(out)
                     }
                     // Named after the APK it belongs to, as adb names it: Android compiles with it as it installs.
                     if (profile != null) {
                         addedProfile = true
                         Log.i("Updater", "installing 2.0.$build with its speed profile (${profile.length()} bytes)")
-                        session.openWrite("base.dm", 0, profile.length()).use { out ->
+                        s.openWrite("base.dm", 0, profile.length()).use { out ->
                             profile.inputStream().use { it.copyTo(out) }
-                            session.fsync(out)
+                            s.fsync(out)
                         }
                     }
                     // Mutable: the installer adds the result (and the prompt to show) to this intent.
                     val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-                    val answer = Intent(app, InstallResultReceiver::class.java).putExtra(EXTRA_PROFILE, if (profile != null) build else 0)
-                        .putExtra(EXTRA_MANUAL, manual).putExtra(EXTRA_BUILD, build)
-                    val result = PendingIntent.getBroadcast(app, id, answer, flags)
-                    session.commit(result.intentSender)
+                    val answer = Intent(app, InstallResultReceiver::class.java)
+                        .putExtra(EXTRA_PROFILE, if (profile != null) build else 0)
+                        .putExtra(EXTRA_HOW, how.code).putExtra(EXTRA_BUILD, build).putExtra(EXTRA_SESSION, id)
+                    s.commit(PendingIntent.getBroadcast(app, id, answer, flags).intentSender)
                 }
             } catch (e: Exception) {
                 Log.w("Updater", "install failed", e)
+                if (id != -1) letGo(installer, id)
                 if (addedProfile && refuseProfile(app, build, e.message)) {
                     // Go again at once without the profile, in a new session.
-                    if (id != -1) runCatching { app.packageManager.packageInstaller.abandonSession(id) }
                     _state.update { it.copy(step = Step.READY) }
-                    install(app, manual)
+                    startInstall(app, how, reopen = null)
                     return@launch
                 }
                 installFailed()
-                _state.update { it.copy(step = Step.READY, message = e.message ?: "Couldn't start the update") }
+                clearReopen(app)
+                _state.update { it.copy(step = Step.READY, message = plainStartError(e)) }
             }
         }
     }
 
-    /** The installer's answer. [profile]: the build whose speed profile went in with the APK (0: none). */
-    internal fun onResult(c: Context, status: Int, message: String?, confirm: Intent?, profile: Int = 0, manual: Boolean = true, build: Int = 0) {
-        when (status) {
-            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                // Android wants a yes for this one after all: no more silent tries for it, the prompt instead.
-                if (!manual && build > 0) prefs(c).edit().putInt(K_ASKED, build).apply()
-                if (confirm != null && AppVisibility.foreground) {
-                    runCatching { c.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                }
-                // Not on screen (or the prompt couldn't open): offer it again next time Woodruff opens.
-                _state.update { it.copy(step = Step.READY) }
+    /** What to do with the package installer's answer: see [nextStep]. */
+    internal enum class Next {
+        /** About an install already let go of (or an older one): nothing to do. */
+        IGNORE,
+        INSTALLED,
+        /** Android wants a press for an install nobody asked for: let it go, and offer it as Woodruff next opens. */
+        OFFER_LATER,
+        /** Android wants a press and someone is at Woodruff: open Android's prompt. */
+        PROMPT,
+        /** Android wants a press but Woodruff isn't on screen any more: let it go; it's offered next time. */
+        LET_GO,
+        /** Someone said no to Android's prompt: not offered again for a while, and not an error. */
+        DECLINED,
+        /** Turned down with its speed profile: go again without it. */
+        RETRY_WITHOUT_PROFILE,
+        FAILED,
+    }
+
+    /**
+     * The decision behind [onResult], from the installer's [status] for [answered] (the session it's
+     * about), the session that counts ([latest]), whether Android's prompt [canPrompt] (Woodruff is on
+     * screen and Android sent one), and whether a refusal [mayRetryWithoutProfile]. [how] is null for an
+     * install started by a version from before it was sent. Visible for tests.
+     */
+    internal fun nextStep(status: Int, how: How?, answered: Int, latest: Int, wasLetGo: Boolean, canPrompt: Boolean, mayRetryWithoutProfile: Boolean): Next = when {
+        wasLetGo -> Next.IGNORE
+        answered != -1 && latest != -1 && answered != latest && status != PackageInstaller.STATUS_SUCCESS -> Next.IGNORE
+        status == PackageInstaller.STATUS_SUCCESS -> Next.INSTALLED
+        status == PackageInstaller.STATUS_PENDING_USER_ACTION -> when {
+            how == How.BY_ITSELF -> Next.OFFER_LATER
+            canPrompt -> Next.PROMPT
+            else -> Next.LET_GO
+        }
+        status == PackageInstaller.STATUS_FAILURE_ABORTED && how != How.BY_ITSELF -> Next.DECLINED
+        mayRetryWithoutProfile -> Next.RETRY_WITHOUT_PROFILE
+        else -> Next.FAILED
+    }
+
+    /**
+     * The installer's answer for build [build], from session [answered]. [profile]: the build whose speed
+     * profile went in with the APK (0: none). [how]: who started it (null: a version from before that was sent).
+     */
+    internal fun onResult(
+        c: Context, status: Int, message: String?, confirm: Intent?, profile: Int = 0,
+        how: How? = How.CHOSEN, build: Int = 0, answered: Int = -1,
+    ) {
+        val app = c.applicationContext
+        val p = prefs(app)
+        val next = nextStep(
+            status, how, answered, session, answered in letGoSessions, canPrompt = confirm != null && AppVisibility.foreground,
+            mayRetryWithoutProfile = profile > 0 && p.getInt("profileRefused", 0) != profile,
+        )
+        Log.i("Updater", "installer answered $status for 2.0.$build (${how ?: "?"}, session $answered): $next${message?.let { " ($it)" } ?: ""}")
+        if (next != Next.IGNORE && next != Next.PROMPT) p.edit().remove(K_PROMPT_UNTIL).apply()
+        when (next) {
+            Next.IGNORE -> Unit
+            Next.INSTALLED -> {
+                failures = 0; retryAt = 0
+                scope.launch { apkFile(app).delete(); deleteProfiles(app) }
+                _offer.value = null
+                p.edit().apply {
+                    // A press that went through: the next offer opens Android's prompt straight away.
+                    if (how == How.OFFERED || how == How.CHOSEN) putBoolean(K_PROMPT_WORKS, true)
+                    // In by itself: this TV doesn't ask for a press (any more).
+                    if (how == How.BY_ITSELF) putBoolean(K_ASKS, false)
+                }.apply()
+                _state.value = State(Step.UP_TO_DATE, current)
             }
-            PackageInstaller.STATUS_SUCCESS -> { failures = 0; retryAt = 0; apkFile(c).delete(); deleteProfiles(c); _state.value = State(Step.UP_TO_DATE, current) }
-            else -> {
-                // Turned down with its speed profile, and not by someone saying no to the prompt: maybe
-                // this TV won't take the profile, so once per build the update goes again without it.
-                if (profile > 0 && status != PackageInstaller.STATUS_FAILURE_ABORTED && refuseProfile(c, profile, message)) {
-                    _state.update { it.copy(step = Step.READY) }
-                    install(c, manual = false)
+            Next.OFFER_LATER -> {
+                // Android wants a press for this build after all (some TVs ask for every update). Nobody
+                // chose to install it and nobody may be watching, so no prompt now: the waiting install is
+                // let go of, and the build is offered the next time someone opens Woodruff.
+                p.edit().putInt(K_ASKED, build).putBoolean(K_ASKS, true).apply()
+                clearReopen(app)
+                letGoLater(app, answered)
+                backToReady(build, null)
+            }
+            Next.PROMPT -> {
+                val opened = runCatching { app.startActivity(confirm!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
+                if (opened) {
+                    p.edit().putLong(K_PROMPT_UNTIL, System.currentTimeMillis() + PROMPT_WAIT_MS).apply()
                 } else {
-                    installFailed(); _state.update { it.copy(step = Step.READY, message = message ?: "The update didn't install") }
+                    clearReopen(app)
+                    letGoLater(app, answered)
                 }
+                backToReady(build, if (opened) null else "the TV's install screen didn't open")
+            }
+            Next.LET_GO -> {
+                // Woodruff isn't on screen any more: offered again the next time it opens.
+                clearReopen(app)
+                letGoLater(app, answered)
+                backToReady(build, null)
+            }
+            Next.DECLINED -> {
+                // Their answer: no "error", and not offered again for a while (Settings → Updates still installs it).
+                clearReopen(app)
+                if (build > 0) p.edit().putInt(K_LATER_FOR, build).putLong(K_LATER_UNTIL, System.currentTimeMillis() + OFFER_LATER_MS).apply()
+                backToReady(build, null)
+            }
+            Next.RETRY_WITHOUT_PROFILE -> {
+                // Turned down with its speed profile, not by someone saying no: maybe this TV won't take
+                // the profile, so once per build the update goes again without it.
+                refuseProfile(app, profile, message)
+                backToReady(build, null)
+                startInstall(app, how ?: How.BY_ITSELF, reopen = null)
+            }
+            Next.FAILED -> {
+                installFailed()
+                clearReopen(app)
+                backToReady(build, plainReason(status))
             }
         }
+    }
+
+    /**
+     * Ready to install [build] again (after an answer that didn't install it). The answer may reach a
+     * fresh run of Woodruff, whose state doesn't know the build yet.
+     */
+    private fun backToReady(build: Int, message: String?) =
+        _state.update { State(Step.READY, if (build > 0) build else it.latest, message = message) }
+
+    /** Lets go of installer session [id] in the background (its answer, "aborted", is then expected). */
+    private fun letGoLater(app: Context, id: Int) {
+        if (id == -1) return
+        letGoSessions.add(id)
+        scope.launch { letGo(app.packageManager.packageInstaller, id) }
+    }
+
+    /** Why the installer turned an update down, in plain words for Settings ("last try: …"). Visible for tests. */
+    internal fun plainReason(status: Int): String = when (status) {
+        PackageInstaller.STATUS_FAILURE_STORAGE -> "the TV is out of space"
+        PackageInstaller.STATUS_FAILURE_BLOCKED -> "this TV doesn't allow it"
+        PackageInstaller.STATUS_FAILURE_INVALID -> "the download was damaged"
+        PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "the TV turned it down"
+        else -> "the TV couldn't install it"
+    }
+
+    /** An install that couldn't even start, in plain words. */
+    private fun plainStartError(e: Exception): String {
+        val m = generateSequence<Throwable>(e) { it.cause }.mapNotNull { it.message }.joinToString(" ")
+        return if ("ENOSPC" in m || "No space" in m) "the TV is out of space" else "the update couldn't start"
     }
 
     private fun apkFile(c: Context) = File(File(c.applicationContext.cacheDir, "updates").apply { mkdirs() }, "update.apk")
@@ -644,8 +903,9 @@ class InstallResultReceiver : BroadcastReceiver() {
             intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE),
             confirm,
             intent.getIntExtra(Updater.EXTRA_PROFILE, 0),
-            intent.getBooleanExtra(Updater.EXTRA_MANUAL, true),
+            Updater.How.of(intent.getIntExtra(Updater.EXTRA_HOW, 0)),
             intent.getIntExtra(Updater.EXTRA_BUILD, 0),
+            intent.getIntExtra(Updater.EXTRA_SESSION, intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)),
         )
     }
 }

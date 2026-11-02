@@ -1,5 +1,8 @@
 package com.woodruff.tvexplorer.update
 
+import android.content.pm.PackageInstaller
+import com.woodruff.tvexplorer.update.Updater.How
+import com.woodruff.tvexplorer.update.Updater.Next
 import com.woodruff.tvexplorer.update.Updater.Release
 import com.woodruff.tvexplorer.update.Updater.ReleaseFile
 import org.junit.Assert.assertEquals
@@ -184,6 +187,81 @@ class UpdaterTest {
         val testTv = replay(52, eager = true).map { it.first }
         assertEquals(165, testTv.last())
         assertTrue(testTv.containsAll(listOf(67, 69, 75, 79, 118, 153, 156)))
+    }
+
+    @Test fun thisCopysStoryLeavesOutATimeAndroidDidntGive() {
+        assertEquals("Installed by adb or a file app", Updater.InstallFacts(0, 0, "adb or a file app", null).summary())
+        val s = Updater.InstallFacts(t0, t0 + 3 * hour, "Woodruff itself", null).summary()
+        assertTrue(s, s.startsWith("Installed fresh ") && " · updated " in s && s.endsWith(" by Woodruff itself"))
+        assertFalse("?" in s)
+        assertTrue(Updater.InstallFacts(t0, t0, "Downloader", null).summary().endsWith(" by Downloader"))
+        assertNull(Updater.InstallFacts(t0, t0, "Downloader", null).signIns())
+    }
+
+    // ---- Opening again after an update ----------------------------------------------------------
+
+    @Test fun woodruffOpensAgainOnlyAfterTheUpdateItWasOnScreenFor() {
+        val now = t0
+        assertTrue(Updater.reopenDue(forBuild = 170, at = now - 60_000, installed = 170, now = now))
+        // A flag left by an install that never went in doesn't open Woodruff after another update.
+        assertFalse(Updater.reopenDue(forBuild = 169, at = now - 60_000, installed = 170, now = now))
+        assertFalse(Updater.reopenDue(forBuild = 170, at = now - 2 * hour, installed = 170, now = now))
+        assertFalse(Updater.reopenDue(forBuild = 0, at = now, installed = 170, now = now))
+    }
+
+    // ---- The installer's answer ----------------------------------------------------------------
+
+    private fun next(status: Int, how: How?, answered: Int = 7, latest: Int = 7, letGo: Boolean = false, canPrompt: Boolean = true, retry: Boolean = false) =
+        Updater.nextStep(status, how, answered, latest, letGo, canPrompt, retry)
+
+    @Test fun androidAskingForAPressWhenNobodyChoseToInstallIsOfferedLater() {
+        val asks = PackageInstaller.STATUS_PENDING_USER_ACTION
+        // By itself: never a prompt out of nowhere, even with Woodruff on screen.
+        assertEquals(Next.OFFER_LATER, next(asks, How.BY_ITSELF, canPrompt = true))
+        assertEquals(Next.OFFER_LATER, next(asks, How.BY_ITSELF, canPrompt = false))
+        // Someone's there: Android's own prompt.
+        assertEquals(Next.PROMPT, next(asks, How.CHOSEN))
+        assertEquals(Next.PROMPT, next(asks, How.OFFERED))
+        // They left Woodruff before it came up: let go of, offered next time.
+        assertEquals(Next.LET_GO, next(asks, How.CHOSEN, canPrompt = false))
+        // From a version that didn't say who started it: as before, the prompt if it can show.
+        assertEquals(Next.PROMPT, next(asks, null))
+    }
+
+    @Test fun answersAboutInstallsLetGoOfAreIgnored() {
+        val aborted = PackageInstaller.STATUS_FAILURE_ABORTED
+        // The "aborted" that follows letting go of an install isn't someone saying no.
+        assertEquals(Next.IGNORE, next(aborted, How.BY_ITSELF, letGo = true))
+        assertEquals(Next.IGNORE, next(aborted, How.CHOSEN, letGo = true))
+        // Nor is an answer about an older install than the latest.
+        assertEquals(Next.IGNORE, next(aborted, How.CHOSEN, answered = 6, latest = 7))
+        assertEquals(Next.IGNORE, next(PackageInstaller.STATUS_FAILURE, How.BY_ITSELF, answered = 6, latest = 7))
+        // An answer reaching a fresh run of Woodruff (it doesn't know the latest) counts.
+        assertEquals(Next.DECLINED, next(aborted, How.CHOSEN, answered = 6, latest = -1))
+        // "Installed" always counts.
+        assertEquals(Next.INSTALLED, next(PackageInstaller.STATUS_SUCCESS, How.BY_ITSELF, answered = 6, latest = 7))
+    }
+
+    @Test fun noToAndroidsPromptIsAnAnswerNotAnError() {
+        assertEquals(Next.DECLINED, next(PackageInstaller.STATUS_FAILURE_ABORTED, How.OFFERED))
+        assertEquals(Next.DECLINED, next(PackageInstaller.STATUS_FAILURE_ABORTED, How.CHOSEN))
+        // Aborted by itself (by Android, not by us): a failure, so the next try waits.
+        assertEquals(Next.FAILED, next(PackageInstaller.STATUS_FAILURE_ABORTED, How.BY_ITSELF))
+    }
+
+    @Test fun aRefusalWithTheSpeedProfileGoesAgainWithoutItOnce() {
+        assertEquals(Next.RETRY_WITHOUT_PROFILE, next(PackageInstaller.STATUS_FAILURE_INVALID, How.BY_ITSELF, retry = true))
+        assertEquals(Next.FAILED, next(PackageInstaller.STATUS_FAILURE_INVALID, How.BY_ITSELF, retry = false))
+        // Not when someone said no.
+        assertEquals(Next.DECLINED, next(PackageInstaller.STATUS_FAILURE_ABORTED, How.CHOSEN, retry = true))
+    }
+
+    @Test fun refusalsAreSaidInPlainWords() {
+        assertEquals("the TV is out of space", Updater.plainReason(PackageInstaller.STATUS_FAILURE_STORAGE))
+        assertEquals("this TV doesn't allow it", Updater.plainReason(PackageInstaller.STATUS_FAILURE_BLOCKED))
+        assertEquals("the download was damaged", Updater.plainReason(PackageInstaller.STATUS_FAILURE_INVALID))
+        assertEquals("the TV turned it down", Updater.plainReason(PackageInstaller.STATUS_FAILURE_CONFLICT))
+        assertEquals("the TV couldn't install it", Updater.plainReason(PackageInstaller.STATUS_FAILURE))
     }
 
     @Test fun checkProblemsAreSaidInPlainWords() {
