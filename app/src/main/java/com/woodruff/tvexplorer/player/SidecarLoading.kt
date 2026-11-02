@@ -6,15 +6,21 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.Consumer
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSourceException
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.extractor.text.CuesWithTiming
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.text.SubtitleParser
+import java.io.FileNotFoundException
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
@@ -24,8 +30,9 @@ import java.nio.charset.CodingErrorAction
  * Subtitle files read safely. Media3 reads a film's subtitle files alongside the film, and by itself
  * a subtitle file it can't read (deleted from Drive since it was found, a dropped connection, a file
  * that isn't really WebVTT) fails the whole film. Here such a file only leaves the film without
- * those subtitles. And subtitle files saved in Windows' Western encoding (as many .srt files are)
- * keep their accents: Media3 reads only UTF-8 or UTF-16, which turned "Español" into "Espa�ol".
+ * those subtitles, after a few more tries when the trouble may pass (a dropped connection, Drive
+ * busy). And subtitle files saved in Windows' Western encoding (as many .srt files are) keep their
+ * accents: Media3 reads only UTF-8 or UTF-16, which turned "Español" into "Espa�ol".
  */
 @OptIn(UnstableApi::class)
 internal object SidecarLoading {
@@ -42,8 +49,52 @@ internal object SidecarLoading {
 
     private const val MARK = "woodruff-sidecar"
 
-    /** [upstream], with subtitle files ([mark]) that can't be read coming back empty instead of failing. */
-    fun dataSourceFactory(upstream: DataSource.Factory): DataSource.Factory = DataSource.Factory { SafeSidecarSource(upstream.createDataSource()) }
+    /**
+     * [upstream], with subtitle files ([mark]) that can't be read coming back empty instead of failing,
+     * once [RETRY_PAUSES_MS] more tries haven't helped where they might ([worthTryingAgain]). [pause]
+     * waits between tries (false: the film is closing, so stop).
+     */
+    fun dataSourceFactory(upstream: DataSource.Factory, pause: (Long) -> Boolean = ::sleep): DataSource.Factory =
+        DataSource.Factory { SafeSidecarSource(upstream.createDataSource(), pause) }
+
+    /**
+     * The pauses before each further try at a subtitle file that failed in a way that may pass: a
+     * moment's network trouble at a film's start no longer leaves its subtitles empty for the whole
+     * film. Taken as the file is read, never while it opens, so the film doesn't wait for them.
+     */
+    val RETRY_PAUSES_MS = longArrayOf(1_000, 2_000, 4_000)
+
+    /**
+     * Whether trying a subtitle file again may work where [e] failed: a dropped or timed-out
+     * connection, a name that didn't resolve, no Google token just now, Drive busy (429, 5xx) or
+     * asking to try again (408). Not a file that's gone, refused or not allowed (other answers, a file
+     * not found), nor the film closing (the loading thread interrupted): those read as empty at once.
+     */
+    fun worthTryingAgain(e: IOException): Boolean {
+        val causes = generateSequence<Throwable>(e) { it.cause }.take(10).toList()
+        val http = causes.firstNotNullOfOrNull { it as? HttpDataSource.InvalidResponseCodeException }?.responseCode
+        if (http != null) return http == 408 || http == 429 || http >= 500
+        if (causes.any { it is FileNotFoundException || (it is InterruptedIOException && it !is SocketTimeoutException) }) return false
+        return causes.none { it is DataSourceException && it.reason in NOT_AGAIN }
+    }
+
+    /** What another try can't change: the file isn't there, can't be read here, or isn't what was asked for. */
+    private val NOT_AGAIN = setOf(
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+        PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
+        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED,
+        PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE,
+        PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE,
+    )
+
+    /** Waits [ms] on the loading thread; false when it's interrupted (the film closing, its loads let go). */
+    private fun sleep(ms: Long): Boolean = try {
+        Thread.sleep(ms)
+        true
+    } catch (e: InterruptedException) {
+        Thread.currentThread().interrupt()
+        false
+    }
 
     /**
      * How the player reads subtitles (in files beside the film, or inside it): Media3's own parsers,
@@ -104,13 +155,21 @@ internal object SidecarLoading {
 
     /**
      * A source that reads subtitle files ([mark]) like any other, except that one it can't open
-     * reads as empty, and one cut short mid-read ends where it was cut. Everything else passes
-     * straight through.
+     * reads as empty, and one cut short mid-read ends where it was cut, unless trying again may help
+     * ([worthTryingAgain]): then it's tried again ([RETRY_PAUSES_MS]), from where it got to. A first
+     * try that fails opens as a file of unknown length, so the film starts at once; the tries come as
+     * it's read, on its own loading thread. Everything else passes straight through.
      */
-    private class SafeSidecarSource(private val inner: DataSource) : DataSource {
+    private class SafeSidecarSource(private val inner: DataSource, private val pause: (Long) -> Boolean) : DataSource {
         private var sidecar = false
         private var empty = false
+        /** Not open: the last try failed, and the next is due as it's read ([reconnect]). */
+        private var pending = false
         private var spec: DataSpec? = null
+        /** Bytes read so far: a try after a dropped connection carries on from there. */
+        private var done = 0L
+        /** Further tries made (each after its pause). */
+        private var tries = 0
 
         override fun addTransferListener(transferListener: TransferListener) = inner.addTransferListener(transferListener)
 
@@ -118,32 +177,74 @@ internal object SidecarLoading {
             spec = dataSpec
             sidecar = isMarked(dataSpec.uri)
             empty = false
+            pending = false
+            done = 0
+            tries = 0
             if (!sidecar) return inner.open(dataSpec)
             return try {
                 inner.open(dataSpec)
             } catch (e: IOException) {
-                Log.w(TAG, "Couldn't read a subtitle file: ${e.javaClass.simpleName}")
                 runCatching { inner.close() }
-                empty = true
-                0
+                if (worthTryingAgain(e)) {
+                    Log.w(TAG, "Couldn't read a subtitle file, trying again: ${e.javaClass.simpleName}")
+                    pending = true
+                    C.LENGTH_UNSET.toLong()
+                } else {
+                    Log.w(TAG, "Couldn't read a subtitle file: ${e.javaClass.simpleName}")
+                    empty = true
+                    0
+                }
             }
         }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
             if (empty) return C.RESULT_END_OF_INPUT
             if (!sidecar) return inner.read(buffer, offset, length)
-            return try {
-                inner.read(buffer, offset, length)
-            } catch (e: IOException) {
-                Log.w(TAG, "A subtitle file was cut short: ${e.javaClass.simpleName}")
-                empty = true
-                C.RESULT_END_OF_INPUT
+            while (true) {
+                if (pending && !reconnect()) return C.RESULT_END_OF_INPUT
+                try {
+                    val n = inner.read(buffer, offset, length)
+                    if (n > 0) done += n
+                    return n
+                } catch (e: IOException) {
+                    runCatching { inner.close() }
+                    if (!worthTryingAgain(e) || tries >= RETRY_PAUSES_MS.size) {
+                        Log.w(TAG, "A subtitle file was cut short: ${e.javaClass.simpleName}")
+                        empty = true
+                        return C.RESULT_END_OF_INPUT
+                    }
+                    Log.w(TAG, "A subtitle file was cut short, trying again: ${e.javaClass.simpleName}")
+                    pending = true
+                }
             }
         }
 
-        override fun getUri(): Uri? = if (empty) spec?.uri else inner.uri
+        /**
+         * The next tries, each after its pause, from where reading got to: true once one opens; false
+         * when none did, or the film is closing ([pause] said so), and it reads as ending here.
+         */
+        private fun reconnect(): Boolean {
+            val at = spec
+            while (at != null && tries < RETRY_PAUSES_MS.size) {
+                if (!pause(RETRY_PAUSES_MS[tries++])) break
+                try {
+                    inner.open(if (done > 0) at.subrange(done) else at)
+                    pending = false
+                    return true
+                } catch (e: IOException) {
+                    runCatching { inner.close() }
+                    if (!worthTryingAgain(e)) break
+                }
+            }
+            Log.w(TAG, "Couldn't read a subtitle file: it stays empty for this start")
+            pending = false
+            empty = true
+            return false
+        }
 
-        override fun getResponseHeaders(): Map<String, List<String>> = if (empty) emptyMap() else inner.responseHeaders
+        override fun getUri(): Uri? = if (empty || pending) spec?.uri else inner.uri
+
+        override fun getResponseHeaders(): Map<String, List<String>> = if (empty || pending) emptyMap() else inner.responseHeaders
 
         override fun close() {
             try {
@@ -152,7 +253,10 @@ internal object SidecarLoading {
             } finally {
                 spec = null
                 empty = false
+                pending = false
                 sidecar = false
+                done = 0
+                tries = 0
             }
         }
     }
