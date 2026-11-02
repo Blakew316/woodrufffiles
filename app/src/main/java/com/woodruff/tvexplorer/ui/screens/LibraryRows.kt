@@ -104,7 +104,15 @@ internal fun LibraryRows(
     onChoose: (DriveFile) -> Unit,
     /** Play a film straight away (the featured title's Play). */
     onPlay: (DriveFile) -> Unit,
-    onMenu: (DriveFile) -> Unit,
+    /**
+     * Hold OK (or Menu) on a title: its menu. With the Continue watching item a tile stands for, when it's in
+     * that row (its menu can take it off Continue watching).
+     */
+    onMenu: (DriveFile, RecentItem?) -> Unit = { _, _ -> },
+    /** Play/Pause on a title: play it as its menu's first row would (with its Continue watching item, as [onMenu]). */
+    onPlayTitle: (DriveFile, RecentItem?) -> Unit = { _, _ -> },
+    /** Continue watching tiles being taken off while here (see [RowRemovals]); null: none are. */
+    removals: RowRemovals? = null,
     /** The focused title's art, for the backdrop behind the screen. */
     onFocusArt: (String?) -> Unit,
     /**
@@ -167,6 +175,24 @@ internal fun LibraryRows(
     val heroRows = if (featured.isNotEmpty()) 1 else 0
     val list = rememberLazyListState(initialFirstVisibleItemIndex = restore?.let { it.first + heroRows } ?: 0)
     val scope = rememberCoroutineScope()
+    // A Continue watching tile taken off from its menu: the focus moves on to its neighbour (on the right, else
+    // the left, else the row below or the banner above) before the tile glides out of the row.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    if (removals != null) LaunchedEffect(removals) {
+        androidx.compose.runtime.snapshotFlow { removals.pending.toList() }.collect { pending ->
+            if (pending.isEmpty()) return@collect
+            withFrameNanos {} // the menu's window gone, the focus back in this one
+            val focused = rowsFocus[placeKey]?.second
+            if (focused != null && focused in pending) {
+                val moved = listOf(
+                    androidx.compose.ui.focus.FocusDirection.Right, androidx.compose.ui.focus.FocusDirection.Left,
+                    androidx.compose.ui.focus.FocusDirection.Down, androidx.compose.ui.focus.FocusDirection.Up,
+                ).any { runCatching { focusManager.moveFocus(it) }.getOrDefault(false) }
+                if (!moved) runCatching { heroFocus.requestFocus() }
+            }
+            removals.done(pending)
+        }
+    }
     // A featured folder being looked in for its film: OK pressed again meanwhile doesn't play it twice.
     var findingFilm by remember { mutableStateOf<Job?>(null) }
     // Each row's scroll position, kept while it's off screen.
@@ -204,10 +230,14 @@ internal fun LibraryRows(
                             }
                         },
                         onDetails = onChoose,
+                        onMenu = { onMenu(it, null) },
                     )
                 }
             }
-            rows.forEachIndexed { r, (title, items) ->
+            rows.forEachIndexed { r, (title, all) ->
+                // Continue watching less the tiles taken off while here (it otherwise keeps its tiles as of opening).
+                val items = if (removals == null || title != CONTINUE_ROW) all else all.filter { it.id !in removals.gone }
+                if (items.isEmpty()) return@forEachIndexed
                 item(key = "row:$title", contentType = "row") {
                     // The row's whole visible width is composed ahead when the column prefetches it. Back
                     // in a row: the title left from shows first, where the focus rests in a row (below),
@@ -238,8 +268,9 @@ internal fun LibraryRows(
                                         else -> null
                                     }
                                     PosterTile(
-                                        f, token, onClick = { onChoose(f) }, onLongClick = { onMenu(f) },
-                                        modifier = Modifier.width(150.dp)
+                                        f, token, onClick = { onChoose(f) }, onLongClick = { onMenu(f, now) },
+                                        // A tile taken off Continue watching glides out, the rest gliding along (no fades).
+                                        modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).width(150.dp)
                                             .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
                                             .onFocusChanged {
                                                 if (it.isFocused) {
@@ -254,6 +285,7 @@ internal fun LibraryRows(
                                         watched = seen(f),
                                         caption = now?.takeIf { it.upNext }?.let { upNextCaption(it.title) } ?: news,
                                         captionColor = if (news != null) ArtAccent else CaptionWhite,
+                                        onPlay = { onPlayTitle(f, now) },
                                     )
                                 }
                             }
@@ -382,6 +414,8 @@ private fun HeroCarousel(
     /** The title showing taking (true) or losing the focus with the banner: a folder's listing is fetched ahead. */
     onRest: (DriveFile, Boolean) -> Unit,
     onPlay: (DriveFile) -> Unit, onDetails: (DriveFile) -> Unit,
+    /** Hold OK (or Menu) on either button: the title menu for the title showing. */
+    onMenu: (DriveFile) -> Unit = {},
 ) {
     val context = LocalContext.current
     var index by remember(items) { mutableIntStateOf(0) }
@@ -440,8 +474,12 @@ private fun HeroCarousel(
             }
         }
         Row(Modifier.align(Alignment.BottomStart).padding(start = 36.dp, bottom = 28.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            HeroButton(Sym.PlayArrow, if (current.isFolder && isShows) "Episodes" else "Play", Modifier.focusRequester(focus)) { onPlay(current) }
-            HeroButton(Sym.Info, "Details", Modifier) { onDetails(current) }
+            // Play/Pause on either is the banner's Play.
+            HeroButton(
+                Sym.PlayArrow, if (current.isFolder && isShows) "Episodes" else "Play",
+                Modifier.focusRequester(focus).playPauseKey { onPlay(current) }, onLongClick = { onMenu(current) },
+            ) { onPlay(current) }
+            HeroButton(Sym.Info, "Details", Modifier.playPauseKey { onPlay(current) }, onLongClick = { onMenu(current) }) { onDetails(current) }
         }
         if (items.size > 1) Row(
             Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 40.dp),
@@ -458,9 +496,10 @@ private fun HeroCarousel(
 }
 
 @Composable
-private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     FocusButton(
         onClick = onClick,
+        onLongClick = onLongClick,
         shape = Shapes.pill,
         color = Color.White.copy(alpha = 0.22f), focusedColor = Color.White,
         content = Color.White, focusedContent = Color(0xFF0B1220),
@@ -471,5 +510,33 @@ private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, la
             TintIcon(icon, tint.color, size = 22.dp)
             RowText(label, tint.color, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         }
+    }
+}
+
+/** The Overview's first row's name, which [RowRemovals] can take tiles off. */
+private const val CONTINUE_ROW = "Continue watching"
+
+/**
+ * Continue watching tiles taken off from their menu while the Overview is up: the row otherwise keeps its
+ * tiles as of opening (so a film finished meanwhile doesn't pull the focus away), but a tile removed on
+ * purpose glides out at once, the focus moving to its neighbour first (title-access §4.2). One per library
+ * visit, made by the screen.
+ */
+@androidx.compose.runtime.Stable
+internal class RowRemovals {
+    /** Titles (their ids) waiting for the focus to move off them before they go. */
+    internal val pending = androidx.compose.runtime.mutableStateListOf<String>()
+
+    /** Titles taken off Continue watching. */
+    val gone = androidx.compose.runtime.mutableStateListOf<String>()
+
+    /** Takes [id]'s tile off the row (once the focus has moved off it, if it was on it). */
+    fun remove(id: String) {
+        if (id !in gone && id !in pending) pending += id
+    }
+
+    internal fun done(ids: List<String>) {
+        pending.removeAll(ids)
+        gone.addAll(ids.filter { it !in gone })
     }
 }

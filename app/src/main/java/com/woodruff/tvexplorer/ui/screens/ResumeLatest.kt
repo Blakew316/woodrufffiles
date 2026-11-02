@@ -51,7 +51,7 @@ internal fun latestOf(tile: RecentItem, watching: List<RecentItem>): RecentItem 
     watching.firstOrNull { RecentStore.showOf(it) == RecentStore.showOf(tile) } ?: tile
 
 /** Whether the activity behind [this] is in front (a window over it, like a title's page, doesn't change that). */
-private fun Context.inFront(): Boolean {
+internal fun Context.inFront(): Boolean {
     var c: Context? = this
     while (c is ContextWrapper) {
         if (c is LifecycleOwner) return c.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)

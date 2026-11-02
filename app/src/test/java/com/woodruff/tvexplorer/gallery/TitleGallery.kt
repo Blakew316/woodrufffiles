@@ -334,7 +334,7 @@ class TitleGallery {
                                     LibraryRows(
                                         // Its own place per theme: the focus and scroll aren't carried from one shot to the next.
                                         shows, null, placeKey = "tv-shows-rows-${Palette.light}", isShows = true, canTakeFocus = { false },
-                                        onChoose = {}, onPlay = {}, onMenu = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
+                                        onChoose = {}, onPlay = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
                                         newShows = news,
                                     )
                                 }

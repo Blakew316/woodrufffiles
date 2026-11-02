@@ -194,7 +194,7 @@ class OfflineGallery {
                                         )
                                         s.overview -> LibraryRows(
                                             files, null, placeKey = s.name, isShows = s.shows, canTakeFocus = { false },
-                                            onChoose = {}, onPlay = {}, onMenu = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
+                                            onChoose = {}, onPlay = {}, onFocusArt = {}, marks = remember { mutableIntStateOf(0) },
                                         )
                                         else -> LazyVerticalGrid(
                                             columns = GridCells.Adaptive(150.dp),

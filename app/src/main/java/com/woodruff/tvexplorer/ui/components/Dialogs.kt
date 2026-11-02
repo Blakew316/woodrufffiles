@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.ColorProducer
@@ -62,10 +63,11 @@ import com.woodruff.tvexplorer.util.Format
 
 /**
  * Shared dialog frame: dark card, title, then content. Its window glides in and out (the app theme's
- * dialog animation, run by the system), so the card itself doesn't animate.
+ * dialog animation, run by the system), so the card itself doesn't animate. A title longer than
+ * [titleMaxLines] lines ends in an ellipsis.
  */
 @Composable
-fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content: @Composable () -> Unit) {
+fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, titleMaxLines: Int = 2, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         // Android glides the dialog's window in (the theme's window animation), unless the TV has window
         // animations turned off: then the frame glides in itself, the same way (it can't glide out, as
@@ -88,7 +90,7 @@ fun DialogFrame(title: String, onDismiss: () -> Unit, width: Int = 520, content:
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = RoundedCornerShape(28.dp)),
         ) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
+                Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = titleMaxLines, overflow = TextOverflow.Ellipsis)
                 content()
             }
         }
@@ -100,13 +102,14 @@ data class MenuAction(val label: String, val icon: ImageVector, val destructive:
 /**
  * The long-press / menu-key action list for a file or app. First entry gets focus. Its highlight
  * glides from action to action (a [FocusPlatter] in the list colours tv-material's ListItem had).
+ * [titleMaxLines]: a title menu keeps its title to one line, so six rows still fit the screen.
  */
 @Composable
-fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDismiss: () -> Unit) {
+fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDismiss: () -> Unit, titleMaxLines: Int = 2) {
     val first = remember { FocusRequester() }
     val platter = rememberFocusPlatter()
     val scheme = MaterialTheme.colorScheme
-    DialogFrame(title, onDismiss, width = 460) {
+    DialogFrame(title, onDismiss, width = 460, titleMaxLines = titleMaxLines) {
         if (subtitle != null) Text(subtitle, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
         // Room above the first row and below the last: a focused row grows past them, and the
         // list clips there.

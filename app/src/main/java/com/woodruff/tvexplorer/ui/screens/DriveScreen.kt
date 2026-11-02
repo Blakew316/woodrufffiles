@@ -243,6 +243,18 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val choose: (DriveFile) -> Unit = { f ->
         if (state.filterable) TitlePages.open(state.stack.first(), f, latestNews[f.id]?.takeIf { it.announced }?.first?.id) else onOpen(f)
     }
+    // A title's menu (hold OK or Menu on a poster, the banner, a Continue watching tile), the same as anywhere
+    // else; its first row is what Play/Pause on the title does. Raw Drive folders keep the file menu below.
+    var titleMenu by remember { mutableStateOf<MenuFor?>(null) }
+    // Continue watching tiles taken off from their menu while the Overview is up (a new set per library).
+    val removals = remember(state.place) { RowRemovals() }
+    val run = rememberTitleRun(
+        drive, changed = { marks.intValue++ },
+        removing = { _, entry -> entry?.let { removals.remove(it.id) } },
+    )
+    val menuOf: (DriveFile, RecentItem?) -> MenuFor = { f, tile ->
+        MenuFor(state.stack.first(), f, if (tile != null) MenuPlace.CONTINUE_ROW else MenuPlace.LIBRARY, tile)
+    }
     // The focused poster's art, for the backdrop.
     // Held as a State and read only inside the backdrop: moving between posters then redraws the
     // backdrop alone, not the whole screen and grid.
@@ -362,7 +374,9 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         state.files, token, placeKey = state.place.toString(),
                         isShows = state.stack.firstOrNull() == DrivePlace.TvShows,
                         canTakeFocus = { !headerFocused.value },
-                        onChoose = choose, onPlay = onOpen, onMenu = { menuFor = it },
+                        onChoose = choose, onPlay = onOpen,
+                        onMenu = { f, tile -> titleMenu = menuOf(f, tile) }, onPlayTitle = { f, tile -> run.playNow(menuOf(f, tile)) },
+                        removals = removals,
                         onFocusArt = { focusedArt.value = it },
                         seen = seen, marks = marked, onRest = rest,
                         newShows = if (state.stack.firstOrNull() == DrivePlace.TvShows) newShows else emptyMap(),
@@ -449,13 +463,17 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                                     )
                                 }
                                 else if (library) PosterTile(
-                                    f, token, onClick = { choose(f) }, onLongClick = { menuFor = f }, modifier = mod,
+                                    // A title (a library's top level): the title menu, and Play/Pause plays it; in a
+                                    // show's folders (seasons, files), the file menu.
+                                    f, token, onClick = { choose(f) },
+                                    onLongClick = { if (filterable) titleMenu = menuOf(f, null) else menuFor = f }, modifier = mod,
                                     label = if (filterable) Library.label(f) else null,
                                     progress = progressOf.value?.get(MediaRef.Drive(f.id).key),
                                     watched = seen(f),
                                     // A show with new episodes says what's new, in blue.
                                     caption = if (filterable) newShows[f.id]?.takeIf { it.announced }?.caption else null,
                                     captionColor = ArtAccent,
+                                    onPlay = if (filterable) ({ run.playNow(menuOf(f, null)) }) else null,
                                 )
                                 else DriveTile(f, token, onClick = { onOpen(f) }, onLongClick = { menuFor = f }, modifier = mod)
                             }
@@ -474,6 +492,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     if (moreOpen) {
         ActionMenu(title = "Google Drive", subtitle = null, onDismiss = { moreOpen = false }, actions = driveActions)
     }
+    TitleMenu(titleMenu, run) { titleMenu = null }
 
     if (searching) {
         LibrarySearch(
@@ -671,6 +690,8 @@ internal fun PosterTile(
     captionColor: Color = CaptionWhite,
     /** A show with new episodes on a small poster (where a caption would cover its art): NEW at its top left. */
     newBadge: Boolean = false,
+    /** Play/Pause on it: plays the title (its menu's first row, title-access §2.3); null where it isn't a title. */
+    onPlay: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val title = label ?: f.name.substringBeforeLast('.').takeIf { !f.isFolder } ?: f.name
@@ -682,7 +703,7 @@ internal fun PosterTile(
     TvCard(
         onClick = onClick,
         shape = Shapes.card,
-        modifier = modifier.aspectRatio(2f / 3f),
+        modifier = modifier.then(if (onPlay != null) Modifier.playPauseKey(onPlay) else Modifier).aspectRatio(2f / 3f),
         onLongClick = onLongClick,
         motion = motion,
         focusedScale = TvMotion.PosterScale,

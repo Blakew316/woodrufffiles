@@ -143,6 +143,12 @@ fun TitleDetail(
     focusEpisodeId: String? = null,
     /** The show's new episodes ([com.woodruff.tvexplorer.cloud.NewShow.episodes]): the first is what Play plays when nothing's in progress. */
     fresh: List<FreshEpisode> = emptyList(),
+    /** For the title menu on the page's rows (its titles, downloads and new episodes); null in the gallery. */
+    drive: com.woodruff.tvexplorer.cloud.DriveViewModel? = null,
+    /** Where the title menu opens a page: in place of this one. */
+    openTitle: (com.woodruff.tvexplorer.cloud.DrivePlace, DriveFile, String?) -> Unit = { _, f, _ -> onChoose(f) },
+    /** Something on the page is about to play (from a menu): the page closes first. */
+    beforePlay: () -> Unit = {},
 ) {
     // Whether a title has been shown yet: the first comes with the window gliding in (below), so it
     // doesn't ease in as well; the ones picked after it do.
@@ -159,7 +165,7 @@ fun TitleDetail(
                 // A title picked here eases in (fade and a gentle zoom) rather than popping up.
                 val ease = remember { shownOne[0].also { shownOne[0] = true } }
                 com.woodruff.tvexplorer.ui.ScreenEnter(animate = ease) {
-                    TitlePage(f, art, token, all, isShow, artHeaders, onPlay, onPlayEpisode, onPlayKey, openLabel, onOpen, onChoose, focusEpisodeId, fresh)
+                    TitlePage(f, art, token, all, isShow, artHeaders, onPlay, onPlayEpisode, onPlayKey, openLabel, onOpen, onChoose, focusEpisodeId, fresh, drive, openTitle, beforePlay)
                 }
             }
         }
@@ -183,6 +189,9 @@ internal fun TitlePage(
     onChoose: (DriveFile) -> Unit,
     focusEpisodeId: String? = null,
     fresh: List<FreshEpisode> = emptyList(),
+    drive: com.woodruff.tvexplorer.cloud.DriveViewModel? = null,
+    openTitle: (com.woodruff.tvexplorer.cloud.DrivePlace, DriveFile, String?) -> Unit = { _, t, _ -> onChoose(t) },
+    beforePlay: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val info = remember { Library.info(f) }
@@ -425,8 +434,16 @@ internal fun TitlePage(
         f.isFolder -> film != null
         else -> true
     }
-    // Long press (or Menu) on an episode or a season's tab: Mark as watched / unwatched.
+    // Long press (or Menu) on an episode or a season's tab: its menu (play, Watch together, Mark as watched).
     var episodeMenu by remember { mutableStateOf<DriveFile?>(null) }
+    // Long press (or Menu) on a title in the page's rows (its collection, More like this): the title menu.
+    var rowMenu by remember { mutableStateOf<MenuFor?>(null) }
+    // The library this page's rows come from: its titles' menus and pages are that library's.
+    val rowsPlace = if (isShow) com.woodruff.tvexplorer.cloud.DrivePlace.TvShows else com.woodruff.tvexplorer.cloud.DrivePlace.Movies
+    val run = rememberTitleRun(drive, openPage = openTitle, beforePlay = beforePlay, changed = { marks++ })
+    // Linked TVs (for Watch together), read off the main thread once.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { com.woodruff.tvexplorer.tvs.TvLinks.load(context) } }
+    val linked by com.woodruff.tvexplorer.tvs.TvLinks.linked.collectAsState()
     var seasonMenu by remember { mutableStateOf<Pair<String, List<DriveFile>>?>(null) }
     val primary = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
@@ -521,10 +538,8 @@ internal fun TitlePage(
                     val buttons: List<PageButton> = when {
                         isShow && f.isFolder -> buildList {
                             if (resumeEpisode != null) {
-                                val code = episodeCode(resumeEpisode.title)
                                 // Up next (the episode after one just finished) plays from its start.
-                                val label = if (resumeEpisode.upNext) code?.let { "Play $it" } ?: "Play next episode" else code?.let { "Resume $it" } ?: "Resume"
-                                add(PageButton(MAIN, Sym.PlayArrow, label) {
+                                add(PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.GoOn(resumeEpisode))) {
                                     resume {
                                         // Where the show is now, the other TVs' latest included: it may have gone on.
                                         EpisodeShows.load(context)
@@ -538,7 +553,7 @@ internal fun TitlePage(
                                 if (firstEpisode != null) add(PageButton(RESTART, Sym.Replay, "Play from the start") { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
                             } else if (playsNew && firstNew != null) {
                                 // New episodes, nothing in progress: the first of them, from its start.
-                                add(PageButton(MAIN, Sym.PlayArrow, "Play " + (firstNew.code ?: "new episode")) {
+                                add(PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.New(firstNew))) {
                                     // From its season when that's listed here, so the rest of the season follows it.
                                     val found = seasonEps.values.firstNotNullOfOrNull { eps -> eps.firstOrNull { it.id == firstNew.id }?.let { it to eps } }
                                     if (found != null) onPlayEpisode(found.first, found.second, true)
@@ -546,7 +561,7 @@ internal fun TitlePage(
                                 })
                                 if (firstEpisode != null) add(PageButton(RESTART, Sym.Replay, "Play from the start") { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
                             } else if (firstEpisode != null) {
-                                add(PageButton(MAIN, Sym.PlayArrow, "Play " + (episodeCodeOf(firstEpisode.episode, firstEpisode.name) ?: "first episode")) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
+                                add(PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.First(firstEpisode, firstEps.orEmpty()))) { onPlayEpisode(firstEpisode, firstEps.orEmpty(), true) })
                             }
                             // The folders only when no episode was found to play (never beside Play).
                             if (resumeEpisode == null && !playsNew && firstEpisode == null && (firstEps != null || seasons?.isEmpty() == true)) {
@@ -554,8 +569,8 @@ internal fun TitlePage(
                             }
                         }
                         film != null -> buildList {
-                            if (filmResumeMs > 60_000) {
-                                add(PageButton(MAIN, Sym.PlayArrow, "Resume from ${Format.duration(filmResumeMs)}") { resume { onPlayEpisode(film, listOf(film), false) } })
+                            if (filmResumeMs > RESUME_FROM_MS) {
+                                add(PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.Film(film, filmResumeMs, folder = f))) { resume { onPlayEpisode(film, listOf(film), false) } })
                                 add(PageButton(RESTART, Sym.Replay, "Start over") { onPlayEpisode(film, listOf(film), true) })
                             } else {
                                 add(PageButton(MAIN, Sym.PlayArrow, "Play") { resume { onPlayEpisode(film, listOf(film), false) } })
@@ -563,8 +578,8 @@ internal fun TitlePage(
                             add(PageButton(OPEN, Sym.FolderOpen, openLabel, onOpen))
                         }
                         f.isFolder -> listOf(PageButton(MAIN, Sym.FolderOpen, openLabel, onOpen))
-                        resumeMs > 60_000 -> listOf(
-                            PageButton(MAIN, Sym.PlayArrow, "Resume from ${Format.duration(resumeMs)}") { resume { onPlay(false) } },
+                        resumeMs > RESUME_FROM_MS -> listOf(
+                            PageButton(MAIN, Sym.PlayArrow, mainPlayLabel(MainPlay.Film(f, resumeMs))) { resume { onPlay(false) } },
                             PageButton(RESTART, Sym.Replay, "Start over") { onPlay(true) },
                         )
                         else -> listOf(PageButton(MAIN, Sym.PlayArrow, "Play") { resume { onPlay(false) } })
@@ -650,6 +665,7 @@ internal fun TitlePage(
                                         fg = Color.White, secondary = Color.White.copy(alpha = 0.6f), body = Color.White.copy(alpha = 0.7f),
                                         isNew = NewEpisodes.isNew(ep.created, now, seen, progress),
                                         measuredMs = measured[key],
+                                        modifier = Modifier.width(EpisodeCardWidth).playPauseKey { resume { onPlayEpisode(ep, eps, false) } },
                                         onLongClick = { episodeMenu = ep },
                                     ) { resume { onPlayEpisode(ep, eps, false) } }
                                 }
@@ -669,7 +685,8 @@ internal fun TitlePage(
                             items(films, key = { it.id }) { s ->
                                 val keys = remember(s.id) { EpisodeShows.load(context); keysOf(s, EpisodeShows.map.value) }
                                 PosterTile(
-                                    s, token, onClick = { onChoose(s) }, onLongClick = { onChoose(s) }, modifier = Modifier.width(130.dp), label = Library.label(s),
+                                    s, token, onClick = { onChoose(s) }, onLongClick = { rowMenu = MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE) },
+                                    modifier = Modifier.width(130.dp), label = Library.label(s), onPlay = { run.playNow(MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE)) },
                                     progress = recent.firstOrNull { it.key in keys }?.progress?.takeIf { it < 0.97f },
                                     watched = keys.any { Watched.isWatched(context, it) },
                                 )
@@ -684,7 +701,10 @@ internal fun TitlePage(
                     PivotScroll(row, RowPivot) {
                         LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)) {
                             items(similar, key = { it.id }) { s ->
-                                PosterTile(s, token, onClick = { onChoose(s) }, onLongClick = { onChoose(s) }, modifier = Modifier.width(130.dp), label = Library.label(s))
+                                PosterTile(
+                                    s, token, onClick = { onChoose(s) }, onLongClick = { rowMenu = MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE) },
+                                    modifier = Modifier.width(130.dp), label = Library.label(s), onPlay = { run.playNow(MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE)) },
+                                )
                             }
                         }
                     }
@@ -696,14 +716,28 @@ internal fun TitlePage(
     episodeMenu?.let { ep ->
         val key = MediaRef.Drive(ep.id).key
         val seen = remember(marks, key) { Watched.isWatched(context, key) }
+        // Its season as the page shows it, queued after it (as OK on its card does).
+        val season = seasonEps.values.firstOrNull { eps -> eps.any { it.id == ep.id } } ?: listOf(ep)
+        val at = resumeAt(recent, key)
         ActionMenu(
-            title = remember(ep) { com.woodruff.tvexplorer.cloud.episodeMenuTitle(ep.episode, ep.name) }, subtitle = null, onDismiss = { episodeMenu = null },
-            actions = listOf(
-                if (seen) MenuAction("Mark as unwatched", Sym.RadioButtonUnchecked) { setWatched(listOf(key), false) }
-                else MenuAction("Mark as watched", Sym.CheckCircle) { setWatched(listOf(key), true) },
-            ),
+            title = remember(ep) { com.woodruff.tvexplorer.cloud.episodeMenuTitle(ep.episode, ep.name) },
+            subtitle = episodeMenuSubtitle(seen, recent.firstOrNull { it.key == key }),
+            titleMaxLines = 1,
+            onDismiss = { episodeMenu = null },
+            actions = buildList {
+                add(MenuAction(if (at > RESUME_FROM_MS) "Resume from ${Format.duration(at)}" else "Play", Sym.PlayArrow) { resume { onPlayEpisode(ep, season, false) } })
+                if (at > RESUME_FROM_MS) add(MenuAction("Play from the start", Sym.Replay) { onPlayEpisode(ep, season, true) })
+                if (linked.isNotEmpty()) add(MenuAction("Watch together on all TVs", Sym.Groups) {
+                    run.together(TitleAction.Together(key, episodePlayTitle(info.title, ep), at))
+                })
+                add(
+                    if (seen) MenuAction("Mark as unwatched", Sym.RadioButtonUnchecked) { setWatched(listOf(key), false) }
+                    else MenuAction("Mark as watched", Sym.CheckCircle) { setWatched(listOf(key), true) },
+                )
+            },
         )
     }
+    TitleMenu(rowMenu, run) { rowMenu = null }
     seasonMenu?.let { (label, eps) ->
         val keys = remember(eps) { eps.map { MediaRef.Drive(it.id).key } }
         val seen = remember(marks, keys) { keys.count { Watched.isWatched(context, it) } }
@@ -715,6 +749,16 @@ internal fun TitlePage(
             },
         )
     }
+}
+
+/**
+ * The line under an episode menu's title: "Watched" with its ✓ ([seen]), "45% watched" part-way ([played]:
+ * its Continue watching entry), else none.
+ */
+internal fun episodeMenuSubtitle(seen: Boolean, played: RecentItem?): String? = when {
+    seen -> "Watched"
+    played != null && played.positionMs > 10_000 && played.progress < 0.95f -> percentWatched(played)
+    else -> null
 }
 
 /** Sample TMDB details for the UI gallery, which has no TMDB key or network. Never set in the app. */
