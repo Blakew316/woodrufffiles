@@ -518,8 +518,8 @@ object Doorbell {
                 Log.i("Doorbell", "listening on this TV's own subscription")
                 return Target(own, own = true)
             } catch (e: PubSub.Answer) {
-                if (e.code != 403) throw e
-                Log.i("Doorbell", "Google won't make this TV a subscription of its own (${e.status})")
+                if (!isRefusal(e.code)) throw e
+                Log.i("Doorbell", "Google won't make this TV a subscription of its own (${e.code} ${e.status})")
                 p.edit().putString(K_REFUSED_FOR, shared).putLong(K_REFUSED_AT, System.currentTimeMillis()).apply()
             }
         }

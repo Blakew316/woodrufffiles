@@ -73,6 +73,8 @@ class DoorbellActivity : ComponentActivity() {
 
     private val main = Handler(Looper.getMainLooper())
     private val autoClose = Runnable { close() }
+    /** Left for something else and not back: it goes (see onStop). */
+    private val leave = Runnable { if (!isFinishing) finish() }
     private var origin = Origin.FILM
     private var watch: Doorbell.Watch? = null
     /** The latest ring while it's up: the view switches to that camera. */
@@ -103,6 +105,7 @@ class DoorbellActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        main.removeCallbacks(leave)
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
         // Another ring while it's up: that camera, here (it's the notice; nothing pops up over it).
         watch = Doorbell.watchFor(Doorbell.Host.VIEW) { ring -> asked = ring; armAutoClose() }
@@ -117,7 +120,15 @@ class DoorbellActivity : ComponentActivity() {
         super.onStop()
         // Left for something else (Home, standby, another app): over a film it waits (Back returns to
         // the film as it was); anywhere else the visitor is long gone by the time anyone comes back.
-        if (origin != Origin.FILM && !isChangingConfigurations) finish()
+        // Not at once: opened from the TV's screensaver, Android may start it behind the screensaver
+        // and stop it again until the screensaver has gone.
+        if (origin != Origin.FILM && !isChangingConfigurations) main.postDelayed(leave, LEAVE_GRACE_MS)
+    }
+
+    override fun onDestroy() {
+        main.removeCallbacks(leave)
+        main.removeCallbacks(autoClose)
+        super.onDestroy()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -143,16 +154,16 @@ class DoorbellActivity : ComponentActivity() {
         val times by Doorbell.ringTimes.collectAsStateWithLifecycle()
         val networkUp by NetworkWatch.online.collectAsStateWithLifecycle()
         val cams = state.cameras
-        // The camera that rang first, then Left / Right go through the rest.
-        var index by remember { mutableIntStateOf(-1) }
-        LaunchedEffect(cams) {
-            if (index < 0 && cams.isNotEmpty()) index = cams.indexOfFirst { it.name == camera }.coerceAtLeast(0)
-        }
-        // A ring while it's up: that camera (another doorbell, or this one again).
+        // The camera that rang first, then Left / Right go through the rest. A ring while it's up
+        // asks for its camera (another doorbell, or this one again). One the list doesn't have yet
+        // (just added) shows as soon as the list has it, unless Left / Right chose another meanwhile.
+        var wanted by remember { mutableStateOf(camera) }
         val ring = asked
-        LaunchedEffect(ring, cams) {
-            val i = ring?.let { r -> cams.indexOfFirst { it.name == r.camera } } ?: -1
-            if (i >= 0) index = i
+        LaunchedEffect(ring) { if (ring != null) wanted = ring.camera }
+        var index by remember { mutableIntStateOf(-1) }
+        LaunchedEffect(cams, wanted) {
+            val i = cams.indexOfFirst { it.name == wanted }
+            if (i >= 0) index = i else if (index !in cams.indices) index = if (cams.isEmpty()) -1 else 0
         }
         val cam = cams.getOrNull(index)
         // Offline words only after a moment: a TV just woken is usually back on its Wi-Fi by then.
@@ -179,8 +190,8 @@ class DoorbellActivity : ComponentActivity() {
                 .onKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown || cams.size < 2 || index < 0) return@onKeyEvent false
                     when (e.key) {
-                        Key.DirectionRight -> { index = (index + 1) % cams.size; true }
-                        Key.DirectionLeft -> { index = (index - 1 + cams.size) % cams.size; true }
+                        Key.DirectionRight -> { index = (index + 1) % cams.size; wanted = null; true }
+                        Key.DirectionLeft -> { index = (index - 1 + cams.size) % cams.size; wanted = null; true }
                         else -> false
                     }
                 }
@@ -217,6 +228,8 @@ class DoorbellActivity : ComponentActivity() {
 
         /** Without a key press for this long it closes by itself (not over a film). */
         internal const val AUTO_CLOSE_MS = 2 * 60_000L
+        /** Stopped for this long (not over a film): it was left, and goes. */
+        internal const val LEAVE_GRACE_MS = 3_000L
 
         /** Over the film (OK on the player's card): [camera] is the one that rang (as [Doorbell.rings] gives it). */
         fun intent(context: Context, camera: String): Intent =

@@ -128,6 +128,14 @@ internal fun ownSubscriptionBody(topic: String): JSONObject = JSONObject()
     .put("expirationPolicy", JSONObject().put("ttl", "86400s"))
     .put("labels", JSONObject().put("made-by", "woodruff-family-tv"))
 
+/**
+ * Whether Google's answer [code] to making a TV's own subscription means it won't make one (not
+ * allowed, or not in that form): the TV then hears the doorbell as before. Not for a token to renew
+ * (401), something missing (404: the family's subscription or its topic, which no TV can use), or
+ * Google busy (429, 5xx), which are tried again.
+ */
+internal fun isRefusal(code: Int): Boolean = code in 400..499 && code != 401 && code != 404 && code != 408 && code != 429
+
 /** Pub/Sub's topic name for a subscription whose topic was deleted: it will never deliver anything. */
 internal const val DELETED_TOPIC = "_deleted-topic_"
 

@@ -116,6 +116,13 @@ class DoorbellRulesTest {
         assertFalse(isSubscription("projects/p/subscriptions/a/b"))
     }
 
+    @Test fun onlyARealRefusalGivesUpOnATvsOwnSubscription() {
+        // Not allowed, or not in that form: the TV hears the doorbell as before.
+        for (code in listOf(400, 403, 409, 412)) assertTrue("$code", isRefusal(code))
+        // A token to renew, something missing, Google busy: tried again.
+        for (code in listOf(401, 404, 408, 429, 500, 503)) assertFalse("$code", isRefusal(code))
+    }
+
     // ---- What Settings says ----------------------------------------------------------------------
 
     private fun alerts(subscription: Boolean = true, cameras: Boolean = true, relaysOut: Boolean = false, from: String? = null, listening: DoorbellListening = DoorbellListening.Own) =

@@ -70,6 +70,17 @@ class DoorbellActivityTest {
     @Test fun leftForSomethingElseItIsntLeftBehind() {
         val c = open(DoorbellActivity.Origin.SLIDESHOW)
         c.pause().stop()
+        wait(Duration.ofSeconds(4))
         assertTrue(c.get().isFinishing)
+    }
+
+    @Test fun startedBehindTheScreensaverItWaitsForItToGo() {
+        // Android may start it behind the TV's screensaver and stop it until the screensaver has gone.
+        val c = open(DoorbellActivity.Origin.SCREENSAVER)
+        c.pause().stop()
+        wait(Duration.ofMillis(500))
+        c.start().resume()
+        wait(Duration.ofSeconds(10))
+        assertFalse(c.get().isFinishing)
     }
 }
