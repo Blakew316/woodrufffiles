@@ -423,9 +423,12 @@ object TvLinks {
      * video waiting there; older versions don't say). [again]: if [tv] moved, it's sent again once
      * it's found (Watch together: it catches up with the leader); a phone's own start isn't, since a
      * film starting there seconds after the phone said "didn't respond" would be a surprise.
+     * [resume]: [tv] starts it where the family last stopped, which it knows best ([positionMs] is
+     * for a TV on an older Woodruff); [latest]: a show's newest episode there.
      */
-    fun watch(tv: LinkedTv, key: String, title: String, positionMs: Long, again: Boolean = true): JSONObject {
-        val body = JSONObject().put("key", key).put("title", title).put("position", positionMs).toString()
+    fun watch(tv: LinkedTv, key: String, title: String, positionMs: Long, again: Boolean = true, resume: Boolean = false, latest: Boolean = false): JSONObject {
+        val body = JSONObject().put("key", key).put("title", title).put("position", positionMs)
+            .apply { if (resume) put("resume", true); if (latest) put("latest", true) }.toString()
         var answer = JSONObject()
         reach(tv, again) { t -> answer = answerOf(request("${t.base}/api/watch?k=${enc(t.key)}", "POST", body)) }
         return answer

@@ -639,8 +639,14 @@ def _episode_key(show, season, number):
     return 'drive:ep-%s-%d-%d' % (show['id'], season, number)
 
 
-def _play(key, title, position, label, duration):
-    return {'key': key, 'title': title, 'position': position, 'label': label, 'duration': duration}
+def _play(key, title, position, label, duration, resume=False, latest=False):
+    # As the TV's: a resume leaves the spot to the TV that plays it, a show's "go on" its newest episode there.
+    p = {'key': key, 'title': title, 'position': position, 'label': label, 'duration': duration}
+    if resume:
+        p['resume'] = True
+    if latest:
+        p['latest'] = True
+    return p
 
 
 def _film_play(m):
@@ -648,7 +654,7 @@ def _film_play(m):
     pos, dur, _ = PROGRESS.get(key, (0, (m['runtime'] or 100) * MIN_MS, False))
     name = '%s (%d).mkv' % (m['title'], m['year'])
     label = ('Resume from ' + _dur(pos)) if pos > MIN_MS else 'Play'
-    return _play(key, name, pos, label, dur), (_play(key, name, 0, 'Start Over', dur) if pos > MIN_MS else None)
+    return _play(key, name, pos, label, dur, resume=True), (_play(key, name, 0, 'Start Over', dur) if pos > MIN_MS else None)
 
 
 def _dur(ms):
@@ -671,11 +677,11 @@ def _show_play(show):
                 if _episode_key(show, n, e) == key:
                     pos, dur, nxt = PROGRESS[key]
                     code = 'S%d E%d' % (n, e)
-                    play = _play(key, _ep_file(show, n, e, name), 0 if nxt else pos, ('Play ' if nxt else 'Resume ') + code, dur)
+                    play = _play(key, _ep_file(show, n, e, name), 0 if nxt else pos, ('Play ' if nxt else 'Resume ') + code, dur, resume=True, latest=True)
                     first = _play(_episode_key(show, 1, 1), _ep_file(show, 1, 1, seasons[0][1][0][0]), 0, 'Play from the Start', 0)
                     return play, first, n - 1, code + ' · ' + name
     first_name = seasons[0][1][0][0]
-    return _play(_episode_key(show, 1, 1), _ep_file(show, 1, 1, first_name), 0, 'Play S1 E1', 0), None, 0, 'S1 E1 · ' + first_name
+    return _play(_episode_key(show, 1, 1), _ep_file(show, 1, 1, first_name), 0, 'Play S1 E1', 0, resume=True), None, 0, 'S1 E1 · ' + first_name
 
 
 def _title(t, with_play=True):

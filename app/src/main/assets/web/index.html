@@ -4707,6 +4707,10 @@
     starting[sk] = true;
     haptic();
     var name = target === 'all' ? '' : tvName(target), body = { key: p.key, title: p.title, position: Math.max(0, p.position || 0) };
+    // A resume starts where the family last stopped, which the TV that plays it knows better than this page
+    // (shown minutes ago, maybe); a show's "go on" plays its newest episode there. Start Over keeps its 0.
+    if (p.resume) body.resume = true;
+    if (p.latest) body.latest = true;
     var req = target === 'all' ? postJ('/api/tvs/watch', Object.assign({ id: 'all' }, body))
       : target === 'this' ? postJ(/^drive:/.test(p.key) ? '/api/watch' : '/api/play', body)
       : postJ('/api/tvs/watch', Object.assign({ id: target }, body));
@@ -5004,7 +5008,7 @@
     b.setAttribute('aria-label', [e.code, e.name, e.watched ? 'watched' : started ? left2(e.duration - e.position) + ' left' : ''].filter(Boolean).join(', '));
     return b;
   }
-  function epPlay(e, fromStartToo) { return { key: e.key, title: e.playTitle, position: fromStartToo ? 0 : e.position || 0, label: 'Play', duration: e.duration }; }
+  function epPlay(e, fromStartToo) { return { key: e.key, title: e.playTitle, position: fromStartToo ? 0 : e.position || 0, label: 'Play', duration: e.duration, resume: !fromStartToo }; }
   $('ts-eplist').addEventListener('click', function (ev) { var b = ev.target.closest('.ep'); if (b && b._e) startItem(epPlay(b._e), b, TS.target, played); });
   longPress($('ts-eplist'), '.ep', function (b) {
     var e = b._e; if (!e) return;
