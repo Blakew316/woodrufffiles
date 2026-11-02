@@ -24,7 +24,15 @@ picture drawn here in SVG and served from /api/poster (so the gallery never need
 starting something on a TV or on every TV, the controls, Mark as watched and Remove from Continue watching).
 POST /__mock/set {library: "ready" | "offline" | "unreachable" | "expired" | "expiredEmpty" | "notSignedIn" | "notSetUp" |
 "empty" | "loading" | "keysRejected" | "down"} picks the library's state ("down": the TV doesn't answer), and
-{watch: {"started": false}} makes starts wait on the TV (the "Ready on…" alert); /__mock/reset puts them back."""
+{watch: {"started": false}} makes starts wait on the TV (the "Ready on…" alert); /__mock/reset puts them back.
+Sign In from the phone: settings.google.state and settings.nest.state ("signedIn", "expired", "keysRejected",
+"notSignedIn", "notSetUp") give Connections their words; /__mock/set merges settings one level deep, so
+{settings: {google: {state: "expired"}}} is enough. POST /api/signin answers with a sample attempt whose authUrl is
+GET /__mock/google (a plain page); GET /api/signin/status answers "pending" until /__mock/set {signin: …} says
+"done" (then signed in, and Connections say so), "weekly" (signed in, and Google ends it every week), "finishing",
+"failed", "cancelled", "replaced" or "expired"; {signin: "keys" | "project" | "down"} makes POST /api/signin answer
+that the keys or the cameras project come first, or not at all. {thisSignIns: {drive: "expired"}} gives Living Room's
+own report those sign-in states, and {signinTv: "…"} the TV's name the sheet shows. Inbox messages keep their id and link."""
 import json, math, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -126,9 +134,9 @@ PHONES = [
 SETTINGS = {
     'notifyUrl': 'http://192.168.1.20:8080/api/notify?k=…&tvs=all',
     'shareUrl': 'http://192.168.1.20:8080/api/share?k=…',
-    'google': {'clientId': '1234-example.apps.googleusercontent.com', 'hasSecret': True, 'connected': True,
+    'google': {'clientId': '1234-example.apps.googleusercontent.com', 'hasSecret': True, 'connected': True, 'state': 'signedIn',
                'redirectUri': 'https://blakew316.github.io/woodrufffiles/oauth.html'},
-    'nest': {'project': '1a2b3c4d-5e6f-7a8b-9c0d', 'connected': True, 'doorbell': '', 'doorbellStatus': '',
+    'nest': {'project': '1a2b3c4d-5e6f-7a8b-9c0d', 'connected': True, 'state': 'signedIn', 'doorbell': '', 'doorbellStatus': '',
              'person': True, 'motion': False},
     'tmdb': True,
     'weather': 'Austin, TX',
@@ -142,6 +150,43 @@ SETTINGS = {
         {'id': 'CUSTOM', 'label': 'Other (IMAP)', 'help': 'Use the IMAP server and password from your mail provider.', 'custom': True},
     ],
 }
+SETTINGS_START = json.loads(json.dumps(SETTINGS))
+ACCOUNT_WORDS = {'signedIn': ('Signed in', 'Connected'), 'expired': ('Sign-in ended', 'Sign-in ended'),
+                 'keysRejected': ('Keys not accepted', 'Keys not accepted'), 'notSignedIn': ('Not signed in', 'Not connected'),
+                 'notSetUp': ('Not set up', 'Not connected')}
+
+
+def settings_json():
+    """The settings as the TV answers them: each sign-in's words and "connected" follow its state, as on the TV."""
+    out = json.loads(json.dumps(SETTINGS))
+    for key, i in (('google', 0), ('nest', 1)):
+        st = out[key].get('state', 'signedIn')
+        out[key]['state'] = st
+        out[key]['text'] = ACCOUNT_WORDS[st][i]
+        out[key]['connected'] = st in ('signedIn', 'keysRejected')
+    out['google']['hasSecret'] = out['google']['state'] != 'notSetUp'
+    return out
+
+
+SIGNIN = {'mode': None, 'n': 0, 'grant': 'drive', 'tv': 'Living Room'}
+
+
+def signin_status(grant):
+    """/api/signin/status, as the mock state says: a sign-in that's done shows in Settings and the reports too."""
+    mode = SIGNIN['mode']
+    if mode in ('done', 'weekly'):
+        if grant == 'drive':
+            SETTINGS['google']['state'] = 'signedIn'
+        elif grant == 'cameras':
+            SETTINGS['nest']['state'] = 'signedIn'
+        THIS_SIGNINS.pop(grant, None)
+        return {'status': 'signedIn', 'message': None, 'weekly': mode == 'weekly'}
+    if mode == 'failed':
+        return {'status': 'failed', 'message': 'Living Room couldn’t reach Google.', 'weekly': False}
+    if mode in ('finishing', 'cancelled', 'replaced', 'expired'):
+        return {'status': mode, 'message': None, 'weekly': False}
+    return {'status': 'pending', 'message': None, 'weekly': False}
+THIS_SIGNINS = {}   # /__mock/set {thisSignIns}: Living Room's own sign-in states
 FIELD = {'field': {'id': 1, 'label': 'Search file names', 'secret': False, 'multiline': False, 'text': 'vacation'}}
 INBOX = []
 MIN, HOUR = 60_000, 3_600_000
@@ -163,9 +208,10 @@ def tvs_json():
         return {'tvs': TVS_SET['tvs']}
     now, p = _now(), TV_STATE['playing']
     bedroom_ok = TV_STATE['relinked']
+    ended = [g for g, st in THIS_SIGNINS.items() if st == 'expired']
     return {'tvs': [
         {'id': 'this', 'name': 'Living Room', 'online': True, 'onScreen': True, 'version': '2.0.171', 'seen': None, 'link': 'ok',
-         'health': _health('good'),
+         'health': _health('attention', len(ended), 'Google Drive’s sign-in ended' if 'drive' in ended else 'A sign-in ended') if ended else _health('good'),
          'playing': {'title': 'Midnight Harbor', 'app': 'Woodruff Family', 'playing': p['this'], 'position': 2710000, 'duration': 6840000,
                      'can': ['playpause', 'back10', 'fwd30', 'next'], 'key': 'drive:m-harbor'}},
         {'id': 'b', 'name': 'Den', 'online': True, 'onScreen': False, 'version': '2.0.171', 'seen': now, 'link': 'ok',
@@ -253,7 +299,13 @@ def tv_health(tv_id):
     now = _now()
     if tv_id == 'this':
         low = now - 11 * HOUR
-        return 200, health_report('Living Room', now, closed=('Low memory · ' + _moment(low), False, _date(low) + ', ' + _clock(low)))
+        ended = [g for g in ('drive', 'photos', 'calendar', 'cameras') if THIS_SIGNINS.get(g) == 'expired']
+        names = {'drive': 'Google Drive’s', 'photos': 'Google Photos’', 'calendar': 'Google Calendar’s', 'cameras': 'The cameras’'}
+        where = {'drive': 'open Streaming and scan the code with your phone.', 'photos': 'Settings → Accounts → Google Photos.',
+                 'calendar': 'Settings → Accounts → Google Calendar.', 'cameras': 'open the Command Center and scan the code with your phone.'}
+        return 200, health_report('Living Room', now, attention=[
+            ('signin.' + g, names[g] + ' sign-in ended', 'Google ended this sign-in. On Living Room: ' + where[g], 'signin', g) for g in ended
+        ], states=dict(THIS_SIGNINS), closed=('Low memory · ' + _moment(low), False, _date(low) + ', ' + _clock(low)))
     if tv_id == 'b':
         r = health_report('Den', now - 3 * MIN, attention=[
             ('signin.drive', 'Google Drive’s sign-in ended', 'Google ended this sign-in. On Den: open Streaming and scan the code with your phone.', 'signin', 'drive'),
@@ -878,6 +930,12 @@ class Handler(BaseHTTPRequestHandler):
             messages = INBOX[:]
             del INBOX[:]
             return self.send({'messages': messages})
+        if path == '/__mock/google':
+            return self.send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+                             '<title>Google</title><body style="font:17px system-ui;padding:24px">Google sign-in (sample)</body>',
+                             'text/html; charset=utf-8')
+        if path == '/api/signin/status':
+            return self.send(signin_status(query.get('grant', ['drive'])[0]))
         if path in ('/api/memories/thumb', '/api/memories/photo'):
             where = query.get('path', [''])[0]
             if where in ADDED:
@@ -895,7 +953,7 @@ class Handler(BaseHTTPRequestHandler):
             '/api/type': FIELD,
             '/api/memories': memories_json(),
             '/api/phones': {'phones': PHONES},
-            '/api/settings': SETTINGS,
+            '/api/settings': settings_json(),
             '/api/tvs': tvs_json(),
         }
         if path in api:
@@ -916,7 +974,9 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             body = {}
         if path == '/__mock/inbox':
-            INBOX.append({'title': body.get('title', 'Dinner\'s ready'), 'body': body.get('body', ''), 'from': body.get('from', "Mom's iPhone")})
+            msg = {'title': body.get('title', 'Dinner\'s ready'), 'body': body.get('body', ''), 'from': body.get('from', "Mom's iPhone")}
+            msg.update({k: body[k] for k in ('id', 'link') if k in body})
+            INBOX.append(msg)
             return self.send({'ok': True})
         if path == '/__mock/crash':
             SETTINGS['crash'] = body.get('text', '')
@@ -925,6 +985,9 @@ class Handler(BaseHTTPRequestHandler):
             FIELD['field'] = body.get('field')
             return self.send({'ok': True})
         if path == '/__mock/reset':
+            SETTINGS.clear(); SETTINGS.update(json.loads(json.dumps(SETTINGS_START)))
+            SIGNIN.update({'mode': None, 'grant': 'drive', 'tv': 'Living Room'})
+            THIS_SIGNINS.clear()
             TVS_SET['tvs'] = None
             TV_STATE['relinked'] = False
             TV_STATE['playing'] = {'this': True, 'b': True}
@@ -935,7 +998,17 @@ class Handler(BaseHTTPRequestHandler):
                 WATCH['library'] = body['library']
             if 'watch' in body:
                 WATCH.update(body['watch'])
-            SETTINGS.update(body.get('settings') or {})
+            for k, v in (body.get('settings') or {}).items():   # one level deep: {google: {state}} keeps the rest of google
+                if isinstance(v, dict) and isinstance(SETTINGS.get(k), dict):
+                    SETTINGS[k].update(v)
+                else:
+                    SETTINGS[k] = v
+            if 'signin' in body:
+                SIGNIN['mode'] = body['signin']
+            if 'signinTv' in body:   # the TV's name in the sheet (a long one, for tests)
+                SIGNIN['tv'] = body['signinTv']
+            if 'thisSignIns' in body:
+                THIS_SIGNINS.clear(); THIS_SIGNINS.update(body['thisSignIns'])
             if 'tvs' in body:
                 TVS_SET['tvs'] = body['tvs']
             if 'phones' in body:
@@ -990,6 +1063,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.send({'ok': True})
         if path == '/api/tvs/update/check':
             return self.send({'ok': True})
+        if path == '/api/signin':
+            grant = body.get('grant')
+            if grant not in ('drive', 'photos', 'calendar', 'cameras'):
+                return self.send('Unknown sign-in', 'text/plain', 400)
+            mode, cur = SIGNIN['mode'], settings_json()
+            if mode == 'down':
+                return self.send('', 'text/plain', 503)
+            if mode == 'keys' or cur['google']['state'] == 'notSetUp':
+                return self.send({'need': 'keys', 'message': 'Add the Google Client ID and secret first'}, status=400)
+            if mode == 'project' or (grant == 'cameras' and not cur['nest']['project']):
+                return self.send({'need': 'project', 'message': 'Add the cameras project first'}, status=400)
+            SIGNIN['n'] += 1
+            SIGNIN['grant'] = grant
+            state = THIS_SIGNINS.get(grant) or (cur['google']['state'] if grant == 'drive' else cur['nest']['state'] if grant == 'cameras' else 'signedIn')
+            return self.send({'state': 'mock-%d' % SIGNIN['n'], 'authUrl': 'http://%s/__mock/google' % self.headers.get('Host', '127.0.0.1:8765'),
+                              'expiresAt': _now() + 600_000, 'again': state == 'expired', 'tv': SIGNIN['tv']})
         if path == '/api/tvs/relink':
             if body.get('id') != 'd':
                 return self.send('That TV isn’t linked any more.', 'text/plain', 400)
@@ -1033,7 +1122,10 @@ class Handler(BaseHTTPRequestHandler):
                 if k in body:
                     SETTINGS['nest'][k] = body[k]
         elif path == '/api/settings/google':
+            changed = body.get('client_id', '') != SETTINGS['google']['clientId'] or bool(body.get('client_secret'))
             SETTINGS['google']['clientId'] = body.get('client_id', '')
+            if changed:   # new keys: signed out, as on the TV
+                SETTINGS['google']['state'] = 'notSignedIn'
         elif path == '/api/settings/tmdb':
             SETTINGS['tmdb'] = bool(body.get('key'))
         elif path == '/api/mail':
@@ -1044,7 +1136,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == '/api/crash/clear':
             SETTINGS['crash'] = ''
         if path.startswith('/api/settings') or path in ('/api/mail', '/api/mail/delete', '/api/crash/clear'):
-            return self.send(SETTINGS)  # like the TV: settings changes answer with the full settings
+            return self.send(settings_json())  # like the TV: settings changes answer with the full settings
         if path == '/api/upload':
             return self.send({'ok': True, 'name': query.get('name', [''])[0]})
         self.send({'ok': True})
