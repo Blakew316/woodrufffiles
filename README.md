@@ -18,8 +18,9 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   messages open at once.
 - **Phone connection**: scan the QR code once (the pairing key persists). On iPhone, tap **Share → Add to Home Screen**
   and it opens like an app that stays paired. The icon is named after that TV (Settings → TVs & phones → *This TV's
-  name*, e.g. *Living Room*), so with an icon for each TV the Home Screen says which is which; the logo and the app
-  inside stay Woodruff Family. An icon added before a TV was named or renamed keeps its old label until it's added again. It looks and moves like an iPhone app (pages slide in; **‹** or a swipe
+  name*, e.g. *Kyler's Room*): its picture says KYLER'S ROOM where it says WOODRUFF FAMILY (same emblem, same colours),
+  and so does the label under it, so with an icon for each TV the Home Screen says which is which. The app inside
+  stays Woodruff Family. An icon added before a TV was named or renamed keeps its old picture and label until it's added again. It looks and moves like an iPhone app (pages slide in; **‹** or a swipe
   from the left goes back; buttons and rows answer the moment a finger lands; the tab bar's lens glides, and follows
   a finger dragged along the bar; lists glide when they change; it follows the iPhone's Reduce Motion), in light and
   dark, with four tabs:

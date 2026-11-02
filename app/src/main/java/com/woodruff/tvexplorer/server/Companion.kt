@@ -54,6 +54,13 @@ class CompanionRoutes(private val ctx: Context) {
             return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "application/manifest+json", bytes.inputStream(), bytes.size.toLong())
                 .apply { addHeader("Cache-Control", "max-age=604800") }
         }
+        // The Home Screen icon's picture, with this TV's name written on it (PhoneIcon). The app's own
+        // icon-*.png, which it shows inside, stay as they are.
+        PhoneIcon.PICTURES[s.uri]?.let { size ->
+            val bytes = PhoneIcon.picture(ctx, size, PhoneIcon.label(ctx))
+            return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "image/png", bytes.inputStream(), bytes.size.toLong())
+                .apply { addHeader("Cache-Control", "max-age=604800") }
+        }
         // Home Screen icons: no secrets in them, and iOS may fetch them without cookies.
         PUBLIC_ASSETS[s.uri]?.let { mime ->
             val bytes = ctx.assets.open("web" + s.uri).use { it.readBytes() }
