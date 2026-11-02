@@ -425,7 +425,7 @@ private val AFTERNOON = listOf(
 private val EVENING = listOf(
     "What are we watching tonight?",
     "Lights down, phones away.",
-    "Prime time at the Woodruffs'.",
+    "Prime time at the Woodruffs’.",
     "Grab the blankets and the popcorn.",
     "Just one more episode… probably.",
     "The remote is the real MVP.",
