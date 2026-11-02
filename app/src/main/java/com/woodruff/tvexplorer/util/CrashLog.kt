@@ -19,6 +19,12 @@ object CrashLog {
     fun last(c: Context): String? = runCatching { reportFile(c).takeIf { it.isFile }?.readText() }.getOrNull()
     fun clear(c: Context) { reportFile(c).delete() }
 
+    /**
+     * The newest crash report, also one whose notice hasn't been shown yet (a crash while Woodruff
+     * ran in the background is reported the next time it's opened): the TV health report's last crash.
+     */
+    fun latest(c: Context): String? = runCatching { file(c).takeIf { it.isFile }?.readText() }.getOrNull() ?: last(c)
+
     fun install(c: Context) {
         val app = c.applicationContext
         val previous = Thread.getDefaultUncaughtExceptionHandler()
