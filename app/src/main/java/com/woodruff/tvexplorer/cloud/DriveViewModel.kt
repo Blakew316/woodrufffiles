@@ -385,11 +385,15 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             CompanionHub.changes.collect {
                 if (!_state.value.connected) {
-                    // Still signed in (a sign-in step shown in error, or the Keystore just woke up):
-                    // back to the library rather than another QR code.
+                    // Signed in from the phone app (its code never reaches this screen), or still signed in (a
+                    // sign-in step shown in error, the Keystore just woke up): the library, as after a sign-in here,
+                    // rather than another QR code.
                     val step = initialStep()
-                    _state.update { it.copy(step = step) }
-                    if (step == SignInStep.CONNECTED) load() else prepareSignIn()
+                    if (step == SignInStep.CONNECTED) signedIn()
+                    else {
+                        _state.update { it.copy(step = step) }
+                        prepareSignIn()
+                    }
                 }
             }
         }
@@ -721,15 +725,26 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(busy = true, error = null) }
         try {
             GoogleAuth.exchange(ctx, code, attempt)
-            _state.update { it.copy(step = SignInStep.CONNECTED, busy = false, qrUrl = null, ended = false, status = DriveStatus.Online) }
-            load()
-            // The other library too, so Home's Recently added and search have both without a visit.
-            prefetchLibraries()
+            signedIn()
         } catch (e: Exception) {
             _state.update { it.copy(busy = false, error = e.message ?: "Sign-in failed") }
             prepareSignIn()
         }
     }
+
+    /**
+     * Signed in, by this screen's QR code or from the phone app: the library, with nothing left of the sign-in panel
+     * or of "sign in again", and the other library warmed too, so Home's Recently added and search have both
+     * without a visit.
+     */
+    private fun signedIn() {
+        _state.update { it.copy(step = SignInStep.CONNECTED, busy = false, qrUrl = null, error = null, ended = false, status = DriveStatus.Online) }
+        load()
+        prefetchLibraries()
+    }
+
+    /** The warm-up of both libraries under way, if any: tests see a sign-in start it afresh. */
+    @androidx.annotation.VisibleForTesting internal val prefetchRun: Job? get() = prefetchJob
 
     /**
      * Signs out of Google on this TV; the saved keys stay so signing in again is one QR scan. The

@@ -192,12 +192,13 @@ object TodayCalendar {
 
     /**
      * Connected from the phone app ([com.woodruff.tvexplorer.server.PhoneSignIn] already swapped Google's code for
-     * tokens): today's events load, and keep refreshing, with no screen open. Any thread.
+     * tokens), as after the TV's own code: today's events load, and keep refreshing, with no screen open, and Home
+     * no longer asks to connect it again. Any thread.
      */
     fun signedIn() {
         scope.launch {
             signInJob?.cancel()
-            _state.update { it.copy(connected = true, qrUrl = null, error = null) }
+            _state.update { it.copy(connected = true, ended = false, qrUrl = null, error = null) }
             startLoop()
         }
     }

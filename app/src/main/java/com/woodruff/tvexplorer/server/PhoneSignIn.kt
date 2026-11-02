@@ -14,7 +14,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
 
@@ -58,9 +57,14 @@ object PhoneSignIn {
      */
     fun start(c: Context, grant: GoogleAuth.Grant, base: String?): Start {
         val app = c.applicationContext
+        // Keys and a project the Keystore can't read just now (still waking after a power cut) are there all the same.
         if (!GoogleAuth.isConfigured(app)) return Start.Needs("keys", "Add the Google Client ID and secret first")
-        if (grant == GoogleAuth.Grant.NEST && GoogleAuth.nestProject(app) == null) return Start.Needs("project", "Add the cameras project first")
+        if (grant == GoogleAuth.Grant.NEST && !GoogleAuth.hasNestProject(app)) return Start.Needs("project", "Add the cameras project first")
         val home = base ?: return Start.CantStart("Couldn’t start signing in. Check that ${TvLinks.name(app)} is on the home Wi-Fi.")
+        // But Google's page needs them read: in a moment they are.
+        if (GoogleAuth.clientId(app) == null || (grant == GoogleAuth.Grant.NEST && GoogleAuth.nestProject(app) == null)) {
+            return Start.CantStart("${TvLinks.name(app)} can’t read its Google keys just now. Try again in a moment.")
+        }
         return begin(app, grant, home)
     }
 
@@ -69,7 +73,8 @@ object PhoneSignIn {
         val a = GoogleAuth.newAttempt(c, base, grant, fromPhone = true)
         attempts.started(a.state, grant)
         CompanionHub.expect(a)
-        val again = !GoogleAuth.isConnected(c, grant) && SignIns.endedAt(c, grant) != null
+        // "Again" when Google ended it: the same record Accounts and the health report read.
+        val again = GoogleAuth.signIn(c, grant) == GoogleAuth.SignIn.ENDED
         return Start.Ready(a.state, a.authUrl, System.currentTimeMillis() + WAIT_MS, again, TvLinks.name(c))
     }
 
@@ -130,19 +135,19 @@ object PhoneSignIn {
     }
 
     /**
-     * After a sign-in from the phone, everything that uses it hears of it, as after one from the TV: Streaming's QR
-     * code gives way to the library and Settings → Accounts reads it again (both follow [CompanionHub.changes]), the
-     * calendar starts refreshing, the cameras load. None of this can undo the sign-in.
+     * After a sign-in from the phone, everything that uses it hears of it, as after one from the TV. Its record
+     * (ended, keys refused) went as its tokens were kept ([GoogleAuth.exchange]), so Accounts, the report and the phone
+     * read it signed in. Streaming's QR code gives way to the library, warmed as after a sign-in there, and Settings
+     * reads it again (both follow [CompanionHub.changes]); the calendar refreshes and Home stops asking to connect it;
+     * the cameras are listed again and the doorbell listens. None of this can undo the sign-in.
      */
-    private suspend fun after(c: Context, grant: GoogleAuth.Grant) {
-        runCatching { SignIns.signedIn(c, grant) }
+    private fun after(c: Context, grant: GoogleAuth.Grant) {
         Health.forget()
         CompanionHub.settingsChanged.tryEmit(Unit)
         runCatching {
             when (grant) {
                 GoogleAuth.Grant.CALENDAR -> TodayCalendar.signedIn()
-                // The cameras' state is changed on the main thread, as everything else there does.
-                GoogleAuth.Grant.NEST -> withContext(Dispatchers.Main) { Nest.warm() }
+                GoogleAuth.Grant.NEST -> Nest.signedIn()
                 else -> Unit
             }
         }.onFailure { Log.w("PhoneSignIn", "couldn't pass the sign-in on: $it") }

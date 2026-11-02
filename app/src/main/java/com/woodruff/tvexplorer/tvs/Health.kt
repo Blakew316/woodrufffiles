@@ -21,12 +21,12 @@ private const val GIB = 1024L * 1024 * 1024
 
 // ---- The vocabulary (health-tv.md §3.1) ------------------------------------------------------
 
-/** The four Google sign-ins a report shows, as the JSON names them. */
-enum class HealthGrant(val json: String, val title: String, private val owner: String) {
-    DRIVE("drive", "Google Drive", "Google Drive’s"),
-    PHOTOS("photos", "Google Photos", "Google Photos’"),
-    CALENDAR("calendar", "Google Calendar", "Google Calendar’s"),
-    CAMERAS("cameras", "Cameras", "the cameras’");
+/** The four Google sign-ins a report shows, as the JSON names them, and Google's grant for each ([auth]). */
+enum class HealthGrant(val json: String, val title: String, private val owner: String, val auth: com.woodruff.tvexplorer.cloud.GoogleAuth.Grant) {
+    DRIVE("drive", "Google Drive", "Google Drive’s", com.woodruff.tvexplorer.cloud.GoogleAuth.Grant.DRIVE),
+    PHOTOS("photos", "Google Photos", "Google Photos’", com.woodruff.tvexplorer.cloud.GoogleAuth.Grant.PHOTOS),
+    CALENDAR("calendar", "Google Calendar", "Google Calendar’s", com.woodruff.tvexplorer.cloud.GoogleAuth.Grant.CALENDAR),
+    CAMERAS("cameras", "Cameras", "the cameras’", com.woodruff.tvexplorer.cloud.GoogleAuth.Grant.NEST);
 
     /** "Google Drive’s sign-in ended": its attention item. */
     val endedWords: String get() = "$owner sign-in ended"
@@ -44,38 +44,37 @@ enum class HealthGrant(val json: String, val title: String, private val owner: S
     }
 }
 
-/** How one sign-in is doing right now. Only [EXPIRED] and [KEYS_REJECTED] need a person. */
-enum class SignInState(val json: String) {
+/**
+ * How one sign-in is doing right now, as the JSON names it: GoogleAuth's [signIn] (the one record of each sign-in:
+ * signed in, ended, keys refused...), plus how a signed-in TV is doing just now. Only [EXPIRED] and [KEYS_REJECTED]
+ * need a person.
+ */
+enum class SignInState(val json: String, val signIn: com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn) {
     /** Signed in, and nothing says Google can't be reached. */
-    SIGNED_IN("signedIn"),
+    SIGNED_IN("signedIn", com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.SIGNED_IN),
     /** The TV has no network: it signs in again by itself once it has. */
-    OFFLINE("offline"),
+    OFFLINE("offline", com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.OFFLINE),
     /** The network is fine but Google didn't answer the last renewal. */
-    UNREACHABLE("unreachable"),
+    UNREACHABLE("unreachable", com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.UNREACHABLE),
     /** Google revoked or expired it. */
-    EXPIRED("expired"),
+    EXPIRED("expired", com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.ENDED),
     /** Google turns down the saved Client ID or secret (invalid_client). */
-    KEYS_REJECTED("keysRejected"),
+    KEYS_REJECTED("keysRejected", com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.KEYS_REFUSED),
     /** Keys saved, never signed in. */
-    NOT_SIGNED_IN("notSignedIn"),
+    NOT_SIGNED_IN("notSignedIn", com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.NOT_SIGNED_IN),
     /** No Google keys (or, for the cameras, no Device Access project). */
-    NOT_SET_UP("notSetUp");
+    NOT_SET_UP("notSetUp", com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.NOT_SET_UP);
 
-    val needsAttention: Boolean get() = this == EXPIRED || this == KEYS_REJECTED
+    val needsAttention: Boolean get() = signIn == com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.ENDED ||
+        signIn == com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn.KEYS_REFUSED
 
-    /** The value word, as Settings → Accounts says it for that sign-in. */
-    fun words(grant: HealthGrant): String = when (this) {
-        SIGNED_IN -> if (grant == HealthGrant.DRIVE) "Signed in" else "Connected"
-        OFFLINE -> "Offline"
-        UNREACHABLE -> "Can’t reach Google"
-        EXPIRED -> "Sign-in ended"
-        KEYS_REJECTED -> "Keys not accepted"
-        NOT_SIGNED_IN -> if (grant == HealthGrant.DRIVE) "Not signed in" else "Not connected"
-        NOT_SET_UP -> if (grant == HealthGrant.DRIVE) "Not set up" else "Not connected"
-    }
+    /** The value word, from the one mapping Settings → Accounts and the phone's Connections use too ([signInWords]). */
+    fun words(grant: HealthGrant): String = com.woodruff.tvexplorer.cloud.signInWords(grant.auth, signIn, report = true)
 
     companion object {
         fun of(json: String?): SignInState? = entries.firstOrNull { it.json == json }
+        /** The JSON name of GoogleAuth's [signIn]. */
+        fun of(signIn: com.woodruff.tvexplorer.cloud.GoogleAuth.SignIn): SignInState = entries.first { it.signIn == signIn }
     }
 }
 

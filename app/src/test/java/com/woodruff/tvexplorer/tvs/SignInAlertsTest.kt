@@ -123,6 +123,10 @@ class SignInAlertsTest {
         assertEquals("$now", SignIns.withEnding(null, now))
         assertEquals("$now,${now + day}", SignIns.withEnding("$now", now + day))
         assertEquals("${now + day},${now + 2 * day}", SignIns.withEnding("$now,${now + day}", now + 2 * day))
+        // One ending heard twice (as it happened, and by the look for endings missed) is noted once.
+        assertEquals("$now", SignIns.withEnding("$now", now))
+        assertEquals("$now,${now + day}", SignIns.withEnding("$now,${now + day}", now + day))
+        assertEquals("$now,${now + day}", SignIns.withEnding("$now,${now + day}", now))
         assertFalse(SignIns.endedTwiceWithin(null, 8 * day))
         assertFalse(SignIns.endedTwiceWithin("$now", 8 * day))
         assertTrue(SignIns.endedTwiceWithin("$now,${now + 7 * day}", 8 * day))
@@ -131,10 +135,10 @@ class SignInAlertsTest {
     }
 
     @Test fun accountsNeverSayOffline() {
-        assertEquals(SignInState.SIGNED_IN, SignIns.accountState(SignInState.OFFLINE))
-        assertEquals(SignInState.SIGNED_IN, SignIns.accountState(SignInState.UNREACHABLE))
-        for (s in listOf(SignInState.SIGNED_IN, SignInState.EXPIRED, SignInState.KEYS_REJECTED, SignInState.NOT_SIGNED_IN, SignInState.NOT_SET_UP)) {
-            assertEquals(s, SignIns.accountState(s))
+        // Accounts and the phone's Connections read what GoogleAuth keeps, which is never "offline" whatever is kept.
+        for (configured in listOf(true, false)) for (connected in listOf(true, false)) for (ended in listOf(true, false)) for (refused in listOf(true, false)) {
+            val s = GoogleAuth.signInOf(configured, connected, ended, refused)
+            assertTrue("$s", s != GoogleAuth.SignIn.OFFLINE && s != GoogleAuth.SignIn.UNREACHABLE)
         }
         assertEquals(GoogleAuth.Grant.NEST, SignIns.googleGrant(HealthGrant.CAMERAS))
         assertEquals(HealthGrant.CAMERAS, SignIns.healthGrant(GoogleAuth.Grant.NEST))

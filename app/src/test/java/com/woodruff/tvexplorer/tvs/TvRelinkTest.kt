@@ -82,12 +82,13 @@ class TvRelinkTest {
         val now = 10_000_000L
         assertEquals(SignInState.SIGNED_IN, SignIns.connectedState(null, networkUp = true, now = now))
         assertEquals(SignInState.OFFLINE, SignIns.connectedState(null, networkUp = false, now = now))
-        assertEquals(SignInState.UNREACHABLE, SignIns.connectedState(GoogleAuth.LastAsk(offline = true, rejected = false, at = now - 60_000, networkUp = true), true, now))
+        assertEquals(SignInState.UNREACHABLE, SignIns.connectedState(GoogleAuth.LastAsk(offline = true, at = now - 60_000, networkUp = true), true, now))
         // It failed while there was no network, which is back now: it will work by itself.
-        assertEquals(SignInState.SIGNED_IN, SignIns.connectedState(GoogleAuth.LastAsk(true, false, now - 60_000, networkUp = false), true, now))
+        assertEquals(SignInState.SIGNED_IN, SignIns.connectedState(GoogleAuth.LastAsk(true, now - 60_000, networkUp = false), true, now))
         // Long ago: the next try decides.
-        assertEquals(SignInState.SIGNED_IN, SignIns.connectedState(GoogleAuth.LastAsk(true, false, now - 20 * 60_000, true), true, now))
-        // Keys Google turns down don't clear by themselves.
-        assertEquals(SignInState.KEYS_REJECTED, SignIns.connectedState(GoogleAuth.LastAsk(false, true, now - 9_000_000, true), false, now))
+        assertEquals(SignInState.SIGNED_IN, SignIns.connectedState(GoogleAuth.LastAsk(true, now - 20 * 60_000, true), true, now))
+        // A renewal that got through, then the network went: offline. (Keys Google turns down are kept with the
+        // sign-in itself, so they outlast a restart: SignInRecordsTest.)
+        assertEquals(SignInState.OFFLINE, SignIns.connectedState(GoogleAuth.LastAsk(false, now - 60_000, true), false, now))
     }
 }

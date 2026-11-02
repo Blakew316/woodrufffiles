@@ -192,6 +192,20 @@ object Nest {
             }
         }
 
+    /**
+     * Connected from the phone app ([com.woodruff.tvexplorer.server.PhoneSignIn] already swapped Google's code for
+     * tokens), as after the Command Center's own code: the cameras are listed again (sharing may have changed on
+     * Google's page), any code on show gives way, and the doorbell listens on this TV from now on. Any thread.
+     */
+    fun signedIn() {
+        scope.launch {
+            signInJob?.cancel()
+            _state.update { it.copy(step = NestStep.CONNECTED, qrUrl = null, error = null) }
+            refresh()
+            Doorbell.nudge()
+        }
+    }
+
     private var refreshJob: Job? = null
 
     /**
