@@ -80,10 +80,24 @@ internal class WaitClock {
         }
     }
 
-    /** How long it has waited at [now], while it's loading ([state] buffering); null otherwise. */
-    fun waitedMs(state: Int, now: Long): Long? = since?.takeIf { state == Player.STATE_BUFFERING }?.let { now - it }
+    /**
+     * How long it has waited at [now], while it's loading ([state] buffering) or between a failed try
+     * and the next (idle, the wait kept: see [update]); null otherwise.
+     */
+    fun waitedMs(state: Int, now: Long): Long? =
+        since?.takeIf { state == Player.STATE_BUFFERING || state == Player.STATE_IDLE }?.let { now - it }
 
     fun reset() {
         since = null
+    }
+
+    /**
+     * A film asked to play is held back a moment before it loads (the subtitle files beside it being
+     * found, a USB drive waking up): the wait starts now, at the press, not once it starts loading,
+     * so the ring comes [Buffering.SHOW_AFTER_MS] after OK. Idle meanwhile, it counts as waiting
+     * ([waitedMs]); paused, [update] clears it, as for any wait.
+     */
+    fun startNow(now: Long) {
+        if (since == null) since = now
     }
 }

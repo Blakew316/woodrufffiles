@@ -759,6 +759,10 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             sidecarJob = lifecycleScope.launch { findQueueSidecars(p) }
             return
         }
+        // Held back for them: the wait counts from now, so the loading ring comes half a second after
+        // OK (not half a second after this wait, up to 1.5 s), and its timer is set.
+        waitClock.startNow(android.os.SystemClock.elapsedRealtime())
+        updateLoading()
         val app = applicationContext
         sidecarJob = lifecycleScope.launch {
             val found = async(kotlinx.coroutines.Dispatchers.IO) {
