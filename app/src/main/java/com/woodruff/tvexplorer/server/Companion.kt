@@ -593,7 +593,8 @@ class CompanionRoutes(private val ctx: Context) {
             .put("tmdb", Tmdb.isConfigured(ctx))
             .put("weather", com.woodruff.tvexplorer.weather.Weather.place(ctx) ?: "")
             .put("version", com.woodruff.tvexplorer.BuildConfig.VERSION_NAME)
-            .put("crash", com.woodruff.tvexplorer.util.CrashLog.last(ctx) ?: "")
+            // This TV's last crash for the phone (shown, copied, maybe pasted somewhere public): nothing secret in it.
+            .put("crash", com.woodruff.tvexplorer.util.CrashLog.last(ctx)?.let { com.woodruff.tvexplorer.tvs.scrubbed(it) } ?: "")
             .put("awayUrl", TransferService.awayUrl() ?: "")
             .put("nest", JSONObject()
                 .put("project", GoogleAuth.nestProject(ctx) ?: "")

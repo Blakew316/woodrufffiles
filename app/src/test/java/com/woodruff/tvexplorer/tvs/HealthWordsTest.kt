@@ -12,6 +12,18 @@ import org.junit.Test
 
 /** How a report words times, reasons, the doorbell and crashes. */
 class HealthWordsTest {
+    @Test fun secretsAndAddressesAreTakenOutOfWhatLeavesTheTv() {
+        assertEquals("GET https://example.com/a?api_key=…&q=1 failed", scrubbed("GET https://example.com/a?api_key=K3y&q=1 failed"))
+        assertEquals("/api/status?k=… answered 401", scrubbed("/api/status?k=AbC-123_x answered 401"))
+        assertEquals("token=…; code=…, state=…", scrubbed("token=t0k; code=4/0Ab, state=eyJ9"))
+        assertEquals("Authorization: Bearer …", scrubbed("Authorization: Bearer ya29.a0-xyz_123"))
+        assertEquals("to /… (port 8080) and …", scrubbed("to /10.0.0.7 (port 8080) and 255.255.255.0"))
+        assertEquals("signed in as …", scrubbed("signed in as family.name+tv@gmail.com"))
+        // Versions, lines and class names stay.
+        val trace = "Version 2.0.171 · Nov 1, 9:41 PM\n\tat a.b.C.d(C.kt:42)\njava.lang.IllegalStateException: keyCode=4"
+        assertEquals(trace, scrubbed(trace))
+    }
+
     @Test fun howLongAgo() {
         val c = clock()
         assertEquals("just now", c.ago(now - 30_000))
