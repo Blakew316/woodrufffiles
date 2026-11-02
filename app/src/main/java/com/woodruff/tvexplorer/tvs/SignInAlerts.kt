@@ -20,8 +20,8 @@ import java.net.URLEncoder
  *
  * Only Google's "revoked" answer ends a sign-in ([GoogleAuth.expirations]), so a slow or missing network never
  * says anything here. Each ending is told once ((TV, sign-in, since) is remembered for 9 days); the same sign-in
- * ending on several TVs at about the same time (the weekly limit of a consent screen in Testing) becomes one
- * message ([EndingBatches]). The TV's own quiet notice is posted by the sign-in notice, not here.
+ * ending on several TVs within 10 minutes (the weekly limit of a consent screen in Testing) becomes one message
+ * ([EndingBatches]). The TV's own quiet notice is posted by the sign-in notice, not here.
  */
 object SignInAlerts {
     private const val DAY = 24 * 3_600_000L
@@ -29,8 +29,13 @@ object SignInAlerts {
     private const val FRESH_MS = 8 * DAY
     /** How long a told ending is remembered (longer than [FRESH_MS], so it's never told twice). */
     private const val TOLD_MS = 9 * DAY
-    /** How long the first ending of a sign-in waits for the same sign-in ending on the other TVs. */
-    private const val HOLD_MS = 2 * 60_000L
+    /**
+     * How long the first ending of a sign-in waits for the same sign-in ending on the other TVs: the endings seen
+     * within 10 minutes are one message (phone-signin.md §5.2 and §6; the hub sees a linked TV's within about 5).
+     * Nothing else waits for it: the TV's own notice, and that TV's page on the phone, say so at once; and an ending
+     * signed in again meanwhile is never told. A TV with no linked TVs tells at once.
+     */
+    private const val HOLD_MS = 10 * 60_000L
     private const val PREFS = "health"
     private const val K_TOLD = "signin.told"
 
@@ -202,7 +207,7 @@ internal fun linkedEndings(statuses: List<TvStatus>, now: Long, freshMs: Long): 
 
 /**
  * Endings waiting to be told, by sign-in, in the order they came. The first of a sign-in opens its batch (its
- * owner then waits a moment for the same sign-in on other TVs and [take]s them all); told ones never come back,
+ * owner then waits 10 minutes for the same sign-in on other TVs and [take]s them all); told ones never come back,
  * and one TV counts once in a batch. Not thread-safe: [SignInAlerts] holds its lock.
  */
 internal class EndingBatches {
