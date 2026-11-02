@@ -1134,7 +1134,7 @@
       <div class="row"><span class="txt t">Person Alerts</span><input type="checkbox" class="switch" switch id="c-person" aria-label="Person alerts"></div>
       <div class="row"><span class="txt t">Motion Alerts</span><input type="checkbox" class="switch" switch id="c-motion" aria-label="Motion alerts"></div>
     </div>
-    <p class="foot" id="c-doorbell-foot">Needed on one TV only.</p>
+    <p class="foot" id="c-doorbell-foot">Enter it once: it’s copied to every linked TV, and each TV with its cameras connected listens on its own.</p>
     <div class="group"><button class="row tap" data-page="set-cams-help"><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button></div>
   </div></div>
 
@@ -1142,7 +1142,7 @@
     <div class="head">Cameras</div>
     <div class="group"><div class="row steps selectable">1. In Google Cloud, turn on the <b>Smart Device Management API</b>.<br>2. At <b>console.nest.google.com/device-access</b>, pay Google's one-time fee and create a project with the same client ID as Google Drive.<br>3. Paste its <b>Project ID</b> on the Cameras page and tap <b>Save</b>, then tap <b>Connect Your Cameras</b> (or open the <b>Command Center</b> on the TV and scan the code).</div></div>
     <div class="head">Doorbell Alerts</div>
-    <div class="group"><div class="row steps selectable">Set this on one TV only. In the Device Access Console turn on <b>Pub/Sub</b> for your project, then in Google Cloud create a pull subscription to that topic and paste its full name. Connect the cameras again on the TV afterwards.</div></div>
+    <div class="group"><div class="row steps selectable">Enter it once: it’s copied to every linked TV, and each TV with its cameras connected listens on its own. In the Device Access Console turn on <b>Pub/Sub</b> for your project, then in Google Cloud create a pull subscription to that topic and paste its full name. Connect the cameras again on the TV afterwards.</div></div>
   </div></div>
 
   <div class="page" id="set-mail" data-title="Mail" data-hash="mail"><div class="scroller">
@@ -5397,6 +5397,8 @@
   // A sign-in as the TV's Settings → Accounts says it (offline never changes it), from its state.
   var ACCOUNT = { signedIn: 'Signed in', expired: 'Sign-in ended', keysRejected: 'Keys not accepted', notSignedIn: 'Not signed in', notSetUp: 'Not set up' };
   function needsPerson(state) { return state === 'expired' || state === 'keysRejected'; }
+  // The Cameras page's foot under Doorbell Alerts when nothing is wrong (the page's own words).
+  var DOORBELL_FOOT = $('c-doorbell-foot').textContent;
   // What's on the page on screen glides into its new state (rows coming and going, words changing); the rest
   // just changes.
   function renderSettings(s) { glideTop(function () { applySettings(s); }); }
@@ -5422,7 +5424,8 @@
       if (!$('c-doorbell').value) $('c-doorbell').value = s.nest.doorbell || '';
       if ($('c-person').checked !== !!s.nest.person) $('c-person').checked = !!s.nest.person;
       if ($('c-motion').checked !== !!s.nest.motion) $('c-motion').checked = !!s.nest.motion;
-      if (s.nest.doorbellStatus) setText($('c-doorbell-foot'), s.nest.doorbellStatus);
+      // What's wrong with this TV's doorbell alerts while something is (the TV's own sentence), else how they work.
+      setText($('c-doorbell-foot'), s.nest.doorbellStatus || DOORBELL_FOOT);
     }
     status(['m-status'], s.mail.length ? String(s.mail.length) : 'None', false);
     // Connections in a word or two: "Drive, Mail" or "4 On"
