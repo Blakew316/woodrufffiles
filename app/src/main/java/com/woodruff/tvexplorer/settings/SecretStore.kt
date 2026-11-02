@@ -8,6 +8,10 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import com.woodruff.tvexplorer.util.NetworkWatch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.security.KeyStore
 import java.security.KeyStoreException
 import java.util.concurrent.ConcurrentHashMap
@@ -350,6 +354,10 @@ class SecretStore internal constructor(
         private fun onItsOwnThread(r: Runnable) = Thread(r, "secrets-key").apply { isDaemon = true }.start()
 
         private val keyBackListeners = CopyOnWriteArrayList<(Context) -> Unit>()
+        private val _keyBacks = MutableStateFlow(0)
+
+        /** Ticks when the app's store finds its key after it was missing ([keyBack]): for a screen showing what it read, to read again. */
+        val keyBacks: StateFlow<Int> = _keyBacks.asStateFlow()
 
         /**
          * Runs [action] whenever the app's store finds its key after it was missing (at most once a run, on a
@@ -363,6 +371,7 @@ class SecretStore internal constructor(
          * the libraries, the calendar, the cameras, the doorbell) tries now, and what was read as "not yet" reads again.
          */
         internal fun keyBack(c: Context) {
+            _keyBacks.update { it + 1 }
             NetworkWatch.tryAgainNow()
             keyBackListeners.forEach { action -> runCatching { action(c) }.onFailure { Log.w(TAG, "reading again with the key back failed", it) } }
         }

@@ -99,12 +99,15 @@ class ListsAfterKeystoreWakesTest {
 
         // The Keystore wakes: the background look finds the key within a couple of seconds.
         val waiting = NetworkWatch.comebacks.value
+        val screens = SecretStore.keyBacks.value
         started!!.run()
         // Nothing asked again, yet both lists are there, and what waits to try again was woken.
         assertEquals(listOf("den-1"), TvLinks.linked.value.map { it.id })
         assertTrue(TvLinks.listRead)
         assertEquals(listOf("woodruff-den-topic"), Phones.items.value.map { it.topic })
         assertEquals(waiting + 1, NetworkWatch.comebacks.value)
+        // And a screen showing what it read (Settings' Keys page) reads it again.
+        assertEquals(screens + 1, SecretStore.keyBacks.value)
     }
 
     @Test fun aScreenReadingTheListsOnTheMainThreadWhileTheKeystoreWakesDoesntKeepThemAway() {

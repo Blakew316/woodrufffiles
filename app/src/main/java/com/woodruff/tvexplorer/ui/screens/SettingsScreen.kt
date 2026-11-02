@@ -230,9 +230,11 @@ fun SettingsScreen(vm: MainViewModel) {
     // first frame, so nothing flashes, then off the main thread each time something changes or the
     // TV comes back from Android's settings. Google Photos connects in its own dialog: read again
     // when it closes.
-    // (Read again when the doorbell's listener changes what it's doing.)
+    // (Read again when the doorbell's listener changes what it's doing, and when the TV's Keystore wakes after a power
+    // cut: the keys it couldn't read are read then.)
     val doorbellListening by Doorbell.listening.collectAsStateWithLifecycle()
-    val facts by produceState(remember { readFacts(context) }, v, showPhotos, showCalendar, doorbellListening) {
+    val keysBack by com.woodruff.tvexplorer.settings.SecretStore.keyBacks.collectAsStateWithLifecycle()
+    val facts by produceState(remember { readFacts(context) }, v, showPhotos, showCalendar, doorbellListening, keysBack) {
         value = withContext(Dispatchers.IO) { readFacts(context) }
     }
     val update by Updater.state.collectAsStateWithLifecycle()
