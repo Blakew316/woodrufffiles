@@ -523,8 +523,9 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update first. The others only take one it has had for a whole day, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
             // How this copy came to be: a fresh install (after an uninstall) is what erases every sign-in.
             SettingItem(
-                Sym.Info, "This copy", installed.summary(), spaced = true,
-                detail = installed.signIns()?.let { "Sign-ins: $it" },
+                // A few words in the row ("Updated Nov 2"); the whole story in its panel.
+                Sym.Info, "This copy", thisCopyValue(installed) { tvDay(context, it) }, spaced = true,
+                detail = thisCopyStory(installed) { tvDayTime(context, it) },
                 about = "When Woodruff was installed fresh on this TV and last updated, and what installed it. Installing over the top keeps every sign-in; uninstalling first erases them.",
             ),
         )
