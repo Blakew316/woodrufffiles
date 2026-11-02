@@ -1,7 +1,7 @@
 {
- "build": "159",
- "commit": "c285333",
- "updated": "2026-11-01 21:48 UTC",
+ "build": "160",
+ "commit": "74c5f96",
+ "updated": "2026-11-02 00:13 UTC",
  "tv": [
   {
    "name": "home",
@@ -14,6 +14,12 @@
    "title": "Home \u00b7 menu open",
    "dark": "img/tv-home-menu-dark.webp",
    "light": "img/tv-home-menu-light.webp"
+  },
+  {
+   "name": "home-notice",
+   "title": "Home \u00b7 a notice",
+   "dark": "img/tv-home-notice-dark.webp",
+   "light": "img/tv-home-notice-light.webp"
   },
   {
    "name": "movies",
