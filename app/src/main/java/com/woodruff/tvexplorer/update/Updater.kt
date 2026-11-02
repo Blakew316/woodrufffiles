@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
+import android.util.JsonReader
+import android.util.JsonToken
 import android.util.Log
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.notify.AppVisibility
@@ -20,9 +22,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.io.Reader
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -42,7 +44,8 @@ import java.net.URL
  * running it uncompiled until the TV's overnight compile.
  */
 object Updater {
-    private const val API = "https://api.github.com/repos/Blakew316/woodrufffiles/releases/latest"
+    /** The newest releases, in one request (GitHub allows 60 an hour for the whole home, shared by every TV). */
+    private const val RELEASES = "https://api.github.com/repos/Blakew316/woodrufffiles/releases?per_page=30"
     private const val ASSET = "WoodruffFamily.apk"
     /** A release's speed profiles, named by the lowest API level each serves ("-api28-30" if it stops early). */
     private val PROFILE_NAME = Regex("""WoodruffFamily-api(\d+)(?:-(\d+))?\.dm""")
@@ -52,20 +55,20 @@ object Updater {
     internal const val EXTRA_MANUAL = "com.woodruff.tvexplorer.update.MANUAL"
     internal const val EXTRA_BUILD = "com.woodruff.tvexplorer.update.BUILD"
     private const val PREFS = "updates"
+    private const val HOUR = 3_600_000L
     /** In the background (the phone-connection service's loop). */
     private const val CHECK_EVERY_MS = 3_600_000L
     /** When Woodruff is opened: often enough that a fresh release shows up the next time you open it. */
     private const val CHECK_ON_OPEN_MS = 10 * 60_000L
     private const val IDLE_MS = 2 * 60_000L
-    private const val SETTLE_MS = 24 * 3_600_000L
-    /** However often releases come, a TV never stays behind longer than this. */
-    private const val MAX_BEHIND_MS = 2 * SETTLE_MS
+    /** How long a build must be the newest before the TVs other than the test TV take it. */
+    internal const val SETTLE_MS = 24 * HOUR
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
 
     data class State(
         val step: Step = Step.IDLE,
-        /** Build number of the newest release, when known. */
+        /** The build this is about: the one ready or downloading, the one waited for, or the newest release. */
         val latest: Int? = null,
         val progress: Float = 0f,
         val message: String? = null,
@@ -81,9 +84,9 @@ object Updater {
     val current: Int get() = BuildConfig.VERSION_CODE
 
     /**
-     * Test TV: installs each release as soon as it's out. Every other TV waits until the newest
-     * release has been out for [SETTLE_MS] with nothing newer, so a bad build is caught (and
-     * replaced) on the test TV before it reaches them. "Check for updates" in Settings skips the wait.
+     * Test TV: installs each release as soon as it's out. Every other TV only installs a build that
+     * was the newest for a whole day ([SETTLE_MS]), so a bad build is caught (and replaced) on the
+     * test TV before it reaches them. "Check for updates" in Settings skips the wait.
      */
     fun isTestTv(c: Context) = prefs(c).getBoolean("testTv", false)
     fun setTestTv(c: Context, on: Boolean) { prefs(c).edit().putBoolean("testTv", on).apply() }
@@ -208,63 +211,132 @@ object Updater {
         retryAt = System.currentTimeMillis() + (5 * 60_000L shl (failures - 1).coerceAtMost(6)).coerceAtMost(6 * 3_600_000L)
     }
 
+    /** One published release, as far as updating goes. */
+    internal data class Release(
+        val build: Int,
+        /** When it was published (ms). */
+        val published: Long,
+        /** Re-released to undo a bad build, or an "[urgent]" fix: every TV takes it at once. */
+        val rollback: Boolean = false,
+        /** Its files that have finished uploading. */
+        val files: List<ReleaseFile> = emptyList(),
+        /** Marked pre-release on GitHub: never installed, and not counted as newer (as /releases/latest does). */
+        val prerelease: Boolean = false,
+    ) {
+        val apk: ReleaseFile? get() = files.firstOrNull { it.name == ASSET }
+    }
+
+    internal data class ReleaseFile(val name: String, val size: Long, val url: String)
+
+    /** What [choose] decided. */
+    internal data class Choice(
+        /** The build to have ready to install (download it, unless it's the one ready already); null: none now. */
+        val build: Int?,
+        /** The newest build above this TV's that it's waiting for, when it waits. */
+        val waitingFor: Int? = null,
+        /** When that one arrives if nothing newer comes out first (ms from now; 0: as soon as it's uploaded). */
+        val arrivesInMs: Long = 0,
+        /** The newest release listed. */
+        val newest: Int? = null,
+    )
+
+    /**
+     * Which build this TV should have ready to install, from [releases] (GitHub's newest, in any order).
+     * [eager]: the test TV, or "Check for updates": the newest. Every other TV takes the newest build
+     * that was the newest for a whole day ([SETTLE_MS]) — the test TV has had it a day and nothing had
+     * to replace it — or a rollback, which every TV takes at once. However quickly releases come,
+     * those TVs never install a build the test TV hasn't had a day with (a burst of releases only
+     * makes them wait longer; Check for updates is always there). The build already downloaded
+     * ([ready]) stays, unless a later one is chosen or it has been taken down since. Visible for tests.
+     */
+    internal fun choose(releases: List<Release>, installed: Int, now: Long, eager: Boolean, ready: Int? = null): Choice {
+        val listed = releases.filter { !it.prerelease }
+        // The builds that became the latest, in turn. Builds can finish out of order: one published after
+        // a higher-numbered one never did (the build workflow doesn't make it the latest), so it's left out.
+        val line = listed.filter { r -> listed.none { it.build > r.build && it.published < r.published } }.sortedBy { it.build }
+        val newest = line.lastOrNull()?.build
+        // How long each was the newest: until the next one came out, or until now for the newest.
+        fun stood(r: Release): Long = (line.firstOrNull { it.build > r.build }?.published ?: now) - r.published
+        val above = line.filter { it.build > installed }
+        val pick = if (eager) {
+            above.lastOrNull()?.takeIf { it.apk != null }
+        } else {
+            above.lastOrNull { it.apk != null && (it.rollback || stood(it) >= SETTLE_MS) }
+        }
+        if (ready != null && ready > installed && (pick == null || pick.build <= ready)) {
+            // Taken down since it was downloaded (deleted, or made a pre-release): not installed after all.
+            // (Missing only because it's older than every release listed is no reason.)
+            val takenDown = listed.none { it.build == ready && it.apk != null } && releases.any { it.build <= ready }
+            if (!takenDown) return Choice(ready, newest = newest)
+        }
+        if (pick != null) return Choice(pick.build, newest = newest)
+        val next = above.lastOrNull() ?: return Choice(null, newest = newest)
+        val arrives = if (eager || next.rollback) 0L else (SETTLE_MS - stood(next)).coerceAtLeast(0)
+        return Choice(null, waitingFor = next.build, arrivesInMs = arrives, newest = newest)
+    }
+
+    /** What Settings says while this TV waits for [build], due in [arrivesInMs] if nothing newer comes out. Visible for tests. */
+    internal fun waitingMessage(build: Int, arrivesInMs: Long): String =
+        if (arrivesInMs <= 0) "2.0.$build is on its way"
+        else "2.0.$build arrives in about ${((arrivesInMs + HOUR - 1) / HOUR).coerceAtLeast(1)} h (after the test TV)"
+
     private suspend fun checkAndDownload(c: Context, manual: Boolean = false) { lock.withLock {
         if (_state.value.step == Step.DOWNLOADING || _state.value.step == Step.INSTALLING) return@withLock
         val before = _state.value
         lastAttempt = System.currentTimeMillis()
         _state.update { it.copy(step = Step.CHECKING, message = null) }
         try {
-            val release = JSONObject(get(API))
-            prefs(c).edit().putLong("lastCheck", System.currentTimeMillis()).apply()
-            val latest = buildNumber(release.optString("tag_name"))
-                ?: throw IOException("Couldn't read the latest version")
+            val releases = fetchReleases()
+            if (releases.isEmpty()) throw UpdateProblem("Couldn't check · trying again soon")
             val p = prefs(c)
-            if (latest <= current) { p.edit().remove("behindOn").remove("behindSince").apply(); _state.value = State(Step.UP_TO_DATE, latest); return@withLock }
-            // Already downloaded and waiting for a quiet moment: keep it ready.
-            if (before.step == Step.READY && before.latest == latest && apkFile(c).exists()) { _state.value = before; return@withLock }
-            val now = System.currentTimeMillis()
-            val age = now - (published(release.optString("published_at")) ?: 0L)
-            // How long this TV has known it's behind (on this installed version).
-            if (p.getInt("behindOn", -1) != current) p.edit().putInt("behindOn", current).putLong("behindSince", now).apply()
-            val behind = now - p.getLong("behindSince", now)
-            // A rollback (an earlier version re-released to undo a bad one) goes to every TV at once.
-            val rollback = release.optString("name").contains("rollback", ignoreCase = true) ||
-                release.optString("tag_name").contains("rollback", ignoreCase = true)
-            if (waits(manual, rollback, isTestTv(c), age, behind)) {
-                val hours = (minOf(SETTLE_MS - age, MAX_BEHIND_MS - behind) / 3_600_000L + 1).coerceAtLeast(1)
-                _state.value = State(Step.UP_TO_DATE, latest, message = "2.0.$latest arrives in about $hours h (after the test TV)")
+            // (behindOn/behindSince: what the 48-hour limit this replaced kept.)
+            p.edit().putLong("lastCheck", System.currentTimeMillis()).remove("behindOn").remove("behindSince").apply()
+            val ready = before.latest.takeIf { before.step == Step.READY && apkFile(c).exists() }
+            val choice = choose(releases, current, System.currentTimeMillis(), eager = manual || isTestTv(c), ready = ready)
+            val build = choice.build
+            if (build == null) {
+                // A download that's no longer wanted (taken down since) goes.
+                if (ready != null) { apkFile(c).delete(); deleteProfiles(c) }
+                _state.value = choice.waitingFor?.let { State(Step.UP_TO_DATE, it, message = waitingMessage(it, choice.arrivesInMs)) }
+                    ?: State(Step.UP_TO_DATE, choice.newest)
                 return@withLock
             }
-            val json = release.optJSONArray("assets")
-            val assets = (0 until (json?.length() ?: 0)).map { json!!.getJSONObject(it) }
-            val asset = assets.firstOrNull { it.optString("name") == ASSET }
-                ?: throw IOException("The release has no $ASSET")
+            // Already downloaded and waiting for a quiet moment: keep it ready.
+            if (build == ready) { _state.value = before; return@withLock }
+            val release = releases.first { it.build == build }
+            val apk = release.apk ?: throw UpdateProblem("Couldn't check · trying again soon")
             val file = apkFile(c)
-            val size = asset.optLong("size")
             // Already downloaded and checked (e.g. the app was busy last time): don't fetch it again.
-            if (!(file.length() == size && verify(c, file) == latest)) {
-                _state.value = State(Step.DOWNLOADING, latest)
-                download(asset.getString("browser_download_url"), file, size) { p -> _state.update { it.copy(progress = p) } }
+            if (!(file.length() == apk.size && verify(c, file) == build)) {
+                _state.value = State(Step.DOWNLOADING, build)
+                download(apk.url, file, apk.size) { f -> _state.update { it.copy(progress = f) } }
                 val version = verify(c, file)
-                if (version != latest) { file.delete(); deleteProfiles(c); throw IOException("The download wasn't a valid Woodruff update") }
+                if (version != build) { file.delete(); deleteProfiles(c); throw UpdateProblem("The download was damaged · trying again soon") }
             }
-            fetchProfile(c, assets, latest)
+            fetchProfile(c, release.files, build)
             // A different build than the one that failed to install: start the install backoff afresh.
-            if (before.latest != latest) { failures = 0; retryAt = 0 }
-            _state.value = State(Step.READY, latest)
+            if (before.latest != build) { failures = 0; retryAt = 0 }
+            _state.value = State(Step.READY, build)
         } catch (e: Exception) {
             Log.w("Updater", "update check failed", e)
             // An update already downloaded and checked stays ready: a failed check (no network,
             // GitHub's hourly limit) mustn't take away its install.
             if (before.step == Step.READY && apkFile(c).exists()) _state.value = before
-            else _state.update { State(Step.ERROR, it.latest, message = e.message ?: "Couldn't check for updates") }
+            else _state.update { State(Step.ERROR, it.latest, message = plainCheckError(e)) }
         }
         Unit
     } }
 
-    /** Whether this TV holds off on a release [ageMs] old (see [isTestTv]). Visible for tests. */
-    fun waits(manual: Boolean, rollback: Boolean, testTv: Boolean, ageMs: Long, behindMs: Long = 0): Boolean =
-        !manual && !rollback && !testTv && ageMs < SETTLE_MS && behindMs < MAX_BEHIND_MS
+    /** A problem worded for Settings already. */
+    private class UpdateProblem(message: String) : IOException(message)
+
+    /** A failed check or download in plain words for Settings (the details go to the log). Visible for tests. */
+    internal fun plainCheckError(e: Exception): String = when (e) {
+        is UpdateProblem -> e.message ?: "Couldn't check · trying again soon"
+        is java.net.UnknownHostException, is java.net.SocketException, is java.io.InterruptedIOException,
+        is javax.net.ssl.SSLException -> "Couldn't connect · trying again soon"
+        else -> "Couldn't check · trying again soon"
+    }
 
     /** GitHub's "2026-10-14T22:06:24Z" → ms. Visible for tests. */
     fun published(s: String): Long? = runCatching {
@@ -410,17 +482,16 @@ object Updater {
      * has one (releases from before them don't). Never in the way: if it can't be had, the update
      * installs without it, as before.
      */
-    private fun fetchProfile(c: Context, assets: List<JSONObject>, build: Int) {
+    private fun fetchProfile(c: Context, files: List<ReleaseFile>, build: Int) {
         val file = profileFile(c, build)
         try {
-            val name = profileFor(assets.map { it.optString("name") }, Build.VERSION.SDK_INT)
+            val name = profileFor(files.map { it.name }, Build.VERSION.SDK_INT)
             deleteProfiles(c, keep = if (name != null) build else 0)
-            val asset = assets.firstOrNull { it.optString("name") == name } ?: return
-            val size = asset.optLong("size")
-            if (size > 0 && file.length() == size) return // already here
+            val asset = files.firstOrNull { it.name == name } ?: return
+            if (asset.size > 0 && file.length() == asset.size) return // already here
             file.delete()
-            if (size <= 0) return
-            download(asset.getString("browser_download_url"), file, size) {}
+            if (asset.size <= 0) return
+            download(asset.url, file, asset.size) {}
             Log.i("Updater", "downloaded $name for 2.0.$build")
         } catch (e: Exception) {
             Log.w("Updater", "couldn't download the speed profile", e)
@@ -437,19 +508,99 @@ object Updater {
         return true
     }
 
-    private fun get(url: String): String {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+    /** The newest releases, read straight off the connection (only the parts updating needs are kept). */
+    private fun fetchReleases(): List<Release> {
+        val conn = (URL(RELEASES).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000; readTimeout = 20_000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "WoodruffFamily/${BuildConfig.VERSION_NAME}")
         }
         try {
-            if (conn.responseCode !in 200..299) throw IOException("GitHub answered ${conn.responseCode}")
-            return conn.inputStream.bufferedReader().use { it.readText() }
+            val code = conn.responseCode
+            if (code == 403 || code == 429) throw UpdateProblem("The update server is busy · trying again soon")
+            if (code !in 200..299) throw UpdateProblem("Couldn't check · trying again soon")
+            return conn.inputStream.bufferedReader().use { parseReleases(it) }
         } finally {
             conn.disconnect()
         }
     }
+
+    /**
+     * GitHub's list of releases (a JSON array of about 12 KB each, mostly release notes and uploader
+     * details), read as it streams in, keeping only what updating needs. Releases without a version
+     * tag or a publish time (drafts) are left out. Visible for tests.
+     */
+    internal fun parseReleases(reader: Reader): List<Release> {
+        val out = ArrayList<Release>()
+        JsonReader(reader).use { json ->
+            json.beginArray()
+            while (json.hasNext()) readRelease(json)?.let { out += it }
+            json.endArray()
+        }
+        return out
+    }
+
+    private fun readRelease(json: JsonReader): Release? {
+        var tag = ""
+        var name = ""
+        var published: String? = null
+        var draft = false
+        var prerelease = false
+        val files = ArrayList<ReleaseFile>()
+        json.beginObject()
+        while (json.hasNext()) {
+            when (json.nextName()) {
+                "tag_name" -> tag = json.stringOrNull().orEmpty()
+                "name" -> name = json.stringOrNull().orEmpty()
+                "published_at" -> published = json.stringOrNull()
+                "draft" -> draft = json.booleanOrFalse()
+                "prerelease" -> prerelease = json.booleanOrFalse()
+                "assets" -> readFiles(json, files)
+                else -> json.skipValue()
+            }
+        }
+        json.endObject()
+        if (draft) return null
+        val build = buildNumber(tag) ?: return null
+        val at = published?.let { published(it) } ?: return null
+        // "rollback" in its name: a re-release to undo a bad build, or an urgent fix (see the build workflow).
+        val rollback = name.contains("rollback", ignoreCase = true) || tag.contains("rollback", ignoreCase = true)
+        return Release(build, at, rollback, files, prerelease)
+    }
+
+    private fun readFiles(json: JsonReader, into: MutableList<ReleaseFile>) {
+        if (json.peek() == JsonToken.NULL) { json.nextNull(); return }
+        json.beginArray()
+        while (json.hasNext()) {
+            var name = ""
+            var size = 0L
+            var url = ""
+            var state = "uploaded"
+            json.beginObject()
+            while (json.hasNext()) {
+                when (json.nextName()) {
+                    "name" -> name = json.stringOrNull().orEmpty()
+                    "size" -> size = if (json.peek() == JsonToken.NUMBER) json.nextLong() else { json.skipValue(); 0L }
+                    "browser_download_url" -> url = json.stringOrNull().orEmpty()
+                    "state" -> state = json.stringOrNull() ?: "uploaded"
+                    else -> json.skipValue()
+                }
+            }
+            json.endObject()
+            // Still uploading ("open"): not there yet.
+            if (state == "uploaded" && name.isNotEmpty() && url.isNotEmpty()) into += ReleaseFile(name, size, url)
+        }
+        json.endArray()
+    }
+
+    private fun JsonReader.stringOrNull(): String? = when (peek()) {
+        JsonToken.NULL -> { nextNull(); null }
+        JsonToken.STRING, JsonToken.NUMBER -> nextString()
+        else -> { skipValue(); null }
+    }
+
+    private fun JsonReader.booleanOrFalse(): Boolean =
+        if (peek() == JsonToken.BOOLEAN) nextBoolean() else { skipValue(); false }
 
     private fun download(url: String, dest: File, size: Long, progress: (Float) -> Unit) {
         val tmp = File(dest.parentFile, dest.name + ".part")
@@ -459,7 +610,7 @@ object Updater {
             setRequestProperty("User-Agent", "WoodruffFamily/${BuildConfig.VERSION_NAME}")
         }
         try {
-            if (conn.responseCode !in 200..299) throw IOException("Download failed (${conn.responseCode})")
+            if (conn.responseCode !in 200..299) throw UpdateProblem("Couldn't download it · trying again soon")
             var done = 0L
             var shown = 0L
             conn.inputStream.use { input ->
@@ -472,8 +623,8 @@ object Updater {
                     }
                 }
             }
-            if (size > 0 && done != size) throw IOException("The download was cut off")
-            if (!tmp.renameTo(dest)) throw IOException("Couldn't save the update")
+            if (size > 0 && done != size) throw UpdateProblem("The download stopped · trying again soon")
+            if (!tmp.renameTo(dest)) throw UpdateProblem("Couldn't save it: the TV may be out of space")
         } finally {
             conn.disconnect()
             tmp.delete()

@@ -377,8 +377,8 @@ fun SettingsScreen(vm: MainViewModel) {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
             SettingItem(Sym.Autorenew, "Install updates automatically", onOff(facts.autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !facts.autoUpdate); changed() },
-            // One TV gets each update first; the rest wait a day so a bad build never reaches them all.
-            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update a day before the others, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
+            // One TV gets each update first; the rest only take one it has had for a day, so a bad build never reaches them all.
+            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update first. The others only take one it has had for a whole day, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
             // How this copy came to be: a fresh install (after an uninstall) is what erases every sign-in.
             SettingItem(
                 Sym.Info, "This copy", installed.summary(), spaced = true,
