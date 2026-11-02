@@ -181,10 +181,18 @@ object TvScreen {
 
     private val pictureLock = Any()
     private class Made(val jpeg: ByteArray, val at: Long)
-    /** Pictures made lately, by width, and when (elapsed ms). */
+    /** Pictures made lately, by width, and when (elapsed ms); each only for [SHARE_MS]. */
     private val made = HashMap<Int, Made>()
-    /** What pictures of each width are copied into, one bitmap per window, kept for the next picture. */
-    private val spare = HashMap<Int, ArrayList<Bitmap>>()
+    /**
+     * What pictures of each width are copied into, one bitmap per window, kept for the next picture:
+     * for the [KEPT_WIDTHS] widths asked for last (the phone's and the hub's), so pictures asked for at
+     * other widths never pile up bitmaps.
+     */
+    private val spare = object : LinkedHashMap<Int, ArrayList<Bitmap>>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, ArrayList<Bitmap>>): Boolean =
+            (size > KEPT_WIDTHS).also { drop -> if (drop) eldest.value.forEach(Bitmap::recycle) }
+    }
+    private const val KEPT_WIDTHS = 2
     /** When those go if no picture comes first (elapsed ms), and the job that lets them go. */
     private var keepUntil = 0L
     private var letGo: Job? = null
@@ -201,7 +209,8 @@ object TvScreen {
         val width = maxWidth.coerceIn(MIN_WIDTH, WIDTH)
         synchronized(pictureLock) {
             val now = SystemClock.elapsedRealtime()
-            made[width]?.let { if (now - it.at < SHARE_MS && it.at >= pressedAt) return it.jpeg }
+            made[width]?.let { if (now - it.at in 0 until SHARE_MS && it.at >= pressedAt) return it.jpeg }
+            made.values.removeAll { now - it.at !in 0 until SHARE_MS }
             val a = top() ?: return null
             keepUntil = now + KEEP_MS
             if (letGo == null) letGo = scope.launch { letGoWhenDue() }
@@ -220,6 +229,9 @@ object TvScreen {
     /** Whether anything is kept for pictures (for tests). */
     internal val holdsBitmaps: Boolean get() = synchronized(pictureLock) { spare.isNotEmpty() }
 
+    /** The widths whose bitmaps are kept for the next picture (for tests). */
+    internal val keptWidths: Set<Int> get() = synchronized(pictureLock) { spare.keys.toSet() }
+
     private suspend fun letGoWhenDue() {
         while (true) {
             val left = synchronized(pictureLock) {
@@ -235,6 +247,8 @@ object TvScreen {
         spare.values.forEach { list -> list.forEach { it.recycle() } }
         spare.clear()
         made.clear()
+        // (Let go early, by release(): its timer has nothing left to do, and the next picture starts another.)
+        letGo?.cancel()
         letGo = null
     }
 
@@ -258,17 +272,27 @@ object TvScreen {
         }
         if (!copied[0]) return null
         val canvas = Canvas(into[0])
+        val dimBelow = dimBelow(layers.map { it.dim }, copied)
         for (i in 1 until layers.size) {
             if (!copied[i]) continue
             val l = layers[i]
-            // Dimmed behind it, as the TV dims what's under a pop-up.
-            if (l.dim > 0f) canvas.drawColor(Color.argb((l.dim.coerceIn(0f, 1f) * 255).roundToInt(), 0, 0, 0))
+            // What's under it dimmed, as the TV dims what's under a pop-up.
+            if (i == dimBelow) canvas.drawColor(Color.argb((l.dim.coerceIn(0f, 1f) * 255).roundToInt(), 0, 0, 0))
             canvas.drawBitmap(into[i], null, RectF(l.x * scale, l.y * scale, (l.x + l.w) * scale, (l.y + l.h) * scale), smooth)
         }
         return into[0]
     }
 
     private fun sized(px: Int, scale: Float) = (px * scale).roundToInt().coerceAtLeast(1)
+
+    /**
+     * Which of the layers (lowest first, the screen at 0, with how much each dims what's under it) has
+     * the dim drawn just below it: the top one that dims and was [copied]; -1 for none. Android dims
+     * once, just below the top window that asks to, so a menu over a title page dims the screen
+     * under both once, and the title page with it. Visible for tests.
+     */
+    internal fun dimBelow(dims: List<Float>, copied: BooleanArray): Int =
+        (dims.size - 1 downTo 1).firstOrNull { copied[it] && dims[it] > 0f } ?: -1
 
     /** One bitmap per window, [sizes] big, the ones from the last picture of this width where they fit. */
     private fun bitmaps(width: Int, sizes: List<Pair<Int, Int>>): List<Bitmap> {
