@@ -3,6 +3,7 @@ package com.woodruff.tvexplorer.server
 import android.content.Context
 import android.content.Intent
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FamilySync
@@ -11,6 +12,7 @@ import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
 import com.woodruff.tvexplorer.cloud.NewEpisodes
+import com.woodruff.tvexplorer.cloud.TitleSearch
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.MediaRef
@@ -157,15 +159,15 @@ class WatchRoutes(
         }
         val unwatched = s.parameters["unwatched"]?.firstOrNull() == "1"
         val genre = s.parameters["genre"]?.firstOrNull()?.ifBlank { null }
-        val words = WatchJson.words(s.parameters["q"]?.firstOrNull().orEmpty().take(100))
+        val query = s.parameters["q"]?.firstOrNull().orEmpty().take(TitleSearch.QUERY_MAX)
         val offset = (s.parameters["offset"]?.firstOrNull()?.toIntOrNull() ?: 0).coerceAtLeast(0)
         val limit = (s.parameters["limit"]?.firstOrNull()?.toIntOrNull() ?: 60).coerceIn(1, 120)
         // The Unwatched filter leaves out what the TV's own grid does: a film's ✓, a show already started.
         val started by lazy { Library.startedShows(files, facts.recent, facts.showOf, facts.watched) { matchKeyOf(it) } }
         val seen: (DriveFile) -> Boolean = if (shows) { f -> f.id in started } else { f -> WatchJson.filmOf(f, facts.folder(f.id))?.let { facts.watched(WatchJson.driveKey(it.id)) } == true }
-        val base = if (words.isEmpty()) files else files.filter { WatchJson.matches(it, words) }
-        // "Recently Added" as the TV's grid sorts it: a show whose new episodes came lately by the newest of them.
-        val list = Library.apply(base, LibraryFilter(sort = sort, genre = genre, unwatched = unwatched), seen) { NewEpisodes.addedAt(it, facts.news) }
+        // Filtered, matched (Library.queryWords / matches: the TV's one rule, a four-digit word also its year) and sorted
+        // as the TV's grid does it; "Recently Added" with a show whose new episodes came lately by the newest of them.
+        val list = Library.apply(files, LibraryFilter(sort = sort, genre = genre, query = query, unwatched = unwatched), seen) { NewEpisodes.addedAt(it, facts.news) }
         return json(
             JSONObject().put("state", state(m, sh)).put("count", list.size).put("offset", offset)
                 .put("items", JSONArray().apply { list.drop(offset).take(limit).forEach { put(WatchJson.title(it, facts)) } })
@@ -178,27 +180,18 @@ class WatchRoutes(
     // ---- GET /api/library/search ------------------------------------------------------------------
 
     private fun search(s: IHTTPSession): Response {
-        val q = s.parameters["q"]?.firstOrNull().orEmpty().take(100)
-        val limit = (s.parameters["limit"]?.firstOrNull()?.toIntOrNull() ?: 100).coerceIn(1, 100)
+        val q = s.parameters["q"]?.firstOrNull().orEmpty().take(TitleSearch.QUERY_MAX)
+        val limit = (s.parameters["limit"]?.firstOrNull()?.toIntOrNull() ?: TitleSearch.LIMIT).coerceIn(1, TitleSearch.LIMIT)
         val (m, sh) = WatchLibrary.listings(ctx)
         val facts = facts(m, sh)
-        val movies = WatchJson.search(facts.movies, q)
-        val shows = WatchJson.search(facts.shows, q)
-        // The library holding the best match comes first (ties: Movies), as the TV ranks one list.
-        val first = when {
-            movies.isEmpty() -> if (shows.isEmpty()) "movies" else "shows"
-            shows.isEmpty() -> "movies"
-            else -> {
-                val a = movies.first(); val b = shows.first()
-                val ra = Library.info(a.first).rating ?: -1.0; val rb = Library.info(b.first).rating ?: -1.0
-                if (b.second < a.second || (b.second == a.second && rb > ra)) "shows" else "movies"
-            }
-        }
+        // The TV's Search: one list, matched and ranked by TitleSearch, which the phone groups into its two
+        // libraries, the one holding the best match first (search spec §3.3), each kept to [limit].
+        val found = WatchJson.sections(TitleSearch.find(q, mapOf(DrivePlace.Movies to facts.movies, DrivePlace.TvShows to facts.shows), limit = Int.MAX_VALUE))
         return json(
-            JSONObject().put("state", state(m, sh)).put("q", q).put("first", first)
-                .put("movies", JSONArray().apply { movies.take(limit).forEach { put(WatchJson.title(it.first, facts)) } })
-                .put("shows", JSONArray().apply { shows.take(limit).forEach { put(WatchJson.title(it.first, facts)) } })
-                .put("capped", JSONObject().put("movies", movies.size > limit).put("shows", shows.size > limit)),
+            JSONObject().put("state", state(m, sh)).put("q", q).put("first", if (found.showsFirst) "shows" else "movies")
+                .put("movies", JSONArray().apply { found.movies.take(limit).forEach { put(WatchJson.title(it, facts)) } })
+                .put("shows", JSONArray().apply { found.shows.take(limit).forEach { put(WatchJson.title(it, facts)) } })
+                .put("capped", JSONObject().put("movies", found.movies.size > limit).put("shows", found.shows.size > limit)),
         )
     }
 

@@ -9,8 +9,10 @@ import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import com.woodruff.tvexplorer.cloud.FolderCache
 import com.woodruff.tvexplorer.cloud.FreshEpisode
+import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.ListingCache
 import com.woodruff.tvexplorer.cloud.MediaInfo
+import com.woodruff.tvexplorer.cloud.TitleSearch
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.tmdb.Tmdb
@@ -155,6 +157,22 @@ class WatchRoutesTest {
         // Its title starts with it; then the words are somewhere in it, the better rated first.
         assertEquals(listOf("Orbit", "Midnight Harbor", "Ironwood"), titles(s, "movies"))
         assertFalse(s.getJSONObject("capped").getBoolean("movies"))
+    }
+
+    @Test fun thePhonesSearchFindsWhatTheTvsSearchFindsInTheSameOrder() {
+        val shows = listOf(backyard, lighthouse)
+        for (q in listOf("o", "e", "the", "harbor", "2024", "light", "an", "science 2023", "zebra")) {
+            val r = json(get("/api/library/search", "q" to q))
+            // The TV's Search over the same libraries: one list, which the phone shows in two sections in its order.
+            val tv = TitleSearch.find(q, mapOf(DrivePlace.Movies to movies, DrivePlace.TvShows to shows)).hits
+            assertEquals(q, tv.filter { it.place == DrivePlace.Movies }.map { Library.info(it.file).title }, titles(r, "movies"))
+            assertEquals(q, tv.filter { it.place == DrivePlace.TvShows }.map { Library.info(it.file).title }, titles(r, "shows"))
+            assertEquals(q, if (tv.firstOrNull()?.place == DrivePlace.TvShows) "shows" else "movies", r.getString("first"))
+        }
+        // A grid's own search field: the same match (a four-digit word is also the year), in the grid's own order.
+        assertEquals(listOf("Ironwood"), titles(json(get("/api/library", "place" to "movies", "q" to "2025"))))
+        // (A–Z there, where Search would put "Orbit" first.)
+        assertEquals(listOf("Ironwood", "Midnight Harbor", "Orbit"), titles(json(get("/api/library", "place" to "movies", "q" to "o"))))
     }
 
     @Test fun aFilmsTitleSheetResumesAndStartsOver() {

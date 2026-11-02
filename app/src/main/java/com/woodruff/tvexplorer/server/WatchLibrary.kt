@@ -15,6 +15,7 @@ import com.woodruff.tvexplorer.cloud.LibrarySort
 import com.woodruff.tvexplorer.cloud.ListingCache
 import com.woodruff.tvexplorer.cloud.NewEpisodes
 import com.woodruff.tvexplorer.cloud.NewShow
+import com.woodruff.tvexplorer.cloud.TitleSearch
 import com.woodruff.tvexplorer.cloud.episodeCodeOf
 import com.woodruff.tvexplorer.cloud.episodeName
 import com.woodruff.tvexplorer.cloud.episodePlayTitle
@@ -444,44 +445,23 @@ internal object WatchJson {
     /** The A–Z first page of a library for Watch's rows. */
     fun firstOf(files: List<DriveFile>, n: Int = 20): List<DriveFile> = Library.apply(files, LibraryFilter(sort = LibrarySort.TITLE)).take(n)
 
-    // ---- Search: the TV's matching and ranking ------------------------------------------------------
+    // ---- Search: the TV's one ranked list, in the phone's two sections ----------------------------------
 
     /**
-     * Whether [f] matches [words] (normalized): every word in its title, or a four-digit word as its
-     * release year. The one rule the TV's Search, Streaming's grid and the phone share.
+     * A search's titles as the phone shows them: Movies and TV Shows, each in the order the TV's Search ranks
+     * them; [showsFirst]: TV Shows holds the best match, so its section comes first.
      */
-    fun matches(f: DriveFile, words: List<String>): Boolean {
-        val i = Library.info(f)
-        val text = Library.normalize(i.title)
-        return words.all { w -> w in text || (w.length == 4 && w.all(Char::isDigit) && i.year?.toString() == w) }
-    }
-
-    /** The query's words as matched: accents and case ignored, punctuation as spaces. */
-    fun words(query: String): List<String> = Library.normalize(query).split(' ').filter { it.isNotEmpty() }
+    class Sections(val movies: List<DriveFile>, val shows: List<DriveFile>, val showsFirst: Boolean)
 
     /**
-     * How well [f] answers [query]: 0 when its title starts with it (a leading "the", "a", "an" left
-     * out on both sides), 1 when a word in its title does, 2 when the words are only somewhere in it.
+     * [found] (the TV's Search over both libraries, [TitleSearch.find]: the same letters find the same titles in
+     * the same order on both) grouped as the phone shows it (search spec §3.3).
      */
-    fun rank(f: DriveFile, query: String): Int {
-        val q = Library.sortKey(query)
-        val title = Library.normalize(Library.info(f).title)
-        return when {
-            q.isEmpty() -> 2
-            Library.sortKey(title).startsWith(q) -> 0
-            " $title".contains(" $q") -> 1
-            else -> 2
-        }
-    }
-
-    /** [files] matching [query], best first: by [rank], then the higher TMDB rating, then A–Z. */
-    fun search(files: List<DriveFile>, query: String): List<Pair<DriveFile, Int>> {
-        val w = words(query)
-        if (w.isEmpty()) return emptyList()
-        return files.asSequence().filter { matches(it, w) }.map { it to rank(it, query) }
-            .sortedWith(compareBy<Pair<DriveFile, Int>> { it.second }.thenByDescending { Library.info(it.first).rating ?: -1.0 }.thenBy { Library.sortKey(Library.info(it.first).title) })
-            .toList()
-    }
+    fun sections(found: TitleSearch.Found): Sections = Sections(
+        found.hits.filter { it.place == DrivePlace.Movies }.map { it.file },
+        found.hits.filter { it.place == DrivePlace.TvShows }.map { it.file },
+        found.hits.firstOrNull()?.place == DrivePlace.TvShows,
+    )
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
     private val EPISODE_CODE = Regex("""(?i)(?<![a-z0-9])(s\d{1,2}\s*[ex]\s*\d{1,3}|\d{1,2}x\d{2})(?![0-9])""")

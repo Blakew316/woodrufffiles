@@ -2,9 +2,11 @@ package com.woodruff.tvexplorer.server
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import com.woodruff.tvexplorer.cloud.FreshEpisode
 import com.woodruff.tvexplorer.cloud.MediaInfo
+import com.woodruff.tvexplorer.cloud.TitleSearch
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.tvs.SignInState
 import com.woodruff.tvexplorer.ui.screens.MainPlay
@@ -261,22 +263,28 @@ class WatchJsonTest {
         assertEquals("New season", WatchJson.caption(old, WatchFacts(emptyList(), listOf(old), emptyList(), emptyList(), emptyMap(), { false }, { null }, WatchJson.newShows(more, listOf(old), now, { false }, emptyList()), now)))
     }
 
-    @Test fun searchRanksLikeTheTv() {
+    @Test fun searchGroupsTheTvsOneRankedListIntoItsTwoLibraries() {
         val harbor = film("1", "a", "Midnight Harbor", 2024, rating = 7.8)
         val office = show("2", "The Office")
         val coast = film("3", "b", "Harbor Lights", 2019, rating = 6.0)
         val dark = film("4", "c", "The Dark Harbor", 2024, rating = 8.5)
-        val ranked = WatchJson.search(listOf(harbor, office, coast, dark), "harbor").map { it.first.id }
-        // The title starting with it first; then a word starting with it (higher rated first).
-        assertEquals(listOf("3", "4", "1"), ranked)
+        val patrol = show("5", "Harbor Patrol")
+        fun find(q: String) = WatchJson.sections(TitleSearch.find(q, mapOf(DrivePlace.Movies to listOf(harbor, coast, dark), DrivePlace.TvShows to listOf(office, patrol))))
+        // The TV's order in each: titles starting with it first (the better rated first), then a word starting with it.
+        val h = find("harbor")
+        assertEquals(listOf("3", "4", "1"), h.movies.map { it.id })
+        assertEquals(listOf("5"), h.shows.map { it.id })
+        assertFalse("the best match is a film", h.showsFirst)
+        assertTrue(find("patrol").showsFirst)
         // A leading "the" is left out on both sides; accents and case are ignored.
-        assertEquals(listOf("2"), WatchJson.search(listOf(harbor, office), "the off").map { it.first.id })
-        assertEquals(listOf("2"), WatchJson.search(listOf(office), "OFFICE").map { it.first.id })
-        // Four digits also match the year.
-        assertEquals(setOf("1", "4"), WatchJson.search(listOf(harbor, coast, dark), "2024").map { it.first.id }.toSet())
-        assertEquals(listOf("4"), WatchJson.search(listOf(harbor, coast, dark), "dark 2024").map { it.first.id })
-        assertTrue(WatchJson.search(listOf(harbor), "  ").isEmpty())
-        assertTrue(WatchJson.search(listOf(harbor), "zebra").isEmpty())
+        assertEquals(listOf("2"), find("the off").shows.map { it.id })
+        assertEquals(listOf("2"), find("OFFICE").shows.map { it.id })
+        // Four digits also match the year (and rank every title alike: the better rated first).
+        assertEquals(listOf("4", "1"), find("2024").movies.map { it.id })
+        assertEquals(listOf("4"), find("dark 2024").movies.map { it.id })
+        val none = find("  ")
+        assertTrue(none.movies.isEmpty() && none.shows.isEmpty())
+        assertTrue(find("zebra").movies.isEmpty())
     }
 
     @Test fun artIsTmdbsOrComesThroughTheTv() {
