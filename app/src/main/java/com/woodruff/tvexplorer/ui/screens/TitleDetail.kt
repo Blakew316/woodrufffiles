@@ -498,13 +498,15 @@ internal fun TitlePage(
         // Moving down the page brings the focused row to rest a third of the way down, Apple TV style.
         PivotScroll(page, Pivot(fraction = 0.3f)) {
             Column(
-                Modifier.fillMaxSize().verticalScroll(page).padding(start = 72.dp, end = 48.dp, top = 120.dp, bottom = 48.dp),
+                // No margin on the right: the rows run on to the screen's edge (each ends at PageEnd once
+                // scrolled to its last item); the words and buttons keep PageEnd themselves.
+                Modifier.fillMaxSize().verticalScroll(page).padding(start = 72.dp, top = 120.dp, bottom = 48.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 // The top of the page: the title, its details and synopsis, and the buttons. The focus on a
                 // button asks for all of it to be shown (the words above them can't take the focus), in the
                 // focus's own scroll: back up on the buttons, the whole top of the page shows again.
-                Column(Modifier.bringWholeIntoView(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.padding(end = PageEnd).bringWholeIntoView(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Column(Modifier.fillMaxWidth(0.6f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(info.title, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         // Year, length, age rating and genres; whatever isn't known is left out.
@@ -598,7 +600,7 @@ internal fun TitlePage(
                     }
                 }
                 // When it would end, started now; for a show, first which episode that is (TMDB knowing its name).
-                if (playMs != null || holdEnds || mainNamed != null) EndsAt(playMs, fromMs, mainNamed)
+                if (playMs != null || holdEnds || mainNamed != null) EndsAt(playMs, fromMs, mainNamed, Modifier.padding(end = PageEnd))
                 // A show's seasons and episodes.
                 val seasonList = seasons
                 if (isShow && f.isFolder && seasonList != null && seasonList.isNotEmpty()) {
@@ -610,7 +612,7 @@ internal fun TitlePage(
                         PivotScroll(tabs, RowPivot) {
                             LazyRow(
                                 state = tabs,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(start = 10.dp, end = 10.dp + PageEnd, top = 4.dp, bottom = 4.dp),
                             ) {
                                 items(seasonList.size) { i ->
                                     val s = seasonList[i]
@@ -654,7 +656,7 @@ internal fun TitlePage(
                             LazyRow(
                                 state = row,
                                 modifier = Modifier.height(rowHeight),
-                                horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(vertical = 10.dp, horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(start = 16.dp, end = 16.dp + PageEnd, top = 10.dp, bottom = 10.dp),
                             ) {
                                 items(eps, key = { it.id }) { ep ->
                                     val key = MediaRef.Drive(ep.id).key
@@ -682,10 +684,10 @@ internal fun TitlePage(
                 }
                 // A film's collection, with ✓s and progress like the library's posters.
                 collection?.let { (name, films) ->
-                    Text(name, style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.padding(top = 10.dp))
+                    Text(name, style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.padding(top = 10.dp, end = PageEnd))
                     val row = remember { posterRowState() }
                     PivotScroll(row, RowPivot) {
-                        LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)) {
+                        LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(start = 16.dp, end = 16.dp + PageEnd, top = 14.dp, bottom = 14.dp)) {
                             items(films, key = { it.id }) { s ->
                                 val keys = remember(s.id) { EpisodeShows.load(context); keysOf(s, EpisodeShows.map.value) }
                                 PosterTile(
@@ -700,10 +702,10 @@ internal fun TitlePage(
                 }
                 // More like this, from your own library.
                 if (similar.isNotEmpty()) {
-                    Text("More like this", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.padding(top = 10.dp))
+                    Text("More like this", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.padding(top = 10.dp, end = PageEnd))
                     val row = remember { posterRowState() }
                     PivotScroll(row, RowPivot) {
-                        LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(vertical = 14.dp, horizontal = 16.dp)) {
+                        LazyRow(state = row, horizontalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(start = 16.dp, end = 16.dp + PageEnd, top = 14.dp, bottom = 14.dp)) {
                             items(similar, key = { it.id }) { s ->
                                 PosterTile(
                                     s, token, onClick = { onChoose(s) }, onLongClick = { rowMenu = MenuFor(rowsPlace, s, MenuPlace.TITLE_PAGE) },
@@ -777,6 +779,13 @@ private fun seasonKey(folder: DriveFile?): String = folder?.id ?: ""
 private val RowPivot = Pivot(offset = 16.dp)
 
 /**
+ * The page's right margin. The title, its details, the buttons and the row names stop this far from the
+ * screen's edge; the rows run on to the edge, as Netflix's and the Apple TV app's do (a card there goes off
+ * the screen rather than being cut square short of it), and end this far in once scrolled to their last item.
+ */
+private val PageEnd = 48.dp
+
+/**
  * "Ends at 11:34 PM": when something [lengthMs] long would end if started now, from [startMs] into
  * it (a blank line while its length isn't known). For a show, the episode it is comes first when
  * TMDB knows its name ([episode]: its code and name): "S2 E4 · The Volcano · Ends at 11:34 PM", one
@@ -784,7 +793,7 @@ private val RowPivot = Pivot(offset = 16.dp)
  * once a minute, so only this line is composed again for it, not the whole page.
  */
 @Composable
-private fun EndsAt(lengthMs: Long?, startMs: Long, episode: Pair<String, String>? = null) {
+private fun EndsAt(lengthMs: Long?, startMs: Long, episode: Pair<String, String>? = null, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     // The clock, to the minute.
     val now by produceState(System.currentTimeMillis()) {
@@ -799,7 +808,7 @@ private fun EndsAt(lengthMs: Long?, startMs: Long, episode: Pair<String, String>
     val color = Color.White.copy(alpha = 0.6f)
     val style = MaterialTheme.typography.bodyMedium
     // As wide as the words above it: past them the picture isn't shaded enough to read on.
-    Row(Modifier.fillMaxWidth(0.6f).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth(0.6f).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         if (episode == null) Text(ends ?: " ", color = color, style = style, maxLines = 1)
         else {
             Text("${episode.first} · ", color = color, style = style, maxLines = 1, softWrap = false)
