@@ -42,13 +42,26 @@ class MainIntentsTest {
     @Test
     fun woodruffsOwnIntentsKeepTheAppRowsIdentity() {
         // Android compares a task's intent with the app row's this way (Task.isSameIntentFilter):
-        // action, categories, data and component; not extras or flags.
+        // action, categories, data, package and component, exactly; not extras or flags.
         assertTrue(MainIntents.open(app, "notifications").filterEquals(appRow()))
         assertTrue(MainIntents.open(app).filterEquals(appRow()))
         assertTrue(MainIntents.resume(app).filterEquals(appRow()))
         // ...and the TV's launcher resolves exactly that identity to the main window.
         val resolved = app.packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER).setPackage(app.packageName), 0)
         assertTrue(resolved.any { it.activityInfo.name == MainActivity::class.java.name })
+    }
+
+    @Test
+    fun aLauncherThatNamesThePackageIsCoveredByTheRepeatLaunchGuard() {
+        // A launcher may build its app-row intent with PackageManager.getLeanbackLaunchIntentForPackage,
+        // which names the package as well as the component. Android compares the package strictly
+        // (Intent.filterEquals), so a task Woodruff's own intent started or re-rooted doesn't answer
+        // to it: Android then starts a second main window over the film, and that window closes at
+        // once, leaving the task as it was.
+        val launcher = app.packageManager.getLeanbackLaunchIntentForPackage(app.packageName)!!
+        assertEquals(main, launcher.component)
+        assertTrue(MainIntents.isRepeatLaunch(isTaskRoot = false, intent = launcher))
+        assertFalse(MainIntents.isRepeatLaunch(isTaskRoot = true, intent = launcher))
     }
 
     @Test
