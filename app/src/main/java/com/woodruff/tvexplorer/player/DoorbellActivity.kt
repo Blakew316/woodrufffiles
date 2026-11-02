@@ -45,6 +45,7 @@ import com.woodruff.tvexplorer.nest.Doorbell
 import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.nest.NestStep
 import com.woodruff.tvexplorer.ui.motion.AppMotion
+import com.woodruff.tvexplorer.ui.motion.DpadGate
 import com.woodruff.tvexplorer.ui.motion.TvMotion
 import com.woodruff.tvexplorer.ui.motion.useAppMotion
 import com.woodruff.tvexplorer.ui.screens.CameraCaption
@@ -137,6 +138,9 @@ class DoorbellActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Any key while it's up: someone's watching, the 2 minutes start again.
         if (event.action == KeyEvent.ACTION_DOWN) armAutoClose()
+        // Left / Right held: the next camera only once the last one's move has been drawn, as on
+        // Woodruff's other screens, instead of a camera (and a stream to start) per repeat.
+        if (DpadGate.shouldDrop(event)) return true
         return super.dispatchKeyEvent(event)
     }
 

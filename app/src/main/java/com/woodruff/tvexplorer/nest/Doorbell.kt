@@ -612,7 +612,7 @@ object Doorbell {
             // Not allowed to listen on the one Google just let it make: as good as refused, so it
             // hears the doorbell as before (rather than making it and failing again every 30 s).
             if (failure == OwnPullFailure.REFUSED) {
-                p.getString(K_OWN_FOR, null)?.let { p.edit().putString(K_REFUSED_FOR, it).putLong(K_REFUSED_AT, now).apply() }
+                (p.getString(K_OWN_FOR, null) ?: subscription(app))?.let { p.edit().putString(K_REFUSED_FOR, it).putLong(K_REFUSED_AT, now).apply() }
             }
             // Otherwise gone (deleted after a day unused, the TV having been off; or in Google Cloud)
             // or no longer allowed: made again now (or found refused), in a moment if just made.
