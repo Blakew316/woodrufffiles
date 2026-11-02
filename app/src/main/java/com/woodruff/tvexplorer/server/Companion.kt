@@ -205,7 +205,7 @@ class CompanionRoutes(private val ctx: Context) {
             val b = body(s)
             val tv = TvLinks.find(b.optString("id")) ?: throw IllegalArgumentException("Unknown TV")
             try {
-                TvLinks.press(tv, b.optString("key"))
+                TvLinks.press(tv, b.optString("key"), b.optInt("repeat"))
             } catch (e: TvLinks.Refused) {
                 throw IllegalArgumentException("${tv.name}: ${e.message}")
             } catch (e: java.io.IOException) {
@@ -216,7 +216,8 @@ class CompanionRoutes(private val ctx: Context) {
 
         // ---- TV screen & remote ------------------------------------------------------------
         s.uri == "/api/screen" && s.method == Method.GET -> {
-            val jpeg = TvScreen.frame()
+            // ?w= asks for a smaller picture (the hub's thumbnail of this TV); the phone's is the widest.
+            val jpeg = TvScreen.frame(s.parameters["w"]?.firstOrNull()?.toIntOrNull() ?: TvScreen.WIDTH)
             if (jpeg == null) {
                 NanoHTTPD.newFixedLengthResponse(Response.Status.CONFLICT, "application/json",
                     JSONObject().put("message", "Woodruff Family isn't on the TV screen right now. Press Home to open it.").toString())
@@ -226,7 +227,8 @@ class CompanionRoutes(private val ctx: Context) {
             }
         }
         s.uri == "/api/key" && s.method == Method.POST -> {
-            val key = body(s).optString("key")
+            val b = body(s)
+            val key = b.optString("key")
             // Volume works whatever is on screen: it's the TV's own volume, not a key press.
             val volume = mapOf(
                 "volup" to android.media.AudioManager.ADJUST_RAISE,
@@ -248,7 +250,8 @@ class CompanionRoutes(private val ctx: Context) {
                 // Another app is in front (Netflix, YouTube…): play or pause what it's playing.
                 NowPlaying.playPause(ctx)
             } else {
-                require(TvScreen.press(key)) { "Woodruff Family isn't on the TV screen. Press Home first." }
+                // "repeat": an arrow held on the phone (1, 2, 3… after its first press).
+                require(TvScreen.press(key, b.optInt("repeat"))) { "Woodruff Family isn't on the TV screen. Press Home first." }
             }
             ok()
         }

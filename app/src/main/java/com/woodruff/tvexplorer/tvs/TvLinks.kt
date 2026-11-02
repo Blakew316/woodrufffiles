@@ -238,8 +238,9 @@ object TvLinks {
 
     fun find(id: String): LinkedTv? = _linked.value.firstOrNull { it.id == id }
 
-    fun screen(tv: LinkedTv): ByteArray? {
-        val conn = open("${tv.base}/api/screen?k=${enc(tv.key)}", "GET")
+    /** [tv]'s picture; [width] asks for a smaller one than the phone's (a TV with an older Woodruff sends its usual). */
+    fun screen(tv: LinkedTv, width: Int? = null): ByteArray? {
+        val conn = open("${tv.base}/api/screen?k=${enc(tv.key)}" + (width?.let { "&w=$it" } ?: ""), "GET")
         try {
             return if (conn.responseCode == 200) conn.inputStream.use { it.readBytes() } else null
         } catch (e: IOException) {
@@ -331,8 +332,9 @@ object TvLinks {
         return pickTargets(asked, default, id(c), name(c), _linked.value)
     }
 
-    fun press(tv: LinkedTv, key: String) {
-        val json = JSONObject().put("key", key).toString()
+    /** Presses [key] on [tv]; [repeat]: an arrow held on the phone (1, 2, 3… after its first press). */
+    fun press(tv: LinkedTv, key: String, repeat: Int = 0) {
+        val json = JSONObject().put("key", key).apply { if (repeat > 0) put("repeat", repeat) }.toString()
         // Never sent again: a key press arriving seconds late could do the wrong thing.
         reach(tv, again = false) { t -> request("${t.base}/api/key?k=${enc(t.key)}", "POST", json) }
     }

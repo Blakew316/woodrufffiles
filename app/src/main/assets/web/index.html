@@ -2257,13 +2257,18 @@
 
   // ---- Remote -------------------------------------------------------------------------------------
   var tvId = 'this', tvTimer = null, tvSeq = 0, tvs = [], tvsAt = 0;
-  function press(key, btn) {
+  // repeat: a held button's presses after its first (1, 2, 3…), which the TV treats as its own remote's held button.
+  function press(key, btn, repeat) {
     if (btn) { btn.classList.add('hit'); setTimeout(function () { btn.classList.remove('hit'); }, 160); }
     haptic();
-    var sent = tvId === 'this' ? post('/api/key', { key: key }) : post('/api/tvs/key', { id: tvId, key: key });
+    var body = repeat ? { key: key, repeat: repeat } : { key: key };
+    var sent = tvId === 'this' ? post('/api/key', body) : post('/api/tvs/key', Object.assign({ id: tvId }, body));
     sent.then(function () { if (key === 'ok') setTimeout(pollField, 400); }, err);   // a TV's refusal (e.g. no Netflix there) is the toast
   }
-  document.querySelectorAll('[data-key]').forEach(function (b) { b.onclick = function () { press(b.dataset.key, b); }; });
+  // A hold already pressed what it pressed: the click its release makes presses nothing more (b._held).
+  document.querySelectorAll('[data-key]').forEach(function (b) { b.onclick = function () { if (performance.now() < (b._held || 0)) return; press(b.dataset.key, b); }; });
+  function held(b) { b._held = Infinity; }
+  function letGo(b) { if (b._held === Infinity) b._held = performance.now() + 600; }
   // Swipe anywhere on the round pad to move, like the Apple TV remote; a tap still hits a button.
   var swipe = null;
   $('pad').addEventListener('touchstart', function (e) { var t = e.touches[0]; swipe = { x: t.clientX, y: t.clientY }; }, { passive: true });
@@ -2274,17 +2279,32 @@
     var key = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
     press(key, $('pad').querySelector('[data-key=' + key + ']'));
   });
-  // Hold an arrow (or volume) to repeat, for scrolling long lists fast.
+  // Hold an arrow (or volume) to repeat, for scrolling long lists fast: a press as the hold starts, then repeats
+  // counting up, like the TV remote's held button (the TV lets each through only once the last move is drawn, so
+  // letting go stops at once).
   var repeatTimer = null;
   function stopRepeat() { clearTimeout(repeatTimer); clearInterval(repeatTimer); repeatTimer = null; }
   document.querySelectorAll('.pad .dir, .vol button').forEach(function (b) {
     b.addEventListener('touchstart', function () {
       stopRepeat();
       // (only while it's still pressed: a hold that turns into a swipe on the clickpad stops repeating)
-      repeatTimer = setTimeout(function () { repeatTimer = setInterval(function () { if (b.classList.contains('pressed')) press(b.dataset.key, b); else stopRepeat(); }, 140); }, 450);
+      repeatTimer = setTimeout(function () {
+        if (!b.classList.contains('pressed')) return;
+        var n = 0; held(b); press(b.dataset.key, b, 0);
+        repeatTimer = setInterval(function () { if (b.classList.contains('pressed')) press(b.dataset.key, b, ++n); else stopRepeat(); }, 140);
+      }, 450);
     }, { passive: true });
-    ['touchend', 'touchcancel'].forEach(function (ev) { b.addEventListener(ev, stopRepeat, { passive: true }); });
+    ['touchend', 'touchcancel'].forEach(function (ev) { b.addEventListener(ev, function () { stopRepeat(); letGo(b); }, { passive: true }); });
   });
+  // Hold OK for more options (the TV's menu for what's focused), as holding OK on the TV's remote does.
+  (function () {
+    var ok = $('pad').querySelector('.okb'), t = null;
+    ok.addEventListener('touchstart', function () {
+      clearTimeout(t);
+      t = setTimeout(function () { if (ok.classList.contains('pressed')) { held(ok); press('menu', ok); } }, 500);
+    }, { passive: true });
+    ['touchend', 'touchcancel'].forEach(function (ev) { ok.addEventListener(ev, function () { clearTimeout(t); letGo(ok); }, { passive: true }); });
+  })();
   $('rm-kb-hint').onclick = function () { openKb(true); };
 
   // Several TVs: this TV is the hub and relays the others. The title picks one once another TV is linked.

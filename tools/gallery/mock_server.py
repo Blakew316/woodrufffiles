@@ -311,7 +311,7 @@ def diagnostics():
     return SMOOTHNESS.replace('{recording}', rec), left
 
 
-KEYS = {'up', 'down', 'left', 'right', 'ok', 'back', 'home', 'playpause', 'mute', 'volup', 'voldown', 'netflix', 'youtube'}
+KEYS = {'up', 'down', 'left', 'right', 'ok', 'back', 'menu', 'home', 'playpause', 'mute', 'volup', 'voldown', 'netflix', 'youtube'}
 TYPES = {'.png': 'image/png', '.webmanifest': 'application/manifest+json'}
 
 
