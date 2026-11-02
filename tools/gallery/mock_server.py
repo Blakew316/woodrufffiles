@@ -7,7 +7,7 @@ JSON line ({"method", "path", "query", "body"}) so tests can check what the page
 Family Memories: sample photos and videos, each picture drawn here (a landscape, in SVG); what the phone adds is
 kept and served back as it was sent, and GET /__mock/memories lists what was added (name, taken, bytes and, for a
 JPEG, its size) so tests can check what the page sent.
-Test-only controls, never used by the gallery: POST /__mock/inbox {title, body, from} queues an
+Test-only controls (the gallery uses a few): POST /__mock/inbox {title, body, from} queues an
 announcement for the phone, POST /__mock/crash {text} sets the "last crash", POST /__mock/field {field}
 sets (or clears, with null) the TV text box the keyboard types into, and POST /__mock/set {settings, tvs, phones}
 changes the sample settings (merged), the linked TVs or the phones (replaced); POST /__mock/reset puts the TVs back.
@@ -32,7 +32,16 @@ GET /__mock/google (a plain page); GET /api/signin/status answers "pending" unti
 "done" (then signed in, and Connections say so), "weekly" (signed in, and Google ends it every week), "finishing",
 "failed", "cancelled", "replaced" or "expired"; {signin: "keys" | "project" | "down"} makes POST /api/signin answer
 that the keys or the cameras project come first, or not at all. {thisSignIns: {drive: "expired"}} gives Living Room's
-own report those sign-in states, and {signinTv: "…"} the TV's name the sheet shows. Inbox messages keep their id and link."""
+own report those sign-in states, and {signinTv: "…"} the TV's name the sheet shows. Inbox messages keep their id and link.
+Phone polish (L4-5): messages for the phone are numbered and never taken, as on the TV: GET /api/inbox?after=&epoch=
+answers those after the phone's last one; POST /__mock/inbox takes one message or a list (each may say "ago", in ms),
+and /__mock/set {inboxEpoch} makes the TV's inbox anew (as a reinstall does). The linked TVs' text boxes go through
+/api/tvs/type (Den's Search is open; Kitchen is off; Bedroom turns its link down and Living Room says why); POST
+/__mock/field {tv, field} sets one, GET /__mock/typed lists what the phone typed into each TV, and /__mock/set
+{typeDelay: ms} makes Den slow to answer. /__mock/set {down: true} drops every /api/ connection (the TV asleep or off the
+Wi-Fi) and {hang: true} leaves them unanswered for 30 s (as over Tailscale). /api/list, /api/memories and /api/roots
+report the room a file from the phone has ("free"; /__mock/set {free: bytes} makes the TV's own storage nearly full), and
+an upload that doesn't fit is answered 507 with plain words, as the TV does."""
 import json, math, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -124,8 +133,18 @@ def jpeg_size(b):
     return None
 
 
+# The room a file from the phone has (finding 44): 12.4 GB on the TV's own storage and 58 GB on the USB drive, as the TV
+# reports it; /__mock/set {free: bytes} makes the TV's own storage nearly full (for "This video is 150 MB; Living Room has
+# 120 MB free."), and the mock turns down an upload that doesn't fit with 507 and those words, as the TV does.
+FREE = {'tv': 13314398618, 'usb': 62277025792}
+
+
+def room_for(path):
+    return FREE['usb'] if path.startswith(USB) else FREE['tv']
+
+
 def memories_json():
-    return {'items': MEMORIES, 'folder': PHOTOS, 'fit': [1920, 1080], 'slideshow': True}
+    return {'items': MEMORIES, 'folder': PHOTOS, 'fit': [1920, 1080], 'slideshow': True, 'free': FREE['tv']}
 PHONES = [
     {'id': 'p-blake', 'name': "Blake's iPhone", 'alerts': True},
     {'id': 'p-mom', 'name': "Mom's iPhone", 'alerts': True},
@@ -188,9 +207,20 @@ def signin_status(grant):
     return {'status': 'pending', 'message': None, 'weekly': False}
 THIS_SIGNINS = {}   # /__mock/set {thisSignIns}: Living Room's own sign-in states
 FIELD = {'field': {'id': 1, 'label': 'Search file names', 'secret': False, 'multiline': False, 'text': 'vacation'}}
+# The linked TVs' text boxes, through Living Room (/api/tvs/type): Den has its Search open; Kitchen is off and Bedroom
+# turns its link down. What the phone typed into each TV is kept in TYPED (GET /__mock/typed), for tests.
+TV_FIELDS = {'b': {'id': 41, 'label': 'Search Movies & TV Shows', 'secret': False, 'multiline': False, 'text': ''}}
+TYPED = []
+# Messages for the phone, as the TV keeps them (finding 43): numbered in turn and never taken; GET /api/inbox?after=&epoch=
+# answers those after the phone's last one ("acked": what a phone asking without a number was given).
 INBOX = []
+INBOX_STATE = {'next': 0, 'acked': 0, 'epoch': 'mock1'}
 MIN, HOUR = 60_000, 3_600_000
 TV_STATE = {'relinked': False, 'playing': {'this': True, 'b': True}}
+# /__mock/set {down: true}: the TV stops answering (every /api/ request's connection is dropped, as when it's asleep or
+# the Wi-Fi is gone), until /__mock/set {down: false} or /__mock/reset.
+DOWN = {'on': False, 'hang': False, 'typeDelay': 0}   # hang: every /api/ request waits 30 s unanswered (a TV asleep on Tailscale);
+# typeDelay: POST /api/tvs/type answers after that many ms (to check the phone sends one text at a time)
 TVS_SET = {'tvs': None}   # /__mock/set {tvs}: replaces the list until /__mock/reset
 
 
@@ -833,6 +863,40 @@ KEYS = {'up', 'down', 'left', 'right', 'ok', 'back', 'home', 'playpause', 'mute'
 TYPES = {'.png': 'image/png', '.webmanifest': 'application/manifest+json'}
 
 
+def inbox(query):
+    """/api/inbox, as the TV answers: the messages after the phone's last (?after=, in this inbox's ?epoch=), from the
+    first for a number from another inbox, from where it was for a phone that hasn't a number yet."""
+    st, after, epoch = INBOX_STATE, query.get('after', [None])[0], query.get('epoch', [''])[0]
+    newest = INBOX[-1]['seq'] if INBOX else st['acked']
+    if after is None or not epoch:
+        start = st['acked']
+    elif epoch != st['epoch']:
+        start = 0
+    else:
+        start = int(after)
+    out = [m for m in INBOX if m['seq'] > start]
+    if after is None:
+        st['acked'] = max(st['acked'], newest)
+    elif epoch == st['epoch']:
+        st['acked'] = max(st['acked'], min(int(after), newest))
+    return {'messages': out, 'seq': max(newest, st['acked'], st['next'] if not INBOX else 0), 'epoch': st['epoch']}
+
+
+LINKED_NAMES = {'b': 'Den', 'c': 'Kitchen', 'd': 'Bedroom'}
+
+
+def linked_field(tv):
+    """A linked TV's text box through Living Room, as /api/tvs/type answers: Kitchen is off, Bedroom turns its link down
+    (Living Room says why, rather than failing), a TV that isn't linked any more is told."""
+    if tv not in LINKED_NAMES:
+        return 400, 'That TV isn’t linked any more.'
+    if tv == 'c':
+        return 400, 'Kitchen didn’t respond'
+    if tv == 'd' and not TV_STATE['relinked']:
+        return 200, {'field': None, 'note': 'Bedroom’s link stopped working. Link it again in Settings → TVs.'}
+    return 200, {'field': TV_FIELDS.get(tv)}
+
+
 def log(method, url, body):
     if not LOG:
         return
@@ -868,10 +932,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(open(shot, 'rb').read(), 'image/png')
         return self.send({'message': 'Woodruff Family isn\'t on the TV screen right now.'}, status=409)
 
+    def gone(self, path):
+        """The TV isn't answering: the request's connection just closes, as a TV that's asleep or off the Wi-Fi leaves it
+        (or, hanging, nothing comes back for 30 s, as over Tailscale)."""
+        if (DOWN['on'] or DOWN['hang']) and path.startswith('/api/'):
+            if DOWN['hang']:
+                time.sleep(30)
+            self.close_connection = True
+            return True
+        return False
+
     def do_GET(self):
         u = urlparse(self.path)
         path, query = u.path, parse_qs(u.query)
-        if path.startswith('/api/') and path not in ('/api/screen', '/api/tvs/screen', '/api/type', '/api/inbox', '/api/tvs', '/api/poster'):
+        if self.gone(path):
+            return
+        if path.startswith('/api/') and path not in ('/api/screen', '/api/tvs/screen', '/api/type', '/api/tvs/type', '/api/inbox', '/api/tvs', '/api/poster'):
             log('GET', self.path, b'')
         if path == '/':
             # Read on every request, so an edited page shows up without restarting the server.
@@ -919,7 +995,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send('Can\'t read folder', 'text/plain', 500)
             parent = where.rsplit('/', 1)[0]
             in_root = any(where != r['path'] and where.startswith(r['path'] + '/') for r in ROOTS)
-            return self.send({'path': where, 'parent': parent if in_root else None, 'files': TREE[where]})
+            return self.send({'path': where, 'parent': parent if in_root else None, 'files': TREE[where], 'free': room_for(where)})
         if path == '/api/download':
             name = query.get('path', ['file'])[0].rsplit('/', 1)[-1]
             return self.send(b'sample file', 'application/octet-stream', headers={'Content-Disposition': 'attachment; filename="%s"' % name})
@@ -927,9 +1003,7 @@ class Handler(BaseHTTPRequestHandler):
             report, left = diagnostics()
             return self.send(report, 'text/plain; charset=utf-8', headers={'X-Recording-Left': str(left), 'Cache-Control': 'no-store'})
         if path == '/api/inbox':
-            messages = INBOX[:]
-            del INBOX[:]
-            return self.send({'messages': messages})
+            return self.send(inbox(query))
         if path == '/__mock/google':
             return self.send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
                              '<title>Google</title><body style="font:17px system-ui;padding:24px">Google sign-in (sample)</body>',
@@ -948,8 +1022,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(landscape(i, w, h), 'image/svg+xml', headers={'Cache-Control': 'private, max-age=31536000'})
         if path == '/__mock/memories':
             return self.send(MEM_LOG)
+        if path == '/__mock/typed':
+            return self.send(TYPED)
+        if path == '/api/tvs/type':
+            status, body = linked_field(query.get('id', [''])[0])
+            return self.send(body, 'application/json' if isinstance(body, dict) else 'text/plain', status)
         api = {
-            '/api/roots': ROOTS,
+            '/api/roots': [dict(r, free=room_for(r['path']), removable=r['path'] == USB) for r in ROOTS],
             '/api/type': FIELD,
             '/api/memories': memories_json(),
             '/api/phones': {'phones': PHONES},
@@ -966,6 +1045,8 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n)
         u = urlparse(self.path)
         path, query = u.path, parse_qs(u.query)
+        if self.gone(path):
+            return
         upload = path in ('/api/upload', '/api/memories/add')
         if not path.startswith('/__mock/'):
             log('POST', self.path, raw if not upload else b'x' * len(raw))
@@ -974,15 +1055,21 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             body = {}
         if path == '/__mock/inbox':
-            msg = {'title': body.get('title', 'Dinner\'s ready'), 'body': body.get('body', ''), 'from': body.get('from', "Mom's iPhone")}
-            msg.update({k: body[k] for k in ('id', 'link') if k in body})
-            INBOX.append(msg)
+            for one in (body if isinstance(body, list) else [body]):   # one message, or several at once
+                INBOX_STATE['next'] += 1
+                msg = {'title': one.get('title', 'Dinner’s ready'), 'body': one.get('body', ''), 'from': one.get('from', 'Kitchen iPad'),
+                       'at': one.get('at', _now() - one.get('ago', 0)), 'seq': INBOX_STATE['next']}
+                msg.update({k: one[k] for k in ('id', 'link') if k in one})
+                INBOX.append(msg)
             return self.send({'ok': True})
         if path == '/__mock/crash':
             SETTINGS['crash'] = body.get('text', '')
             return self.send({'ok': True})
         if path == '/__mock/field':
-            FIELD['field'] = body.get('field')
+            if body.get('tv') and body['tv'] != 'this':
+                TV_FIELDS[body['tv']] = body.get('field')
+            else:
+                FIELD['field'] = body.get('field')
             return self.send({'ok': True})
         if path == '/__mock/reset':
             SETTINGS.clear(); SETTINGS.update(json.loads(json.dumps(SETTINGS_START)))
@@ -991,6 +1078,12 @@ class Handler(BaseHTTPRequestHandler):
             TVS_SET['tvs'] = None
             TV_STATE['relinked'] = False
             TV_STATE['playing'] = {'this': True, 'b': True}
+            del INBOX[:]   # (the numbers go on: a phone never sees one twice)
+            DOWN.update({'on': False, 'hang': False, 'typeDelay': 0})
+            FREE['tv'] = 13314398618
+            TV_FIELDS.clear(); TV_FIELDS['b'] = {'id': 41, 'label': 'Search Movies & TV Shows', 'secret': False, 'multiline': False, 'text': ''}
+            FIELD['field'] = {'id': 1, 'label': 'Search file names', 'secret': False, 'multiline': False, 'text': 'vacation'}
+            del TYPED[:]
             _reset_watch()
             return self.send({'ok': True})
         if path == '/__mock/set':
@@ -1013,6 +1106,16 @@ class Handler(BaseHTTPRequestHandler):
                 TVS_SET['tvs'] = body['tvs']
             if 'phones' in body:
                 PHONES[:] = body['phones']
+            if 'down' in body:
+                DOWN['on'] = bool(body['down'])
+            if 'hang' in body:
+                DOWN['hang'] = bool(body['hang'])
+            if 'typeDelay' in body:
+                DOWN['typeDelay'] = int(body['typeDelay'])
+            if 'inboxEpoch' in body:   # the TV's inbox made anew (reinstalled): its numbers start again
+                INBOX_STATE.update({'epoch': body['inboxEpoch'], 'acked': 0}); del INBOX[:]
+            if 'free' in body:
+                FREE['tv'] = int(body['free'])
             return self.send({'ok': True})
         if path in ('/api/key', '/api/tvs/key'):
             if body.get('key') not in KEYS:
@@ -1023,6 +1126,29 @@ class Handler(BaseHTTPRequestHandler):
                 tv = 'this' if path == '/api/key' else body.get('id')
                 if tv in TV_STATE['playing']:
                     TV_STATE['playing'][tv] = not TV_STATE['playing'][tv]
+            return self.send({'ok': True})
+        if path == '/api/type':
+            if not FIELD['field']:
+                return self.send('No text box is open on Living Room', 'text/plain', 400)
+            if body.get('id') is not None and body.get('id') != FIELD['field']['id']:
+                return self.send('That text box isn’t open on Living Room any more.', 'text/plain', 400)
+            FIELD['field']['text'] = body.get('text', '')
+            TYPED.append({'tv': 'this', 'field': body.get('id'), 'text': body.get('text', ''), 'submit': bool(body.get('submit'))})
+            return self.send({'ok': True})
+        if path == '/api/tvs/type':
+            if DOWN['typeDelay']:
+                time.sleep(DOWN['typeDelay'] / 1000)
+            tv = body.get('id')
+            status, answer = linked_field(tv)
+            if status != 200:
+                return self.send(answer, 'text/plain', status)
+            if answer.get('note'):
+                return self.send(answer['note'], 'text/plain', 400)
+            f = TV_FIELDS.get(tv)
+            if not f:
+                return self.send('No text box is open on %s' % LINKED_NAMES[tv], 'text/plain', 400)
+            f['text'] = body.get('text', '')
+            TYPED.append({'tv': tv, 'field': body.get('field'), 'text': body.get('text', ''), 'submit': bool(body.get('submit'))})
             return self.send({'ok': True})
         if path in ('/api/media', '/api/tvs/media'):
             tv = 'this' if path == '/api/media' else body.get('id')
@@ -1093,6 +1219,9 @@ class Handler(BaseHTTPRequestHandler):
             phone = {'id': body.get('id', 'p-blake'), 'name': body.get('name', "Blake's iPhone"),
                      'alerts': body.get('alerts', True), 'topic': 'woodruff-example'}
             return self.send({'phone': phone, 'phones': PHONES})
+        if upload and len(raw) > room_for(query.get('path', [PHOTOS])[0] if path == '/api/upload' else PHOTOS):
+            room = room_for(query.get('path', [PHOTOS])[0] if path == '/api/upload' else PHOTOS)
+            return self.send('Living Room is full.' if room <= 0 else 'This file is %d bytes; Living Room has %d bytes free.' % (len(raw), room), 'text/plain', 507)
         if path == '/api/memories/add':
             name = query.get('name', [''])[0].rsplit('/', 1)[-1]
             ext = os.path.splitext(name)[1].lower()
