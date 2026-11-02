@@ -289,13 +289,30 @@ class RecoveryViewTest {
         assertEquals(RecoveryView.NO_DETAILS, RecoveryView.summary("Version 2.0.172 · Nov 2, 9:41 PM · thread main"))
     }
 
+    @Test fun theCrashSummaryNeverShowsKeysTokensAddressesOrEmails() {
+        val report = "Version 2.0.172 · Nov 2, 9:41 PM · thread main\n" +
+            "java.lang.IllegalStateException: token=xyz789secret refused by 10.0.0.7\n" +
+            "\tat com.woodruff.tvexplorer.tmdb.Tmdb.search(Tmdb.kt:120)\n" +
+            "Caused by: java.io.FileNotFoundException: https://api.themoviedb.org/3/x?api_key=abc123secret\n" +
+            "Caused by: java.net.ConnectException: failed to connect to /192.168.1.21 (port 8080)\n" +
+            "Caused by: java.io.IOException: Unauthorized for someone@example.com, Bearer ya29.a0AfH6SMexample\n"
+        val shown = RecoveryView.summary(report)
+        for (secret in listOf("xyz789secret", "10.0.0.7", "abc123secret", "192.168.1.21", "someone@example.com", "ya29.a0AfH6SMexample")) {
+            assertFalse("$secret on screen", secret in shown)
+        }
+        // What failed and where still shows.
+        assertEquals("java.lang.IllegalStateException: token=… refused by …", shown.lines()[1])
+        assertTrue(shown.lines().any { it.startsWith("at com.woodruff.tvexplorer.tmdb.Tmdb.search") })
+    }
+
     @Test fun itsBuiltFromNothingThatCouldHaveBroken() {
         val source = listOf("src/main/java", "app/src/main/java").map { File(it, "com/woodruff/tvexplorer/update/RecoveryView.kt") }.first { it.isFile }
         val imports = source.readLines().filter { it.startsWith("import ") }.map { it.removePrefix("import ").trim() }
         assertNotNull(imports.firstOrNull())
         val banned = listOf("androidx.compose", "androidx.tv", "coil", "com.woodruff.tvexplorer.ui", "com.woodruff.tvexplorer.settings", "com.woodruff.tvexplorer.notify", "com.woodruff.tvexplorer.server", "androidx.lifecycle", "androidx.activity")
         for (i in imports) assertFalse(i, banned.any { i.startsWith(it) })
-        val allowed = listOf("android.", "androidx.core.content.res.ResourcesCompat", "com.woodruff.tvexplorer.BuildConfig", "com.woodruff.tvexplorer.R", "com.woodruff.tvexplorer.util.CrashLog", "com.woodruff.tvexplorer.util.EarlyCrashes", "kotlinx.coroutines.")
+        // (tvs.scrubbed is plain text work, so the crash summary never shows a key, token, address or email.)
+        val allowed = listOf("android.", "androidx.core.content.res.ResourcesCompat", "com.woodruff.tvexplorer.BuildConfig", "com.woodruff.tvexplorer.R", "com.woodruff.tvexplorer.tvs.scrubbed", "com.woodruff.tvexplorer.util.CrashLog", "com.woodruff.tvexplorer.util.EarlyCrashes", "kotlinx.coroutines.")
         for (i in imports) assertTrue("not on the list: $i", allowed.any { i.startsWith(it) })
         // Nor by full name in the code.
         val code = source.readText()

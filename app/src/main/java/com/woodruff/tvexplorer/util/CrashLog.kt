@@ -4,6 +4,7 @@ import android.content.Context
 import com.woodruff.tvexplorer.BuildConfig
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
+import com.woodruff.tvexplorer.tvs.scrubbed
 import java.io.File
 
 /**
@@ -55,13 +56,24 @@ object CrashLog {
     /** Posts the saved crash (if any) as a notice, then forgets it. */
     fun report(c: Context) {
         val text = keep(c) ?: return
-        // The first lines say what failed and where; the full trace stays short enough to read.
-        val lines = text.lines()
-        // The top frames say where it failed even when that's inside a library; then our own
-        // frames and any "Caused by" further down.
+        Notices.post(c, NoticeSource.SYSTEM, "Woodruff closed unexpectedly last time", noticeBody(text))
+    }
+
+    /**
+     * The notice's words for the crash report [text]. The first lines say what failed and where, even when
+     * that's inside a library; then Woodruff's own frames and any "Caused by" further down, so the trace stays
+     * short enough to read. It's on the TV's screen, and an exception's message can carry what it failed on:
+     * keys, tokens, addresses and emails are taken out ([scrubbed]); if that can't be done, only where the
+     * full report is.
+     */
+    internal fun noticeBody(text: String): String {
+        val lines = runCatching { scrubbed(text) }.getOrNull()?.lines() ?: return FULL_REPORT
         val top = lines.take(8)
         val ours = lines.drop(8).filter { it.contains("woodruff") || it.startsWith("Caused by") }.take(8)
         val shown = (top + ours).joinToString("\n") { it.trim() }
-        Notices.post(c, NoticeSource.SYSTEM, "Woodruff closed unexpectedly last time", "$shown\n\nThe full report is in the phone app: Settings → Last crash.")
+        return "$shown\n\n$FULL_REPORT"
     }
+
+    /** Where the whole report is: the phone app's own row for it (Settings → Last Crash on This TV). */
+    private const val FULL_REPORT = "The full report is in the phone app: Settings → Last Crash on This TV."
 }
