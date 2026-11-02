@@ -127,7 +127,7 @@ fun TitleDetail(
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         // The page grows into place as it fades in, and back out, as the system moves its window
         // (smooth even while the page is still being built).
-        DialogWindowMotion(WindowMotion.Page)
+        DialogWindowMotion(WindowMotion.Page, label = "Title page")
         // A dialog's keys never pass the activity's repeat gate: held arrows are gated here.
         Box(Modifier.fillMaxSize().dpadGate()) {
             // One page per title: a title picked from "More like this" starts afresh, with nothing (cast,

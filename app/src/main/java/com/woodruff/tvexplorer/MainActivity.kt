@@ -44,7 +44,7 @@ import com.woodruff.tvexplorer.util.Permissions
 import com.woodruff.tvexplorer.util.Presence
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity(), Restore.Restorable {
+class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexplorer.ui.SearchKey.Host {
     private val vm: MainViewModel by viewModels()
     /** Streaming's state, the same one the screens show (made by them, on this thread, when first needed). */
     private val drive: DriveViewModel by viewModels()
@@ -96,6 +96,13 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
         // The in-app slideshow's timer, while Woodruff is up: set again whenever its setting changes.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) { snapshotFlow { Appearance.idleMinutes }.collect { armIdle() } }
+        }
+        // The remote's Search button, in this window or any of its pop-ups (SearchKey), starts the voice
+        // search AppRoot has. (Whatever opens Search collects SearchKey.presses; this hands them on.)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                com.woodruff.tvexplorer.ui.SearchKey.presses.collect { com.woodruff.tvexplorer.ui.VoiceSearch.requests.tryEmit(Unit) }
+            }
         }
     }
 
@@ -170,9 +177,11 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
      * drawn, and drops stale ones; single presses always go through. (Dialog windows, whose keys
      * never come through here, have the same gate: Modifier.dpadGate().) Each key that goes through
      * is timed for Settings → Smoothness: the frames after it count as navigating, and a key that
-     * keeps the main thread busy shows up in the phone's Smoothness Report.
+     * keeps the main thread busy shows up in the phone's Smoothness Report. The remote's Search button
+     * asks for Search ([com.woodruff.tvexplorer.ui.SearchKey]; its pop-ups hand it over the same way).
      */
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (com.woodruff.tvexplorer.ui.SearchKey.take(event)) return true
         if (DpadGate.shouldDrop(event)) return true
         val started = com.woodruff.tvexplorer.util.FrameStats.keyStarted(event)
         try {
@@ -180,15 +189,6 @@ class MainActivity : ComponentActivity(), Restore.Restorable {
         } finally {
             com.woodruff.tvexplorer.util.FrameStats.keyFinished(event, started)
         }
-    }
-
-    /** The remote's search button (if the TV hands it to apps): voice search. */
-    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
-        if (keyCode == android.view.KeyEvent.KEYCODE_SEARCH) {
-            com.woodruff.tvexplorer.ui.VoiceSearch.requests.tryEmit(Unit)
-            return true
-        }
-        return super.onKeyDown(keyCode, event)
     }
 
     override fun onNewIntent(intent: Intent) {

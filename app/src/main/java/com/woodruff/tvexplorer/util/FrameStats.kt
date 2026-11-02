@@ -14,8 +14,9 @@ import android.view.Window
 
 /**
  * Counts the frames each screen draws on the real TV, and how many were late, slow or stutters, so "it
- * feels laggy" can be pinned to a screen and to a phase of the frame. Frames drawn within a second of
- * a remote key count as navigating, the rest as idle (camera video, animations running by
+ * feels laggy" can be pinned to a screen and to a phase of the frame. Pop-ups (title pages, menus, the
+ * filters, search) are windows of their own, counted under their own names. Frames drawn within a
+ * second of a remote key count as navigating, the rest as idle (camera video, animations running by
  * themselves), so a screen that plays video neither hides its navigation hitches nor gets blamed for
  * the video's own frames. Kept in memory since the app started (or since "OK starts counting again"),
  * shown in Settings → Advanced → Smoothness, and in full in the phone app's Smoothness Report
@@ -53,9 +54,15 @@ object FrameStats {
     private val phases = LongArray(Phase.COUNT)
 
     // On its own thread: anything thrown there would crash the app, so a frame that can't be counted is skipped.
-    private val listener = Window.OnFrameMetricsAvailableListener { _, metrics, _ -> runCatching { onFrame(metrics) } }
+    private val listener = Window.OnFrameMetricsAvailableListener { _, metrics, _ -> runCatching { onFrame(metrics, screen) } }
 
-    private fun onFrame(m: FrameMetrics) {
+    /**
+     * The pop-up windows being counted (title pages, menus, the filters), each with a listener of its
+     * own that names its frames. Main thread.
+     */
+    private val popUps = java.util.WeakHashMap<Window, Window.OnFrameMetricsAvailableListener>()
+
+    private fun onFrame(m: FrameMetrics, name: String) {
         // The first frame after a window appears includes inflating it: not a navigation hitch.
         if (m.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 1L) return
         val total = m.getMetric(FrameMetrics.TOTAL_DURATION)
@@ -88,10 +95,14 @@ object FrameStats {
         } else {
             SystemClock.uptimeMillis() - (total - p[Phase.WAITING]) / 1_000_000 // reported just after it ended
         }
-        val name = screen
+        count(name, total, deadline, p, startMs)
+    }
+
+    /** A frame of [name]'s, of [total] ns due within [deadline], its [phases], its work begun at [startMs] (uptime). */
+    internal fun count(name: String, total: Long, deadline: Long, phases: LongArray, startMs: Long) {
         synchronized(lock) {
             val s = screens.getOrPut(name) { ScreenFrames(name) }
-            (if (isNavigating(startMs, keyTimes)) s.navigating else s.idle).add(total, deadline, p)
+            (if (isNavigating(startMs, keyTimes)) s.navigating else s.idle).add(total, deadline, phases)
         }
     }
 
@@ -105,6 +116,24 @@ object FrameStats {
 
     fun detach(activity: Activity) {
         if (Build.VERSION.SDK_INT >= 24) runCatching { activity.window.removeOnFrameMetricsAvailableListener(listener) }
+    }
+
+    /**
+     * A pop-up's window (a title page, a menu, the filters, search) is up: its frames are counted under
+     * [name] (asked for each frame, on the frame-stats thread, so a name given once the window is up
+     * still counts), apart from the screen under it, which goes on counting its own. Main thread.
+     */
+    fun attach(window: Window, name: () -> String) {
+        if (Build.VERSION.SDK_INT < 24 || popUps.containsKey(window)) return
+        val own = Window.OnFrameMetricsAvailableListener { _, metrics, _ -> runCatching { onFrame(metrics, name()) } }
+        if (runCatching { window.addOnFrameMetricsAvailableListener(own, handler) }.isSuccess) popUps[window] = own
+        runCatching { watchDisplay(window.context.applicationContext) }
+    }
+
+    /** The pop-up's window is going: its frames are no longer counted. Main thread. */
+    fun detach(window: Window) {
+        val own = popUps.remove(window) ?: return
+        runCatching { window.removeOnFrameMetricsAvailableListener(own) }
     }
 
     /**
@@ -130,10 +159,11 @@ object FrameStats {
     }
 
     /**
-     * A remote key reaching the app (MainActivity.dispatchKeyEvent): the frames after it count as
-     * navigating, and while it's handled the main thread counts as busy for the recording (Android
-     * hands keys over outside any message, where the recording's Printer can't see them). Returns
-     * when handling began, for [keyFinished]. Main thread.
+     * A remote key reaching the app (MainActivity.dispatchKeyEvent, or a pop-up's window: see
+     * DialogWindows), the TV's own remote or the phone's: the frames after it count as navigating,
+     * and while it's handled the main thread counts as busy for the recording (Android hands keys
+     * over outside any message, where the recording's Printer can't see them). Returns when handling
+     * began, for [keyFinished]. Main thread.
      */
     fun keyStarted(event: KeyEvent): Long {
         synchronized(lock) { keyTimes[keyNext++ and (keyTimes.size - 1)] = event.eventTime }

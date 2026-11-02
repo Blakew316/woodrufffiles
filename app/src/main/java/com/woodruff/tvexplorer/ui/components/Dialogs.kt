@@ -53,6 +53,7 @@ import com.woodruff.tvexplorer.data.OpProgress
 import com.woodruff.tvexplorer.remote.RemoteInput
 import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.ui.motion.FocusPlatter
+import com.woodruff.tvexplorer.ui.motion.PopUpName
 import com.woodruff.tvexplorer.ui.motion.TintIcon
 import com.woodruff.tvexplorer.ui.motion.dpadGate
 import com.woodruff.tvexplorer.ui.motion.focusPlatterHost
@@ -107,6 +108,8 @@ fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDi
     val platter = rememberFocusPlatter()
     val scheme = MaterialTheme.colorScheme
     DialogFrame(title, onDismiss, width = 460) {
+        // Settings → Smoothness counts its frames as the menu's.
+        PopUpName("Menu")
         if (subtitle != null) Text(subtitle, color = Palette.muted, style = MaterialTheme.typography.bodySmall)
         // Room above the first row and below the last: a focused row grows past them, and the
         // list clips there.
