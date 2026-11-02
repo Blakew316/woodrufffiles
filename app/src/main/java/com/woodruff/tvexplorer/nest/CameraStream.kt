@@ -285,6 +285,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
     private class Connection(val frames: FrameClock, val dropped: CompletableDeferred<Unit>, val answeredAt: Long)
 
     private suspend fun connect(start: StartLog): Connection {
+        start.begin()
         val factory = Rtc.factory(context)
         val addresses = AddressWait()
         // Nudged by WebRTC's address callbacks, so the wait below ends the moment it can.
@@ -365,7 +366,8 @@ class CameraStream(private val context: Context, private val camera: Camera) {
         channel = conn.createDataChannel("dataSendChannel", DataChannel.Init())
 
         val offer = sdp { obs -> conn.createOffer(obs, MediaConstraints()) }
-        addresses.begin(clock())
+        val asking = clock()
+        addresses.begin(asking)
         setDescription { obs -> conn.setLocalDescription(obs, offer) }
         // This TV's network addresses go in the offer (Google takes none found later): until a public
         // one is found, or half a second after the first local one, or all are in, 3 s at most. The
@@ -375,7 +377,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
             if (left <= 0) break
             withTimeoutOrNull(left) { found.receive() }
         }
-        start.addressed(clock(), addresses.end)
+        start.addressed(clock() - asking, addresses.end)
         val local = conn.localDescription?.description ?: offer.description
 
         val asked = clock()
@@ -490,16 +492,18 @@ class CameraStream(private val context: Context, private val camera: Camera) {
      * WebRTC's signaling thread.
      */
     private class StartLog(private val camera: String) {
-        private val at = System.currentTimeMillis()
+        /** When it began, by this TV's clock (for the report's time of day). */
+        @Volatile private var at = System.currentTimeMillis()
         @Volatile private var addressesMs: Long? = null
         @Volatile private var addressesEnd: AddressesEnd? = null
         @Volatile private var googleMs: Long? = null
         @Volatile private var appliedAt = 0L
         @Volatile private var linkedAt = 0L
-        private val began = clock()
         private var done = false
 
-        fun addressed(now: Long, end: AddressesEnd?) { addressesMs = now - began; addressesEnd = end }
+        /** The connection is being made now, its turn come (the wait between starts isn't counted). */
+        fun begin() { at = System.currentTimeMillis() }
+        fun addressed(ms: Long, end: AddressesEnd?) { addressesMs = ms; addressesEnd = end }
         fun answered(ms: Long) { googleMs = ms }
         fun applied(now: Long) { appliedAt = now }
         fun linked(now: Long) { if (linkedAt == 0L) linkedAt = now }
