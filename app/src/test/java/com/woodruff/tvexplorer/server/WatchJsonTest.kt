@@ -330,6 +330,14 @@ class WatchJsonTest {
         assertTrue(WatchJson.title(inFolder, facts(movies = listOf(inFolder))).isNull("play"))
     }
 
+    @Test fun onlyAShowsOwnSeasonFoldersAreItsSeasons() {
+        val top = listOf(DriveFile("f1", "Season 1", FOLDER, 0, 1, null), DriveFile("t1", "Trailer.mkv", "video/mp4", 1, 1, null))
+        assertEquals("f1", WatchJson.seasonOf(top, "f1")?.id)
+        assertNull("a file of the show's folder isn't a season", WatchJson.seasonOf(top, "t1"))
+        assertNull("any other folder of the Drive", WatchJson.seasonOf(top, "f9"))
+        assertNull(WatchJson.seasonOf(emptyList(), "f1"))
+    }
+
     @Test fun theFirstSeasonIsSeasonOneNotSpecials() {
         assertEquals(1, WatchJson.firstSeason(listOf("Specials", "Season 1", "Season 2")))
         assertEquals(0, WatchJson.firstSeason(listOf("Season 1", "Season 2")))

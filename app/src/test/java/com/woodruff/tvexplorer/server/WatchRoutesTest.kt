@@ -328,6 +328,31 @@ class WatchRoutesTest {
         assertEquals("Backyard Science S01E01 Name 1", t.getJSONObject("restart").getString("title"))
     }
 
+    @Test fun aSeasonsEpisodesAreListedOnlyForASeasonOfTheShowAskedFor() {
+        // Folders this TV holds listings of that aren't seasons of Backyard Science: The Lighthouse's own folder, and
+        // a folder outside any show (whatever it is, the phone may never list it through Watch).
+        folder("elsewhere", listOf(ep("x1", "Somebody's private video.mkv")))
+        fun refused(show: String, season: String) = serve("/api/library/episodes", mapOf("show" to show, "season" to season))
+            .also { assertEquals("$show/$season", NanoHTTPD.Response.Status.BAD_REQUEST, it.status) }
+        // Another show's folder, a folder in no show, a file, or a show that isn't in TV Shows: turned down, unlisted.
+        assertEquals("That season isn’t in Backyard Science any more.", refused("s1", "s2").data.bufferedReader().readText())
+        assertFalse(refused("s1", "elsewhere").data.bufferedReader().readText().contains("private"))
+        refused("s1", "e11")
+        refused("s2", "f1")
+        assertEquals("That show isn’t in TV Shows any more.", refused("m1", WatchRoutes.INSIDE).data.bufferedReader().readText())
+        refused("elsewhere", WatchRoutes.INSIDE)
+        assertEquals(null, FolderCache.inMemory("elsewhere")) // never even read
+        // Its own seasons, and the episodes kept in its own folder, as before.
+        assertEquals(2, json(get("/api/library/episodes", "show" to "s1", "season" to "f2")).getJSONArray("episodes").length())
+        assertEquals(2, json(get("/api/library/episodes", "show" to "s2", "season" to WatchRoutes.INSIDE)).getJSONArray("episodes").length())
+        // The show's own listing gone from this TV (and not to be had just now): the season waits for it, unlisted.
+        FolderCache.clear(c)
+        folder("f1", listOf(ep("e11", "Backyard Science S01E01 Tide Pools.mkv")))
+        val waits = json(get("/api/library/episodes", "show" to "s1", "season" to "f1"))
+        assertEquals("loading", waits.getString("state"))
+        assertEquals(0, waits.getJSONArray("episodes").length())
+    }
+
     @Test fun marksAndRemovalsChangeTheStoresTheTvUses() {
         post("/api/library/watched", JSONObject().put("key", "drive:m1").put("watched", true))
         assertTrue(Watched.isWatched(c, "drive:m1"))

@@ -438,6 +438,13 @@ internal object WatchJson {
         return t.substring(0, at).replace(TIDY, " ").trim(' ', '-', '·', ':').replace(SPACES, " ").ifBlank { t }
     }
 
+    /**
+     * The season folder [id] names, if it's one of a show's own: a folder in the show folder's listing ([top]).
+     * Null for anything else (another show's season, any other folder of the Drive, a file), which the phone's
+     * episode list never lists.
+     */
+    fun seasonOf(top: List<DriveFile>, id: String): DriveFile? = top.firstOrNull { it.isFolder && it.id == id }
+
     /** The first numbered season (Specials and Extras come first in a listing, but a show starts at Season 1). */
     fun firstSeason(names: List<String>): Int =
         names.withIndex().filter { (_, n) -> (Tmdb.seasonNumber(n) ?: 1) >= 1 }.minByOrNull { (_, n) -> Tmdb.seasonNumber(n) ?: Int.MAX_VALUE }?.index ?: 0

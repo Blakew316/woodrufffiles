@@ -302,19 +302,28 @@ class WatchRoutes(
     private fun episodes(showId: String, seasonId: String): Response {
         val (m, sh) = WatchLibrary.listings(ctx)
         val facts = facts(m, sh)
-        val show = facts.byId[showId] ?: throw IllegalArgumentException("That show isn’t in TV Shows any more.")
-        val folderId = if (seasonId == INSIDE) show.id else seasonId
-        val seasonName = if (seasonId == INSIDE) null else FolderCache.inMemory(show.id)?.firstOrNull { it.id == seasonId }?.name
+        val show = facts.byId[showId]?.takeIf { facts.isShow(it) && it.isFolder } ?: throw IllegalArgumentException("That show isn’t in TV Shows any more.")
+        // Only the show's own folder, or a season folder its own listing holds: the phone names the season by its
+        // folder's id, and nothing else of the Drive is ever listed for it, whatever id it sends. The show's
+        // listing is the one its title sheet was just made from; listed now, for a moment, if this TV lost it.
+        val seasonFolder = if (seasonId == INSIDE) null else {
+            val top = listingOf(show, EPISODES_MS) ?: return seasonLoading()
+            WatchJson.seasonOf(top, seasonId) ?: throw IllegalArgumentException("That season isn’t in ${Library.info(show).title} any more.")
+        }
+        val folderId = seasonFolder?.id ?: show.id
         val season = Seasons.ready(ctx, folderId) ?: run {
-            val job = Seasons.prepare(ctx, folderId, show.name, seasonName)
+            val job = Seasons.prepare(ctx, folderId, show.name, seasonFolder?.name)
             val got = runBlocking { withTimeoutOrNull(EPISODES_MS) { job.await() } }
             got ?: Seasons.plain(ctx, folderId)?.takeIf { Seasons.runningFor(folderId) > PREPARE_GRACE_MS }
-        } ?: return json(JSONObject().put("state", "loading").put("episodes", JSONArray()))
+        } ?: return seasonLoading()
         // Each as the TV's episode card says it: TMDB's numbers, names, synopses and lengths where it knows them.
         return json(JSONObject().put("state", "ready").put("episodes", JSONArray().apply {
             season.videos.forEach { v -> put(WatchJson.episode(v, show, facts, folderId)) }
         }))
     }
+
+    /** A season not ready yet: the phone asks again in a moment (each second, ten times at most). */
+    private fun seasonLoading() = json(JSONObject().put("state", "loading").put("episodes", JSONArray()))
 
     private fun keysOf(files: List<DriveFile>?): Set<String> =
         files.orEmpty().filter { it.kind == FileKind.VIDEO }.mapTo(HashSet()) { WatchJson.driveKey(it.id) }
