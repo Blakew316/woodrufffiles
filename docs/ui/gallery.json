@@ -1,7 +1,7 @@
 {
- "build": "165",
- "commit": "c64f47f",
- "updated": "2026-11-02 02:50 UTC",
+ "build": "166",
+ "commit": "b702b76",
+ "updated": "2026-11-02 20:24 UTC",
  "tv": [
   {
    "name": "home",
@@ -22,6 +22,54 @@
    "light": "img/tv-home-notice-light.webp"
   },
   {
+   "name": "home-person-notice",
+   "title": "Home \u00b7 person seen",
+   "dark": "img/tv-home-person-notice-dark.webp",
+   "light": "img/tv-home-person-notice-light.webp"
+  },
+  {
+   "name": "home-cameras",
+   "title": "Home \u00b7 camera states",
+   "dark": "img/tv-home-cameras-dark.webp",
+   "light": "img/tv-home-cameras-light.webp"
+  },
+  {
+   "name": "home-added",
+   "title": "Home \u00b7 Recently added",
+   "dark": "img/tv-home-added-dark.webp",
+   "light": "img/tv-home-added-light.webp"
+  },
+  {
+   "name": "title-menu",
+   "title": "Title menu (hold OK)",
+   "dark": "img/tv-title-menu-dark.webp",
+   "light": "img/tv-title-menu-light.webp"
+  },
+  {
+   "name": "title-film",
+   "title": "Title page \u00b7 film",
+   "dark": "img/tv-title-film-dark.webp",
+   "light": "img/tv-title-film-light.webp"
+  },
+  {
+   "name": "home-new-episodes",
+   "title": "Home \u00b7 new episodes",
+   "dark": "img/tv-home-new-episodes-dark.webp",
+   "light": "img/tv-home-new-episodes-light.webp"
+  },
+  {
+   "name": "home-offline",
+   "title": "Home \u00b7 offline",
+   "dark": "img/tv-home-offline-dark.webp",
+   "light": "img/tv-home-offline-light.webp"
+  },
+  {
+   "name": "home-signin-notice",
+   "title": "Home \u00b7 sign-in ended notice",
+   "dark": "img/tv-home-signin-notice-dark.webp",
+   "light": "img/tv-home-signin-notice-light.webp"
+  },
+  {
    "name": "movies",
    "title": "Movies (sample posters)",
    "dark": "img/tv-movies-dark.webp",
@@ -34,10 +82,196 @@
    "light": "img/tv-tv-shows-light.webp"
   },
   {
+   "name": "movies-back-to-top",
+   "title": "Movies \u00b7 Back from deep in the rows: the banner\u2019s Play",
+   "dark": "img/tv-movies-back-to-top-dark.webp",
+   "light": "img/tv-movies-back-to-top-light.webp"
+  },
+  {
+   "name": "movies-grid-back-to-top",
+   "title": "Movies \u203a All \u00b7 Back from deep in the grid: the first poster",
+   "dark": "img/tv-movies-grid-back-to-top-dark.webp",
+   "light": "img/tv-movies-grid-back-to-top-light.webp"
+  },
+  {
+   "name": "search",
+   "title": "Search",
+   "dark": "img/tv-search-dark.webp",
+   "light": "img/tv-search-light.webp"
+  },
+  {
+   "name": "search-results",
+   "title": "Search \u00b7 results",
+   "dark": "img/tv-search-results-dark.webp",
+   "light": "img/tv-search-results-light.webp"
+  },
+  {
+   "name": "search-no-matches",
+   "title": "Search \u00b7 no matches",
+   "dark": "img/tv-search-no-matches-dark.webp",
+   "light": "img/tv-search-no-matches-light.webp"
+  },
+  {
+   "name": "search-setup",
+   "title": "Search \u00b7 Google Drive not set up",
+   "dark": "img/tv-search-setup-dark.webp",
+   "light": "img/tv-search-setup-light.webp"
+  },
+  {
+   "name": "search-offline",
+   "title": "Search \u00b7 offline, the saved library",
+   "dark": "img/tv-search-offline-dark.webp",
+   "light": "img/tv-search-offline-light.webp"
+  },
+  {
+   "name": "search-loading",
+   "title": "Search \u00b7 still loading",
+   "dark": "img/tv-search-loading-dark.webp",
+   "light": "img/tv-search-loading-light.webp"
+  },
+  {
+   "name": "search-signin-again",
+   "title": "Search \u00b7 sign in again",
+   "dark": "img/tv-search-signin-again-dark.webp",
+   "light": "img/tv-search-signin-again-light.webp"
+  },
+  {
+   "name": "search-keys",
+   "title": "Search \u00b7 keys not accepted",
+   "dark": "img/tv-search-keys-dark.webp",
+   "light": "img/tv-search-keys-light.webp"
+  },
+  {
+   "name": "tv-shows-rows",
+   "title": "TV Shows \u00b7 Overview",
+   "dark": "img/tv-tv-shows-rows-dark.webp",
+   "light": "img/tv-tv-shows-rows-light.webp"
+  },
+  {
+   "name": "title-show",
+   "title": "Title page \u00b7 show",
+   "dark": "img/tv-title-show-dark.webp",
+   "light": "img/tv-title-show-light.webp"
+  },
+  {
+   "name": "title-show-episodes",
+   "title": "Title page \u00b7 show, on a new episode",
+   "dark": "img/tv-title-show-episodes-dark.webp",
+   "light": "img/tv-title-show-episodes-light.webp"
+  },
+  {
+   "name": "title-show-plain",
+   "title": "Title page \u00b7 show without TMDB",
+   "dark": "img/tv-title-show-plain-dark.webp",
+   "light": "img/tv-title-show-plain-light.webp"
+  },
+  {
+   "name": "title-show-offline",
+   "title": "Title page \u00b7 a season not listed yet, offline",
+   "dark": "img/tv-title-show-offline-dark.webp",
+   "light": "img/tv-title-show-offline-light.webp"
+  },
+  {
+   "name": "tv-shows-season",
+   "title": "TV Shows \u203a a season\u2019s folder",
+   "dark": "img/tv-tv-shows-season-dark.webp",
+   "light": "img/tv-tv-shows-season-light.webp"
+  },
+  {
+   "name": "movies-offline",
+   "title": "Movies \u00b7 offline",
+   "dark": "img/tv-movies-offline-dark.webp",
+   "light": "img/tv-movies-offline-light.webp"
+  },
+  {
+   "name": "movies-cant-reach",
+   "title": "Movies \u00b7 can\u2019t reach Google (search field focused)",
+   "dark": "img/tv-movies-cant-reach-dark.webp",
+   "light": "img/tv-movies-cant-reach-light.webp"
+  },
+  {
+   "name": "tv-shows-back-online",
+   "title": "TV Shows \u00b7 back online",
+   "dark": "img/tv-tv-shows-back-online-dark.webp",
+   "light": "img/tv-tv-shows-back-online-light.webp"
+  },
+  {
+   "name": "movies-offline-empty",
+   "title": "Movies \u00b7 offline, nothing saved",
+   "dark": "img/tv-movies-offline-empty-dark.webp",
+   "light": "img/tv-movies-offline-empty-light.webp"
+  },
+  {
+   "name": "tv-shows-trying",
+   "title": "TV Shows \u00b7 can\u2019t reach Google, trying again",
+   "dark": "img/tv-tv-shows-trying-dark.webp",
+   "light": "img/tv-tv-shows-trying-light.webp"
+  },
+  {
+   "name": "movies-keys",
+   "title": "Movies \u00b7 keys not accepted",
+   "dark": "img/tv-movies-keys-dark.webp",
+   "light": "img/tv-movies-keys-light.webp"
+  },
+  {
+   "name": "drive-signin-again",
+   "title": "Google Drive \u00b7 sign in again",
+   "dark": "img/tv-drive-signin-again-dark.webp",
+   "light": "img/tv-drive-signin-again-light.webp"
+  },
+  {
+   "name": "movies-truncated",
+   "title": "Movies \u00b7 very large library",
+   "dark": "img/tv-movies-truncated-dark.webp",
+   "light": "img/tv-movies-truncated-light.webp"
+  },
+  {
    "name": "command-center",
-   "title": "Command center",
+   "title": "Command Center",
    "dark": "img/tv-command-center-dark.webp",
    "light": "img/tv-command-center-light.webp"
+  },
+  {
+   "name": "command-center-cameras",
+   "title": "Command Center \u00b7 camera states",
+   "dark": "img/tv-command-center-cameras-dark.webp",
+   "light": "img/tv-command-center-cameras-light.webp"
+  },
+  {
+   "name": "command-center-offline",
+   "title": "Command Center \u00b7 offline",
+   "dark": "img/tv-command-center-offline-dark.webp",
+   "light": "img/tv-command-center-offline-light.webp"
+  },
+  {
+   "name": "doorbell-ring-home",
+   "title": "Doorbell \u00b7 from Home",
+   "dark": "img/tv-doorbell-ring-home-dark.webp",
+   "light": "img/tv-doorbell-ring-home-light.webp"
+  },
+  {
+   "name": "doorbell-slideshow",
+   "title": "Doorbell \u00b7 over the slideshow",
+   "dark": "img/tv-doorbell-slideshow-dark.webp",
+   "light": "img/tv-doorbell-slideshow-light.webp"
+  },
+  {
+   "name": "doorbell-connecting",
+   "title": "Doorbell \u00b7 connecting",
+   "dark": "img/tv-doorbell-connecting-dark.webp",
+   "light": "img/tv-doorbell-connecting-light.webp"
+  },
+  {
+   "name": "doorbell-reconnecting",
+   "title": "Doorbell \u00b7 reconnecting",
+   "dark": "img/tv-doorbell-reconnecting-dark.webp",
+   "light": "img/tv-doorbell-reconnecting-light.webp"
+  },
+  {
+   "name": "doorbell-offline",
+   "title": "Doorbell \u00b7 offline",
+   "dark": "img/tv-doorbell-offline-dark.webp",
+   "light": "img/tv-doorbell-offline-light.webp"
   },
   {
    "name": "google-drive",
@@ -76,10 +310,148 @@
    "light": "img/tv-phone-light.webp"
   },
   {
+   "name": "phone-waiting",
+   "title": "Phone connection \u00b7 waiting for the network",
+   "dark": "img/tv-phone-waiting-dark.webp",
+   "light": "img/tv-phone-waiting-light.webp"
+  },
+  {
+   "name": "phone-waiting-focused",
+   "title": "Phone connection \u00b7 waiting, Network settings focused",
+   "dark": "img/tv-phone-waiting-focused-dark.webp",
+   "light": "img/tv-phone-waiting-focused-light.webp"
+  },
+  {
+   "name": "phone-off",
+   "title": "Phone connection \u00b7 couldn\u2019t start",
+   "dark": "img/tv-phone-off-dark.webp",
+   "light": "img/tv-phone-off-light.webp"
+  },
+  {
    "name": "settings",
    "title": "Settings",
    "dark": "img/tv-settings-dark.webp",
    "light": "img/tv-settings-light.webp"
+  },
+  {
+   "name": "health",
+   "title": "Settings \u203a TV health",
+   "dark": "img/tv-health-dark.webp",
+   "light": "img/tv-health-light.webp"
+  },
+  {
+   "name": "health-report",
+   "title": "Settings \u203a TV health \u203a a TV that needs attention",
+   "dark": "img/tv-health-report-dark.webp",
+   "light": "img/tv-health-report-light.webp"
+  },
+  {
+   "name": "health-good",
+   "title": "Settings \u203a TV health \u203a all good",
+   "dark": "img/tv-health-good-dark.webp",
+   "light": "img/tv-health-good-light.webp"
+  },
+  {
+   "name": "health-link-again",
+   "title": "Settings \u203a TV health \u203a link again",
+   "dark": "img/tv-health-link-again-dark.webp",
+   "light": "img/tv-health-link-again-light.webp"
+  },
+  {
+   "name": "settings-accounts-ended",
+   "title": "Settings \u203a Accounts \u00b7 sign-ins ended",
+   "dark": "img/tv-settings-accounts-ended-dark.webp",
+   "light": "img/tv-settings-accounts-ended-light.webp"
+  },
+  {
+   "name": "settings-keys",
+   "title": "Settings \u203a Accounts \u203a Keys & sign-out",
+   "dark": "img/tv-settings-keys-dark.webp",
+   "light": "img/tv-settings-keys-light.webp"
+  },
+  {
+   "name": "settings-keys-waking",
+   "title": "Settings \u203a Keys \u00b7 the Keystore still waking",
+   "dark": "img/tv-settings-keys-waking-dark.webp",
+   "light": "img/tv-settings-keys-waking-light.webp"
+  },
+  {
+   "name": "settings-keys-waking-ok",
+   "title": "Settings \u203a Keys \u00b7 OK while the Keystore wakes",
+   "dark": "img/tv-settings-keys-waking-ok-dark.webp",
+   "light": "img/tv-settings-keys-waking-ok-light.webp"
+  },
+  {
+   "name": "settings-updated",
+   "title": "Settings \u00b7 the day after an update",
+   "dark": "img/tv-settings-updated-dark.webp",
+   "light": "img/tv-settings-updated-light.webp"
+  },
+  {
+   "name": "settings-updates",
+   "title": "Settings \u203a Updates",
+   "dark": "img/tv-settings-updates-dark.webp",
+   "light": "img/tv-settings-updates-light.webp"
+  },
+  {
+   "name": "settings-updates-asks",
+   "title": "Settings \u203a Updates \u00b7 a TV that asks first",
+   "dark": "img/tv-settings-updates-asks-dark.webp",
+   "light": "img/tv-settings-updates-asks-light.webp"
+  },
+  {
+   "name": "settings-updates-busy",
+   "title": "Settings \u203a Updates \u00b7 GitHub busy",
+   "dark": "img/tv-settings-updates-busy-dark.webp",
+   "light": "img/tv-settings-updates-busy-light.webp"
+  },
+  {
+   "name": "settings-start",
+   "title": "Settings \u203a TVs & phones \u203a Start when the TV turns on",
+   "dark": "img/tv-settings-start-dark.webp",
+   "light": "img/tv-settings-start-light.webp"
+  },
+  {
+   "name": "settings-popups",
+   "title": "Settings \u203a Advanced \u203a Pop-ups over other apps",
+   "dark": "img/tv-settings-popups-dark.webp",
+   "light": "img/tv-settings-popups-light.webp"
+  },
+  {
+   "name": "update-offer",
+   "title": "An update offered as Woodruff opens",
+   "dark": "img/tv-update-offer-dark.webp",
+   "light": "img/tv-update-offer-light.webp"
+  },
+  {
+   "name": "update-offer-retry",
+   "title": "An update offered again after a try",
+   "dark": "img/tv-update-offer-retry-dark.webp",
+   "light": "img/tv-update-offer-retry-light.webp"
+  },
+  {
+   "name": "recovery",
+   "title": "Recovery screen",
+   "dark": "img/tv-recovery-dark.webp",
+   "light": "img/tv-recovery-light.webp"
+  },
+  {
+   "name": "recovery-ready",
+   "title": "Recovery screen \u00b7 fix ready",
+   "dark": "img/tv-recovery-ready-dark.webp",
+   "light": "img/tv-recovery-ready-light.webp"
+  },
+  {
+   "name": "recovery-busy",
+   "title": "Recovery screen \u00b7 GitHub busy",
+   "dark": "img/tv-recovery-busy-dark.webp",
+   "light": "img/tv-recovery-busy-light.webp"
+  },
+  {
+   "name": "recovery-details",
+   "title": "Recovery screen \u00b7 what happened",
+   "dark": "img/tv-recovery-details-dark.webp",
+   "light": "img/tv-recovery-details-light.webp"
   },
   {
    "name": "player",
@@ -98,6 +470,78 @@
    "title": "Player \u203a Up next",
    "dark": "img/tv-player-up-next-dark.webp",
    "light": "img/tv-player-up-next-light.webp"
+  },
+  {
+   "name": "player-audio-menu",
+   "title": "Player \u203a Audio menu",
+   "dark": "img/tv-player-audio-menu-dark.webp",
+   "light": "img/tv-player-audio-menu-light.webp"
+  },
+  {
+   "name": "player-no-sound",
+   "title": "Player \u00b7 sound this TV can\u2019t play",
+   "dark": "img/tv-player-no-sound-dark.webp",
+   "light": "img/tv-player-no-sound-light.webp"
+  },
+  {
+   "name": "player-buffering",
+   "title": "Player \u00b7 loading",
+   "dark": "img/tv-player-buffering-dark.webp",
+   "light": "img/tv-player-buffering-light.webp"
+  },
+  {
+   "name": "player-reconnecting",
+   "title": "Player \u00b7 reconnecting",
+   "dark": "img/tv-player-reconnecting-dark.webp",
+   "light": "img/tv-player-reconnecting-light.webp"
+  },
+  {
+   "name": "player-still-reconnecting",
+   "title": "Player \u00b7 still reconnecting",
+   "dark": "img/tv-player-still-reconnecting-dark.webp",
+   "light": "img/tv-player-still-reconnecting-light.webp"
+  },
+  {
+   "name": "player-signed-out",
+   "title": "Player \u00b7 Drive sign-in ended",
+   "dark": "img/tv-player-signed-out-dark.webp",
+   "light": "img/tv-player-signed-out-light.webp"
+  },
+  {
+   "name": "player-subtitles",
+   "title": "Player \u00b7 subtitles",
+   "dark": "img/tv-player-subtitles-dark.webp",
+   "light": "img/tv-player-subtitles-light.webp"
+  },
+  {
+   "name": "player-subtitles-raised",
+   "title": "Player \u00b7 subtitles above the controls",
+   "dark": "img/tv-player-subtitles-raised-dark.webp",
+   "light": "img/tv-player-subtitles-raised-light.webp"
+  },
+  {
+   "name": "player-subtitle-size",
+   "title": "Player \u203a Subtitle size",
+   "dark": "img/tv-player-subtitle-size-dark.webp",
+   "light": "img/tv-player-subtitle-size-light.webp"
+  },
+  {
+   "name": "settings-subtitle-size",
+   "title": "Settings \u203a Appearance \u203a Subtitle size",
+   "dark": "img/tv-settings-subtitle-size-dark.webp",
+   "light": "img/tv-settings-subtitle-size-light.webp"
+  },
+  {
+   "name": "player-restored",
+   "title": "Player \u00b7 back where you left it",
+   "dark": "img/tv-player-restored-dark.webp",
+   "light": "img/tv-player-restored-light.webp"
+  },
+  {
+   "name": "restore-gone",
+   "title": "After an update \u00b7 the video has gone",
+   "dark": "img/tv-restore-gone-dark.webp",
+   "light": "img/tv-restore-gone-light.webp"
   }
  ],
  "phone": [
@@ -108,10 +552,100 @@
    "light": "img/phone-remote-light.webp"
   },
   {
+   "name": "remote-unreachable",
+   "title": "Remote \u00b7 can\u2019t reach the TV",
+   "dark": "img/phone-remote-unreachable-dark.webp",
+   "light": "img/phone-remote-unreachable-light.webp"
+  },
+  {
+   "name": "remote-unreachable-linked",
+   "title": "Remote \u00b7 can\u2019t reach the picked TV",
+   "dark": "img/phone-remote-unreachable-linked-dark.webp",
+   "light": "img/phone-remote-unreachable-linked-light.webp"
+  },
+  {
    "name": "keyboard",
    "title": "Keyboard",
    "dark": "img/phone-keyboard-dark.webp",
    "light": "img/phone-keyboard-light.webp"
+  },
+  {
+   "name": "keyboard-linked",
+   "title": "Keyboard \u00b7 typing into another TV",
+   "dark": "img/phone-keyboard-linked-dark.webp",
+   "light": "img/phone-keyboard-linked-light.webp"
+  },
+  {
+   "name": "watch",
+   "title": "Watch",
+   "dark": "img/phone-watch-dark.webp",
+   "light": "img/phone-watch-light.webp"
+  },
+  {
+   "name": "watch-scrolled",
+   "title": "Watch \u00b7 Movies and TV Shows",
+   "dark": "img/phone-watch-scrolled-dark.webp",
+   "light": "img/phone-watch-scrolled-light.webp"
+  },
+  {
+   "name": "watch-title-movie",
+   "title": "Watch \u203a a film",
+   "dark": "img/phone-watch-title-movie-dark.webp",
+   "light": "img/phone-watch-title-movie-light.webp"
+  },
+  {
+   "name": "watch-title-show",
+   "title": "Watch \u203a a show",
+   "dark": "img/phone-watch-title-show-dark.webp",
+   "light": "img/phone-watch-title-show-light.webp"
+  },
+  {
+   "name": "watch-play-on",
+   "title": "Watch \u203a Play on",
+   "dark": "img/phone-watch-play-on-dark.webp",
+   "light": "img/phone-watch-play-on-light.webp"
+  },
+  {
+   "name": "watch-context",
+   "title": "Watch \u203a hold a tile",
+   "dark": "img/phone-watch-context-dark.webp",
+   "light": "img/phone-watch-context-light.webp"
+  },
+  {
+   "name": "watch-movies",
+   "title": "Watch \u203a Movies",
+   "dark": "img/phone-watch-movies-dark.webp",
+   "light": "img/phone-watch-movies-light.webp"
+  },
+  {
+   "name": "watch-search",
+   "title": "Watch \u203a Search",
+   "dark": "img/phone-watch-search-dark.webp",
+   "light": "img/phone-watch-search-light.webp"
+  },
+  {
+   "name": "watch-now-playing",
+   "title": "Watch \u203a now playing",
+   "dark": "img/phone-watch-now-playing-dark.webp",
+   "light": "img/phone-watch-now-playing-light.webp"
+  },
+  {
+   "name": "watch-offline",
+   "title": "Watch \u00b7 offline",
+   "dark": "img/phone-watch-offline-dark.webp",
+   "light": "img/phone-watch-offline-light.webp"
+  },
+  {
+   "name": "watch-signin",
+   "title": "Watch \u00b7 sign-in ended",
+   "dark": "img/phone-watch-signin-dark.webp",
+   "light": "img/phone-watch-signin-light.webp"
+  },
+  {
+   "name": "watch-loading",
+   "title": "Watch \u00b7 first load",
+   "dark": "img/phone-watch-loading-dark.webp",
+   "light": "img/phone-watch-loading-light.webp"
   },
   {
    "name": "send",
@@ -132,10 +666,22 @@
    "light": "img/phone-files-light.webp"
   },
   {
+   "name": "files-scrolled",
+   "title": "Send \u203a Photos & Files \u00b7 scrolled",
+   "dark": "img/phone-files-scrolled-dark.webp",
+   "light": "img/phone-files-scrolled-light.webp"
+  },
+  {
    "name": "files-actions",
    "title": "File actions",
    "dark": "img/phone-files-actions-dark.webp",
    "light": "img/phone-files-actions-light.webp"
+  },
+  {
+   "name": "files-no-room",
+   "title": "Photos & Files \u00b7 a file too big for the TV",
+   "dark": "img/phone-files-no-room-dark.webp",
+   "light": "img/phone-files-no-room-light.webp"
   },
   {
    "name": "memories",
@@ -150,6 +696,12 @@
    "light": "img/phone-memories-photo-light.webp"
   },
   {
+   "name": "memories-no-room",
+   "title": "Family Memories \u00b7 a video too big for the TV",
+   "dark": "img/phone-memories-no-room-dark.webp",
+   "light": "img/phone-memories-no-room-light.webp"
+  },
+  {
    "name": "settings",
    "title": "Settings",
    "dark": "img/phone-settings-dark.webp",
@@ -160,6 +712,42 @@
    "title": "Settings \u203a TVs",
    "dark": "img/phone-settings-tvs-dark.webp",
    "light": "img/phone-settings-tvs-light.webp"
+  },
+  {
+   "name": "settings-tv",
+   "title": "Settings \u203a TVs \u203a a TV",
+   "dark": "img/phone-settings-tv-dark.webp",
+   "light": "img/phone-settings-tv-light.webp"
+  },
+  {
+   "name": "settings-tv-attention",
+   "title": "Settings \u203a TVs \u203a a TV that needs attention",
+   "dark": "img/phone-settings-tv-attention-dark.webp",
+   "light": "img/phone-settings-tv-attention-light.webp"
+  },
+  {
+   "name": "settings-tv-attention-sheet",
+   "title": "Settings \u203a TVs \u203a fixing it",
+   "dark": "img/phone-settings-tv-attention-sheet-dark.webp",
+   "light": "img/phone-settings-tv-attention-sheet-light.webp"
+  },
+  {
+   "name": "settings-tv-off",
+   "title": "Settings \u203a TVs \u203a a TV that's off",
+   "dark": "img/phone-settings-tv-off-dark.webp",
+   "light": "img/phone-settings-tv-off-light.webp"
+  },
+  {
+   "name": "settings-tv-link",
+   "title": "Settings \u203a TVs \u203a Link again",
+   "dark": "img/phone-settings-tv-link-dark.webp",
+   "light": "img/phone-settings-tv-link-light.webp"
+  },
+  {
+   "name": "settings-tv-relink",
+   "title": "Settings \u203a TVs \u203a typing the code",
+   "dark": "img/phone-settings-tv-relink-dark.webp",
+   "light": "img/phone-settings-tv-relink-light.webp"
   },
   {
    "name": "tv-screen",
@@ -174,10 +762,46 @@
    "light": "img/phone-settings-drive-light.webp"
   },
   {
-   "name": "files-scrolled",
-   "title": "Files-Scrolled",
-   "dark": "img/phone-files-scrolled-dark.webp",
-   "light": "img/phone-files-scrolled-light.webp"
+   "name": "signin",
+   "title": "Sign in from the phone",
+   "dark": "img/phone-signin-dark.webp",
+   "light": "img/phone-signin-light.webp"
+  },
+  {
+   "name": "signin-waiting",
+   "title": "Sign in \u00b7 waiting for Google",
+   "dark": "img/phone-signin-waiting-dark.webp",
+   "light": "img/phone-signin-waiting-light.webp"
+  },
+  {
+   "name": "signin-done",
+   "title": "Sign in \u00b7 done",
+   "dark": "img/phone-signin-done-dark.webp",
+   "light": "img/phone-signin-done-light.webp"
+  },
+  {
+   "name": "signin-banner",
+   "title": "A sign-in ended (banner)",
+   "dark": "img/phone-signin-banner-dark.webp",
+   "light": "img/phone-signin-banner-light.webp"
+  },
+  {
+   "name": "messages-summary",
+   "title": "Messages that arrived together (banner)",
+   "dark": "img/phone-messages-summary-dark.webp",
+   "light": "img/phone-messages-summary-light.webp"
+  },
+  {
+   "name": "settings-phone-messages",
+   "title": "Settings \u203a This Phone \u203a Recent Messages",
+   "dark": "img/phone-settings-phone-messages-dark.webp",
+   "light": "img/phone-settings-phone-messages-light.webp"
+  },
+  {
+   "name": "signin-linked",
+   "title": "Sign in \u00b7 another TV",
+   "dark": "img/phone-signin-linked-dark.webp",
+   "light": "img/phone-signin-linked-light.webp"
   }
  ]
 }
