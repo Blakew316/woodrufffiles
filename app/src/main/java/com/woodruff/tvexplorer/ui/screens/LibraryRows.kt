@@ -164,6 +164,9 @@ internal fun LibraryRows(
     var findingFilm by remember { mutableStateOf<Job?>(null) }
     // Each row's scroll position, kept while it's off screen.
     val rowStates = remember { HashMap<String, LazyListState>() }
+    // Back from far down the rows, or from along a row, goes to the top first (browsing-motion §3.3).
+    val rowsBack = rememberRowsBack()
+    RowsBackToTop(rowsBack, list, rowStates, rows.firstOrNull()?.first, banner = if (featured.isNotEmpty()) heroFocus else null)
     // The column follows the focus as the app's lists do (keeping it clear of the edges), but only as
     // far as it can scroll: back up on the banner, the one scroll comes to rest at the top rather
     // than aiming past it and stopping dead there. The rows set their own (PivotScroll, below).
@@ -174,14 +177,14 @@ internal fun LibraryRows(
             state = list,
             contentPadding = PaddingValues(top = 8.dp, bottom = 56.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().onFocusChanged { rowsBack.held.value = it.hasFocus },
         ) {
             if (featured.isNotEmpty()) item(key = "hero", contentType = "hero") {
                 // Focus on the featured title shows all of it, never half of it tucked under the header:
                 // in the one scroll the focus makes (the banner asks to be shown whole), not a second
                 // scroll to the top after it.
                 Box(Modifier.bringWholeIntoView().onFocusChanged {
-                    if (it.hasFocus) rowsFocus.remove(placeKey)
+                    if (it.hasFocus) { rowsFocus.remove(placeKey); rowsBack.row.value = null }
                     else findingFilm?.cancel() // moved on before its film was found: it doesn't start later
                 }) {
                     HeroCarousel(
@@ -235,11 +238,14 @@ internal fun LibraryRows(
                                         f, token, onClick = { onChoose(f) }, onLongClick = { onMenu(f) },
                                         modifier = Modifier.width(150.dp)
                                             .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
+                                            // Each row's first poster: where Back along the row puts the focus.
+                                            .then(if (c == 0) Modifier.focusRequester(rowsBack.start(title)) else Modifier)
                                             .onFocusChanged {
                                                 if (it.isFocused) {
                                                     rowsFocus[placeKey] = title to f.id
                                                     onFocusArt(posterArt(f))
                                                 }
+                                                rowsBack.focused(title, it.isFocused)
                                                 onRest(f, it.isFocused)
                                             },
                                         label = Library.label(f),

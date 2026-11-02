@@ -382,6 +382,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                         }
                     }
                     val prefetch: (String) -> Unit = { id -> positions[id]?.let { prefetchFrom.intValue = it } }
+                    // A library's grid: Back from far down it goes to its top first, its first poster
+                    // taking the focus (browsing-motion §3.3). Not in a show's folders: Back goes up a folder there.
+                    val gridHeld = remember(state.place) { mutableStateOf(false) }
+                    val top = remember(state.place) { FocusRequester() }
+                    val firstId = shown.first().id
+                    if (filterable) GridBackToTop(grid, top, gridHeld)
                     // A season's episodes: wide picture cards (each episode's picture), as streaming
                     // apps show them, instead of tall poster tiles.
                     val episodeGrid = remember(shown, library, state.stack) {
@@ -393,6 +399,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     PivotScroll(grid, if (library) Pivot(offset = 30.dp) else Pivot(offset = 8.dp)) {
                         LazyVerticalGrid(
                             state = grid,
+                            modifier = Modifier.onFocusChanged { gridHeld.value = it.hasFocus },
                             // Movies / TV Shows: tall poster tiles, more per row.
                             columns = GridCells.Adaptive(if (episodeGrid) 260.dp else if (library) 150.dp else 230.dp),
                             // Posters lift and grow when focused (about 17 dp up for the first row): leave them
@@ -408,6 +415,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                                 // titles coming and going just appear and go.
                                 val mod = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
                                     .then(if (f.id == target) Modifier.focusRequester(first) else Modifier)
+                                    .then(if (f.id == firstId) Modifier.focusRequester(top) else Modifier)
                                     .onFocusChanged {
                                         if (it.hasFocus) {
                                             driveFocus[placeKey] = f.id
