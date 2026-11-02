@@ -23,7 +23,7 @@ class CameraTimingsTest {
         )
         assertTrue(text, text.contains("== Camera starts =="))
         assertTrue(text, text.contains("1 start · 0 stalls · 0 reconnects since Woodruff started."))
-        assertTrue(text, text.contains("7:42 PM Front Door: addresses 118 public · Google 1,912 · link 240 · picture 410\n"))
+        assertTrue(text, text.contains("7:42 PM · Front Door\n addresses 118 (public) · Google 1,912 · link 240 · picture 410\n"))
     }
 
     @Test fun aStartWithoutAPictureSaysWhy() {
@@ -32,7 +32,7 @@ class CameraTimingsTest {
             count = 3, stalls = 1, reconnects = 2, time = time,
         )
         assertTrue(text, text.contains("3 starts · 1 stall · 2 reconnects"))
-        assertTrue(text, text.contains("7:42 PM Backyard: addresses 3,000 3 s limit · Google 980 · no link after 20 s\n"))
+        assertTrue(text, text.contains("7:42 PM · Backyard\n addresses 3,000 (3 s limit) · Google 980 · no link after 20 s\n"))
     }
 
     @Test fun onlyTheLatestStartsAreKeptNewestFirst() {
@@ -42,12 +42,12 @@ class CameraTimingsTest {
         val text = CameraTimings.section(time)
         val lines = text.lines().filter { it.startsWith("7:42 PM") }
         assertEquals(CameraTimings.KEPT, lines.size)
-        assertTrue(lines.first(), lines.first().startsWith("7:42 PM Camera ${CameraTimings.KEPT + 2}:"))
+        assertEquals("7:42 PM · Camera ${CameraTimings.KEPT + 2}", lines.first())
         assertTrue(text, text.contains("${CameraTimings.KEPT + 3} starts · 1 stall · 1 reconnect "))
     }
 
     @Test fun aVeryLongCameraNameIsCut() {
         val text = timingsSection(listOf(CameraTimings.Start("x".repeat(90), 0, pictureMs = 5)), 1, 0, 0, time)
-        assertTrue(text, text.contains("7:42 PM ${"x".repeat(40)}: picture 5"))
+        assertTrue(text, text.contains("7:42 PM · ${"x".repeat(40)}\n picture 5\n"))
     }
 }

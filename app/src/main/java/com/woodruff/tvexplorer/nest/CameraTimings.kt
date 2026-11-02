@@ -70,8 +70,9 @@ internal object CameraTimings {
 
 /**
  * The smoothness report's camera section from [starts] (newest first) and this run's totals, each
- * start on its own line ("7:42 PM Front Door: addresses 118 public · Google 912 · link 240 · picture
- * 410"); empty when nothing started. [time] writes a time of day.
+ * start as a short line and its steps under it, as the report's other lists are ("7:42 PM · Front
+ * Door", then " addresses 118 (public) · Google 912 · link 240 · picture 410"): short lines read on a
+ * phone. Empty when nothing started. [time] writes a time of day.
  */
 internal fun timingsSection(starts: List<CameraTimings.Start>, count: Int, stalls: Int, reconnects: Int, time: (Long) -> String): String {
     if (starts.isEmpty() && count == 0) return ""
@@ -85,13 +86,14 @@ internal fun timingsSection(starts: List<CameraTimings.Start>, count: Int, stall
         append("camera) · picture (its first frame).\n")
         for (s in starts) {
             val steps = buildList {
-                s.addressesMs?.let { add("addresses ${ms(it)}" + (s.addresses?.let { e -> " ${e.words}" } ?: "")) }
+                s.addressesMs?.let { add("addresses ${ms(it)}" + (s.addresses?.let { e -> " (${e.words})" } ?: "")) }
                 s.googleMs?.let { add("Google ${ms(it)}") }
                 s.linkMs?.let { add("link ${ms(it)}") }
                 s.pictureMs?.let { add("picture ${ms(it)}") }
                 s.outcome?.let { add(it) }
             }
-            append("${time(s.at)} ${s.camera.take(40)}: ${steps.joinToString(" · ").ifEmpty { "no steps" }}\n")
+            append("${time(s.at)} · ${s.camera.take(40)}\n")
+            append(" ${steps.joinToString(" · ").ifEmpty { "no steps" }}\n")
         }
     }
 }
