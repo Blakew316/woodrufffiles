@@ -234,7 +234,7 @@ object GoogleAuth {
                 "grant_type" to "authorization_code",
             )
             attempt.verifier?.let { params += "code_verifier" to it }
-            val json = post(params)
+            val json = tokenEndpoint(params)
             val refresh = json.optString("refresh_token").ifEmpty { throw IOException("Google didn't return a refresh token. Try signing in again.") }
             // Under the grant's lock: a renewal of the old sign-in that's under way can't end this new one.
             synchronized(lock(attempt.grant)) {

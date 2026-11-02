@@ -14,7 +14,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
 
@@ -136,19 +135,19 @@ object PhoneSignIn {
     }
 
     /**
-     * After a sign-in from the phone, everything that uses it hears of it, as after one from the TV: Streaming's QR
-     * code gives way to the library and Settings → Accounts reads it again (both follow [CompanionHub.changes]), the
-     * calendar starts refreshing, the cameras load. None of this can undo the sign-in.
+     * After a sign-in from the phone, everything that uses it hears of it, as after one from the TV. Its record
+     * (ended, keys refused) went as its tokens were kept ([GoogleAuth.exchange]), so Accounts, the report and the phone
+     * read it signed in. Streaming's QR code gives way to the library, warmed as after a sign-in there, and Settings
+     * reads it again (both follow [CompanionHub.changes]); the calendar refreshes and Home stops asking to connect it;
+     * the cameras are listed again and the doorbell listens. None of this can undo the sign-in.
      */
-    private suspend fun after(c: Context, grant: GoogleAuth.Grant) {
-        // The sign-in's record (ended, keys refused) was cleared as its tokens were kept (GoogleAuth.exchange).
+    private fun after(c: Context, grant: GoogleAuth.Grant) {
         Health.forget()
         CompanionHub.settingsChanged.tryEmit(Unit)
         runCatching {
             when (grant) {
                 GoogleAuth.Grant.CALENDAR -> TodayCalendar.signedIn()
-                // The cameras' state is changed on the main thread, as everything else there does.
-                GoogleAuth.Grant.NEST -> withContext(Dispatchers.Main) { Nest.warm() }
+                GoogleAuth.Grant.NEST -> Nest.signedIn()
                 else -> Unit
             }
         }.onFailure { Log.w("PhoneSignIn", "couldn't pass the sign-in on: $it") }

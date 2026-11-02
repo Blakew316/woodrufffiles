@@ -334,6 +334,9 @@ object Doorbell {
     /** Something listening depends on changed (cameras connected or signed out, a new subscription): look again now. */
     internal fun nudge() = nudges.update { it + 1 }
 
+    /** How many times listening was told to look again ([nudge]), for tests. */
+    @VisibleForTesting internal fun nudgesNow(): Int = nudges.value
+
     /** The TV that passes alerts on to this one: its name, "" when it doesn't say (an older Woodruff), null when none has. */
     private fun relayFrom(app: Context): String? = prefs(app).getString(K_RELAY_FROM, null)?.let { cleanTvName(it).orEmpty() }
 
