@@ -3,12 +3,14 @@ package com.woodruff.tvexplorer.server
 import android.content.Context
 import android.content.Intent
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.cloud.FolderCache
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
+import com.woodruff.tvexplorer.cloud.NewEpisodes
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.MediaRef
@@ -21,7 +23,9 @@ import com.woodruff.tvexplorer.tvs.HealthGrant
 import com.woodruff.tvexplorer.tvs.SignInState
 import com.woodruff.tvexplorer.tvs.SignIns
 import com.woodruff.tvexplorer.tvs.TvLinks
+import com.woodruff.tvexplorer.ui.screens.MainPlay
 import com.woodruff.tvexplorer.ui.screens.seasonHolding
+import com.woodruff.tvexplorer.ui.screens.seasonOfEpisode
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
@@ -32,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -75,9 +80,15 @@ class WatchRoutes(
     private fun facts(m: WatchLibrary.Listing?, sh: WatchLibrary.Listing?): WatchFacts {
         val store = RecentStore(ctx)
         EpisodeShows.load(ctx)
+        val recent = store.all()
+        val watched: (String) -> Boolean = { Watched.isWatched(ctx, it) }
+        val shows = sh?.files.orEmpty()
+        val now = System.currentTimeMillis()
+        // The shows' new episodes as the TV's own Home and TV Shows have them: what its last TV Shows listing found.
+        val news = if (shows.isEmpty()) emptyMap() else WatchJson.newShows(WatchLibrary.freshEpisodes(ctx), shows, now, watched, recent)
         return WatchFacts(
-            m?.files.orEmpty(), sh?.files.orEmpty(), store.all(), store.continueWatching(), EpisodeShows.map.value,
-            watched = { Watched.isWatched(ctx, it) }, folder = FolderCache::inMemory,
+            m?.files.orEmpty(), shows, recent, store.continueWatching(), EpisodeShows.map.value,
+            watched = watched, folder = FolderCache::inMemory, news = news, now = now,
         )
     }
 
@@ -113,7 +124,8 @@ class WatchRoutes(
             .put("updated", maxOf(m?.at ?: 0L, sh?.at ?: 0L).takeIf { it > 0 } ?: JSONObject.NULL)
         o.put("featured", JSONArray().apply { Library.featured(all, Library.today()).forEach { put(WatchJson.title(it, facts)) } })
         o.put("continue", JSONArray().apply { facts.continuing.take(20).forEach { put(WatchJson.continueItem(it, facts, restartFor(it, facts))) } })
-        o.put("recent", JSONArray().apply { all.sortedByDescending { it.added }.take(20).forEach { put(WatchJson.title(it, facts)) } })
+        // Newest first, a show whose new episodes came lately by the newest of them, as the TV's Recently added.
+        o.put("recent", JSONArray().apply { all.sortedByDescending { NewEpisodes.addedAt(it, facts.news) }.take(20).forEach { put(WatchJson.title(it, facts)) } })
         o.put("movies", shelf(facts.movies, facts))
         o.put("shows", shelf(facts.shows, facts))
         return o.toString()
@@ -125,9 +137,8 @@ class WatchRoutes(
     /** A show's "Play from the Start" for its Continue watching tile, when its first episode is already known (listed before). */
     private fun restartFor(r: RecentItem, facts: WatchFacts): JSONObject? {
         val entry = WatchJson.entryOf(r, facts)?.takeIf { facts.isShow(it) } ?: return null
-        val top = FolderCache.inMemory(entry.id) ?: return null
-        val first = firstEpisode(entry, top, wait = false) ?: return null
-        return WatchJson.play(WatchJson.driveKey(first.id), first.name, 0, "Play from the Start", WatchJson.durationOf(facts.recent, WatchJson.driveKey(first.id)))
+        val first = WatchJson.firstEpisode(entry, FolderCache::inMemory) ?: return null
+        return WatchJson.restartPlay(entry, first, facts.recent)
     }
 
     // ---- GET /api/library (a grid, a page at a time) -----------------------------------------------
@@ -153,7 +164,8 @@ class WatchRoutes(
         val started by lazy { Library.startedShows(files, facts.recent, facts.showOf, facts.watched) { matchKeyOf(it) } }
         val seen: (DriveFile) -> Boolean = if (shows) { f -> f.id in started } else { f -> WatchJson.filmOf(f, facts.folder(f.id))?.let { facts.watched(WatchJson.driveKey(it.id)) } == true }
         val base = if (words.isEmpty()) files else files.filter { WatchJson.matches(it, words) }
-        val list = Library.apply(base, LibraryFilter(sort = sort, genre = genre, unwatched = unwatched), seen)
+        // "Recently Added" as the TV's grid sorts it: a show whose new episodes came lately by the newest of them.
+        val list = Library.apply(base, LibraryFilter(sort = sort, genre = genre, unwatched = unwatched), seen) { NewEpisodes.addedAt(it, facts.news) }
         return json(
             JSONObject().put("state", state(m, sh)).put("count", list.size).put("offset", offset)
                 .put("items", JSONArray().apply { list.drop(offset).take(limit).forEach { put(WatchJson.title(it, facts)) } })
@@ -218,7 +230,7 @@ class WatchRoutes(
             WatchJson.filmOf(f, inside) ?: run {
                 // A collection (or a film in parts): its films, each played on its own.
                 o.put("kind", "collection").put("films", JSONArray().apply {
-                    inside.filter { it.kind == FileKind.VIDEO }.forEach { v -> put(episode(v, null, null, null, facts, collection = true, folder = f.id)) }
+                    inside.filter { it.kind == FileKind.VIDEO }.forEach { v -> put(WatchJson.episode(v, f, facts, f.id, collection = true)) }
                 })
                 return
             }
@@ -238,34 +250,53 @@ class WatchRoutes(
         val seasons: List<Pair<String, String>> = folders.map { it.id to it.name }
             .ifEmpty { if (top.any { it.kind == FileKind.VIDEO }) listOf(INSIDE to "Episodes") else emptyList() }
         val listed = seasons.map { (id, _) -> keysOf(if (id == INSIDE) top else FolderCache.inMemory(id)) }
-        val resume = WatchJson.showResumeItem(f, facts, listed.flatten().toSet())
         val names = seasons.map { it.second }
         val first = WatchJson.firstSeason(names)
-        val open = resume?.let { r -> seasonHolding(names, listed, r.key, r.title) } ?: first
         val firstEp = seasons.getOrNull(first)?.let { (id, name) ->
             val left = FOLDER_MS - (System.currentTimeMillis() - started)
             if (id == INSIDE) top.firstOrNull { it.kind == FileKind.VIDEO }
             else listingOf(DriveFile(id, name, DriveFile.FOLDER_MIME, 0, 0, null), left.coerceAtLeast(500))?.firstOrNull { it.kind == FileKind.VIDEO }
         }
+        // What the main button plays, as the TV's title page decides it (the episode to go on with, else the first new
+        // one, else the first), and the season the sheet opens at: that episode's.
+        val main = WatchJson.showMain(f, facts, listed.flatten().toSet(), firstEp)
+        val open = when (main) {
+            is MainPlay.GoOn -> seasonHolding(names, listed, main.item.key, main.item.title)
+            is MainPlay.New -> seasonOfEpisode(seasons.map { (id, _) -> id.takeIf { it != INSIDE } }, names, listed, main.episode.id, listOf(main.episode))
+            else -> null
+        } ?: first
+        // "Play from the Start" beside a button that goes on with the show.
+        val restart = firstEp?.takeIf { main is MainPlay.GoOn || main is MainPlay.New }
+        // TMDB's word on those episodes (their real names for the player and the line under the buttons, "S2 E4 · The
+        // Volcano · Ends at 11:34 PM", and the main one's length), from its cache at once, else asked for, for a moment.
+        val (mainMeta, restartMeta) = episodeMetas(
+            f,
+            when (main) {
+                is MainPlay.GoOn -> main.item.title to names.getOrNull(open)
+                is MainPlay.New -> main.episode.name to main.episode.seasonName
+                is MainPlay.First -> main.episode.name to names.getOrNull(first)
+                else -> null
+            },
+            restart?.let { it.name to names.getOrNull(first) },
+        )
         o.put("seasons", JSONArray().apply { seasons.forEach { (id, name) -> put(JSONObject().put("id", id).put("name", name)) } })
         o.put("season", open)
-        o.put("play", resume?.let(WatchJson::episodePlay) ?: firstEp?.let { WatchJson.firstEpisodePlay(it, facts.recent) } ?: JSONObject.NULL)
-        o.put("restart", if (resume != null && firstEp != null) WatchJson.play(WatchJson.driveKey(firstEp.id), firstEp.name, 0, "Play from the Start", WatchJson.durationOf(facts.recent, WatchJson.driveKey(firstEp.id))) else JSONObject.NULL)
-        // The episode the primary button plays, for "S2 E4 · The Volcano · Ends at 11:34 PM": its code and
-        // name, and its length (TMDB's, for a moment, when the player hasn't measured it).
-        val playFile = resume?.title ?: firstEp?.name
-        val playSeason = resume?.let { r -> seasonHolding(names, listed, r.key, r.title) } ?: first
-        o.put("playName", playFile?.let { WatchJson.episodeLabel(it) } ?: JSONObject.NULL)
-        o.put("playMinutes", playFile?.let { name -> soon(DETAILS_MS) { Tmdb.episodeRuntime(ctx, f.name, name, names.getOrNull(playSeason)) } } ?: JSONObject.NULL)
+        o.put("play", main?.let { WatchJson.mainPlay(f, it, facts.recent, mainMeta) } ?: JSONObject.NULL)
+        o.put("restart", restart?.let { WatchJson.restartPlay(f, it.copy(episode = restartMeta ?: it.episode), facts.recent) } ?: JSONObject.NULL)
+        o.put("playName", WatchJson.playName(mainMeta) ?: JSONObject.NULL)
+        o.put("playMinutes", mainMeta?.minutes ?: JSONObject.NULL)
     }
 
-    /** The first episode of a show's first season ([top]: the show folder's listing), if it's known ([wait]: list it now if not). */
-    private fun firstEpisode(show: DriveFile, top: List<DriveFile>, wait: Boolean): DriveFile? {
-        val folders = top.filter { it.isFolder }
-        if (folders.isEmpty()) return top.firstOrNull { it.kind == FileKind.VIDEO }
-        val season = folders[WatchJson.firstSeason(folders.map { it.name })]
-        val eps = if (wait) listingOf(season, FOLDER_MS) else FolderCache.inMemory(season.id)
-        return eps?.firstOrNull { it.kind == FileKind.VIDEO }
+    /**
+     * What TMDB knows of [show]'s [episodes] (each a file name and its season folder's name, or null for none): from
+     * its cache at once, else asked for, all together, for a moment (then kept, so the next look has them).
+     */
+    private fun episodeMetas(show: DriveFile, vararg episodes: Pair<String, String?>?): List<EpisodeMeta?> {
+        val none = episodes.map { null }
+        if (episodes.all { it == null }) return none
+        return soon(DETAILS_MS) {
+            coroutineScope { episodes.map { e -> async { e?.let { (name, folder) -> WatchTmdb.meta(ctx, show.name, name, folder) } } }.awaitAll() }
+        } ?: none
     }
 
     // ---- GET /api/library/episodes ------------------------------------------------------------------
@@ -281,33 +312,10 @@ class WatchRoutes(
             val got = runBlocking { withTimeoutOrNull(EPISODES_MS) { job.await() } }
             got ?: Seasons.plain(ctx, folderId)?.takeIf { Seasons.runningFor(folderId) > PREPARE_GRACE_MS }
         } ?: return json(JSONObject().put("state", "loading").put("episodes", JSONArray()))
-        val number = seasonName?.let(Tmdb::seasonNumber)
+        // Each as the TV's episode card says it: TMDB's numbers, names, synopses and lengths where it knows them.
         return json(JSONObject().put("state", "ready").put("episodes", JSONArray().apply {
-            season.files.filter { it.kind == FileKind.VIDEO }.forEach { v ->
-                put(episode(v, number, season.stills[v.id], season.minutes[v.id], facts, folder = folderId))
-            }
+            season.videos.forEach { v -> put(WatchJson.episode(v, show, facts, folderId)) }
         }))
-    }
-
-    /** One episode (or a collection's film) for the phone's list: what it is, how far it's watched, and what to start. */
-    private fun episode(v: DriveFile, season: Int?, still: String?, minutes: Int?, facts: WatchFacts, collection: Boolean = false, folder: String? = null): JSONObject {
-        val key = WatchJson.driveKey(v.id)
-        val seen = facts.recent.firstOrNull { it.key == key }
-        val number = if (collection) null else Tmdb.episodeNumber(v.name, season)?.second
-        val measured = seen?.durationMs?.takeIf { it > 0 }?.let { ((it + 30_000) / 60_000).toInt() }
-        return JSONObject()
-            .put("key", key).put("playTitle", v.name)
-            .put("code", if (collection) JSONObject.NULL else com.woodruff.tvexplorer.ui.screens.episodeCode(v.name) ?: JSONObject.NULL)
-            .put("number", number ?: JSONObject.NULL)
-            .put("special", season == 0 || Tmdb.episodeNumber(v.name, season)?.first == 0)
-            .put("name", if (collection) Library.label(v) else WatchJson.episodeName(v.name, number))
-            .put("overview", JSONObject.NULL) // an episode synopsis, once this TV keeps TMDB's
-            .put("still", still ?: v.thumbnailLink?.takeIf { com.woodruff.tvexplorer.cloud.isGoogleUrl(it) }?.let { WatchJson.artRoute(v.id, "still", v.modified, folder) } ?: JSONObject.NULL)
-            .put("runtime", minutes ?: measured ?: JSONObject.NULL)
-            .put("position", WatchJson.resumeAt(facts.recent, key).takeIf { seen?.upNext != true } ?: 0L)
-            .put("duration", seen?.durationMs ?: 0L)
-            .put("watched", facts.watched(key))
-            .put("upNext", seen?.upNext == true)
     }
 
     private fun keysOf(files: List<DriveFile>?): Set<String> =
@@ -504,11 +512,16 @@ private object Folders {
 }
 
 /**
- * Seasons' episodes made ready for the phone: the season's listing with TMDB's pictures and lengths
- * looked up once (as the TV's title page does), kept for the 20 seasons looked at last.
+ * Seasons' episodes made ready for the phone: the season's listing with what TMDB knows of each
+ * episode (its picture, number, name, synopsis and length, as the TV's title page and season folders
+ * show them) looked up once, kept for the 20 seasons looked at last.
  */
 private object Seasons {
-    class Season(val files: List<DriveFile>, val stills: Map<String, String>, val minutes: Map<String, Int>)
+    /**
+     * A season made ready: its listing as this TV holds it ([files]), its videos as TMDB knows them
+     * ([videos], see [com.woodruff.tvexplorer.cloud.EpisodeMeta]), and whether TMDB could be asked then.
+     */
+    class Season(val files: List<DriveFile>, val videos: List<DriveFile>, val withTmdb: Boolean)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val kept = object : LinkedHashMap<String, Season>(24, 0.75f, true) {
@@ -516,16 +529,23 @@ private object Seasons {
     }
     private val running = ConcurrentHashMap<String, Pair<Long, Deferred<Season?>>>()
 
-    /** The season ready, if it was made from the listing this TV holds now (listed again since: made again). */
+    /**
+     * The season ready, if it was made from the listing this TV holds now (listed again since: made
+     * again), and with TMDB if TMDB can be asked now (a key added since: made again, with the names).
+     */
     fun ready(c: Context, folderId: String): Season? {
         val s = synchronized(kept) { kept[folderId] } ?: return null
-        return s.takeIf { FolderCache.peek(c, folderId) == s.files }
+        return s.takeIf { FolderCache.peek(c, folderId) == s.files && (s.withTmdb || !Tmdb.isConfigured(c)) }
     }
 
-    /** Its listing alone (no TMDB pictures), when one is held. */
-    fun plain(c: Context, folderId: String): Season? = FolderCache.peek(c, folderId)?.let { Season(it, emptyMap(), emptyMap()) }
+    /** Its listing alone (nothing from TMDB), when one is held. */
+    fun plain(c: Context, folderId: String): Season? =
+        FolderCache.peek(c, folderId)?.let { Season(it, it.filter { f -> f.kind == FileKind.VIDEO }, withTmdb = false) }
 
     fun runningFor(folderId: String): Long = running[folderId]?.let { System.currentTimeMillis() - it.first } ?: 0L
+
+    /** Every season made again when next asked for (TMDB's answers came from somewhere else meanwhile: a test). */
+    fun forget() = synchronized(kept) { kept.clear() }
 
     fun prepare(c: Context, folderId: String, show: String, seasonFolder: String?): Deferred<Season?> = synchronized(running) {
         running[folderId]?.second?.takeIf { it.isActive } ?: scope.async {
@@ -534,12 +554,28 @@ private object Seasons {
                     ?: FolderCache.list(c, null, DriveFile(folderId, seasonFolder ?: show, DriveFile.FOLDER_MIME, 0, 0, null))
                     ?: return@runCatching null
                 val videos = files.filter { it.kind == FileKind.VIDEO }
-                val withStills = runCatching { Tmdb.withEpisodeStills(c, videos, show, seasonFolder) }.getOrDefault(videos)
-                val stills = withStills.mapNotNull { v -> v.posterUrl?.takeIf(WatchJson::isTmdbUrl)?.let { v.id to it } }.toMap()
-                val minutes = if (stills.isEmpty() && !Tmdb.isConfigured(c)) emptyMap()
-                else videos.mapNotNull { v -> runCatching { Tmdb.episodeRuntime(c, show, v.name, seasonFolder) }.getOrNull()?.let { v.id to it } }.toMap()
-                Season(files, stills, minutes).also { synchronized(kept) { kept[folderId] = it } }
+                val withTmdb = Tmdb.isConfigured(c)
+                // Each episode as TMDB knows it, on its file (TMDB's answers are kept on disk: each season asked for once, ever).
+                val known = runCatching { WatchTmdb.episodes(c, videos, show, seasonFolder) }.getOrDefault(videos)
+                Season(files, known, withTmdb).also { synchronized(kept) { kept[folderId] = it } }
             }.getOrNull()
         }.also { d -> running[folderId] = System.currentTimeMillis() to d }
+    }
+}
+
+/**
+ * Where Watch asks TMDB about a show's episodes: TMDB itself, through its cache on disk (a season is
+ * asked for once, ever). [episodes]: a season's videos, each with what TMDB knows of it (its picture,
+ * number, name, synopsis and length); [meta]: one episode's. Tests answer here instead of TMDB.
+ */
+internal object WatchTmdb {
+    @Volatile var episodes: suspend (Context, List<DriveFile>, String, String?) -> List<DriveFile> = Tmdb::withEpisodeStills
+    @Volatile var meta: suspend (Context, String, String, String?) -> EpisodeMeta? = Tmdb::episodeMeta
+
+    /** TMDB itself again (after a test), and no season kept as other answers made it. */
+    fun reset() {
+        episodes = Tmdb::withEpisodeStills
+        meta = Tmdb::episodeMeta
+        Seasons.forget()
     }
 }
