@@ -69,6 +69,12 @@ sealed interface DrivePlace {
 }
 
 /**
+ * Google Drive answered with an error. [code] is its HTTP status: 401 means it didn't take the
+ * access token (see [GoogleAuth.forgetAccess]), which a network failure never is.
+ */
+class DriveHttpException(val code: Int, message: String) : IOException(message)
+
+/**
  * Minimal Drive v3 REST client over HttpURLConnection; read-only, matching the drive.readonly
  * scope. Streaming playback doesn't go through here: the player fetches [mediaUrl] itself with
  * a bearer token, using HTTP range requests so seeking works.
@@ -250,7 +256,8 @@ object DriveApi {
         if (code in 200..299) return
         val body = runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull().orEmpty()
         val reason = runCatching { JSONObject(body).getJSONObject("error").getString("message") }.getOrNull()
-        throw IOException(
+        throw DriveHttpException(
+            code,
             when (code) {
                 401 -> "Google sign-in expired. Choose Google Drive again to reconnect."
                 403 -> reason ?: "Google Drive refused access (403). Check the Drive API is enabled in your Google Cloud project."
