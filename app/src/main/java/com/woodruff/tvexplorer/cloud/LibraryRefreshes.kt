@@ -19,6 +19,14 @@ internal const val FRESH_MS = 5 * 60_000L
 internal fun isFresh(listedAt: Long?, now: Long): Boolean = listedAt != null && now - listedAt in 0 until FRESH_MS
 
 /**
+ * Whether opening a library lists it from Drive: Refresh asked for it ([force]), it isn't fresh
+ * (listed in full at [listedAt]), or the last try said offline or refused ([status]): then it's
+ * tried again, so the header's note goes as soon as Google answers rather than staying up.
+ */
+internal fun needsListing(force: Boolean, status: DriveStatus, listedAt: Long?, now: Long): Boolean =
+    force || status != DriveStatus.Online || !isFresh(listedAt, now)
+
+/**
  * Each library's refresh, one at a time and shared: whoever asks while one is under way (the
  * screen, either tab, Home's warm-up at launch) gets that one instead of starting another, which
  * used to list the whole library twice at once. Each runs in [scope] on its own, so the one who

@@ -312,7 +312,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun keepSaved(place: DrivePlace, saved: ListingCache.Saved) {
         if (cache.putIfAbsent(place, saved.files) != null) return
-        if (saved.listedAt > 0) listedAt.putIfAbsent(place, saved.listedAt)
+        if (saved.listedAt > 0 && place is DrivePlace.Named) listedAt.putIfAbsent(place, saved.listedAt)
         if (saved.cutAt > 0) cuts.putIfAbsent(place, saved.cutAt)
     }
 
@@ -622,8 +622,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     _state.update { if (it.place == place && it.files.isEmpty()) it.copy(files = shown, busy = false, cutAt = cuts[place] ?: 0) else it }
                 }
             }
-            // Listed in full a moment ago (switching tabs, back from a show): as it is.
-            if (place is DrivePlace.Named && !force && isFresh(listedAt[place], System.currentTimeMillis())) {
+            // Listed in full a moment ago (switching tabs, back from a show): as it is. Not while the
+            // header says offline: then it's listed again, so the note goes once Google answers.
+            if (place is DrivePlace.Named && !needsListing(force, _state.value.status, listedAt[place], System.currentTimeMillis())) {
                 _state.update { if (it.place == place && it.busy && it.files.isNotEmpty()) it.copy(busy = false) else it }
                 return@launch
             }

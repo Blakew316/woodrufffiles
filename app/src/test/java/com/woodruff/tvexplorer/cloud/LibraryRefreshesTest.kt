@@ -106,6 +106,20 @@ class LibraryRefreshesTest {
         assertEquals(Fetch.Done, withTimeout(5_000) { next.await() })
     }
 
+    @Test fun aFreshLibraryIsOnlyListedWhenAskedOrOffline() {
+        val listed = 1_000_000_000L
+        val soon = listed + 60_000
+        assertFalse(needsListing(force = false, DriveStatus.Online, listed, soon))
+        // Refresh in Filter.
+        assertTrue(needsListing(force = true, DriveStatus.Online, listed, soon))
+        // The header says offline (a folder failed meanwhile): tried again, so the note can go.
+        assertTrue(needsListing(force = false, DriveStatus.Offline, listed, soon))
+        assertTrue(needsListing(force = false, DriveStatus.Refused("Check the keys"), listed, soon))
+        // Old, or never listed this run.
+        assertTrue(needsListing(force = false, DriveStatus.Online, listed, listed + FRESH_MS))
+        assertTrue(needsListing(force = false, DriveStatus.Online, null, soon))
+    }
+
     @Test fun freshForFiveMinutes() {
         val listed = 1_000_000_000L
         assertTrue(isFresh(listed, listed))
