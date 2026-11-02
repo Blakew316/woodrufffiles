@@ -17,7 +17,14 @@ Drive sign-in ended and the last update didn't install), Kitchen (off for two ho
 its link). /api/tvs/health answers each like a TV would (409 with the last report for Kitchen and Bedroom);
 /api/tvs/relink takes the code 123456 (then Bedroom is linked again and all good).
 GET /api/diagnostics answers with a sample Smoothness Report (and X-Recording-Left, like the TV); POST
-/api/diagnostics/record starts a 3-minute "recording" here, so the phone page's countdown can be seen."""
+/api/diagnostics/record starts a 3-minute "recording" here, so the phone page's countdown can be seen.
+Watch: 64 movies and 4 shows with the TV gallery's sample names, Continue watching, every
+picture drawn here in SVG and served from /api/poster (so the gallery never needs the network), and every Watch route
+(home with an ETag, the grids with sort, filters, search and paging, a title's details, a season's episodes, search,
+starting something on a TV or on every TV, the controls, Mark as watched and Remove from Continue watching).
+POST /__mock/set {library: "ready" | "offline" | "unreachable" | "expired" | "expiredEmpty" | "notSignedIn" | "notSetUp" |
+"empty" | "loading" | "keysRejected" | "down"} picks the library's state ("down": the TV doesn't answer), and
+{watch: {"started": false}} makes starts wait on the TV (the "Ready on…" alert); /__mock/reset puts them back."""
 import json, math, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -160,7 +167,7 @@ def tvs_json():
         {'id': 'this', 'name': 'Living Room', 'online': True, 'onScreen': True, 'version': '2.0.171', 'seen': None, 'link': 'ok',
          'health': _health('good'),
          'playing': {'title': 'Midnight Harbor', 'app': 'Woodruff Family', 'playing': p['this'], 'position': 2710000, 'duration': 6840000,
-                     'can': ['playpause', 'back10', 'fwd30', 'next']}},
+                     'can': ['playpause', 'back10', 'fwd30', 'next'], 'key': 'drive:m-harbor'}},
         {'id': 'b', 'name': 'Den', 'online': True, 'onScreen': False, 'version': '2.0.171', 'seen': now, 'link': 'ok',
          'health': _health('attention', 2, 'Google Drive’s sign-in ended'),
          'playing': {'title': 'Backyard Science · S2 E4', 'app': 'YouTube', 'playing': p['b'], 'position': 410000, 'duration': 1320000, 'can': ['playpause']}},
@@ -440,6 +447,336 @@ def diagnostics():
     return SMOOTHNESS.replace('{recording}', rec), left
 
 
+
+# ---- Watch: the family's Movies and TV Shows -------------------------------------------------------------------------
+WATCH = {'library': 'ready', 'started': True}
+MIN_MS = 60_000
+
+
+def _poster_url(tid, kind='poster', extra=''):
+    return '/api/poster?id=%s&kind=%s%s&v=1' % (tid, kind, extra)
+
+
+def _movie(tid, title, year, genres, rating, poster=True, backdrop=False, added=0, overview=None, runtime=None, age=None, cast=None):
+    return {'id': tid, 'kind': 'movie', 'title': title, 'year': year, 'genres': genres, 'rating': rating, 'poster': poster,
+            'backdrop': backdrop, 'added': added, 'overview': overview, 'runtime': runtime, 'ageRating': age, 'cast': cast or []}
+
+
+_NOW0 = int(time.time() * 1000)
+MOVIES = [
+    _movie('m-ironwood', 'Ironwood', 2025, ['Drama'], 7.4, backdrop=True, added=_NOW0 - 2 * DAY, runtime=128, age='PG-13',
+           overview='A forester and her estranged son spend one winter keeping an old mill turning, and learn what each of them gave up.',
+           cast=['A. Rivers', 'B. Lane', 'C. Moss', 'D. Hale']),
+    _movie('m-lastlight', 'The Last Light', 2023, ['Drama'], 7.1, backdrop=True, added=_NOW0 - 40 * DAY, runtime=101, age='PG',
+           overview='The keeper of a lighthouse on its last season writes down everything the ships ever told him.', cast=['E. Stone', 'F. Ward']),
+    _movie('m-harbor', 'Midnight Harbor', 2024, ['Thriller', 'Drama'], 7.8, backdrop=True, added=_NOW0 - 6 * DAY, runtime=114, age='PG-13',
+           overview='A harbour town keeps a secret that the tide brings back every spring. When a ferry captain finds a letter addressed to her '
+                    'mother, she starts asking questions the whole town has agreed never to answer, and the night shift at the harbour turns into '
+                    'a search for what really happened on the last boat out.', cast=['G. Pierce', 'H. Ortiz', 'I. Chen', 'J. Bauer']),
+    _movie('m-neon', 'Neon Alley', 2024, ['Crime'], 6.9, backdrop=True, added=_NOW0 - 12 * DAY, runtime=97, age='R', overview='Two cousins run a noodle bar that the whole block owes money to.'),
+    _movie('m-orbit', 'Orbit', 2021, ['Sci-Fi'], 7.6, backdrop=True, added=_NOW0 - 90 * DAY, runtime=126, age='PG-13', overview='The last crew of a weather station above the clouds has one week to come home.'),
+    _movie('m-paper', 'Paper Planes', 2022, ['Family'], 7.0, added=_NOW0 - 30 * DAY, runtime=96, age='G', overview='A girl and her grandfather build paper planes for the county fair.'),
+    _movie('m-cabin', 'Summer at the Cabin', 2020, ['Comedy'], 6.6, poster=False, added=_NOW0 - 200 * DAY, runtime=92, age='PG', overview='Three families, one cabin, no signal.'),
+]
+_PLACES = ['Copper', 'North', 'Silver', 'Cedar', 'Willow', 'Granite', 'Harbor', 'Maple', 'Stone', 'Amber', 'Pine', 'River', 'Juniper', 'Coral',
+           'Iron', 'Meadow', 'Raven', 'Linden', 'Ember', 'Frost']
+_WEATHER = ['Valley', 'Star', 'Rain', 'Wind', 'Fog', 'Sky', 'Storm', 'Snow', 'Dawn', 'Tide', 'Thunder', 'Bay', 'Hollow', 'Ridge', 'Sun',
+            'Field', 'Moon', 'Creek', 'Cloud']
+_GENRES = ['Drama', 'Comedy', 'Thriller', 'Family', 'Sci-Fi', 'Crime', 'Adventure', 'Documentary']
+for _i in range(57):
+    _t = '%s %s' % (_PLACES[_i % len(_PLACES)], _WEATHER[(_i * 7) % len(_WEATHER)])
+    MOVIES.append(_movie('m-g%02d' % _i, _t, 1990 + (_i * 13) % 35, [_GENRES[_i % len(_GENRES)]], round(5.2 + (_i * 37 % 34) / 10, 1),
+                         added=_NOW0 - (50 + _i * 3) * DAY, runtime=85 + (_i * 11) % 60, overview='A story about %s.' % _t.lower()))
+
+SHOW_EPISODES = {
+    'Backyard Science': [
+        ('Season 1', [('Tide Pools', 'The kids follow a question from the back garden to the edge of the sea, and find an answer they did not expect.'),
+                      ('Ants', 'One ant hill, four magnifying glasses and a picnic nobody gets to eat.'),
+                      ('Clouds', 'Why some clouds rain and others just sit there all afternoon.'),
+                      ('Roots', 'What happens under the lawn when nobody is looking.'),
+                      ('Echoes', 'Shouting into the old well turns into a lesson about sound.'),
+                      ('Stars', 'A night on the roof with a borrowed telescope.')]),
+        ('Season 2', [('Magnets', 'The fridge door becomes a laboratory.'), ('Ice', 'How long a block of ice lasts in the sun, measured every hour.'),
+                      ('Wind', 'Kites, paper and the neighbour’s washing line.'),
+                      ('The Volcano', 'A trip to the island turns into a lesson about what is under our feet, and the big eruption goes sideways.'),
+                      ('Rainbows', 'Garden hoses at sunset, and what a prism does.'), ('Seeds', 'The last day of summer, and what to plant next.')]),
+    ],
+    'Detective Rowe': [('Season 1', [('The Quiet Street', None), ('Two Keys', None), ('The Ferry', None), ('Lost Property', None),
+                                     ('The Allotment', None), ('Paper Trail', None), ('Low Tide', None), ('The Last Case', None)])],
+    'Kitchen Rules': [('Season %d' % n, [('Week %d' % e, 'Four kitchens, one judge, and a dish nobody has made before.') for e in range(1, 5)]) for n in range(1, 5)],
+    'The Lighthouse': [('Episodes', [('Arrival', 'A new keeper arrives with one suitcase and no idea how to cook.'), ('Fog', 'Three days without the horizon.'),
+                                     ('The Supply Boat', 'Late again, and carrying the wrong letters.')])],
+}
+SHOWS = [
+    dict(_movie('s-backyard', 'Backyard Science', 2023, ['Family', 'Documentary'], 8.1, backdrop=True, added=_NOW0 - 300 * DAY, age='TV-G',
+                overview='Two curious kids and their grandad turn the back garden into a laboratory, one question at a time: why the sky goes orange, '
+                         'where the rain goes, and what the ants are doing all day.', cast=['A. Rivers', 'B. Lane', 'C. Moss']), kind='show'),
+    dict(_movie('s-rowe', 'Detective Rowe', 2019, ['Crime', 'Drama'], 7.3, poster=False, added=_NOW0 - 400 * DAY, age='TV-14',
+                overview='A retired detective takes one last case in the town where she grew up.'), kind='show'),
+    dict(_movie('s-kitchen', 'Kitchen Rules', 2021, ['Reality'], 6.8, added=_NOW0 - 1 * DAY, age='TV-PG', overview='Home cooks, one kitchen, and a judge who has seen everything.'),
+         kind='show', caption='New · S4 E2'),
+    dict(_movie('s-lighthouse', 'The Lighthouse', 2022, ['Drama'], 7.0, added=_NOW0 - 500 * DAY, age='TV-PG', overview='A year on a lighthouse, told one storm at a time.'), kind='show'),
+]
+# What's been watched, and where (the TV's Continue watching and ✓s).
+PROGRESS = {}   # media key -> (position, duration, upNext)
+WATCHED = set()
+
+
+def _reset_watch():
+    WATCH.clear(); WATCH.update({'library': 'ready', 'started': True})
+    PROGRESS.clear(); WATCHED.clear()
+    PROGRESS.update({
+        'drive:m-harbor': (2_710_000, 6_840_000, False),                       # Midnight Harbor: 45:10 of 1:54:00
+        'drive:ep-s-backyard-2-4': (731_000, 1_440_000, False),                # Backyard Science S2 E4: 12:11 of 24:00
+        'drive:ep-s-kitchen-3-1': (0, 0, True),                                # Kitchen Rules: up next S3 E1
+        'drive:m-orbit': (2_040_000, 7_560_000, False),                        # Orbit: 34 minutes in
+    })
+    WATCHED.update({'drive:m-paper'} | {'drive:ep-s-backyard-1-%d' % e for e in range(1, 7)} | {'drive:ep-s-backyard-2-%d' % e for e in range(1, 4)}
+                   | {'drive:ep-s-kitchen-%d-%d' % (n, e) for n in (1, 2) for e in range(1, 5)})
+    CONTINUE[:] = ['drive:m-harbor', 'drive:ep-s-backyard-2-4', 'drive:ep-s-kitchen-3-1', 'drive:m-orbit']
+
+
+CONTINUE = []
+_reset_watch()
+
+
+def _all_titles():
+    return MOVIES + SHOWS
+
+
+def _is_show(t):
+    return t['kind'] == 'show'
+
+
+def _season_list(show):
+    eps = SHOW_EPISODES[show['title']]
+    return [{'id': 'inside' if name == 'Episodes' else 'f-%s-%d' % (show['id'], n), 'name': name} for n, (name, _) in enumerate(eps, 1)]
+
+
+def _episode_key(show, season, number):
+    return 'drive:ep-%s-%d-%d' % (show['id'], season, number)
+
+
+def _play(key, title, position, label, duration):
+    return {'key': key, 'title': title, 'position': position, 'label': label, 'duration': duration}
+
+
+def _film_play(m):
+    key = 'drive:' + m['id']
+    pos, dur, _ = PROGRESS.get(key, (0, (m['runtime'] or 100) * MIN_MS, False))
+    name = '%s (%d).mkv' % (m['title'], m['year'])
+    label = ('Resume from ' + _dur(pos)) if pos > MIN_MS else 'Play'
+    return _play(key, name, pos, label, dur), (_play(key, name, 0, 'Start Over', dur) if pos > MIN_MS else None)
+
+
+def _dur(ms):
+    s = ms // 1000
+    h, m = s // 3600, (s % 3600) // 60
+    return '%dh %02dm' % (h, m) if h else ('%dm' % m if m else '%ds' % s)
+
+
+def _ep_file(show, season, number, name):
+    code = 'S%02dE%02d' % (season, number)
+    return '%s %s %s.mkv' % (show['title'], code, name) if name else '%s %s.mkv' % (show['title'], code)
+
+
+def _show_play(show):
+    """(play, restart, season index to open, the episode's name line)."""
+    seasons = SHOW_EPISODES[show['title']]
+    for key in CONTINUE:
+        for n, (_, eps) in enumerate(seasons, 1):
+            for e, (name, _) in enumerate(eps, 1):
+                if _episode_key(show, n, e) == key:
+                    pos, dur, nxt = PROGRESS[key]
+                    code = 'S%d E%d' % (n, e)
+                    play = _play(key, _ep_file(show, n, e, name), 0 if nxt else pos, ('Play ' if nxt else 'Resume ') + code, dur)
+                    first = _play(_episode_key(show, 1, 1), _ep_file(show, 1, 1, seasons[0][1][0][0]), 0, 'Play from the Start', 0)
+                    return play, first, n - 1, code + ' · ' + name
+    first_name = seasons[0][1][0][0]
+    return _play(_episode_key(show, 1, 1), _ep_file(show, 1, 1, first_name), 0, 'Play S1 E1', 0), None, 0, 'S1 E1 · ' + first_name
+
+
+def _title(t, with_play=True):
+    show = _is_show(t)
+    play = None
+    if with_play:
+        play = (_show_play(t)[0] if any(k.startswith('drive:ep-%s-' % t['id']) for k in CONTINUE) else None) if show else _film_play(t)[0]
+    return {'id': t['id'], 'kind': t['kind'], 'title': t['title'], 'year': t['year'],
+            'poster': _poster_url(t['id']) if t['poster'] else None,
+            'backdrop': _poster_url(t['id'], 'backdrop') if t['backdrop'] else None,
+            'genres': t['genres'], 'rating': t['rating'], 'watched': ('drive:' + t['id']) in WATCHED,
+            'caption': t.get('caption'), 'added': t['added'], 'play': play}
+
+
+def _continue_item(key):
+    pos, dur, nxt = PROGRESS[key]
+    if key.startswith('drive:ep-'):
+        sid, season, number = key[len('drive:ep-'):].rsplit('-', 2)
+        show = next(s for s in SHOWS if s['id'] == sid)
+        name = SHOW_EPISODES[show['title']][int(season) - 1][1][int(number) - 1][0]
+        code = 'S%s E%s' % (season, number)
+        play, restart, _, _ = _show_play(show)
+        return {'key': key, 'playTitle': _ep_file(show, int(season), int(number), name), 'titleId': sid, 'kind': 'show', 'name': show['title'],
+                'code': code, 'episode': name, 'position': pos, 'duration': dur, 'upNext': nxt,
+                'poster': _poster_url(sid) if show['poster'] else None, 'drive': True, 'play': play, 'restart': restart, 'where': None}
+    m = next(x for x in MOVIES if 'drive:' + x['id'] == key)
+    play, restart = _film_play(m)
+    return {'key': key, 'playTitle': '%s (%d).mkv' % (m['title'], m['year']), 'titleId': m['id'], 'kind': 'movie', 'name': m['title'], 'code': None,
+            'episode': None, 'position': pos, 'duration': dur, 'upNext': nxt, 'poster': _poster_url(m['id']) if m['poster'] else None,
+            'drive': True, 'play': play, 'restart': restart, 'where': None}
+
+
+def _filled():
+    return WATCH['library'] in ('ready', 'offline', 'unreachable', 'expired', 'keysRejected')
+
+
+def watch_home():
+    state = WATCH['library']
+    if not _filled():
+        return {'state': state, 'tv': 'Living Room', 'updated': None, 'featured': [], 'continue': [], 'recent': [],
+                'movies': {'count': 0, 'items': []}, 'shows': {'count': 0, 'items': []}}
+    featured = [t for t in _all_titles() if t['backdrop'] and t['rating'] >= 6.5]
+    featured.sort(key=lambda t: (t['id'] != 'm-harbor', t['title']))
+    recent = sorted(_all_titles(), key=lambda t: -t['added'])[:20]
+    return {'state': state, 'tv': 'Living Room', 'updated': _now() - 5 * MIN,
+            'featured': [_title(t) for t in featured[:5]],
+            'continue': [_continue_item(k) for k in CONTINUE],
+            'recent': [_title(t) for t in recent],
+            'movies': {'count': len(MOVIES), 'items': [_title(t) for t in _az(MOVIES)[:20]]},
+            'shows': {'count': len(SHOWS), 'items': [_title(t) for t in _az(SHOWS)[:20]]}}
+
+
+def _sort_key(title):
+    t = title.lower()
+    for a in ('the ', 'a ', 'an '):
+        if t.startswith(a):
+            return t[len(a):]
+    return t
+
+
+def _az(items):
+    return sorted(items, key=lambda t: _sort_key(t['title']))
+
+
+def _matches(t, words):
+    text = t['title'].lower()
+    return all(w in text or (len(w) == 4 and w.isdigit() and str(t['year']) == w) for w in words)
+
+
+def _rank(t, q):
+    q = _sort_key(q.strip().lower())
+    title = t['title'].lower()
+    return 0 if _sort_key(title).startswith(q) else 1 if (' ' + title).find(' ' + q) >= 0 else 2
+
+
+def library_page(query):
+    q = lambda k, d='': query.get(k, [d])[0]
+    items = SHOWS if q('place') == 'shows' else MOVIES
+    words = [w for w in q('q').lower().split() if w]
+    out = [t for t in items if (not words or _matches(t, words))]
+    if q('genre'):
+        out = [t for t in out if q('genre') in t['genres']]
+    if q('unwatched') == '1':
+        out = [t for t in out if ('drive:' + t['id']) not in WATCHED and not (_is_show(t) and any(k.startswith('drive:ep-%s-' % t['id']) for k in list(PROGRESS) + list(WATCHED)))]
+    sort = q('sort', 'az')
+    if sort == 'recent':
+        out.sort(key=lambda t: -t['added'])
+    elif sort == 'newest':
+        out.sort(key=lambda t: (-(t['year'] or 0), _sort_key(t['title'])))
+    elif sort == 'rated':
+        out.sort(key=lambda t: (-(t['rating'] or -1), _sort_key(t['title'])))
+    else:
+        out = _az(out)
+    offset, limit = int(q('offset', '0')), min(120, int(q('limit', '60')))
+    genres = sorted({g for t in items for g in t['genres']})
+    return {'state': WATCH['library'], 'count': len(out), 'offset': offset, 'items': [_title(t) for t in out[offset:offset + limit]],
+            'genres': genres, 'rated': True, 'capped': None, 'updated': _now() - 5 * MIN}
+
+
+def library_search(query):
+    q = query.get('q', [''])[0]
+    words = [w for w in q.lower().split() if w]
+
+    def ranked(items):
+        hits = [t for t in items if words and _matches(t, words)]
+        return sorted(hits, key=lambda t: (_rank(t, q), -(t['rating'] or -1), _sort_key(t['title'])))
+    movies, shows = ranked(MOVIES), ranked(SHOWS)
+    first = 'shows' if shows and (not movies or (_rank(shows[0], q), -(shows[0]['rating'] or -1)) < (_rank(movies[0], q), -(movies[0]['rating'] or -1))) else 'movies'
+    return {'state': WATCH['library'], 'q': q, 'first': first, 'movies': [_title(t) for t in movies[:100]], 'shows': [_title(t) for t in shows[:100]],
+            'capped': {'movies': len(movies) > 100, 'shows': len(shows) > 100}}
+
+
+def library_title(tid):
+    t = next((x for x in _all_titles() if x['id'] == tid), None)
+    if t is None:
+        return 400, 'That title isn’t in Movies or TV Shows any more.'
+    o = _title(t, with_play=False)
+    o.update({'overview': t['overview'], 'runtime': None if _is_show(t) else t['runtime'], 'ageRating': t['ageRating'], 'cast': t['cast'][:4],
+              'seasons': [], 'season': 0, 'films': None, 'play': None, 'restart': None})
+    if _is_show(t):
+        play, restart, season, name = _show_play(t)
+        o.update({'seasons': _season_list(t), 'season': season, 'play': play, 'restart': restart, 'playName': name, 'playMinutes': 24})
+    else:
+        play, restart = _film_play(t)
+        o.update({'play': play, 'restart': restart, 'playMinutes': t['runtime'], 'watchKey': 'drive:' + t['id']})
+    return 200, o
+
+
+def library_episodes(sid, season_id):
+    show = next((x for x in SHOWS if x['id'] == sid), None)
+    if show is None:
+        return 400, 'That show isn’t in TV Shows any more.'
+    seasons = SHOW_EPISODES[show['title']]
+    ids = [s['id'] for s in _season_list(show)]
+    if season_id not in ids:
+        return 200, {'state': 'ready', 'episodes': []}
+    n = ids.index(season_id) + 1
+    out = []
+    for e, (name, synopsis) in enumerate(seasons[n - 1][1], 1):
+        key = _episode_key(show, n, e)
+        pos, dur, nxt = PROGRESS.get(key, (0, 0, False))
+        out.append({'key': key, 'playTitle': _ep_file(show, n, e, name), 'code': 'S%d E%d' % (n, e), 'number': e, 'special': False, 'name': name,
+                    'overview': synopsis, 'still': _poster_url(key[len('drive:'):], 'still', '&in=' + season_id), 'runtime': 24 if show['title'] != 'Detective Rowe' else 52,
+                    'position': 0 if nxt else pos, 'duration': dur, 'watched': key in WATCHED, 'upNext': nxt,
+                    'new': show['id'] == 's-kitchen' and n == 4 and e == 2})
+    return 200, {'state': 'ready', 'episodes': out}
+
+
+def art_svg(tid, kind):
+    """A sample picture: the TV gallery's sample posters' look (a gradient, a sun, a hill, the title in bold capitals)."""
+    t = next((x for x in _all_titles() if x['id'] == tid), None)
+    i = sum(map(ord, tid))
+    a, b, c, d = PALETTES[i % len(PALETTES)]
+    if kind == 'still':
+        w, h, title, year = 300, 169, '', ''
+    elif kind == 'backdrop':
+        w, h = 1280, 720
+        title, year = '', ''
+    else:
+        w, h = 342, 513
+        title, year = (t['title'].upper(), str(t['year'] or '')) if t else ('', '')
+    words = title.split()
+    lines, cur = [], ''
+    for wd in words:
+        if len(cur) + len(wd) + 1 > 11 and cur:
+            lines.append(cur); cur = wd
+        else:
+            cur = (cur + ' ' + wd).strip()
+    if cur:
+        lines.append(cur)
+    text = ''.join('<text x="%d" y="%d" font-family="Helvetica, Arial, sans-serif" font-size="38" font-weight="800" fill="#fff" '
+                   'text-anchor="middle" letter-spacing="1">%s</text>' % (w / 2, h * 0.62 + k * 44, ln.replace('&', '&amp;')) for k, ln in enumerate(lines[:3]))
+    if year:
+        text += '<text x="%d" y="%d" font-family="Helvetica, Arial, sans-serif" font-size="20" fill="#fff" fill-opacity=".8" text-anchor="middle">%s</text>' % (
+            w / 2, h * 0.62 + len(lines[:3]) * 44 + 8, year)
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">'
+            '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient></defs>'
+            '<rect width="%d" height="%d" fill="url(#g)"/><circle cx="%.0f" cy="%.0f" r="%.0f" fill="#fff" fill-opacity=".28"/>'
+            '<path d="M0 %.0f Q %.0f %.0f %.0f %.0f T %d %.0f V %d H 0 Z" fill="%s" fill-opacity=".55"/>%s</svg>') % (
+        w, h, w, h, c, d, w, h, w * (0.35 + (i % 30) / 100), h * 0.3, min(w, h) * 0.2,
+        h * 0.72, w * 0.25, h * 0.62, w * 0.5, h * 0.74, w, h * 0.7, h, a, text)
+
+
 KEYS = {'up', 'down', 'left', 'right', 'ok', 'back', 'home', 'playpause', 'mute', 'volup', 'voldown', 'netflix', 'youtube'}
 TYPES = {'.png': 'image/png', '.webmanifest': 'application/manifest+json'}
 
@@ -482,7 +819,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         path, query = u.path, parse_qs(u.query)
-        if path.startswith('/api/') and path not in ('/api/screen', '/api/tvs/screen', '/api/type', '/api/inbox', '/api/tvs'):
+        if path.startswith('/api/') and path not in ('/api/screen', '/api/tvs/screen', '/api/type', '/api/inbox', '/api/tvs', '/api/poster'):
             log('GET', self.path, b'')
         if path == '/':
             # Read on every request, so an edited page shows up without restarting the server.
@@ -499,6 +836,28 @@ class Handler(BaseHTTPRequestHandler):
             if tv in ('c', 'd'):
                 return self.send({'message': "%s isn't showing Woodruff Family, or is off." % ('Kitchen' if tv == 'c' else 'Bedroom')}, status=409)
             return self.screen()
+        if path == '/api/poster':
+            return self.send(art_svg(query.get('id', [''])[0], query.get('kind', ['poster'])[0]), 'image/svg+xml',
+                             headers={'Cache-Control': 'private, max-age=604800'})
+        if path.startswith('/api/watch/') or path.startswith('/api/library'):
+            if WATCH['library'] == 'down':
+                return self.send('', 'text/plain', 503)
+        if path == '/api/watch/home':
+            body = json.dumps(watch_home())
+            tag = '"%x"' % (hash(body) & 0xffffffffffff)
+            if self.headers.get('if-none-match') == tag:
+                self.send_response(304); self.send_header('ETag', tag); self.end_headers(); return
+            return self.send(body, headers={'ETag': tag, 'Cache-Control': 'no-cache'})
+        if path == '/api/library':
+            return self.send(library_page(query))
+        if path == '/api/library/search':
+            return self.send(library_search(query))
+        if path == '/api/library/title':
+            status, body = library_title(query.get('id', [''])[0])
+            return self.send(body, 'application/json' if isinstance(body, dict) else 'text/plain', status)
+        if path == '/api/library/episodes':
+            status, body = library_episodes(query.get('show', [''])[0], query.get('season', [''])[0])
+            return self.send(body, 'application/json' if isinstance(body, dict) else 'text/plain', status)
         if path == '/api/tvs/health':
             status, body = tv_health(query.get('id', [''])[0])
             return self.send(body, 'application/json' if isinstance(body, dict) else 'text/plain', status)
@@ -569,8 +928,13 @@ class Handler(BaseHTTPRequestHandler):
             TVS_SET['tvs'] = None
             TV_STATE['relinked'] = False
             TV_STATE['playing'] = {'this': True, 'b': True}
+            _reset_watch()
             return self.send({'ok': True})
         if path == '/__mock/set':
+            if 'library' in body:
+                WATCH['library'] = body['library']
+            if 'watch' in body:
+                WATCH.update(body['watch'])
             SETTINGS.update(body.get('settings') or {})
             if 'tvs' in body:
                 TVS_SET['tvs'] = body['tvs']
@@ -594,6 +958,36 @@ class Handler(BaseHTTPRequestHandler):
             if body.get('action') == 'playpause':
                 TV_STATE['playing'][tv] = not TV_STATE['playing'][tv]
             return self.send({'ok': True, 'playing': TV_STATE['playing'][tv]})
+        if path in ('/api/watch', '/api/play'):
+            if WATCH['started']:
+                return self.send({'ok': True, 'started': True})
+            return self.send({'ok': True, 'started': False, 'message': 'It’s waiting on the TV: open Woodruff Family there.'})
+        if path == '/api/tvs/watch':
+            if not str(body.get('key', '')).startswith('drive:'):
+                return self.send('Only Google Drive videos can be watched together', 'text/plain', 400)
+            if body.get('id') == 'all':
+                return self.send({'ok': True, 'started': 3, 'of': 4, 'failed': ['Kitchen']})
+            name = {'b': 'Den', 'c': 'Kitchen', 'd': 'Bedroom'}.get(body.get('id'))
+            if name is None:
+                return self.send('That TV isn’t linked any more.', 'text/plain', 400)
+            if body.get('id') in ('c', 'd'):
+                return self.send('%s didn’t respond' % name, 'text/plain', 400)
+            return self.send({'ok': True, 'started': WATCH['started'], 'tv': name})
+        if path == '/api/library/watched':
+            keys = body.get('keys') or [body.get('key')]
+            for k in keys:
+                if body.get('watched', True):
+                    WATCHED.add(k); PROGRESS.pop(k, None)
+                    if k in CONTINUE:
+                        CONTINUE.remove(k)
+                else:
+                    WATCHED.discard(k)
+            return self.send({'ok': True})
+        if path == '/api/continue/remove':
+            k = body.get('key')
+            if k in CONTINUE:
+                CONTINUE.remove(k)
+            return self.send({'ok': True})
         if path == '/api/tvs/update/check':
             return self.send({'ok': True})
         if path == '/api/tvs/relink':
@@ -656,4 +1050,4 @@ class Handler(BaseHTTPRequestHandler):
         self.send({'ok': True})
 
 
-ThreadingHTTPServer(('127.0.0.1', 8765), Handler).serve_forever()
+ThreadingHTTPServer(('127.0.0.1', int(os.environ.get('MOCK_PORT', '8765'))), Handler).serve_forever()

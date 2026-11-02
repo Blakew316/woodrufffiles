@@ -23,6 +23,10 @@ TITLES = {
     'settings-tv': 'Settings › TVs › a TV', 'settings-tv-attention': 'Settings › TVs › a TV that needs attention',
     'settings-tv-attention-sheet': 'Settings › TVs › fixing it', 'settings-tv-off': "Settings › TVs › a TV that's off",
     'settings-tv-link': 'Settings › TVs › Link again', 'settings-tv-relink': 'Settings › TVs › typing the code',
+    'watch': 'Watch', 'watch-scrolled': 'Watch · Movies and TV Shows', 'watch-title-movie': 'Watch › a film',
+    'watch-title-show': 'Watch › a show', 'watch-play-on': 'Watch › Play on', 'watch-context': 'Watch › hold a tile',
+    'watch-movies': 'Watch › Movies', 'watch-search': 'Watch › Search', 'watch-now-playing': 'Watch › now playing',
+    'watch-offline': 'Watch · offline', 'watch-signin': 'Watch · sign-in ended', 'watch-loading': 'Watch · first load',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -39,7 +43,10 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
 ORDER = ['home', 'home-menu', 'home-notice', 'movies', 'tv-shows', 'movies-offline', 'tv-shows-reconnecting', 'drive-offline', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
          'health', 'health-report', 'health-good', 'health-link-again',
          'player', 'player-menu', 'player-up-next', 'files', 'tv', 'keyboard', 'send']
-PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs',
+PHONE_ORDER = ['remote', 'keyboard',
+               'watch', 'watch-scrolled', 'watch-title-movie', 'watch-title-show', 'watch-play-on', 'watch-context', 'watch-movies',
+               'watch-search', 'watch-now-playing', 'watch-offline', 'watch-signin', 'watch-loading',
+               'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs',
                'settings-tv', 'settings-tv-attention', 'settings-tv-attention-sheet', 'settings-tv-off', 'settings-tv-link', 'settings-tv-relink',
                'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
