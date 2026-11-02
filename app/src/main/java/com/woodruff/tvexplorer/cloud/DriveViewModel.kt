@@ -6,6 +6,7 @@ import android.view.Choreographer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.woodruff.tvexplorer.data.FileOperations
+import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.server.CompanionHub
@@ -269,6 +270,21 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val listedAt = java.util.concurrent.ConcurrentHashMap<DrivePlace, Long>()
 
+    /**
+     * When each library's last listing found Google answering that it can't be listed (no TV Shows folder,
+     * a folder it isn't allowed to see): Home coming back doesn't ask again for [FRESH_MS] ([lastTried]).
+     */
+    private val failedAt = java.util.concurrent.ConcurrentHashMap<DrivePlace, Long>()
+
+    /** [place]'s last full try, listed or not listable ([lastTried]). */
+    private fun lastTriedAt(place: DrivePlace): Long? = lastTried(listedAt[place], failedAt[place])
+
+    /**
+     * The warm-up's offline retry is waiting (for the network, or its pause): Home coming back starts it
+     * afresh rather than leaving it to wait. Main thread.
+     */
+    private var prefetchWaiting = false
+
     /** Where the listing limit cut each place's last listing, for the ones it did ([DriveState.cutAt]). */
     private val cuts = java.util.concurrent.ConcurrentHashMap<DrivePlace, Int>()
 
@@ -436,11 +452,21 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             while (true) {
                 val mark = NetworkWatch.comebacks.value
                 val now = System.currentTimeMillis()
-                val outcomes = LIBRARIES.filter { !isFresh(listedAt[it], now) }.map { refreshLibrary(it) }.awaitAll()
+                // Not one tried a moment ago: listed, or found not listable (no TV Shows folder).
+                val outcomes = LIBRARIES.filter { !isFresh(lastTriedAt(it), now) }.map { refreshLibrary(it) }.awaitAll()
                 // Signed out, or the keys refused: the Drive screen says so, nothing to warm. Listed,
                 // or Drive answered something else (no TV Shows folder): done until the next visit.
                 if (outcomes.none { it == Fetch.Offline } || outcomes.any { it == Fetch.SignedOut || it is Fetch.Refused }) return@launch
-                val cameBack = NetworkWatch.awaitComeback(mark, backoffMs(tries, 15_000, 15 * 60_000))
+                // Woodruff not on screen (the TV in standby, a film or another app in front): only the
+                // network coming back is worth a try, not a timer all night. Home coming back starts it
+                // afresh (homeShown).
+                prefetchWaiting = true
+                val cameBack = try {
+                    if (AppVisibility.foreground) NetworkWatch.awaitComeback(mark, backoffMs(tries, 15_000, 15 * 60_000))
+                    else { NetworkWatch.comebacks.first { it != mark }; true }
+                } finally {
+                    prefetchWaiting = false
+                }
                 tries = if (cameBack) 0 else tries + 1
             }
         }
@@ -487,10 +513,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     @Synchronized
     private fun updateRecentlyAdded() {
         val news = _newEpisodes.value
-        _recentlyAdded.value = LIBRARIES
-            .flatMap { place -> cache[place].orEmpty().map { place to it } }
-            .sortedByDescending { NewEpisodes.addedAt(it.second, news) }
-            .take(RECENT_COUNT)
+        _recentlyAdded.value = newestAdded(LIBRARIES.map { it to cache[it].orEmpty() }, news)
         // Off the main thread: the name matching runs a few regexes per title.
         val entries = LIBRARIES.flatMap { cache[it].orEmpty() }.filter { it.posterUrl != null }
         artworkJob?.cancel()
@@ -584,12 +607,13 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Home is on show: a library last listed more than [FRESH_MS] ago is listed again in the background,
      * so Recently added catches up (a TV left on Home for days never showed new titles until Streaming was
-     * opened). Nothing on screen changes until the fresh listing is in. Already under way (or waiting for
-     * the network to come back): left to finish.
+     * opened). Nothing on screen changes until the fresh listing is in. Already under way: left to finish;
+     * waiting to try again after an offline try: started afresh now. A library found not listable (no TV
+     * Shows folder) isn't asked for again for [FRESH_MS], however often Home comes back.
      */
     fun homeShown() {
-        if (!_state.value.connected || prefetchJob?.isActive == true) return
-        if (!anyStale(LIBRARIES.map { listedAt[it] }, System.currentTimeMillis())) return
+        if (!_state.value.connected || (prefetchJob?.isActive == true && !prefetchWaiting)) return
+        if (!anyStale(LIBRARIES.map { lastTriedAt(it) }, System.currentTimeMillis())) return
         prefetchLibraries()
     }
 
@@ -728,6 +752,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             generation++
             cache.clear()
             listedAt.clear()
+            failedAt.clear()
             cuts.clear()
         }
         _listings.update { it + 1 }
@@ -970,8 +995,19 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         if (elsewhere) reachedTicks.update { it + 1 } else afterStatusChange()
     }
 
-    /** [place]'s refresh: the listing of it under way, or a new one (see [LibraryRefreshes]). */
-    private fun refreshLibrary(place: DrivePlace.Named): Deferred<Fetch> = refreshes.listing(place) { listLibrary(place) }
+    /**
+     * [place]'s refresh: the listing of it under way, or a new one (see [LibraryRefreshes]). Google
+     * answering that it can't be listed is remembered for a while ([failedAt]); a listing clears that.
+     */
+    private fun refreshLibrary(place: DrivePlace.Named): Deferred<Fetch> = refreshes.listing(place) {
+        listLibrary(place).also { outcome ->
+            when (outcome) {
+                Fetch.Done -> failedAt.remove(place)
+                is Fetch.Failed -> failedAt[place] = System.currentTimeMillis()
+                else -> Unit
+            }
+        }
+    }
 
     /**
      * [files] as [place]'s listing from now on ([cutAt]: where the listing limit cut it), unless
@@ -1189,6 +1225,28 @@ fun artworkFor(index: Map<String, DriveFile>, key: String, title: String, shows:
 
 /** Movies and TV Shows: the libraries listed in full, kept warm for Home, search and the sidebar. */
 private val LIBRARIES = listOf(DrivePlace.Movies, DrivePlace.TvShows)
+
+/**
+ * Recently added from [libraries] (each library with its entries): newest first by [NewEpisodes.addedAt]
+ * ([news]: a show with new episodes by its newest one), at most [count], each title once. A file kept in
+ * both libraries (Drive's older files can sit in two folders) shows once, in the first: Home's row and
+ * Search's grid key their posters by the file, and two with one key would crash them. Visible for tests.
+ */
+internal fun newestAdded(
+    libraries: List<Pair<DrivePlace, List<DriveFile>>>, news: Map<String, NewShow>, count: Int = RECENT_COUNT,
+): List<Pair<DrivePlace, DriveFile>> =
+    libraries.flatMap { (place, files) -> files.map { place to it } }
+        .distinctBy { it.second.id }
+        .sortedByDescending { NewEpisodes.addedAt(it.second, news) }
+        .take(count)
+
+/**
+ * When a library was last tried in full: listed ([listedAt]) or found not listable by Google's answer
+ * ([failedAt]: no TV Shows folder, say); null when neither this run. Home coming back lists again only
+ * libraries this is older than [FRESH_MS] for: one that can't be listed isn't asked for on every return.
+ * Visible for tests.
+ */
+internal fun lastTried(listedAt: Long?, failedAt: Long?): Long? = listOfNotNull(listedAt, failedAt).maxOrNull()
 
 /** Entries [DriveViewModel.recentlyAdded] holds: Home shows about half (after what's in progress), the phone up to 20. */
 internal const val RECENT_COUNT = 20

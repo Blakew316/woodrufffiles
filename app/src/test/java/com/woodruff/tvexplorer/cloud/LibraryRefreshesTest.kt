@@ -142,4 +142,33 @@ class LibraryRefreshesTest {
         assertTrue(anyStale(listOf(now - 60_000, null), now))
         assertFalse(anyStale(emptyList(), now))
     }
+
+    @Test fun aLibraryThatCantBeListedIsntAskedForOnEveryReturnHome() {
+        val now = 1_000_000_000L
+        // Listed long ago, but Google said a moment ago it can't be listed (no TV Shows folder): tried, so fresh.
+        assertEquals(now - 60_000, lastTried(listedAt = now - FRESH_MS * 10, failedAt = now - 60_000))
+        assertFalse(anyStale(listOf(now - 60_000, lastTried(null, now - 60_000)), now))
+        // Five minutes on, it's asked for again (the folder may exist now).
+        assertTrue(anyStale(listOf(now - 60_000, lastTried(null, now - FRESH_MS)), now))
+        // Listed since it last failed: the listing counts.
+        assertEquals(now - 1_000, lastTried(listedAt = now - 1_000, failedAt = now - 60_000))
+        assertEquals(null, lastTried(null, null))
+    }
+
+    @Test fun recentlyAddedHasEachTitleOnceNewestFirst() {
+        val day = 24 * 60 * 60_000L
+        val now = 100 * day
+        val film = DriveFile("f", "Film.mkv", "video/x-matroska", 0, 0, null, created = now - 3 * day)
+        // The same Drive file in both libraries (an older file can sit in two folders): once, in the first.
+        val both = DriveFile("both", "Both", DriveFile.FOLDER_MIME, 0, 0, null, created = now - day)
+        val show = DriveFile("s", "Show", DriveFile.FOLDER_MIME, 0, 0, null, created = now - 400 * day)
+        val added = newestAdded(
+            listOf(DrivePlace.Movies to listOf(film, both), DrivePlace.TvShows to listOf(both, show)),
+            news = mapOf("s" to NewShow("s", listOf(FreshEpisode("e", "Show S01E02.mkv", null, null, now - 2 * day, 1, 2)), now - 2 * day, announced = true)),
+        )
+        assertEquals(listOf("both", "s", "f"), added.map { it.second.id })
+        assertEquals(DrivePlace.Movies, added.first().first)
+        assertEquals(added.map { it.second.id }.distinct(), added.map { it.second.id })
+        assertEquals(1, newestAdded(listOf(DrivePlace.Movies to listOf(film, both)), emptyMap(), count = 1).size)
+    }
 }
