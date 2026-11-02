@@ -83,7 +83,7 @@ class SmoothnessReportTest {
             "Recording: running, 2:41 left",
             "Frames below: since it started (0:19).",
             "Late: past its deadline (set by Android).",
-            " GPU    the graphics chip's own time",
+            " GPU    the graphics chip’s own time",
             // Home first: it has the late navigating frames.
             "== Home ==",
             "Navigating: 100 frames",
@@ -124,7 +124,7 @@ class SmoothnessReportTest {
         )
         assertLines(
             r,
-            "Recording: none yet. Press Record (or OK on the TV's Smoothness row) to record 3 minutes in detail.",
+            "Recording: none yet. Press Record (or OK on the TV’s Smoothness row) to record 3 minutes in detail.",
             "Frames below: counted for 12 min.",
             "No frames yet: open Woodruff on the TV and move around.",
             "None handled yet.",

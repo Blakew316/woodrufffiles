@@ -32,7 +32,7 @@ internal class MemoriesRoutes(private val ctx: Context, private val launch: (Int
         s.uri == "/api/memories/add" && s.method == Method.POST -> add(s)
         s.uri == "/api/memories/delete" && s.method == Method.POST -> {
             val f = FamilyMemories.find(body().optString("path"))
-            if (!f.delete()) throw IOException("Couldn't delete ${f.name}")
+            if (!f.delete()) throw IOException("Couldn’t delete ${f.name}")
             FamilyMemories.deleted(ctx, f)
             json(listJson())
         }

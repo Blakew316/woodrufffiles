@@ -16,7 +16,7 @@ enum class MailProvider(val label: String, val host: String, val port: Int, val 
         "Create an app password in Yahoo Account Security → Generate app password."),
     OUTLOOK("Outlook / Hotmail", "outlook.office365.com", 993,
         "Microsoft has switched most personal accounts off password sign-in for IMAP; this may be refused."),
-    CUSTOM("Other (IMAP)", "", 993, "Use your mail provider's IMAP server, port 993 (SSL)."),
+    CUSTOM("Other (IMAP)", "", 993, "Use your mail provider’s IMAP server, port 993 (SSL)."),
 }
 
 data class MailAccount(

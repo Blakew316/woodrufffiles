@@ -319,7 +319,7 @@ object TvLinks {
      */
     suspend fun relink(c: Context, id: String, code: String): LinkedTv = withContext(Dispatchers.IO) {
         load(c)
-        val old = find(id) ?: throw IOException("That TV isn't linked any more.")
+        val old = find(id) ?: throw IOException("That TV isn’t linked any more.")
         try {
             link(c, old.base, code, replacing = id)
         } catch (e: IOException) {

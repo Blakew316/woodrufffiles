@@ -326,7 +326,7 @@ object FamilySync {
             Log.w(TAG, "Sharing progress failed", e)
             lastProblem = when {
                 e is HttpError && (e.code == 401 || (e.code == 403 && e.message.orEmpty().contains("scope", ignoreCase = true))) -> SIGN_IN_AGAIN
-                e is HttpError -> "Couldn't share progress: ${e.message}"
+                e is HttpError -> "Couldn’t share progress: ${e.message}"
                 else -> OFFLINE
             }
         }

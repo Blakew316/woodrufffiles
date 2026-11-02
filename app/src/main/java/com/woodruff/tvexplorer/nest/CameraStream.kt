@@ -356,7 +356,7 @@ class CameraStream(private val context: Context, private val camera: Camera) {
                     else -> Unit
                 }
             }
-        }) ?: throw IllegalStateException("WebRTC isn't available on this TV")
+        }) ?: throw IllegalStateException("WebRTC isn’t available on this TV")
         pc = conn
         synchronized(tracks) {
             live = token

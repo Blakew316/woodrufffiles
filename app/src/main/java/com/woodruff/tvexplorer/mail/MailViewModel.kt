@@ -58,7 +58,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(loading = false, error = e.message ?: "Couldn't load the inbox") }
+                _state.update { it.copy(loading = false, error = e.message ?: "Couldn’t load the inbox") }
             }
         }
     }
@@ -76,7 +76,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(openLoading = false, open = MailBody(m.from, "", m.subject, m.date, "Couldn't open this message: ${e.message}")) }
+                _state.update { it.copy(openLoading = false, open = MailBody(m.from, "", m.subject, m.date, "Couldn’t open this message: ${e.message}")) }
             }
         }
     }

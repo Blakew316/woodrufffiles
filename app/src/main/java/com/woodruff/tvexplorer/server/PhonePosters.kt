@@ -108,7 +108,7 @@ internal object PhonePosters {
                     }
                 }
             }
-            if (!tmp.renameTo(to)) { tmp.delete(); throw IOException("Couldn't keep it") }
+            if (!tmp.renameTo(to)) { tmp.delete(); throw IOException("Couldn’t keep it") }
         } finally {
             conn.disconnect()
         }

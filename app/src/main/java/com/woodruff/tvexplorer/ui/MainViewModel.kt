@@ -174,7 +174,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 it.copy(
                     items = result.getOrDefault(emptyList()),
                     loading = false,
-                    error = result.exceptionOrNull()?.let { e -> e.message ?: "Couldn't open this folder" },
+                    error = result.exceptionOrNull()?.let { e -> e.message ?: "Couldn’t open this folder" },
                 )
             }
         }

@@ -126,7 +126,7 @@ object GooglePhotos {
             _state.value = State(Step.SIGN_IN)
             TransferService.start(app)
             val server = TransferService.state.first { it.running || it.error != null }
-            val base = server.base ?: return@launch _state.update { it.copy(error = server.error ?: "The phone connection couldn't start.") }
+            val base = server.base ?: return@launch _state.update { it.copy(error = server.error ?: "The phone connection couldn’t start.") }
             val a = GoogleAuth.newAttempt(app, base, GoogleAuth.Grant.PHOTOS)
             CompanionHub.expect(a)
             _state.value = State(Step.SIGN_IN, qrUrl = a.authUrl)
@@ -159,7 +159,7 @@ object GooglePhotos {
             } catch (e: Exception) {
                 Log.w("GooglePhotos", "pick failed", e)
                 // No network, or Google not answering: never "sign-in expired".
-                _state.update { it.copy(error = if (com.woodruff.tvexplorer.util.isNetworkFailure(e)) CANT_REACH else e.message ?: "Couldn't get photos") }
+                _state.update { it.copy(error = if (com.woodruff.tvexplorer.util.isNetworkFailure(e)) CANT_REACH else e.message ?: "Couldn’t get photos") }
             } finally {
                 endSession()
             }
@@ -221,7 +221,7 @@ object GooglePhotos {
                                 conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 256 * 1024) } }
                                 conn.disconnect()
                                 // rename() replaces the empty placeholder atomically, keeping the name reserved.
-                                if (!tmp.renameTo(target)) throw IOException("Couldn't save ${target.name}")
+                                if (!tmp.renameTo(target)) throw IOException("Couldn’t save ${target.name}")
                                 item.taken?.let { MediaDates.record(app, target, it) }
                                 if (item.video) videos.incrementAndGet() else added.incrementAndGet()
                                 // Written down as it arrives (and saved now and then), so even an interrupted

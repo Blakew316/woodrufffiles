@@ -123,7 +123,7 @@ class TvGallery {
     private fun seedNotices(app: Application) {
         Notices.load(app)
         Notices.clear(app)
-        Notices.post(app, NoticeSource.PHONE, "Dinner's ready", "Come downstairs when you can")
+        Notices.post(app, NoticeSource.PHONE, "Dinner’s ready", "Come downstairs when you can")
         Notices.post(app, NoticeSource.MAIL, "Your order has shipped", "Arriving Thursday")
         Notices.post(app, NoticeSource.SYSTEM, "Movie starts in 5 minutes", "")
         Notices.markAllRead(app)

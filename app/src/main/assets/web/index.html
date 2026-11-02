@@ -987,7 +987,7 @@
 
   <div class="page" id="send-to" data-title="Send To" data-hash="to"><div class="scroller">
     <div class="group" id="n-targets"></div>
-    <div class="group"><div class="row"><span class="txt t">Keep on Every TV's Home</span><input type="checkbox" class="switch" switch id="n-pin" aria-label="Keep on every TV's Home"></div></div>
+    <div class="group"><div class="row"><span class="txt t">Keep on Every TV’s Home</span><input type="checkbox" class="switch" switch id="n-pin" aria-label="Keep on every TV’s Home"></div></div>
     <p class="foot">It stays on every TV’s Home until someone dismisses it there, also on TVs that are off right now.</p>
   </div></div>
 
@@ -1035,7 +1035,7 @@
   <div class="page" id="set-tv" data-title="TV" data-hash="tv"><div class="scroller">
     <div class="group" id="tvp-now" hidden>
       <div class="nowcard">
-        <button class="screen" id="tvp-screen" aria-label="Show this TV's screen"><img id="tvp-img" alt="What's on the TV" draggable="false"><p id="tvp-msg"></p></button>
+        <button class="screen" id="tvp-screen" aria-label="Show this TV’s screen"><img id="tvp-img" alt="What’s on the TV" draggable="false"><p id="tvp-msg"></p></button>
         <div class="now">
           <span class="np" id="tvp-title"></span>
           <span class="np-s" id="tvp-sub"></span>
@@ -1119,7 +1119,7 @@
     <div class="group"><div class="row"><span class="txt t">Status</span><span class="detail" id="t-status2">…</span></div></div>
     <div class="head">TMDB Key</div>
     <div class="group"><label class="row field"><input id="t-key" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="API key or Read Access Token" aria-label="TMDB key"></label></div>
-    <p class="foot">Free at themoviedb.org, under Settings → API. Adds posters, genres and ratings to Movies and TV Shows. One key is enough: it's copied to every linked TV.</p>
+    <p class="foot">Free at themoviedb.org, under Settings → API. Adds posters, genres and ratings to Movies and TV Shows. One key is enough: it’s copied to every linked TV.</p>
   </div></div>
 
   <div class="page" id="set-cams" data-title="Cameras" data-hash="cameras"><div class="scroller">
@@ -1140,7 +1140,7 @@
 
   <div class="page" id="set-cams-help" data-title="How to Set Up"><div class="scroller">
     <div class="head">Cameras</div>
-    <div class="group"><div class="row steps selectable">1. In Google Cloud, turn on the <b>Smart Device Management API</b>.<br>2. At <b>console.nest.google.com/device-access</b>, pay Google's one-time fee and create a project with the same client ID as Google Drive.<br>3. Paste its <b>Project ID</b> on the Cameras page and tap <b>Save</b>, then tap <b>Connect Your Cameras</b> (or open the <b>Command Center</b> on the TV and scan the code).</div></div>
+    <div class="group"><div class="row steps selectable">1. In Google Cloud, turn on the <b>Smart Device Management API</b>.<br>2. At <b>console.nest.google.com/device-access</b>, pay Google’s one-time fee and create a project with the same client ID as Google Drive.<br>3. Paste its <b>Project ID</b> on the Cameras page and tap <b>Save</b>, then tap <b>Connect Your Cameras</b> (or open the <b>Command Center</b> on the TV and scan the code).</div></div>
     <div class="head">Doorbell Alerts</div>
     <div class="group"><div class="row steps selectable">Enter it once: it’s copied to every linked TV, and each TV with its cameras connected listens on its own. In the Device Access Console turn on <b>Pub/Sub</b> for your project, then in Google Cloud create a pull subscription to that topic and paste its full name. Connect the cameras again on the TV afterwards.</div></div>
   </div></div>
@@ -1249,7 +1249,7 @@
   <div class="sbar"><button class="gb glass ic" id="scr-close" aria-label="Close"><i data-ic="xmark"></i></button><span class="stt"><b>TV Screen</b><small id="scr-tv"></small></span><span></span></div>
   <div class="sbody">
     <div class="nowcard big" id="live">
-      <button class="screen" id="screen" aria-label="Make the TV picture bigger or smaller"><img id="tv-img" alt="What's on the TV" draggable="false"><p id="tv-msg">Connecting…</p></button>
+      <button class="screen" id="screen" aria-label="Make the TV picture bigger or smaller"><img id="tv-img" alt="What’s on the TV" draggable="false"><p id="tv-msg">Connecting…</p></button>
       <div class="now">
         <span class="np" id="scr-title">Nothing playing</span>
         <span class="np-s" id="scr-sub"></span>
@@ -2562,7 +2562,7 @@
         render(p, same);
       });
     }, function (e) {
-      if (seq === p.seq && !p.files.length) { p.list.textContent = ''; p.list.classList.add('is-empty'); p.list.appendChild(el('div', 'empty', "Couldn't open this folder")); }
+      if (seq === p.seq && !p.files.length) { p.list.textContent = ''; p.list.classList.add('is-empty'); p.list.appendChild(el('div', 'empty', "Couldn’t open this folder")); }
       err(e);
     });
   }
@@ -3396,7 +3396,7 @@
       if (on) { if (l.hidden) { setText(l, fmtTime(left * 1000) + ' left'); setHidden(l, false); appear(l); } else swapText(l, fmtTime(left * 1000) + ' left'); }
       else if (!l.hidden) dissolve(l, function () { setHidden(l, true); });
       setHidden($('sm-loading'), true); setHidden($('sm-row'), false); $('sm-box').classList.remove('is-empty');
-      swapText($('sm-text'), smooth.text || "Couldn't get the report from the TV.");
+      swapText($('sm-text'), smooth.text || "Couldn’t get the report from the TV.");
     });
   }
   // The countdown moves on between fetches; once it's up, the finished report is fetched.
@@ -3452,7 +3452,7 @@
         };
         img.src = url; img.style.opacity = 1; msg.textContent = '';
       });
-    }).catch(function () { if (seq !== frameSeq) return; msg.textContent = "Can't reach the TV."; frameTimer = setTimeout(frame, 4000); });
+    }).catch(function () { if (seq !== frameSeq) return; msg.textContent = "Can’t reach the TV."; frameTimer = setTimeout(frame, 4000); });
   }
   // Under the picture: what that TV is playing.
   function renderScreenNow() {
@@ -3910,13 +3910,13 @@
     // One alone that didn't fit says so in an alert, as iOS does for storage ("This video is 2.1 GB; Living Room has
     // 800 MB free."); one alone that couldn't go for another reason says why.
     if (b.failed === 1 && !b.done && b.room) alertBox({ title: 'Not Enough Room', message: b.why, actions: [{ label: 'OK', pref: true }] });
-    else if (b.failed) toast(b.done ? 'Added ' + b.done + ', ' + b.failed + " couldn't be added" : (b.failed === 1 ? b.why || "Couldn't add it" : "Couldn't add them"), true);
+    else if (b.failed) toast(b.done ? 'Added ' + b.done + ', ' + b.failed + " couldn’t be added" : (b.failed === 1 ? b.why || "Couldn’t add it" : "Couldn’t add them"), true);
     else if (b.done) toast(b.done === 1 ? 'Added to Family Memories' : 'Added ' + b.done + ' to Family Memories');
     gotMemories.k = null;
     loadMemories();
   }
   function upMenu(u) {
-    sheet("Couldn't Add This " + (u.video ? 'Video' : 'Photo'), u.error, [
+    sheet("Couldn’t Add This " + (u.video ? 'Video' : 'Photo'), u.error, [
       { label: 'Try Again', fn: function () {
         u.failed = false; u.tile.classList.remove('fail'); setRing(u, 0);
         mem.batch = mem.batch || { of: 0, done: 0, failed: 0 }; mem.batch.of++; memCount();
@@ -3956,7 +3956,7 @@
     return new Promise(function (ok, no) {
       var img = new Image(), url = URL.createObjectURL(f);
       img.onload = function () { ok(img); };
-      img.onerror = function () { URL.revokeObjectURL(url); no(new Error("Couldn't open " + f.name)); };
+      img.onerror = function () { URL.revokeObjectURL(url); no(new Error("Couldn’t open " + f.name)); };
       img.src = url;
     });
   }
@@ -3973,7 +3973,7 @@
     o.imageSmoothingQuality = 'high'; o.drawImage(src, 0, 0, W, H);
     spent.forEach(function (c) { c.width = c.height = 0; });   // (Safari frees canvas memory only this way)
     return new Promise(function (ok, no) {
-      out.toBlob(function (b) { out.width = out.height = 0; if (b) ok(b); else no(new Error("Couldn't shrink the photo")); }, 'image/jpeg', 0.9);
+      out.toBlob(function (b) { out.width = out.height = 0; if (b) ok(b); else no(new Error("Couldn’t shrink the photo")); }, 'image/jpeg', 0.9);
     });
   }
   // The tile's own picture while it goes up: the middle square of the photo.
@@ -4028,7 +4028,7 @@
       x.open('POST', '/api/memories/add?name=' + q(p.name) + (p.taken ? '&taken=' + p.taken : ''));
       x.upload.onprogress = function (e) { if (e.lengthComputable) setRing(u, e.loaded / e.total * 0.96); };
       x.onload = function () {
-        if (x.status !== 200) { var e = new Error(x.responseText || "The TV didn't take it"); e.room = x.status === 507; return no(e); }
+        if (x.status !== 200) { var e = new Error(x.responseText || "The TV didn’t take it"); e.room = x.status === 507; return no(e); }
         try { ok(JSON.parse(x.responseText).item); } catch (e) { no(e); }
       };
       x.onerror = function () { no(new Error('The connection to the TV was lost')); };

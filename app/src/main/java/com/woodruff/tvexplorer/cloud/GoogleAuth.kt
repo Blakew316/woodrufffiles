@@ -231,7 +231,7 @@ object GoogleAuth {
             )
             attempt.verifier?.let { params += "code_verifier" to it }
             val json = post(params)
-            val refresh = json.optString("refresh_token").ifEmpty { throw IOException("Google didn't return a refresh token. Try signing in again.") }
+            val refresh = json.optString("refresh_token").ifEmpty { throw IOException("Google didn’t return a refresh token. Try signing in again.") }
             // Under the grant's lock: a renewal of the old sign-in that's under way can't end this new one.
             synchronized(lock(attempt.grant)) {
                 storeAccess(Stored(st), json, attempt.grant, System.currentTimeMillis())
@@ -292,7 +292,7 @@ object GoogleAuth {
         /** See [TokenResult.SignedOut]; the message is the caller's ("Connect your cameras again"). */
         class SignedOut(message: String) : AuthException(message)
         /** See [TokenResult.Offline]. */
-        class Offline(cause: Throwable) : AuthException("Can't reach Google right now.", cause), com.woodruff.tvexplorer.util.NetworkFailure
+        class Offline(cause: Throwable) : AuthException("Can’t reach Google right now.", cause), com.woodruff.tvexplorer.util.NetworkFailure
         /** See [TokenResult.Rejected]. */
         class Rejected(message: String) : AuthException(message)
     }
@@ -619,7 +619,7 @@ object GoogleAuth {
                 kind,
                 when (kind) {
                     TokenError.Kind.BAD_CLIENT -> BAD_CLIENT
-                    TokenError.Kind.UNAVAILABLE -> "Google's sign-in service is busy. Try again in a moment."
+                    TokenError.Kind.UNAVAILABLE -> "Google’s sign-in service is busy. Try again in a moment."
                     else -> "Google sign-in failed: $desc"
                 },
             )
@@ -628,7 +628,7 @@ object GoogleAuth {
         }
     }
 
-    private const val NO_ANSWER = "Couldn't reach Google. Check the TV's internet connection and try again."
+    private const val NO_ANSWER = "Couldn’t reach Google. Check the TV’s internet connection and try again."
 
     private fun form(vararg params: Pair<String, String>) = form(params.asList())
     private fun form(params: List<Pair<String, String>>) = params.joinToString("&") { (k, v) -> "$k=${enc(v)}" }

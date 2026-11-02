@@ -33,7 +33,7 @@ object FileOperations {
         for (src in sources) {
             if (destDir.canonicalPath.startsWith(src.canonicalPath + File.separator) ||
                 destDir.canonicalPath == src.canonicalPath
-            ) throw IOException("Can't ${label.lowercase()} a folder into itself")
+            ) throw IOException("Can’t ${label.lowercase()} a folder into itself")
         }
         // Same-volume moves are an instant rename; only fall back to copy+delete across volumes.
         val remaining = if (move) sources.filterNot { src ->
@@ -49,7 +49,7 @@ object FileOperations {
         suspend fun copyOne(src: File, dest: File) {
             coroutineContext.ensureActive()
             if (src.isDirectory) {
-                if (!dest.mkdirs() && !dest.isDirectory) throw IOException("Can't create ${dest.name}")
+                if (!dest.mkdirs() && !dest.isDirectory) throw IOException("Can’t create ${dest.name}")
                 src.listFiles()?.forEach { copyOne(it, File(dest, it.name)) }
                 return
             }
@@ -77,7 +77,7 @@ object FileOperations {
                 dest.deleteRecursively() // never leave a half-written copy behind
                 throw t
             }
-            if (move && !src.deleteRecursively()) throw IOException("Copied but couldn't remove ${src.name}")
+            if (move && !src.deleteRecursively()) throw IOException("Copied but couldn’t remove ${src.name}")
         }
     }
 
@@ -85,7 +85,7 @@ object FileOperations {
         targets.forEachIndexed { i, f ->
             ensureActive()
             onProgress(OpProgress("Deleting", i.toLong(), targets.size.toLong(), f.name))
-            if (!f.deleteRecursively()) throw IOException("Couldn't delete ${f.name}")
+            if (!f.deleteRecursively()) throw IOException("Couldn’t delete ${f.name}")
         }
     }
 
@@ -101,7 +101,7 @@ object FileOperations {
         validateName(name)
         val dir = File(parent, name)
         if (dir.exists()) throw IOException("\"$name\" already exists")
-        if (!dir.mkdirs()) throw IOException("Couldn't create folder")
+        if (!dir.mkdirs()) throw IOException("Couldn’t create folder")
         dir
     }
 
@@ -146,7 +146,7 @@ object FileOperations {
     suspend fun unzip(zipFile: File, destDir: File, onProgress: (OpProgress) -> Unit) =
         withContext(Dispatchers.IO) {
             val root = destDir.canonicalFile
-            if (!root.mkdirs() && !root.isDirectory) throw IOException("Can't create ${root.name}")
+            if (!root.mkdirs() && !root.isDirectory) throw IOException("Can’t create ${root.name}")
             val total = zipFile.length()
             val counting = CountingInputStream(FileInputStream(zipFile).buffered())
             val buf = ByteArray(BUFFER)

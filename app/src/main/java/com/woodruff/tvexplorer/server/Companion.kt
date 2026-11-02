@@ -80,7 +80,7 @@ class CompanionRoutes(private val ctx: Context) {
             val b = body(s) // the request body can only be read once
             val r = TvLinks.redeem(ctx, b.optString("code"))
                 ?: return NanoHTTPD.newFixedLengthResponse(Response.Status.FORBIDDEN, "text/plain", "Wrong or expired code")
-            Notices.post(ctx, NoticeSource.SYSTEM, "TV linked", "${b.optString("from").ifBlank { "Another TV" }} can now see what's playing here.")
+            Notices.post(ctx, NoticeSource.SYSTEM, "TV linked", "${b.optString("from").ifBlank { "Another TV" }} can now see what’s playing here.")
             return json(r)
         }
         // A linked hub TV: its link key opens only status, screen, remote keys and typing, the keys every TV
@@ -102,7 +102,7 @@ class CompanionRoutes(private val ctx: Context) {
         CompanionHub.googleAttempts.remove(attempt.state) // one use only
         CompanionHub.googleCodes.tryEmit(code to attempt)
         if (attempt.grant == GoogleAuth.Grant.CALENDAR) {
-            return page("Google Calendar connected ✓", "Today's events will appear on your TV in a moment.")
+            return page("Google Calendar connected ✓", "Today’s events will appear on your TV in a moment.")
         }
         if (attempt.grant == GoogleAuth.Grant.PHOTOS) {
             return page("Google Photos connected ✓", "Look at your TV: scan the next QR code to pick photos.")
@@ -110,7 +110,7 @@ class CompanionRoutes(private val ctx: Context) {
         if (attempt.grant == GoogleAuth.Grant.NEST) {
             return page("Cameras connected ✓", "Look at your TV: Woodruff Family is loading your cameras.")
         }
-        return page("You're signed in ✓", "Look at your TV: Woodruff Family is loading your Google Drive.")
+        return page("You’re signed in ✓", "Look at your TV: Woodruff Family is loading your Google Drive.")
     }
 
     /**
@@ -305,7 +305,7 @@ class CompanionRoutes(private val ctx: Context) {
             val tv = TvLinks.find(s.parameters["id"]?.firstOrNull().orEmpty()) ?: throw IllegalArgumentException("Unknown TV")
             val jpeg = runCatching { TvLinks.screen(tv) }.getOrNull()
             if (jpeg == null) NanoHTTPD.newFixedLengthResponse(Response.Status.CONFLICT, "application/json",
-                JSONObject().put("message", "${tv.name} isn't showing Woodruff Family, or is off.").toString())
+                JSONObject().put("message", "${tv.name} isn’t showing Woodruff Family, or is off.").toString())
             else NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "image/jpeg", jpeg.inputStream(), jpeg.size.toLong())
                 .apply { addHeader("Cache-Control", "no-store") }
         }
@@ -331,7 +331,7 @@ class CompanionRoutes(private val ctx: Context) {
             } catch (e: TvLinks.Refused) {
                 throw IllegalArgumentException("${tv.name}: ${e.message}")
             } catch (e: java.io.IOException) {
-                throw IllegalArgumentException("${tv.name} didn't respond")
+                throw IllegalArgumentException("${tv.name} didn’t respond")
             }
             ok()
         }
@@ -368,7 +368,7 @@ class CompanionRoutes(private val ctx: Context) {
             val jpeg = TvScreen.frame(s.parameters["w"]?.firstOrNull()?.toIntOrNull() ?: TvScreen.WIDTH)
             if (jpeg == null) {
                 NanoHTTPD.newFixedLengthResponse(Response.Status.CONFLICT, "application/json",
-                    JSONObject().put("message", "Woodruff Family isn't on the TV screen right now. Press Home to open it.").toString())
+                    JSONObject().put("message", "Woodruff Family isn’t on the TV screen right now. Press Home to open it.").toString())
             } else {
                 NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "image/jpeg", jpeg.inputStream(), jpeg.size.toLong())
                     .apply { addHeader("Cache-Control", "no-store") }
@@ -398,7 +398,7 @@ class CompanionRoutes(private val ctx: Context) {
                 NowPlaying.playPause(ctx)
             } else {
                 // "repeat": an arrow held on the phone (1, 2, 3… after its first press).
-                require(TvScreen.press(key, b.optInt("repeat"))) { "Woodruff Family isn't on the TV screen. Press Home first." }
+                require(TvScreen.press(key, b.optInt("repeat"))) { "Woodruff Family isn’t on the TV screen. Press Home first." }
             }
             ok()
         }
@@ -529,7 +529,7 @@ class CompanionRoutes(private val ctx: Context) {
             val left = (com.woodruff.tvexplorer.util.MainThreadWatch.state().leftMs + 999) / 1000
             // A report that fails to build says so, rather than taking the app down with it.
             val text = runCatching { com.woodruff.tvexplorer.util.FrameStats.report(ctx) }
-                .getOrElse { "Couldn't make the smoothness report: $it" }
+                .getOrElse { "Couldn’t make the smoothness report: $it" }
             NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", text)
                 .apply { addHeader("Cache-Control", "no-store"); addHeader("X-Recording-Left", left.toString()) }
         }
@@ -604,7 +604,7 @@ class CompanionRoutes(private val ctx: Context) {
                 runBlocking { MailClient.test(account) }
             } catch (e: Exception) {
                 MailAccounts.remove(ctx, account.id)
-                throw IllegalArgumentException(e.message ?: "Couldn't sign in to ${provider.label}")
+                throw IllegalArgumentException(e.message ?: "Couldn’t sign in to ${provider.label}")
             }
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
@@ -681,9 +681,9 @@ class CompanionRoutes(private val ctx: Context) {
      */
     /** Opens [app] on this TV, or says why it can't (not installed, or not allowed over another app). */
     private fun openApp(app: Handoff.RemoteApp) {
-        val intent = Handoff.launchIntent(ctx, app) ?: throw IllegalArgumentException("${app.label} isn't installed on this TV")
+        val intent = Handoff.launchIntent(ctx, app) ?: throw IllegalArgumentException("${app.label} isn’t installed on this TV")
         require(com.woodruff.tvexplorer.notify.AppVisibility.foreground || android.provider.Settings.canDrawOverlays(ctx)) {
-            "To open ${app.label} from the phone, turn on Pop-ups over other apps in Woodruff's Settings on the TV, or open Woodruff first."
+            "To open ${app.label} from the phone, turn on Pop-ups over other apps in Woodruff’s Settings on the TV, or open Woodruff first."
         }
         launch(intent)
     }
@@ -773,7 +773,7 @@ class CompanionRoutes(private val ctx: Context) {
     /** Only files on shared storage, never app-private data. */
     private fun sharedPath(path: String): String {
         val f = File(path).canonicalFile
-        require(f.path.startsWith("/storage/") || f.path.startsWith("/mnt/media_rw/")) { "Choose something on the TV's storage" }
+        require(f.path.startsWith("/storage/") || f.path.startsWith("/mnt/media_rw/")) { "Choose something on the TV’s storage" }
         return f.path
     }
 

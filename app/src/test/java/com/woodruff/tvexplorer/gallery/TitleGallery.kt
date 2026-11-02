@@ -276,7 +276,7 @@ class TitleGallery {
         Notes.load(app)
         Notes.save(app, null, "Groceries", "Milk\nEggs\nCoffee beans\nBananas", pinned = true)
         Notices.load(app)
-        Notices.post(app, NoticeSource.PHONE, "Dinner's ready", "Come downstairs when you can")
+        Notices.post(app, NoticeSource.PHONE, "Dinner’s ready", "Come downstairs when you can")
         Notices.markAllRead(app)
         Notices.dismissLatest()
         RecentStore(app).save("drive:sample-1", "Midnight Harbor (2024)", 2_710_000, 6_840_000)
@@ -509,9 +509,9 @@ class TitleGallery {
         show("kr", "Kitchen Rules", "t_kitchen_rules", 700, 7.4, listOf("Reality"), "backdrop-kitchen", ::kitchen,
             "Home cooks take over a restaurant kitchen for one service a week, and the regulars vote."),
         show("lh", "The Lighthouse", "t_the_lighthouse", 900, 7.9, listOf("Drama", "Mystery"), "backdrop-sea", ::tidePools,
-            "A keeper's diary turns up in the lamp room, and the island's oldest families start to talk."),
+            "A keeper’s diary turns up in the lamp room, and the island’s oldest families start to talk."),
         show("dr", "Detective Rowe", "t_detective_rowe", 5, 7.2, listOf("Crime", "Drama"), null, null,
-            "A retired detective takes one last case in the town she swore she'd never go back to."),
+            "A retired detective takes one last case in the town she swore she’d never go back to."),
     )
 
     private fun show(

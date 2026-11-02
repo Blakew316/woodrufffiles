@@ -228,9 +228,9 @@ fun CommandCenterScreen(vm: MainViewModel) {
                 NestStep.NEED_PROJECT -> SetupText(
                     "One-time setup with Google Device Access:\n\n" +
                         "1.  In Google Cloud (the project you made for Drive) open APIs & Services → Library and enable \"Smart Device Management API\".\n" +
-                        "2.  Go to console.nest.google.com/device-access, accept the terms and pay Google's one-time \$5 fee.\n" +
+                        "2.  Go to console.nest.google.com/device-access, accept the terms and pay Google’s one-time \$5 fee.\n" +
                         "3.  Create project: any name; for OAuth client ID paste the same Client ID you use for Drive; skip events.\n" +
-                        "4.  Copy the Project ID it shows and enter it here (or in the phone's Settings tab).",
+                        "4.  Copy the Project ID it shows and enter it here (or in the phone’s Settings tab).",
                 ) { Button(onClick = { askProject = true }) { Text("Enter Project ID") } }
                 NestStep.SIGN_IN -> SignInPanel(state, ended)
                 NestStep.CONNECTED -> {
@@ -302,7 +302,7 @@ private fun SignInPanel(state: NestState, ended: Boolean) {
             Text(
                 if (ended) "Google ended this TV’s camera sign-in. Scan with your phone (same Wi-Fi as this TV), sign in to Google, " +
                     "and turn on every camera and doorbell again on Google’s page."
-                else "Scan with your phone (same Wi-Fi as this TV) and sign in to Google. On Google's page, choose your home and " +
+                else "Scan with your phone (same Wi-Fi as this TV) and sign in to Google. On Google’s page, choose your home and " +
                     "turn on every camera and doorbell you want here, then allow access.",
                 color = Palette.muted,
             )

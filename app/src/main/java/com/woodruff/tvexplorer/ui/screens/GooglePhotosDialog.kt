@@ -76,9 +76,9 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
                     GooglePhotos.Step.READY -> Text("Opening Google Photos…")
                     GooglePhotos.Step.PICKING -> {
                         Text("Scan with your phone, choose photos, then tap Done.")
-                        Note("Made an album for the TV? Type its name in the picker's search bar, then select its photos.")
+                        Note("Made an album for the TV? Type its name in the picker’s search bar, then select its photos.")
                         if (onTv.items > 0) Note(
-                            (if (replace) "They'll replace the " else "They'll be added to the ") +
+                            (if (replace) "They’ll replace the " else "They’ll be added to the ") +
                                 "${onTv.label()} on this TV (${Format.bytes(onTv.bytes)}).",
                         )
                     }
@@ -98,7 +98,7 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
                             state.removed.takeIf { it > 0 }?.let { "$it removed" },
                         ).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { Note(it) }
                         if (state.failed > 0) Text(
-                            "${state.failed} couldn't download" + (if (replace) ", so nothing was removed" else "") +
+                            "${state.failed} couldn’t download" + (if (replace) ", so nothing was removed" else "") +
                                 ". Pick again to try again.",
                             color = Palette.danger, style = MaterialTheme.typography.bodyMedium,
                         )
@@ -128,7 +128,7 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
     if (confirmRemove) ConfirmDialog(
         title = "Remove from this TV?",
         body = "Deletes the ${onTv.label()} (${Format.bytes(onTv.bytes)}) this TV saved from Google Photos. " +
-            "Your Google Photos library isn't touched.",
+            "Your Google Photos library isn’t touched.",
         confirmLabel = "Remove",
         onConfirm = { GooglePhotos.removeAll() },
         onDismiss = { confirmRemove = false },

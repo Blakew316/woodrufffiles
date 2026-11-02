@@ -386,7 +386,7 @@ fun SettingsScreen(vm: MainViewModel) {
             ) { if (facts.photos == GoogleAuth.SignIn.KEYS_REFUSED) open(SettingsPage.KEYS) else showPhotos = true },
             accountItem(
                 Sym.Event, "Google Calendar", GoogleAuth.Grant.CALENDAR, facts.calendar,
-                about = "Today's events on Home.",
+                about = "Today’s events on Home.",
                 ended = "Google ended this TV’s sign-in. OK connects Google Calendar again.",
             ) {
                 when (facts.calendar) {
@@ -407,7 +407,7 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Email, a.email, a.provider.label, about = "OK removes this account from the TV.") { dialog = SettingsDialog.RemoveMail(a) }
         } + SettingItem(
             Sym.PersonAdd, "Add a mail account", spaced = facts.accounts.isNotEmpty(),
-            about = "iCloud, Gmail, Outlook and others. You'll need an app-specific password, not your usual one.",
+            about = "iCloud, Gmail, Outlook and others. You’ll need an app-specific password, not your usual one.",
         ) { dialog = SettingsDialog.PickProvider }
         SettingsPage.KEYS -> buildList {
             add(SettingItem(Sym.Key, "Google Client ID", facts.clientId?.let { mask(it, 18) } ?: "Not set", about = "From Google Cloud → Credentials. Drive, Photos, Calendar and cameras use it. Copied to every linked TV.") { dialog = SettingsDialog.ClientId })
@@ -429,7 +429,7 @@ fun SettingsScreen(vm: MainViewModel) {
             }
             out(facts.connected, "Sign out of Google", "Signs this TV out of Google Drive.") { scope.launch { GoogleAuth.signOut(context); changed() } }
             out(facts.photosConnected, "Disconnect Google Photos", "Stops adding from Google Photos. Photos already here stay.") { GooglePhotos.signOut { changed() } }
-            out(calendar.connected, "Disconnect Google Calendar", "Stops showing today's events.") { TodayCalendar.signOut { changed() } }
+            out(calendar.connected, "Disconnect Google Calendar", "Stops showing today’s events.") { TodayCalendar.signOut { changed() } }
             out(facts.nestConnected, "Disconnect cameras", "Stops showing the cameras on this TV.") { Nest.signOut { changed() } }
             if (facts.configured) add(SettingItem(Sym.Delete, "Remove Google keys", danger = true, spaced = gap, about = "Signs out and deletes the saved Client ID and secret from this TV.") { dialog = SettingsDialog.RemoveGoogle })
         }
@@ -447,7 +447,7 @@ fun SettingsScreen(vm: MainViewModel) {
             // Off unless asked for: each switch of the TV's refresh rate blanks the screen.
             SettingItem(
                 Sym.Movie, "Match frame rate", onOff(facts.matchFrameRate),
-                about = "Shows films at their own frame rate, so slow pans don't stutter. The screen goes black for a moment when a film starts and stops.",
+                about = "Shows films at their own frame rate, so slow pans don’t stutter. The screen goes black for a moment when a film starts and stops.",
             ) { FrameRateMatch.setEnabled(context, !facts.matchFrameRate); version++ },
             // The same size the player's Subtitles menu changes (specs/player-feedback.md §3.6).
             SettingItem(
@@ -456,7 +456,7 @@ fun SettingsScreen(vm: MainViewModel) {
             ) { com.woodruff.tvexplorer.player.SubtitleLook.let { it.setSize(context, it.size(context).next()) }; version++ },
             SettingItem(
                 Sym.Motion, "Reduce motion", onOff(Appearance.reduceMotion),
-                about = "Off, the app glides like Apple TV even when the TV's own animations are turned off: the highlight slides between rows, rows glide, pop-ups glide in. On, every change happens at once.",
+                about = "Off, the app glides like Apple TV even when the TV’s own animations are turned off: the highlight slides between rows, rows glide, pop-ups glide in. On, every change happens at once.",
             ) { Appearance.toggleReduceMotion(context) },
         )
         SettingsPage.SCREENSAVER -> listOf(
@@ -470,14 +470,14 @@ fun SettingsScreen(vm: MainViewModel) {
             },
             SettingItem(Sym.Timer, "Each photo for", "${Appearance.seconds} seconds", about = "How long each photo stays up. OK changes it.") { Appearance.nextSpeed(context) },
             SettingItem(Sym.Slideshow, "Start now", spaced = true, about = "Starts the slideshow.") { SlideshowActivity.start(context) },
-            SettingItem(Sym.Tv, "Use as the TV's screensaver", about = "Opens the TV's own screensaver settings to choose Woodruff Family.") {
+            SettingItem(Sym.Tv, "Use as the TV’s screensaver", about = "Opens the TV’s own screensaver settings to choose Woodruff Family.") {
                 val r = Opener.firstThatStarts(context, listOf(Intent(Settings.ACTION_DREAM_SETTINGS)), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.DreamHelp
             },
         )
         SettingsPage.DEVICES -> listOf(
-            SettingItem(Sym.Tv, "This TV's name", facts.tvName, about = "Shown to your other TVs and on your phone.") { dialog = SettingsDialog.TvName },
-            SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) },
+            SettingItem(Sym.Tv, "This TV’s name", facts.tvName, about = "Shown to your other TVs and on your phone.") { dialog = SettingsDialog.TvName },
+            SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone’s camera.") { vm.show(Screen.TRANSFER) },
             opener(SettingsPage.PHONES, count(phones.size, "phone", "None yet")),
             opener(SettingsPage.TVS, if (linkedTvs.isEmpty()) "None linked" else "${linkedTvs.size} linked"),
             // What TransferService runs: started at boot (BootReceiver) and brought back by Android after a kill.
@@ -487,7 +487,7 @@ fun SettingsScreen(vm: MainViewModel) {
             ) { AutoStart.setEnabled(context, !facts.autoStart); changed() },
         )
         SettingsPage.PHONES ->
-            if (phones.isEmpty()) listOf(SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone's camera.") { vm.show(Screen.TRANSFER) })
+            if (phones.isEmpty()) listOf(SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone’s camera.") { vm.show(Screen.TRANSFER) })
             else phones.map { p -> SettingItem(Sym.Smartphone, p.name, Format.date(p.lastSeen), about = "Last seen ${Format.date(p.lastSeen)}. OK forgets this phone.") { dialog = SettingsDialog.RemovePhone(p) } }
         SettingsPage.TVS -> buildList {
             add(SettingItem(Sym.Add, "Add another TV", about = "Enter the code the other TV shows in its Settings.") { dialog = SettingsDialog.AddTv })
@@ -508,7 +508,7 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.Apps, "Apps", about = "Open the apps on this TV.") { vm.openApps(Screen.SETTINGS) },
             SettingItem(Sym.Cloud, "iCloud", about = "How to bring iCloud mail, files and photos to this TV.") { dialog = SettingsDialog.ICloud },
             SettingItem(Sym.VideoCall, "Google Meet", spaced = true, about = "Video calls on the TV.") { Handoff.launch(context, Handoff.MEET) },
-            SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone's camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
+            SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone’s camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
         )
         SettingsPage.UPDATES -> listOf(
             SettingItem(
@@ -554,14 +554,14 @@ fun SettingsScreen(vm: MainViewModel) {
             reportRows(view, Health.clock(context), checking, asked).map { r -> healthItem(r) { act(r, view, tv) } }
         }
         SettingsPage.ADVANCED -> listOf(
-            SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames while navigating on each screen, and what they were spent on. OK starts counting again and records 3 minutes for the phone's Smoothness Report.") {
+            SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames while navigating on each screen, and what they were spent on. OK starts counting again and records 3 minutes for the phone’s Smoothness Report.") {
                 FrameStats.reset(); smoothness = FrameStats.summary()
             },
             // The speed profile at work (baseline-prof.txt): right after an update when it installed with
             // its profile, otherwise once the TV has compiled it while idle. Read only.
             SettingItem(
                 Sym.Android, "App code", appCode,
-                about = "Whether the TV has compiled Woodruff's code, so it starts and moves faster. Updates are compiled as they install; if not, the TV does it while idle, usually overnight.",
+                about = "Whether the TV has compiled Woodruff’s code, so it starts and moves faster. Updates are compiled as they install; if not, the TV does it while idle, usually overnight.",
             ),
             // Watching / Through Living Room / Off, or what's wrong (doorbell.md §3.5), in amber when
             // someone has to fix it.
@@ -593,9 +593,9 @@ fun SettingsScreen(vm: MainViewModel) {
             },
             SettingItem(
                 Sym.Notifications, "Chime for announcements", onOff(facts.chime),
-                about = "A short chime when an announcement or the doorbell pops up, so it's noticed over a film. Never for mail. OK turns it on or off.",
+                about = "A short chime when an announcement or the doorbell pops up, so it’s noticed over a film. Never for mail. OK turns it on or off.",
             ) { Chime.setEnabled(context, !facts.chime); version++ },
-            SettingItem(Sym.PlayCircle, "See what other apps are playing", onOff(facts.seesOtherApps), about = "Lets Home and your other TVs show what's playing in other apps.") {
+            SettingItem(Sym.PlayCircle, "See what other apps are playing", onOff(facts.seesOtherApps), about = "Lets Home and your other TVs show what’s playing in other apps.") {
                 val r = Opener.firstThatStarts(context, listOf(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")), "")
                 if (r is OpenResult.Failed) dialog = SettingsDialog.MediaAccessHelp
             },
@@ -710,7 +710,7 @@ fun SettingsScreen(vm: MainViewModel) {
             onDismiss = { dialog = null },
         )
         SettingsDialog.PickProvider -> ActionMenu(
-            "Add a mail account", "You'll need an app-specific password, not your normal one.",
+            "Add a mail account", "You’ll need an app-specific password, not your normal one.",
             MailProvider.entries.map { p -> MenuAction(p.label, Sym.Email) { dialog = SettingsDialog.MailEmail(p) } },
             onDismiss = { dialog = null },
         )
@@ -736,7 +736,7 @@ fun SettingsScreen(vm: MainViewModel) {
             onConfirm = { MailAccounts.remove(context, d.account.id); changed() }, onDismiss = { dialog = null },
         )
         SettingsDialog.TvName -> TextInputDialog(
-            "This TV's name", facts.tvName, "Save",
+            "This TV’s name", facts.tvName, "Save",
             onConfirm = { name ->
                 TvLinks.setName(context, name)
                 TransferService.state.value.base?.substringAfterLast(':')?.toIntOrNull()?.let { TvLinks.advertise(context, it) }
@@ -823,7 +823,7 @@ fun SettingsScreen(vm: MainViewModel) {
                 dialog = null
                 version++
                 // Google's consent screen lets each permission be unticked.
-                vm.say(if (FamilySync.needsNewSignIn(context)) "Sharing wasn't allowed. Try again and leave every box ticked." else "This TV now shares progress with your other TVs")
+                vm.say(if (FamilySync.needsNewSignIn(context)) "Sharing wasn’t allowed. Try again and leave every box ticked." else "This TV now shares progress with your other TVs")
             },
             onDismiss = { dialog = null },
         )
@@ -846,7 +846,7 @@ private fun DriveAgainDialog(onDone: () -> Unit, onDismiss: () -> Unit) {
         val server = TransferService.state.first { it.running || it.error != null }
         val base = server.base
         if (base == null) {
-            error = server.error ?: "The phone connection couldn't start."
+            error = server.error ?: "The phone connection couldn’t start."
             return@LaunchedEffect
         }
         while (true) {
@@ -863,7 +863,7 @@ private fun DriveAgainDialog(onDone: () -> Unit, onDismiss: () -> Unit) {
                 onDone()
                 return@LaunchedEffect
             }
-            error = "Signing in didn't finish. Scan the new code to try again."
+            error = "Signing in didn’t finish. Scan the new code to try again."
         }
     }
     DialogFrame("Sign in to Google Drive again", onDismiss, width = 680) {
@@ -924,7 +924,7 @@ private fun addMail(
             vm.say("Added $email")
             done()
         } catch (e: Exception) {
-            vm.say(e.message ?: "Couldn't add that account")
+            vm.say(e.message ?: "Couldn’t add that account")
         }
     }
 }
@@ -973,7 +973,7 @@ private enum class SettingsPage(val title: String, val icon: ImageVector, val ab
     KEYS("Keys & sign-out", Sym.Key, "The keys from Google and TMDB, and signing out."),
     LOOK("Appearance", Sym.DarkMode, "Light or dark, a background photo, the cameras on Home, frame-rate matching and subtitle size."),
     SCREENSAVER("Screensaver", Sym.Slideshow, "A slideshow of your photos when the TV sits idle."),
-    DEVICES("TVs & phones", Sym.Tv, "This TV's name, your phones and the other TVs in the house."),
+    DEVICES("TVs & phones", Sym.Tv, "This TV’s name, your phones and the other TVs in the house."),
     PHONES("Phones", Sym.Smartphone, "Phones connected to this TV."),
     TVS("Other TVs", Sym.Link, "Link TVs to see what each one is playing and watch together."),
     STORAGE("Storage & apps", Sym.Storage, "Drives, files by type, apps, iCloud and video calls."),
@@ -1328,7 +1328,7 @@ private fun ICloudDialog(onDismiss: () -> Unit, onStart: () -> Unit) {
     DialogFrame("iCloud on your TV", onDismiss, width = 640) {
         Text(
             "iCloud Mail: add it in Settings → Mail with an app-specific password from account.apple.com.\n\n" +
-                "iCloud Drive and Photos: Apple doesn't offer Android apps a way to sign in to iCloud Drive, so send files from your iPhone or iPad:",
+                "iCloud Drive and Photos: Apple doesn’t offer Android apps a way to sign in to iCloud Drive, so send files from your iPhone or iPad:",
             color = Palette.muted,
         )
         listOf(

@@ -105,14 +105,14 @@ class TransferServer(
             s.uri == "/api/upload" && s.method == Method.POST -> upload(s)
             s.uri == "/api/mkdir" && s.method == Method.POST -> {
                 val dir = FileOperations.uniqueTarget(resolve(param(s, "path")), clean(param(s, "name")))
-                if (!dir.mkdirs()) throw IOException("Couldn't create folder")
+                if (!dir.mkdirs()) throw IOException("Couldn’t create folder")
                 onActivity("Created ${dir.name}")
                 json(JSONObject().put("ok", true))
             }
             s.uri == "/api/delete" && s.method == Method.POST -> {
                 val f = resolve(param(s, "path"))
                 if (roots().any { it.dir.canonicalFile == f }) throw SecurityException("Refusing to delete a storage root")
-                if (!f.deleteRecursively()) throw IOException("Couldn't delete ${f.name}")
+                if (!f.deleteRecursively()) throw IOException("Couldn’t delete ${f.name}")
                 onActivity("Deleted ${f.name}")
                 json(JSONObject().put("ok", true))
             }
@@ -121,7 +121,7 @@ class TransferServer(
     }
 
     private fun list(dir: File): Response {
-        val files = dir.listFiles() ?: throw IOException("Can't read folder")
+        val files = dir.listFiles() ?: throw IOException("Can’t read folder")
         val arr = JSONArray()
         files.sortedWith(compareBy<File> { !it.isDirectory }.thenBy { it.name.lowercase() }).forEach {
             arr.put(JSONObject()
@@ -261,7 +261,7 @@ internal fun receiveFile(s: IHTTPSession, target: File) = com.woodruff.tvexplore
             }
             out.fd.sync()
         }
-        if (!partial.renameTo(target)) throw IOException("Couldn't save ${target.name}")
+        if (!partial.renameTo(target)) throw IOException("Couldn’t save ${target.name}")
     } catch (e: IOException) {
         partial.delete()
         throw e

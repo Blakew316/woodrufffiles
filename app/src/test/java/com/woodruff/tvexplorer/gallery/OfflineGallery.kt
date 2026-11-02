@@ -341,7 +341,7 @@ class OfflineGallery {
         Notices.load(app)
         Notices.clear(app)
         Notices.prefs(app).edit().clear().commit()
-        Notices.post(app, NoticeSource.PHONE, "Dinner's ready", "Come downstairs when you can")
+        Notices.post(app, NoticeSource.PHONE, "Dinner’s ready", "Come downstairs when you can")
         Notices.post(app, NoticeSource.MAIL, "Your order has shipped", "Arriving Thursday")
         Notices.markAllRead(app)
         Notices.dismissLatest()
