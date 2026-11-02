@@ -72,7 +72,10 @@ object Rtc {
     fun warm(c: Context) {
         if (factory != null || !warming.compareAndSet(false, true)) return
         val app = c.applicationContext
-        Thread({ runCatching { factory(app) }.onFailure { Log.w("Rtc", "WebRTC couldn't start", it) } }, "camera-rtc").start()
+        Thread({
+            // Done either way: a factory that couldn't be made (or is let go of one day) is tried again next time.
+            try { runCatching { factory(app) }.onFailure { Log.w("Rtc", "WebRTC couldn't start", it) } } finally { warming.set(false) }
+        }, "camera-rtc").start()
     }
 }
 

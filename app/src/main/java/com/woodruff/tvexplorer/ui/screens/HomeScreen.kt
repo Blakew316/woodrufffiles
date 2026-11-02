@@ -646,7 +646,8 @@ private fun TvsPanel(vm: MainViewModel, modifier: Modifier) {
 @Composable
 private fun CamerasPanel(vm: MainViewModel, modifier: Modifier) {
     val state by Nest.state.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { if (DashboardSamples.cameras == null) Nest.warm() }
+    // (With Home's live cameras turned off, nothing streams here: WebRTC waits for the Command Center.)
+    LaunchedEffect(Unit) { if (DashboardSamples.cameras == null) Nest.warm(streams = Appearance.homeCameras != Appearance.HomeCameras.OFF) }
     val samples = DashboardSamples.cameras
     val cams = state.cameras
     val count = samples?.size ?: cams.size

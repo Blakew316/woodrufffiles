@@ -178,14 +178,16 @@ object Nest {
      * For the Home dashboard and the doorbell view: load cameras when already connected, without
      * starting any sign-in. Whether they are is read off the main thread (the Keystore); the job
      * returned is done once it has been (the doorbell view waits for it before saying they aren't).
+     * [streams]: cameras will play live here (not Home with its live cameras turned off), so WebRTC
+     * is made ready too.
      */
-    fun warm(): Job =
+    fun warm(streams: Boolean = true): Job =
         scope.launch {
             val s = withContext(Dispatchers.IO) { step() }
             _state.update { it.copy(step = s) }
             if (s == NestStep.CONNECTED) {
                 CameraGl.warm()
-                Rtc.warm(app)
+                if (streams) Rtc.warm(app)
                 if (_state.value.cameras.isEmpty() && !_state.value.loading) refresh()
             }
         }
