@@ -417,7 +417,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 saved.forEach { (place, s) -> if (s != null && s.files.isNotEmpty()) keepSaved(place, s) }
                 // The new episodes found last time, so Recently added says what's new from the start.
                 seedFresh()
-                if (saved.values.any { !it?.files.isNullOrEmpty() }) updateRecentlyAdded()
+                // Sorted off the main thread: a big library is thousands of titles to put in order.
+                if (saved.values.any { !it?.files.isNullOrEmpty() }) withContext(Dispatchers.Default) { updateRecentlyAdded() }
             }
             // Let the first screen settle (focus, cameras, dashboard) before the Drive and TMDB work.
             delay(4_000)
