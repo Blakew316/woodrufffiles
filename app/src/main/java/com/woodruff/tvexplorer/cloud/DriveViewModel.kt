@@ -28,10 +28,30 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.woodruff.tvexplorer.tmdb.Tmdb
+import com.woodruff.tvexplorer.util.NetworkWatch
+import com.woodruff.tvexplorer.util.backoffMs
+import com.woodruff.tvexplorer.util.isNetworkFailure
+import kotlinx.coroutines.currentCoroutineContext
 import java.io.File
 
 /** Where the Connect flow is: paste the client from a phone, sign in on a phone, or done. */
 enum class SignInStep { SETUP, SIGN_IN, CONNECTED }
+
+/** How the last try to reach Google Drive went: a quiet note in the header, or a page when nothing's saved. */
+sealed interface DriveStatus {
+    /** Reached it: what's on screen is current. */
+    data object Online : DriveStatus
+
+    /**
+     * Couldn't get through (no network yet after standby, a timeout, Google's own outage). The saved
+     * copy stays on screen, and it tries again by itself, at once when the network comes back.
+     * Never the sign-in QR code: the sign-in is fine.
+     */
+    data object Offline : DriveStatus
+
+    /** Google refused this TV's keys: [message] says what to fix. Signing in again wouldn't help. */
+    data class Refused(val message: String) : DriveStatus
+}
 
 data class DriveState(
     val step: SignInStep = SignInStep.SETUP,
@@ -49,6 +69,8 @@ data class DriveState(
     val message: String? = null,
     /** Filter per library ("Movies", "TV Shows"), kept while the app runs. */
     val filters: Map<String, LibraryFilter> = emptyMap(),
+    /** How the last try to reach Google Drive went (offline: what's shown is the saved copy). */
+    val status: DriveStatus = DriveStatus.Online,
 ) {
     val place: DrivePlace get() = stack.last()
     val connected: Boolean get() = step == SignInStep.CONNECTED
@@ -57,6 +79,56 @@ data class DriveState(
     /** The library's own top level gets filters; seasons and episodes don't need them. */
     val filterable: Boolean get() = library && stack.size == 1
     val filter: LibraryFilter get() = filters[stack.first().title] ?: LibraryFilter(overview = true) // Overview first, like Netflix
+}
+
+/** What one try at listing a Drive place came to. */
+internal sealed interface Fetch {
+    /** Listed: the fresh copy is on screen. */
+    data object Done : Fetch
+    /** The sign-in has ended (Google expired or revoked it, or there's none): the QR code. */
+    data object SignedOut : Fetch
+    /** Couldn't get through to Google: keep what's shown and try again (see [DriveStatus.Offline]). */
+    data object Offline : Fetch
+    /** Google refused this TV's keys (see [DriveStatus.Refused]). */
+    data class Refused(val message: String) : Fetch
+    /** Anything else (no Movies folder, a 404…): [message] in place of a list when nothing's shown. */
+    data class Failed(val message: String) : Fetch
+}
+
+/** [token]'s answer as a [Fetch], when there's no token to list with. Null for a token. */
+internal fun fetchFor(token: GoogleAuth.TokenResult): Fetch? = when (token) {
+    is GoogleAuth.TokenResult.Ok -> null
+    GoogleAuth.TokenResult.SignedOut -> Fetch.SignedOut
+    is GoogleAuth.TokenResult.Offline -> Fetch.Offline
+    is GoogleAuth.TokenResult.Rejected -> Fetch.Refused(token.message)
+}
+
+/**
+ * [e], thrown while listing, as a [Fetch]. The network failing is [Fetch.Offline], however it shows
+ * (a timeout, a name that won't resolve, a dropped connection): never a reason to sign in again.
+ * [explain] words anything else.
+ */
+internal fun fetchFailure(e: Throwable, explain: (Throwable) -> String): Fetch = when {
+    e is GoogleAuth.AuthException.SignedOut -> Fetch.SignedOut
+    e is GoogleAuth.AuthException.Rejected -> Fetch.Refused(e.message.orEmpty())
+    isNetworkFailure(e) -> Fetch.Offline
+    else -> Fetch.Failed(explain(e))
+}
+
+/**
+ * The state once a try came to [outcome]. [here]: the viewer is still on the place it listed (the
+ * place's own loading and error only change then; the connection's [DriveState.status] always).
+ * The listing itself is put on screen as it arrives, not here.
+ */
+internal fun DriveState.after(outcome: Fetch, here: Boolean): DriveState = when (outcome) {
+    Fetch.Done -> copy(status = DriveStatus.Online)
+    // Only for a sign-in that really ended: the QR code takes over, the library is kept for after.
+    Fetch.SignedOut -> copy(step = SignInStep.SIGN_IN, busy = false, status = DriveStatus.Online)
+    // What's on screen stays, with no error over it: the offline note (or page) says what's up.
+    Fetch.Offline -> copy(status = DriveStatus.Offline, busy = if (here) false else busy, error = if (here) null else error)
+    is Fetch.Refused -> copy(status = DriveStatus.Refused(outcome.message), busy = if (here) false else busy, error = if (here) null else error)
+    // With a list on screen, keep showing it rather than an error.
+    is Fetch.Failed -> if (!here) this else copy(status = DriveStatus.Online, busy = false, error = if (files.isEmpty()) outcome.message else null)
 }
 
 /**
@@ -97,7 +169,12 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      */
     val artwork: StateFlow<Map<String, DriveFile>> = _artwork.asStateFlow()
 
+    /** Whether the Drive screen is on show (and Woodruff on screen): only then does a listing retry. */
+    private val onScreen = MutableStateFlow(false)
+
     init {
+        // Retries wait on the network coming back (the first start of it registers its callback).
+        NetworkWatch.start(app)
         viewModelScope.launch { CompanionHub.googleCodes.collect { (code, attempt) -> if (attempt.grant == GoogleAuth.Grant.DRIVE) finishSignIn(code, attempt) } }
         // Signed out, or the keys changed or removed — here, in Settings or from the phone: the
         // next account starts clean.
@@ -108,15 +185,36 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 prepareSignIn()
             }
         }
+        // Google ended the sign-in (found out by anything renewing it: the player, the prefetch):
+        // the QR code, at once rather than at the next listing. The library is kept for after.
+        viewModelScope.launch {
+            GoogleAuth.expirations.collect { grant -> if (grant == GoogleAuth.Grant.DRIVE) askToSignIn() }
+        }
         // Keys saved from the phone or the Settings screen: move on to the sign-in step.
         viewModelScope.launch {
             CompanionHub.changes.collect {
-                if (!_state.value.connected) { _state.update { it.copy(step = initialStep()) }; prepareSignIn() }
+                if (!_state.value.connected) {
+                    // Still signed in (a sign-in step shown in error, or the Keystore just woke up):
+                    // back to the library rather than another QR code.
+                    val step = initialStep()
+                    _state.update { it.copy(step = step) }
+                    if (step == SignInStep.CONNECTED) load() else prepareSignIn()
+                }
                 // A new TMDB key changes posters: drop cached library listings and fetch again.
                 else if (_state.value.library) { cache.clear(); prefetchLibraries(); load() }
             }
         }
         prefetchLibraries(seed = true)
+    }
+
+    /** The Drive screen is on show ([on]) or not: the screen's start and stop, and Woodruff's. */
+    fun showing(on: Boolean) { onScreen.value = on }
+
+    /** The sign-in has ended: the QR code takes over (once, however many find out). */
+    private fun askToSignIn() {
+        if (_state.value.step != SignInStep.CONNECTED) return
+        _state.update { it.after(Fetch.SignedOut, here = true) }
+        prepareSignIn()
     }
 
     /**
@@ -142,24 +240,53 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             }
             // Let the first screen settle (focus, cameras, dashboard) before the Drive and TMDB work.
             delay(4_000)
-            val token = GoogleAuth.token(ctx) ?: return@launch
-            // Home's Google-hosted posters need it too, before Streaming is ever opened.
-            _state.update { if (it.connected && it.token != token) it.copy(token = token) else it }
-            // What each library shows first, from the saved copy, for opening it before the fresh one is in.
-            for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) cache[place]?.let { warm(token, listOf(place), it) }
-            for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
-                // What was known before (the saved copy) stands in for a TMDB lookup that fails this time.
-                val before = cache[place]?.associateBy { it.id }
-                runCatching { carryOver(posters(token, listOf(place), parse(DriveApi.list(token, place))), before) }.onSuccess { files ->
-                    cache[place] = files
-                    warm(token, listOf(place), files)
-                    // Saved, so the next start begins from this copy rather than the last Streaming visit's.
-                    withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
+            // Started before the network was up (a TV turned on, or woken from standby): tried again
+            // the moment it's back, and after a growing pause (15 s up to 15 min) if it never says.
+            var tries = 0
+            while (true) {
+                val mark = NetworkWatch.comebacks.value
+                val token = when (val t = GoogleAuth.tokenResult(ctx)) {
+                    is GoogleAuth.TokenResult.Ok -> t.token
+                    is GoogleAuth.TokenResult.Offline -> null
+                    // Signed out, or the keys refused: the Drive screen says so, nothing to warm.
+                    else -> return@launch
                 }
+                if (token != null && warmLibraries(token)) return@launch
+                val cameBack = NetworkWatch.awaitComeback(mark, backoffMs(tries, 15_000, 15 * 60_000))
+                tries = if (cameBack) 0 else tries + 1
             }
-            ensureActive() // cancelled (signed out, or a newer prefetch): leave Recently added alone
-            updateRecentlyAdded()
         }
+    }
+
+    /**
+     * Lists Movies and TV Shows afresh with [token] (posters, TMDB) for Home, search and the
+     * sidebar. False when a listing failed for want of a network, to be tried again.
+     */
+    private suspend fun warmLibraries(token: String): Boolean {
+        // Home's Google-hosted posters need it too, before Streaming is ever opened.
+        _state.update { if (it.connected && it.token != token) it.copy(token = token) else it }
+        // What each library shows first, from the saved copy, for opening it before the fresh one is in.
+        for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) cache[place]?.let { warm(token, listOf(place), it) }
+        var reached = true
+        for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
+            // What was known before (the saved copy) stands in for a TMDB lookup that fails this time.
+            val before = cache[place]?.associateBy { it.id }
+            try {
+                val files = carryOver(posters(token, listOf(place), parse(DriveApi.list(token, place))), before)
+                cache[place] = files
+                warm(token, listOf(place), files)
+                // Saved, so the next start begins from this copy rather than the last Streaming visit's.
+                withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The saved copy stays. No network: the whole round again once it's back.
+                if (isNetworkFailure(e)) reached = false
+            }
+        }
+        currentCoroutineContext().ensureActive() // cancelled (signed out, or a newer prefetch): leave Recently added alone
+        updateRecentlyAdded()
+        return reached
     }
 
     /**
@@ -295,7 +422,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 val a = GoogleAuth.newAttempt(ctx, base)
                 CompanionHub.expect(a)
-                _state.update { it.copy(step = SignInStep.SIGN_IN, qrUrl = a.authUrl, error = null) }
+                // Never over a library that's (back) on screen: a sign-in that finished meanwhile.
+                _state.update { if (it.connected) it else it.copy(step = SignInStep.SIGN_IN, qrUrl = a.authUrl, error = null) }
             }
         }
     }
@@ -440,56 +568,84 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         val library = _state.value.library
         val filterable = _state.value.filterable
         val cached = cache[place]
-        _state.update { it.copy(busy = cached == null, error = null, files = cached ?: emptyList()) }
+        // The status stays as it was until this try says otherwise: offline stays offline (no
+        // flicker of the note) while the next place loads from what's saved, and the offline page
+        // stays up while it tries again rather than flashing "Loading".
+        _state.update { it.copy(busy = cached == null && it.status != DriveStatus.Offline, error = null, files = cached ?: emptyList()) }
         loadJob = viewModelScope.launch {
             // Nothing in memory yet (first visit since the app started): show the saved listing at
             // once, then refresh it from Drive behind the scenes.
-            var shownSaved = false
-            var saved: List<DriveFile>? = null
             if (cached == null && library) {
-                saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place)?.let(Library::prepare)?.also { if (filterable) learnMatchKeys(it) } }
+                val saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place)?.let(Library::prepare)?.also { if (filterable) learnMatchKeys(it) } }
                 if (!saved.isNullOrEmpty()) {
                     cache[place] = saved
-                    shownSaved = true
                     _state.update { if (it.place == place && it.files.isEmpty()) it.copy(files = saved, busy = false) else it }
                 }
             }
-            try {
-                val token = GoogleAuth.token(ctx)
-                if (token == null) {
-                    // Approval expired or was revoked in the Google account: sign in again.
-                    _state.update { it.copy(step = SignInStep.SIGN_IN, busy = false) }
-                    prepareSignIn()
-                    return@launch
-                }
-                // Show the listing (with the owner's own art) right away; TMDB posters follow.
-                val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
-                    .let { if (filterable) parse(it) else it }
-                // What was on screen (the copy in memory or the saved listing) already has TMDB's
-                // details; this fresh listing only gets them when the lookup below finishes. Until
-                // then it borrows them, so the posters, genres, rows and featured title don't
-                // vanish for a moment — taking the focus with them.
-                val before = if (library && tmdbMode(stack) != Tmdb.Mode.NONE) (cached ?: saved)?.associateBy { it.id } else null
-                val interim = carryOver(files, before)
-                cache[place] = interim
-                // Only apply if the viewer is still on this place.
-                _state.update { if (it.place == place) it.copy(token = token, files = interim, busy = false) else it }
-                if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
-                if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
-                    // A lookup that failed this time (TMDB unreachable) keeps what was found before.
-                    val withTmdb = carryOver(tmdb(stack, files), before)
-                    warm(token, stack, withTmdb)
-                    cache[place] = withTmdb
-                    _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
-                    withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb) }
-                    if (place == DrivePlace.Movies || place == DrivePlace.TvShows) updateRecentlyAdded()
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // With a cached list on screen, keep showing it rather than an error.
-                _state.update { if (cached != null || shownSaved) it.copy(busy = false) else it.copy(busy = false, error = explain(e)) }
+            // Offline (a TV just back from standby, its Wi-Fi still reconnecting): what's on screen
+            // stays, and it tries again the moment the network is back — or after a growing pause
+            // (5 s up to 5 min) if the network never says — while the Drive screen is on show.
+            var tries = 0
+            while (true) {
+                val mark = NetworkWatch.comebacks.value
+                val outcome = fetch(place, stack, library, filterable)
+                // Only a sign-in that really ended (never a network failure) brings the QR code.
+                if (outcome == Fetch.SignedOut) { askToSignIn(); return@launch }
+                // Keys refused, over a saved copy: said in full once, as it starts (the header's note
+                // keeps a short reminder; with nothing to show, the page says it all).
+                val s = _state.value
+                if (outcome is Fetch.Refused && s.status !is DriveStatus.Refused && s.files.isNotEmpty()) say(outcome.message)
+                _state.update { it.after(outcome, here = it.place == place) }
+                if (outcome != Fetch.Offline) return@launch
+                val cameBack = NetworkWatch.awaitComeback(mark, backoffMs(tries, 5_000, 5 * 60_000))
+                tries = if (cameBack) 0 else tries + 1
+                onScreen.first { it }
             }
+        }
+    }
+
+    /**
+     * One try at listing [place] from Drive, putting what arrives on screen (if the viewer is still
+     * there) and saving it. A token Drive won't take (401: the TV's clock was off when it was saved,
+     * or access was just revoked) is renewed once and the listing tried again ([renewed]).
+     */
+    private suspend fun fetch(place: DrivePlace, stack: List<DrivePlace>, library: Boolean, filterable: Boolean, renewed: Boolean = false): Fetch {
+        val result = GoogleAuth.tokenResult(ctx)
+        fetchFor(result)?.let { return it }
+        val token = (result as GoogleAuth.TokenResult.Ok).token
+        return try {
+            // Show the listing (with the owner's own art) right away; TMDB posters follow.
+            val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
+                .let { if (filterable) parse(it) else it }
+            // What was on screen (the copy in memory or the saved listing) already has TMDB's
+            // details; this fresh listing only gets them when the lookup below finishes. Until
+            // then it borrows them, so the posters, genres, rows and featured title don't
+            // vanish for a moment — taking the focus with them.
+            val before = if (library && tmdbMode(stack) != Tmdb.Mode.NONE) cache[place]?.associateBy { it.id } else null
+            val interim = carryOver(files, before)
+            cache[place] = interim
+            // Only apply if the viewer is still on this place.
+            _state.update { if (it.place == place) it.copy(token = token, files = interim, busy = false) else it }
+            if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
+            if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
+                // A lookup that failed this time (TMDB unreachable) keeps what was found before.
+                val withTmdb = carryOver(tmdb(stack, files), before)
+                warm(token, stack, withTmdb)
+                cache[place] = withTmdb
+                _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
+                withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb) }
+                if (place == DrivePlace.Movies || place == DrivePlace.TvShows) updateRecentlyAdded()
+            }
+            Fetch.Done
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: DriveHttpException) {
+            if (e.code == 401 && !renewed) {
+                withContext(Dispatchers.IO) { GoogleAuth.forgetAccess(ctx) }
+                fetch(place, stack, library, filterable, renewed = true)
+            } else fetchFailure(e, ::explain)
+        } catch (e: Exception) {
+            fetchFailure(e, ::explain)
         }
     }
 
@@ -518,7 +674,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         var last = 0L
         opJob = viewModelScope.launch {
             try {
-                val token = GoogleAuth.token(ctx) ?: error("Signed out of Google Drive")
+                val token = withContext(Dispatchers.IO) {
+                    GoogleAuth.requireToken(ctx, GoogleAuth.Grant.DRIVE, signedOut = "Signed out of Google Drive. Sign in again from Google Drive.")
+                }
                 DriveApi.download(token, file, dest) { p ->
                     val now = System.currentTimeMillis()
                     if (now - last > 150) { last = now; _state.update { it.copy(operation = Operation("Downloading", p)) } }
@@ -538,8 +696,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     fun say(text: String) = _state.update { it.copy(message = text) }
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
-    private fun explain(e: Exception): String = when {
-        e is java.net.UnknownHostException -> "No internet connection."
+    private fun explain(e: Throwable): String = when {
+        isNetworkFailure(e) -> if (NetworkWatch.online.value) "Can't reach Google Drive right now. Try again in a moment." else "This TV is offline. Try again once it's back online."
         else -> e.message ?: "Something went wrong talking to Google Drive."
     }
 }

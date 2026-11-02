@@ -44,7 +44,9 @@ import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.LibraryFilter
 import com.woodruff.tvexplorer.cloud.LibrarySort
 import com.woodruff.tvexplorer.ui.components.ConfirmDialog
+import com.woodruff.tvexplorer.ui.components.HeaderStatus
 import com.woodruff.tvexplorer.ui.components.MenuAction
+import com.woodruff.tvexplorer.ui.components.StatusNote
 import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.SearchBar
 import com.woodruff.tvexplorer.ui.components.rememberRowTint
@@ -82,6 +84,8 @@ fun LibraryHeader(
     more: List<MenuAction> = emptyList(),
     /** In place of the title: a switch between libraries (Streaming's Movies / TV Shows). */
     switcher: (@Composable () -> Unit)? = null,
+    /** Why the posters may be out of date ("Offline · Showing your saved library"); null when they're current. */
+    status: HeaderStatus? = null,
 ) {
     var filtering by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -89,6 +93,8 @@ fun LibraryHeader(
         else Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
         // A field you can see and press OK on, not just a magnifier.
         SearchBar("", "Search $title", onSearch, Modifier.weight(1f).padding(start = 24.dp))
+        // Between the field and Filter: the field gives up the room, Filter stays where it is.
+        StatusNote(status, Modifier.padding(start = 20.dp, end = 8.dp))
         // Says what the posters are narrowed to ("Action · Newest"), so nothing's missing without a reason.
         RoundButton(Sym.Tune, filterLabel(filter), { filtering = true }, active = !filter.overview)
     }

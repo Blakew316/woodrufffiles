@@ -50,6 +50,7 @@ object FamilySync {
     private const val PULL_EVERY_MS = 2 * 60_000L
     private const val SIGN_IN = "Sign in to Google Drive to share progress between TVs."
     private const val SIGN_IN_AGAIN = "Sign in to Google Drive again to share progress between TVs."
+    private const val OFFLINE = "Couldn't reach Google Drive. Trying again soon."
 
     // Outlives every screen: a push started as playback stops must finish after the player has gone.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -190,7 +191,14 @@ object FamilySync {
         // A push with nothing new to send (an earlier round sent it).
         if (!pull && !dirty(app)) return
         try {
-            val token = GoogleAuth.blockingToken(app) ?: return
+            val token = when (val t = GoogleAuth.blockingTokenResult(app)) {
+                is GoogleAuth.TokenResult.Ok -> t.token
+                // Settings says "sign in" (problem() sees the sign-in gone).
+                GoogleAuth.TokenResult.SignedOut -> return
+                // Kept for the next round (a push or Home's pull), like any network failure below.
+                is GoogleAuth.TokenResult.Offline -> { lastProblem = OFFLINE; return }
+                is GoogleAuth.TokenResult.Rejected -> { lastProblem = t.message; return }
+            }
             val tv = TvLinks.id(app)
             val name = "$PREFIX$tv.json"
             var mine = prefs(app).getString(K_FILE, null)
@@ -228,7 +236,7 @@ object FamilySync {
             lastProblem = when {
                 e is HttpError && (e.code == 401 || (e.code == 403 && e.message.orEmpty().contains("scope", ignoreCase = true))) -> SIGN_IN_AGAIN
                 e is HttpError -> "Couldn't share progress: ${e.message}"
-                else -> "Couldn't reach Google Drive. Trying again soon."
+                else -> OFFLINE
             }
         }
     }

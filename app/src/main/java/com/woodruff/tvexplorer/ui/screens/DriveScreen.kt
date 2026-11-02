@@ -81,7 +81,13 @@ import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.DriveState
+import com.woodruff.tvexplorer.cloud.DriveStatus
 import com.woodruff.tvexplorer.cloud.DriveViewModel
+import com.woodruff.tvexplorer.ui.components.HeaderStatus
+import com.woodruff.tvexplorer.ui.components.OfflinePage
+import com.woodruff.tvexplorer.ui.components.OfflineWords
+import com.woodruff.tvexplorer.ui.components.StatusNote
+import com.woodruff.tvexplorer.util.NetworkWatch
 import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.cloud.FolderCache
@@ -137,6 +143,11 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         drive.start()
         onDispose { drive.stop() }
     }
+    // An offline listing retries only while it's on show: not behind the player or another app.
+    androidx.lifecycle.compose.LifecycleStartEffect(Unit) {
+        drive.showing(true)
+        onStopOrDispose { drive.showing(false) }
+    }
     // Google's access tokens last an hour: keep the screen's current (its art, a show's episodes),
     // on coming back from the player and while the screen stays open.
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { drive.refreshToken() }
@@ -151,6 +162,12 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         ConnectPanel(state, onReset = drive::resetSetup)
         return
     }
+
+    // Offline: "Offline" with no network at all, "Reconnecting to Google Drive…" once there is one.
+    val networkUp by NetworkWatch.online.collectAsStateWithLifecycle()
+    // A quiet note in the header while what's shown is the saved copy (with nothing to show, the
+    // offline page below says it instead).
+    val headerStatus = driveHeaderStatus(state.status, networkUp, hasFiles = state.files.isNotEmpty(), library = state.library)
 
     val filter = state.filter
     // Read once here and handed down: the tiles don't read the screen's state themselves, so a
@@ -258,6 +275,7 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                                 onSelect = { i -> drive.openRoot(if (i == 0) DrivePlace.Movies else DrivePlace.TvShows) },
                             )
                         },
+                        status = headerStatus,
                     )
                 }
             } else Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
@@ -267,12 +285,17 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
                     state.place.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(end = 18.dp).weight(1f),
                 )
+                StatusNote(headerStatus, Modifier.padding(end = 8.dp))
                 ToolButton(Sym.MoreHoriz, null, { moreOpen = true }, modifier = Modifier.padding(start = 10.dp))
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TvIcon(Sym.AddToDrive, size = 32.dp) // a plain symbol, not the colored logo
-                Text(state.place.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    state.place.title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 14.dp, end = 18.dp).weight(1f),
+                )
+                StatusNote(headerStatus)
             }
             Text(
                 state.stack.joinToString("  ›  ") { it.title },
@@ -294,8 +317,21 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             }
         }
         Box(Modifier.fillMaxSize()) {
+            val status = state.status
             when {
                 state.busy -> EmptyState("Loading from Google Drive…")
+                // Nothing saved to show: say so calmly. It loads by itself once Google answers.
+                state.files.isEmpty() && status == DriveStatus.Offline -> OfflinePage(
+                    OfflineWords.title(networkUp, "Google Drive"),
+                    OfflineWords.body(networkUp, if (library) "Your library" else "What's in this folder", "Google Drive"),
+                    onAction = drive::refresh,
+                )
+                // Keys Google won't take: signing in again wouldn't help, Settings will.
+                state.files.isEmpty() && status is DriveStatus.Refused -> OfflinePage(
+                    "Google Drive needs attention", status.message,
+                    icon = Sym.Key, action = "Open Settings", actionIcon = Sym.Settings,
+                    onAction = { vm.show(Screen.SETTINGS) },
+                )
                 state.error != null -> EmptyState(state.error!!)
                 state.files.isEmpty() -> EmptyState("Nothing here")
                 shown.isEmpty() -> EmptyState("No matches")
@@ -468,6 +504,26 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             },
         )
     }
+}
+
+/**
+ * The header's note for Drive's [status] while a saved copy is on screen ([hasFiles]; with nothing
+ * to show, the page in its place says it): offline, or keys to check. With no network at all ([networkUp]
+ * false) it says what's shown is the saved copy ([library]: Movies / TV Shows, saved on the TV);
+ * with one, it's moments from loading, and "Reconnecting to Google Drive…" says enough (and leaves
+ * the search field its room).
+ */
+internal fun driveHeaderStatus(status: DriveStatus, networkUp: Boolean, hasFiles: Boolean, library: Boolean): HeaderStatus? = when (status) {
+    DriveStatus.Online -> null
+    DriveStatus.Offline -> if (!hasFiles) null else HeaderStatus(
+        Sym.CloudOff, OfflineWords.note(networkUp, "Google Drive"),
+        when {
+            networkUp -> null
+            library -> "Showing your saved library"
+            else -> "Showing what was here last time"
+        },
+    )
+    is DriveStatus.Refused -> if (!hasFiles) null else HeaderStatus(Sym.Key, "Google keys need checking", "See Settings", alert = true)
 }
 
 /** Asks the image loader for [count] posters from [from] on, at the tiles' size (so they land in the memory cache). */
