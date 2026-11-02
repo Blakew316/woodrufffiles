@@ -81,7 +81,7 @@ class WatchRoutesTest {
     }
 
     /** A library's saved listing, as [ListingCache] names its file. */
-    private fun saved(place: DrivePlace.Named) = File(File(c.cacheDir, "listings"), "named-${place.title}.json")
+    private fun saved(place: DrivePlace.Named) = File(File(c.cacheDir, "listings"), "named-${place.title}".replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json")
 
     /** A folder's listing as the TV saves it after listing it once. */
     private fun folder(id: String, files: List<DriveFile>) {
@@ -114,6 +114,26 @@ class WatchRoutesTest {
         // The same home again costs nothing: 304 for the tag the phone holds.
         val tag = r.getHeader("ETag")
         assertEquals(NanoHTTPD.Response.Status.NOT_MODIFIED, get("/api/watch/home", headers = mapOf("if-none-match" to tag)).status)
+    }
+
+    @Test fun aFileKeptInBothLibrariesIsShownOnce() {
+        // Drive's older files can sit in two folders: the same film listed in Movies and in TV Shows.
+        val both = movie("m9", "Harbor Lights", 2019, 7.0, listOf("Drama"), added = 99, backdrop = true)
+        val m = ListingCache.savedAt(c, DrivePlace.Movies)
+        val s = ListingCache.savedAt(c, DrivePlace.TvShows)
+        ListingCache.write(c, DrivePlace.Movies, movies + both)
+        ListingCache.write(c, DrivePlace.TvShows, listOf(backyard, lighthouse, both))
+        saved(DrivePlace.Movies).setLastModified(m + 1_000) // new saved copies, even within the same millisecond
+        saved(DrivePlace.TvShows).setLastModified(s + 1_000)
+        val h = json(get("/api/watch/home"))
+        fun ids(a: org.json.JSONArray) = (0 until a.length()).map { a.getJSONObject(it).getString("id") }
+        // Recently Added (newest first: it came last) and the billboard each have it once, as the TV's Home does.
+        val recent = ids(h.getJSONArray("recent"))
+        assertEquals("m9", recent.first())
+        assertEquals(recent.distinct(), recent)
+        val featured = ids(h.getJSONArray("featured"))
+        assertTrue("m9" in featured)
+        assertEquals(featured.distinct(), featured)
     }
 
     @Test fun gridsPageSortFilterAndSearchAsTheTvsGrid() {

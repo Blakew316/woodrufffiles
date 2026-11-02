@@ -14,6 +14,7 @@ import com.woodruff.tvexplorer.cloud.LibrarySort
 import com.woodruff.tvexplorer.cloud.NewEpisodes
 import com.woodruff.tvexplorer.cloud.TitleSearch
 import com.woodruff.tvexplorer.cloud.matchKeyOf
+import com.woodruff.tvexplorer.cloud.newestAdded
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.PlayerActivity
@@ -121,13 +122,17 @@ class WatchRoutes(
         val (m, sh) = WatchLibrary.listings(ctx)
         val state = state(m, sh)
         val facts = facts(m, sh)
-        val all = facts.movies + facts.shows
+        // A file kept in both libraries (Drive's older files can sit in two folders) is one title, shown once.
+        val all = (facts.movies + facts.shows).distinctBy { it.id }
         val o = JSONObject().put("state", state).put("tv", TvLinks.name(ctx))
             .put("updated", maxOf(m?.at ?: 0L, sh?.at ?: 0L).takeIf { it > 0 } ?: JSONObject.NULL)
         o.put("featured", JSONArray().apply { Library.featured(all, Library.today()).forEach { put(WatchJson.title(it, facts)) } })
         o.put("continue", JSONArray().apply { facts.continuing.take(20).forEach { put(WatchJson.continueItem(it, facts, restartFor(it, facts))) } })
-        // Newest first, a show whose new episodes came lately by the newest of them, as the TV's Recently added.
-        o.put("recent", JSONArray().apply { all.sortedByDescending { NewEpisodes.addedAt(it, facts.news) }.take(20).forEach { put(WatchJson.title(it, facts)) } })
+        // The TV's Recently added, by its own rule (newestAdded): newest first, a show whose new episodes came lately
+        // by the newest of them, each file once.
+        o.put("recent", JSONArray().apply {
+            newestAdded(listOf(DrivePlace.Movies to facts.movies, DrivePlace.TvShows to facts.shows), facts.news).forEach { (_, f) -> put(WatchJson.title(f, facts)) }
+        })
         o.put("movies", shelf(facts.movies, facts))
         o.put("shows", shelf(facts.shows, facts))
         return o.toString()
