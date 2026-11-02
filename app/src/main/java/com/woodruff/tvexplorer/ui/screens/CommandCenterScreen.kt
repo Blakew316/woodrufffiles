@@ -347,7 +347,7 @@ private fun CameraGrid(cams: List<Camera>, columns: Int, modifier: Modifier, foc
                         Box(Modifier.fillMaxSize().border(1.dp, Palette.rim, Shapes.card)) {
                             if (offline) OfflineTile(cam)
                             else if (i < MAX_LIVE && cam.webRtc) LiveVideo(cam, audio = false, fill = true, focused = { focused.value })
-                            else Placeholder(if (cam.webRtc) "Select to watch" else "This camera model doesn't support live view here")
+                            else Placeholder(if (cam.webRtc) "Select to watch" else "This camera model doesn’t support live view here")
                             CameraLabel(cam, Modifier.align(Alignment.BottomStart))
                         }
                     }
