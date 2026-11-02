@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import com.woodruff.tvexplorer.cloud.GoogleAuth
@@ -119,6 +120,10 @@ class PlayerActivity : ComponentActivity() {
         // index from disk): Continue watching then asks Drive for one thing instead of three.
         val app = applicationContext
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { FilmStarts.warm(app) }
+        // The subtitle files beside Drive's films, as last seen in their folders: read in now, so
+        // the first film has them (it waits for this only if it isn't done by then).
+        SubtitleIndex.attach(app)
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { SubtitleIndex.load(app) }
         val root = android.widget.FrameLayout(this)
         // The film, under Woodruff's own tvOS-style controls (layout/tv_player_controls): what's
         // playing at the bottom left, round buttons at the bottom right, the scrub bar under them.
@@ -145,6 +150,9 @@ class PlayerActivity : ComponentActivity() {
         // toasts popped up over the film in the system's own way.
         message = PlayerStyle.message(this)
         messageCard = GlidingCard(message, GlidingCard.Way.Rise)
+        // Subtitles step up out of the way of whatever comes up at the bottom (§3.7), and back down.
+        subtitlePlace = view.subtitleView?.let { SubtitlePlace(root, it) }
+        for (card in listOf(skipCard, nextCard, messageCard)) card.onShownChanged = { subtitlesMakeWay() }
         view.setControllerVisibilityListener(androidx.media3.ui.PlayerView.ControllerVisibilityListener { v ->
             val up = v == android.view.View.VISIBLE
             if (up && !controlsUp) {
@@ -156,6 +164,7 @@ class PlayerActivity : ComponentActivity() {
             // The corner buttons would cover the controls' own (and OK goes to the controls then).
             if (up) { skipCard.hide(); nextCard.hide() }
             else player?.let { updateSkip(it) }
+            subtitlesMakeWay()
         })
         // Not clipping its children: a card gliding up from below its place is drawn there too.
         root.clipChildren = false
@@ -577,8 +586,6 @@ class PlayerActivity : ComponentActivity() {
         say("Sleeping in $minutes minutes")
     }
 
-    private val trackNames by lazy { androidx.media3.ui.DefaultTrackNameProvider(resources) }
-
     /** The tracks of one type the player can play, each with whether it's the one playing. */
     private fun tracksOf(p: ExoPlayer, type: Int): List<Triple<androidx.media3.common.Tracks.Group, Int, Boolean>> =
         p.currentTracks.groups.filter { it.type == type }.flatMap { g ->
@@ -593,19 +600,206 @@ class PlayerActivity : ComponentActivity() {
             .build()
     }
 
+    /**
+     * Off, every subtitle track (the film's own, then the files beside it, by language: never a file
+     * name), and last the size (specs/player-feedback.md §3.6, §3.9).
+     */
     private fun showSubtitles(anchor: android.view.View) {
         val p = player ?: return
-        val tracks = tracksOf(p, C.TRACK_TYPE_TEXT)
-        if (tracks.isEmpty()) { say("No subtitles in this video"); return }
-        val off = tracks.none { it.third }
-        val rows = listOf(TvMenu.Row("Off", checked = off) {
-            // Media3's own "Off": no subtitles, but signs-only ("forced") ones still show.
-            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_FORCED.inv())
-                .build()
-        }) + tracks.map { (g, i, on) -> TvMenu.Row(trackNames.getTrackName(g.getTrackFormat(i)), checked = on) { choose(p, g, i) } }
+        val choices = SubtitleTracks.of(p.currentTracks)
+        if (choices.isEmpty()) { say(SubtitleTracks.NONE); return }
+        val rows = SubtitleTracks.menuRows(
+            choices.map { it.track }, java.util.Locale.getDefault(), SubtitleLook.size(this), tvCaptions,
+            off = {
+                // Media3's own "Off": no subtitles, but signs-only ("forced") ones still show.
+                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_FORCED.inv())
+                    .build()
+            },
+            choose = { i -> choose(p, choices[i].group, choices[i].index) },
+            openSize = { showSubtitleSize(anchor) },
+            explain = { say(it, SIZE_MESSAGE_MS) },
+        )
         menu.show("Subtitles", rows, anchor)
+    }
+
+    /** Subtitle size, above the same button: OK changes the subtitles on screen at once, and keeps it. */
+    private fun showSubtitleSize(anchor: android.view.View) {
+        menu.show("Subtitle size", SubtitleTracks.sizeRows(SubtitleLook.size(this)) { size ->
+            SubtitleLook.setSize(this, size)
+            applySubtitleLook()
+            // Saved all the same: it's for the next film whose subtitles are words.
+            if (showingPictures()) say(SubtitleTracks.PICTURES_KEEP_SIZE, SIZE_MESSAGE_MS)
+        }, anchor)
+    }
+
+    /** The subtitles showing are pictures (a Blu-ray's): no size of ours applies to them. */
+    private fun showingPictures(): Boolean =
+        player?.let { p -> SubtitleTracks.of(p.currentTracks).any { it.track.selected && it.track.pictures } } == true
+
+    // ---- Subtitles: their look, the files beside the film, and stepping out of the way -------------
+
+    /** Where the player's subtitles sit: risen out of the way of what's at the bottom of the screen ([SubtitlePlace]). */
+    private var subtitlePlace: SubtitlePlace? = null
+    /** A look at where the subtitles go is due before the next frame. */
+    private var placePending = false
+    /** The TV's own caption settings are on: they choose the look and size. */
+    private var tvCaptions = false
+
+    /** Subtitles' look (§3.5): Woodruff's, at the size chosen, unless the TV's own caption settings are on. */
+    private fun applySubtitleLook() {
+        val sv = view.subtitleView ?: return
+        tvCaptions = SubtitleLook.tvCaptionsOn(this)
+        SubtitleLook.apply(sv, this, SubtitleLook.size(this), tvCaptions, resources.displayMetrics.heightPixels)
+    }
+
+    /**
+     * Something came or went at the bottom of the screen (the controls, Skip Intro or Next Episode,
+     * a message, Up next): where the subtitles go is worked out just before the next frame, once
+     * what came is laid out.
+     */
+    private fun subtitlesMakeWay() {
+        if (placePending || !::rootView.isInitialized) return
+        placePending = true
+        rootView.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                // The observer it was added to may since have been merged into the window's.
+                rootView.viewTreeObserver.removeOnPreDrawListener(this)
+                placePending = false
+                placeSubtitles()
+                return true
+            }
+        })
+        rootView.invalidate()
+    }
+
+    /** The subtitles above whatever is at the bottom of the screen now, or faded for Up next (§3.7). */
+    private fun placeSubtitles() {
+        subtitlePlace?.update(
+            listOfNotNull(
+                infoRow.takeIf { controlsUp },
+                skip.takeIf { skipCard.shown },
+                nextEp.takeIf { nextCard.shown },
+                message.takeIf { messageCard.shown },
+            ),
+            fade = ::upNextPanel.isInitialized && upNextPanel.shown,
+        )
+    }
+
+    /** Back in Media3's own place, at once (the player stopping, or starting afresh). */
+    private fun resetSubtitlePlace() {
+        subtitlePlace?.reset()
+    }
+
+    /** Subtitle files found beside USB films this time, by the film's path ([LocalSidecars]). */
+    private val localSidecars = HashMap<String, List<Sidecar>>()
+    /** USB folders already looked in this time. */
+    private val localFolders = HashSet<String>()
+    private var sidecarJob: kotlinx.coroutines.Job? = null
+
+    /** The subtitle files known to sit beside [key]: a Drive film's from its folder's listing, a USB film's from its folder. */
+    private fun knownSidecars(key: String): List<Sidecar>? = when (MediaRef.parse(key)) {
+        is MediaRef.Drive -> SubtitleIndex.known(key)
+        is MediaRef.Local -> localSidecars[key]
+        is MediaRef.Remote -> null
+    }
+
+    /** [key]'s item for the queue, called [title], with the subtitle files known to sit beside it attached. */
+    private fun mediaItem(key: String, title: String?): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(key)
+            .setUri(MediaRef.parse(key).uri)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(title).build())
+            .setSubtitleConfigurations(knownSidecars(key).orEmpty().map(Sidecars::configuration))
+            .build()
+
+    /** [item] with the subtitle files now known beside it, or itself when that's what it has. */
+    private fun withSidecars(item: MediaItem): MediaItem {
+        val configs = knownSidecars(item.mediaId).orEmpty().map(Sidecars::configuration)
+        val now = item.localConfiguration?.subtitleConfigurations.orEmpty()
+        return if (configs.isEmpty() || configs == now) item else item.buildUpon().setSubtitleConfigurations(configs).build()
+    }
+
+    /**
+     * Prepares the player, its first film with the subtitle files beside it: Media3 takes them only
+     * before it starts loading a film. Drive's are known at once (the index is in memory), unless the
+     * index is still being read just after Woodruff started; a USB film's folder is looked in first.
+     * Either way it waits at most [SIDECAR_WAIT_MS] (a sleeping USB drive), then starts without them.
+     * The rest of the queue gets theirs in the background, long before each one plays.
+     */
+    private fun prepareWithSidecars(p: ExoPlayer) {
+        val first = p.currentMediaItem?.mediaId?.let(MediaRef::parse)
+        val look = when (first) {
+            is MediaRef.Local -> true
+            is MediaRef.Drive -> !SubtitleIndex.loaded
+            else -> false
+        }
+        if (!look) {
+            p.prepare()
+            sidecarJob = lifecycleScope.launch { findQueueSidecars(p) }
+            return
+        }
+        val app = applicationContext
+        sidecarJob = lifecycleScope.launch {
+            val found = async(kotlinx.coroutines.Dispatchers.IO) {
+                if (first is MediaRef.Drive) SubtitleIndex.load(app)
+                if (first is MediaRef.Local) java.io.File(first.path).parentFile?.let(::lookInFolder) else null
+            }
+            kotlinx.coroutines.withTimeoutOrNull(SIDECAR_WAIT_MS) { found.await() }?.let { localSidecars += it }
+            if (player !== p) return@launch
+            // Nothing has loaded yet, so the queue can still be given them at no cost.
+            if (p.playbackState == Player.STATE_IDLE && p.playerError == null) {
+                val items = (0 until p.mediaItemCount).map { p.getMediaItemAt(it) }
+                val given = items.map(::withSidecars)
+                if (given.indices.any { given[it] !== items[it] }) p.setMediaItems(given, p.currentMediaItemIndex, p.currentPosition)
+                p.prepare()
+            }
+            // Still looking (a slow drive): the films after this one get them when it's done.
+            found.await()?.let { localSidecars += it }
+            findQueueSidecars(p)
+        }
+    }
+
+    /**
+     * Gives the films waiting in the queue the subtitle files beside them: USB films' folders are
+     * looked in (a few at most: a queue is usually one folder), Drive films' are known. Not the film
+     * playing: Media3 would start it again.
+     */
+    private suspend fun findQueueSidecars(p: ExoPlayer) {
+        val folders = (0 until p.mediaItemCount).mapNotNull { (MediaRef.parse(p.getMediaItemAt(it).mediaId) as? MediaRef.Local)?.path }
+            .mapNotNull { java.io.File(it).parentFile }.distinctBy { it.path }
+            .filter { dir -> synchronized(localFolders) { dir.path !in localFolders } }.take(MAX_SIDECAR_FOLDERS)
+        if (folders.isNotEmpty()) {
+            val found = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { folders.map(::lookInFolder) }
+            found.forEach { localSidecars += it }
+        }
+        if (player === p) giveWaitingSidecars(p)
+    }
+
+    /** A USB folder's subtitle files, by film ([LocalSidecars]); noted as looked in. Off the main thread. */
+    private fun lookInFolder(dir: java.io.File): Map<String, List<Sidecar>> {
+        synchronized(localFolders) { localFolders += dir.path }
+        return runCatching { LocalSidecars.inFolder(dir) }.getOrDefault(emptyMap())
+    }
+
+    /**
+     * The queue's films other than the one playing, given the subtitle files now known beside them.
+     * Taken out and put back in two runs (before and after the one playing), which leaves it playing
+     * on: replacing one in place only renames it, as far as Media3 goes.
+     */
+    private fun giveWaitingSidecars(p: ExoPlayer) {
+        fun swap(from: Int, to: Int) {
+            if (from >= to) return
+            val items = (from until to).map { p.getMediaItemAt(it) }
+            val given = items.map(::withSidecars)
+            if (given.indices.none { given[it] !== items[it] }) return
+            p.removeMediaItems(from, to)
+            p.addMediaItems(from, given)
+        }
+        val current = p.currentMediaItemIndex
+        swap(current + 1, p.mediaItemCount)
+        swap(0, current)
     }
 
     /**
@@ -842,6 +1036,7 @@ class PlayerActivity : ComponentActivity() {
         }
         countdown.postDelayed(tick, 1_000)
         updateLoading() // the ring makes way too
+        subtitlesMakeWay() // and the subtitles fade away
     }
 
     /** [animate] false: gone at once (the player stopping). */
@@ -850,7 +1045,7 @@ class PlayerActivity : ComponentActivity() {
         val wasUp = ::upNextPanel.isInitialized && upNextPanel.shown
         if (::upNextPanel.isInitialized) upNextPanel.hide(animate)
         view.useController = true
-        if (wasUp) updateLoading()
+        if (wasUp) { updateLoading(); subtitlesMakeWay() }
     }
 
     /** Done on Up next (or Back): this one is finished, so leave rather than sit paused on its last frame. */
@@ -950,6 +1145,8 @@ class PlayerActivity : ComponentActivity() {
                     val season = UpNext.seasonOf(inShow, com.woodruff.tvexplorer.cloud.DriveApi.parentOf(t, ref.id), name) ?: return@withContext null
                     val folder = UpNext.nextSeason(inShow, season) ?: return@withContext null
                     com.woodruff.tvexplorer.cloud.FolderCache.list(app, t, folder)
+                        // Its subtitle files, known before the episode is queued (Media3 takes them only then).
+                        ?.also { SubtitleIndex.learnNow(it) }
                         ?.let { UpNext.firstEpisode(it, com.woodruff.tvexplorer.tmdb.Tmdb.seasonNumber(folder.name)) }
                 }
             }.getOrNull() ?: return@launch
@@ -957,10 +1154,7 @@ class PlayerActivity : ComponentActivity() {
             val nextRef = MediaRef.Drive(next.id)
             // Known as this show's whatever it's called (Continue watching's poster, the same-show checks).
             com.woodruff.tvexplorer.cloud.EpisodeShows.remember(app, mapOf(nextRef.key to show))
-            p.addMediaItem(
-                MediaItem.Builder().setMediaId(nextRef.key).setUri(nextRef.uri)
-                    .setMediaMetadata(MediaMetadata.Builder().setTitle(com.woodruff.tvexplorer.util.Format.title(next.name)).build()).build(),
-            )
+            p.addMediaItem(mediaItem(nextRef.key, com.woodruff.tvexplorer.util.Format.title(next.name)))
         }
     }
 
@@ -1045,14 +1239,14 @@ class PlayerActivity : ComponentActivity() {
         matchRate = FrameRateMatch.enabled(this)
         val startPos = savedPosition ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
 
+        // Each with the subtitle files known to sit beside it (the first film's are looked for as it
+        // starts, the rest's in the background: prepareWithSidecars).
         val items = keys.mapIndexed { i, key ->
-            val ref = MediaRef.parse(key)
-            MediaItem.Builder()
-                .setMediaId(key)
-                .setUri(ref.uri)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle((titles.getOrNull(i)?.ifBlank { null } ?: ref.uri.lastPathSegment)?.let(com.woodruff.tvexplorer.util.Format::title)).build())
-                .build()
+            mediaItem(key, (titles.getOrNull(i)?.ifBlank { null } ?: MediaRef.parse(key).uri.lastPathSegment)?.let(com.woodruff.tvexplorer.util.Format::title))
         }
+        // Subtitles as Woodruff draws them (or as the TV's own caption settings say), in their own place.
+        applySubtitleLook()
+        resetSubtitlePlace()
 
         // The buffer is Java memory in Woodruff's own heap, so how much it holds (ahead of the film and
         // behind it) depends on how big that is: see playerLoadControl.
@@ -1061,7 +1255,11 @@ class PlayerActivity : ComponentActivity() {
         // The TV's own decoders (and sound passed straight through to a soundbar) first; FFmpeg's
         // for the sound the TV can't play itself, so DTS and TrueHD films aren't silent.
         player = ExoPlayer.Builder(this, playerRenderers(this))
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSources()).setLoadErrorHandlingPolicy(FilmStartsErrorPolicy()))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(dataSources()).setLoadErrorHandlingPolicy(FilmStartsErrorPolicy())
+                    // Subtitles that don't parse show nothing rather than stopping the film; Windows-encoded ones keep their accents.
+                    .setSubtitleParserFactory(SidecarLoading.parserFactory()),
+            )
             .setLoadControl(playerLoadControl(heapMb))
             // Seeks land on the first clean frame just after the spot (SeekAim); the viewer's are aimed
             // one by one (aimAt), and this covers the rest (a voice "rewind"). Watch together's leader
@@ -1228,7 +1426,7 @@ class PlayerActivity : ComponentActivity() {
             // new film plays.
             p.playWhenReady = savedPlayWhenReady ?: true
             waitingForPicture = "Start" to android.os.SystemClock.elapsedRealtime()
-            p.prepare()
+            prepareWithSidecars(p)
             view.player = p
             // Voice ("Hey Google, pause", Alexa) and Bluetooth buttons. The remote's own media keys
             // still go to PlayerView first and only unhandled ones reach the session, so none acts
@@ -1259,6 +1457,7 @@ class PlayerActivity : ComponentActivity() {
         followJob?.cancel(); followJob = null
         doorbellJob?.cancel(); doorbellJob = null
         tokenJob?.cancel(); tokenJob = null
+        sidecarJob?.cancel(); sidecarJob = null
         dismissDoorbell(animate = false)
         cancelUpNext(animate = false)
         countdown.removeCallbacks(sleep)
@@ -1283,8 +1482,9 @@ class PlayerActivity : ComponentActivity() {
         }
         heldForRate = false
         player = null
-        // Off the screen: the loading ring goes at once, as the cards above do.
+        // Off the screen: the loading ring goes at once, as the cards above do, and the subtitles are back in their place.
         updateLoading()
+        resetSubtitlePlace()
         super.onStop()
     }
 
@@ -1314,16 +1514,17 @@ class PlayerActivity : ComponentActivity() {
             val folder = runCatching {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     val t = token().ifEmpty { return@withContext null }
-                    com.woodruff.tvexplorer.cloud.DriveApi.siblings(t, ref.id)
+                    // The season's subtitle files come with it: the episodes queued below get theirs.
+                    com.woodruff.tvexplorer.cloud.DriveApi.siblings(t, ref.id).also { SubtitleIndex.learnNow(it) }
                 }
             }.getOrNull() ?: return@launch
             if (player !== p || p.mediaItemCount != 1 || p.currentMediaItem?.mediaId != key) return@launch
             // Episodes only: a movie in the Movies folder shouldn't roll on into another movie.
-            val media = folder.filter { it.kind == com.woodruff.tvexplorer.data.FileKind.VIDEO && ShowPrefs.isEpisode(it.name) }
+            val media = folder.filter {
+                it.kind == com.woodruff.tvexplorer.data.FileKind.VIDEO && !com.woodruff.tvexplorer.data.FileTypes.isSidecar(it.name) && ShowPrefs.isEpisode(it.name)
+            }
             val at = media.indexOfFirst { it.id == ref.id }.takeIf { it >= 0 } ?: return@launch
-            fun item(f: com.woodruff.tvexplorer.cloud.DriveFile) = MediaItem.Builder()
-                .setMediaId(MediaRef.Drive(f.id).key).setUri(MediaRef.Drive(f.id).uri)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(com.woodruff.tvexplorer.util.Format.title(f.name)).build()).build()
+            fun item(f: com.woodruff.tvexplorer.cloud.DriveFile) = mediaItem(MediaRef.Drive(f.id).key, com.woodruff.tvexplorer.util.Format.title(f.name))
             p.addMediaItems(media.drop(at + 1).take(300).map(::item))
             p.addMediaItems(0, media.take(at).takeLast(300).map(::item))
         }
@@ -1331,9 +1532,10 @@ class PlayerActivity : ComponentActivity() {
 
     /**
      * Local files pass straight through; Drive URLs get an Authorization header per request, and
-     * the start of each Drive film (its header and index) is kept on the TV ([FilmStarts]).
+     * the start of each Drive film (its header and index) is kept on the TV ([FilmStarts]). A
+     * subtitle file beside the film that can't be read leaves the film without it ([SidecarLoading]).
      */
-    private fun dataSources(): DefaultDataSource.Factory {
+    private fun dataSources(): androidx.media3.datasource.DataSource.Factory {
         // Over OkHttp, on the app's shared connections: one kept-open (HTTP/2) connection to Drive
         // carries every range request, so a start (3-4 requests for an MKV) and each seek no longer
         // wait for a new connection and handshake. Redirects between http and https are still followed.
@@ -1347,7 +1549,7 @@ class PlayerActivity : ComponentActivity() {
                 spec.withAdditionalHeaders(mapOf("Authorization" to "Bearer ${token()}"))
             } else spec
         }
-        return DefaultDataSource.Factory(this, FilmStarts.dataSourceFactory(applicationContext, authed))
+        return SidecarLoading.dataSourceFactory(DefaultDataSource.Factory(this, FilmStarts.dataSourceFactory(applicationContext, authed)))
     }
 
     /**
@@ -1470,6 +1672,12 @@ class PlayerActivity : ComponentActivity() {
         private const val MESSAGE_MS = 2_000L
         /** A message there's more to read in, said once (a film's sound this TV can't play, "Can’t play …"). */
         private const val NOTICE_MESSAGE_MS = 6_000L
+        /** Why a subtitle size didn't change, or isn't Woodruff's to choose (specs/player-feedback.md §3.6). */
+        private const val SIZE_MESSAGE_MS = 3_500L
+        /** How long a film waits to start for the subtitle files beside it to be found (a USB drive waking up). */
+        private const val SIDECAR_WAIT_MS = 1_000L
+        /** USB folders looked in for the rest of a queue's subtitle files, at most (a queue is usually one folder). */
+        private const val MAX_SIDECAR_FOLDERS = 20
         /**
          * How long a stalled film waits before trying again when nothing says the network is back
          * (it was down for a moment only, or it's Google that's failing): see [RetryWait].

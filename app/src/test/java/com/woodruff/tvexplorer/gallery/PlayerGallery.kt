@@ -17,6 +17,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.woodruff.tvexplorer.R
 import com.woodruff.tvexplorer.player.EpisodeLabel
+import com.woodruff.tvexplorer.player.SubtitleSize
+import com.woodruff.tvexplorer.player.SubtitleTrack
+import com.woodruff.tvexplorer.player.SubtitleTracks
 import com.woodruff.tvexplorer.player.TvMenu
 import com.woodruff.tvexplorer.player.TvTimeBar
 import com.woodruff.tvexplorer.player.UpNextPanel
@@ -28,6 +31,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.time.Duration
+import java.util.Locale
 
 /**
  * Draws the player's own screens for the UI gallery: its controls, a track menu, and Up next, over
@@ -70,14 +74,13 @@ class PlayerGallery {
         settle()
         save(root, "player")
 
-        // The Subtitles menu, open above its button.
+        // The Subtitles menu, open above its button, with the player's own rows: the film's English
+        // tracks, a Spanish subtitle file beside it, and the size last.
         val subs = player.findViewById<View>(R.id.player_subtitles)
         subs.isFocusableInTouchMode = true
         subs.requestFocus()
-        menu.show("Subtitles", listOf(
-            TvMenu.Row("Off") {}, TvMenu.Row("English", checked = true) {}, TvMenu.Row("English (SDH)") {},
-            TvMenu.Row("Español") {},
-        ), subs)
+        val tracks = listOf(SubtitleTrack("en", selected = true), SubtitleTrack("en", sdh = true), SubtitleTrack("es"))
+        menu.show("Subtitles", SubtitleTracks.menuRows(tracks, Locale.US, SubtitleSize.STANDARD, tvCaptions = false, {}, {}, {}, {}), subs)
         settle()
         save(root, "player-menu")
         menu.hide(animate = false)

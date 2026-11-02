@@ -314,6 +314,11 @@ fun SettingsScreen(vm: MainViewModel) {
                 Sym.Movie, "Match frame rate", onOff(facts.matchFrameRate),
                 about = "Shows films at their own frame rate, so slow pans don't stutter. The screen goes black for a moment when a film starts and stops.",
             ) { FrameRateMatch.setEnabled(context, !facts.matchFrameRate); version++ },
+            // The same size the player's Subtitles menu changes (specs/player-feedback.md §3.6).
+            SettingItem(
+                Sym.Captions, "Subtitle size", com.woodruff.tvexplorer.player.SubtitleLook.size(context).label,
+                about = "How big subtitles are in the player. Subtitles that are pictures, as on Blu-ray films, keep their own size. OK changes it.",
+            ) { com.woodruff.tvexplorer.player.SubtitleLook.let { it.setSize(context, it.size(context).next()) }; version++ },
             SettingItem(
                 Sym.Motion, "Reduce motion", onOff(Appearance.reduceMotion),
                 about = "Off, the app glides like Apple TV even when the TV's own animations are turned off: the highlight slides between rows, rows glide, pop-ups glide in. On, every change happens at once.",
@@ -714,7 +719,7 @@ private enum class SettingsPage(val title: String, val icon: ImageVector, val ab
     ACCOUNTS("Accounts", Sym.AccountCircle, "Google Drive, Photos, Calendar, cameras and mail."),
     MAIL("Mail", Sym.Email, "The mail accounts the Command Center shows."),
     KEYS("Keys & sign-out", Sym.Key, "The keys from Google and TMDB, and signing out."),
-    LOOK("Appearance", Sym.DarkMode, "Light or dark, a background photo, the cameras on Home, and frame-rate matching."),
+    LOOK("Appearance", Sym.DarkMode, "Light or dark, a background photo, the cameras on Home, frame-rate matching and subtitle size."),
     SCREENSAVER("Screensaver", Sym.Slideshow, "A slideshow of your photos when the TV sits idle."),
     DEVICES("TVs & phones", Sym.Tv, "This TV's name, your phones and the other TVs in the house."),
     PHONES("Phones", Sym.Smartphone, "Phones connected to this TV."),

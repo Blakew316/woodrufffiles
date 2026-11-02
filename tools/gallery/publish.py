@@ -20,6 +20,8 @@ TITLES = {
     'player-audio-menu': 'Player › Audio menu', 'player-no-sound': 'Player · sound this TV can’t play',
     'player-buffering': 'Player · loading', 'player-reconnecting': 'Player · reconnecting',
     'player-still-reconnecting': 'Player · still reconnecting', 'player-signed-out': 'Player · Drive sign-in ended',
+    'player-subtitles': 'Player · subtitles', 'player-subtitles-raised': 'Player · subtitles above the controls',
+    'player-subtitle-size': 'Player › Subtitle size', 'settings-subtitle-size': 'Settings › Appearance › Subtitle size',
 }
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
@@ -35,7 +37,8 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
 
 ORDER = ['home', 'home-menu', 'home-notice', 'movies', 'tv-shows', 'command-center', 'google-drive', 'mail', 'notifications', 'notes', 'apps', 'phone', 'settings',
          'player', 'player-menu', 'player-up-next', 'player-audio-menu', 'player-no-sound',
-         'player-buffering', 'player-reconnecting', 'player-still-reconnecting', 'player-signed-out', 'files', 'tv', 'keyboard', 'send']
+         'player-buffering', 'player-reconnecting', 'player-still-reconnecting', 'player-signed-out',
+         'player-subtitles', 'player-subtitles-raised', 'player-subtitle-size', 'settings-subtitle-size', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard', 'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs', 'tv-screen', 'settings-drive']
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {

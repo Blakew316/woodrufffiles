@@ -106,12 +106,18 @@ internal object SoundTracks {
     }
 
     /** The language's name in the TV's language ([locale]), capitalised; "Unknown language" when the file doesn't say. */
-    fun languageName(tag: String?, locale: Locale): String {
+    fun languageName(tag: String?, locale: Locale): String = languageNameOrNull(tag, locale) ?: UNKNOWN_LANGUAGE
+
+    /**
+     * The language's name in the TV's language ([locale]), capitalised ("English", "Portuguese
+     * (Brazil)"); null when the tag names none. The Subtitles menu says "Subtitles" then instead.
+     */
+    fun languageNameOrNull(tag: String?, locale: Locale): String? {
         val t = tag?.trim().orEmpty()
-        if (t.isEmpty() || t.lowercase(Locale.ROOT) in NO_LANGUAGE) return UNKNOWN_LANGUAGE
+        if (t.isEmpty() || t.lowercase(Locale.ROOT) in NO_LANGUAGE) return null
         val name = runCatching { Locale.forLanguageTag(t).getDisplayName(locale) }.getOrNull().orEmpty()
         // A code Android has no name for comes back as itself.
-        if (name.isBlank() || name.equals(t, ignoreCase = true)) return UNKNOWN_LANGUAGE
+        if (name.isBlank() || name.equals(t, ignoreCase = true)) return null
         val first = name.offsetByCodePoints(0, 1)
         return name.substring(0, first).uppercase(locale) + name.substring(first)
     }
