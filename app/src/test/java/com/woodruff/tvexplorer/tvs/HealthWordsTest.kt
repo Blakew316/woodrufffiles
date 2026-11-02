@@ -1,13 +1,18 @@
 package com.woodruff.tvexplorer.tvs
 
+import com.woodruff.tvexplorer.nest.DoorbellAlerts
+import com.woodruff.tvexplorer.nest.DoorbellListening
 import com.woodruff.tvexplorer.tvs.HealthTest.HOUR
 import com.woodruff.tvexplorer.tvs.HealthTest.MIN
 import com.woodruff.tvexplorer.tvs.HealthTest.at
+import com.woodruff.tvexplorer.tvs.HealthTest.bell
 import com.woodruff.tvexplorer.tvs.HealthTest.clock
 import com.woodruff.tvexplorer.tvs.HealthTest.now
 import com.woodruff.tvexplorer.tvs.HealthTest.zone
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** How a report words times, reasons, the doorbell and crashes. */
@@ -70,20 +75,32 @@ class HealthWordsTest {
         assertEquals("Couldn’t connect · trying again soon.", plainUpdateReason("Couldn’t connect · trying again soon"))
     }
 
-    @Test fun theDoorbellInTheReportsWords() {
-        assertEquals("Off", doorbellFact(subscribed = false, status = "anything", networkUp = true).text)
-        assertEquals("Watching", doorbellFact(subscribed = true, status = null, networkUp = true).text)
-        // A network failure isn't the doorbell failing.
-        doorbellFact(subscribed = true, status = "Can't reach Google right now.", networkUp = true).let {
-            assertEquals("Can’t reach Google", it.text); assertEquals(DoorbellState.UNREACHABLE, it.state)
+    @Test fun theDoorbellReadsAsSettingsAdvancedSaysIt() {
+        bell().let {
+            assertEquals(DoorbellState.WATCHING, it.state); assertEquals("Watching", it.text); assertFalse(it.attention)
+            assertEquals("Doorbell presses pop up on this TV, even when the other TVs are off.", it.detail)
         }
-        assertEquals("Offline", doorbellFact(subscribed = true, status = "Unable to resolve host \"pubsub.googleapis.com\"", networkUp = false).text)
-        assertEquals(DoorbellState.UNREACHABLE, doorbellFact(subscribed = true, status = "Pub/Sub error 503", networkUp = true).state)
-        doorbellFact(subscribed = true, status = "Google refused the doorbell subscription. Connect the cameras again (to allow Pub/Sub) and check the subscription name.", networkUp = true).let {
-            assertEquals("Google refused", it.text); assertEquals(DoorbellState.FAILING, it.state)
+        // A TV without its own subscription (no cameras connected here) that hears it from the hub: not "Off", and nothing to fix.
+        bell(cameras = false, from = "Living Room", listening = DoorbellListening.Idle).let {
+            assertEquals(DoorbellState.THROUGH, it.state); assertEquals("Through Living Room", it.text); assertFalse(it.attention)
+            assertEquals("This TV hears the doorbell from Living Room while that TV is on. Connect the cameras on this TV to hear it on its own.", it.detail)
         }
-        assertEquals("Subscription not found", doorbellFact(subscribed = true, status = "Subscription not found. Check its name.", networkUp = true).text)
-        assertEquals("Cameras not connected", doorbellFact(subscribed = true, status = "Connect your cameras first", networkUp = true).text)
+        // Google wouldn't make this TV a subscription of its own: someone has to look at it, though the hub still passes rings on.
+        bell(from = "Living Room", listening = DoorbellListening.Refused).let {
+            assertEquals(DoorbellState.FAILING, it.state); assertEquals("Google refused", it.text); assertTrue(it.attention)
+            assertEquals("Google’s project doesn’t let this TV listen on its own; it hears the doorbell through Living Room instead.", it.detail)
+        }
+        bell(listening = DoorbellListening.Failing("Subscription not found", "Check its name.")).let {
+            assertEquals("Subscription not found", it.text); assertEquals("Check its name.", it.detail); assertTrue(it.attention)
+        }
+        bell(subscription = false, cameras = false, listening = DoorbellListening.Idle).let {
+            assertEquals(DoorbellState.OFF, it.state); assertEquals("Off", it.text); assertFalse(it.attention)
+        }
+        // The report's states are the doorbell's own, by the same JSON names.
+        for (s in DoorbellAlerts.State.entries) {
+            assertEquals(s.id, doorbellFact(DoorbellAlerts(s, "v", "a")).state.json)
+            assertEquals(DoorbellAlerts(s, "v", "a").attention, doorbellFact(DoorbellAlerts(s, "v", "a")).attention)
+        }
     }
 
     @Test fun aCrashInAFewWords() {

@@ -3,6 +3,7 @@ package com.woodruff.tvexplorer.tvs
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.woodruff.tvexplorer.nest.Doorbell
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -34,6 +35,23 @@ class HealthSourceTest {
         assertTrue(status.has("health"))
         assertEquals(r.summary, HealthSummary.fromJson(status.getJSONObject("health")))
         assertTrue(status.has("board"))
+    }
+
+    @Test fun aTvHearingTheDoorbellThroughTheHubSaysSoAndIsFine() {
+        // The family's subscription reached this TV, its cameras aren't connected here (no Keystore in tests),
+        // and the hub passed a ring on: it hears the doorbell through the hub, as Settings → Advanced says.
+        Doorbell.received(c, "projects/p/subscriptions/doorbell")
+        Doorbell.ring(c, "enterprises/p/devices/health-door", "Front Door", relay = false, session = "health-visit", from = "Living Room")
+        val r = Health.report(c, fresh = true)
+        assertEquals("Through Living Room", r.doorbell.text)
+        assertEquals(Doorbell.alerts(c).about, r.doorbell.detail)
+        assertFalse(r.doorbell.attention)
+        assertTrue(r.attention.none { it.id == "doorbell.failing" })
+        // The phone and the hub read the same words.
+        val bell = r.toJson().getJSONObject("signIns").getJSONObject("doorbell")
+        assertEquals("through", bell.getString("state"))
+        assertEquals("Through Living Room", bell.getString("text"))
+        assertFalse(bell.getBoolean("attention"))
     }
 
     @Test fun aCrashTheHandlerKeptIsTheLastCrashUntilThePhoneClearsIt() {

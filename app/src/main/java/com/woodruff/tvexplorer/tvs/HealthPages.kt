@@ -160,7 +160,7 @@ fun reportRows(v: TvHealthView, clock: HealthClock, checking: Boolean = false, a
             }
             rows += HealthRow("signin.${g.json}", icons.getValue(g), g.title, s.text, on(s.attention), about, spaced = i == 0, action = action, grant = g)
         }
-        rows += HealthRow("doorbell", RowIcon.DOORBELL, "Doorbell alerts", r.doorbell.text, on(r.doorbell.failing), r.doorbell.detail)
+        rows += HealthRow("doorbell", RowIcon.DOORBELL, "Doorbell alerts", r.doorbell.text, on(r.doorbell.attention), r.doorbell.detail)
         // Updates.
         val waiting = r.updates.attention
         // Updates install by themselves, unless this TV asks before each one (then each is offered).

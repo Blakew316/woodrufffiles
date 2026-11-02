@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.tvs
 
+import com.woodruff.tvexplorer.nest.DoorbellAlerts
 import com.woodruff.tvexplorer.util.Format
 import org.json.JSONArray
 import org.json.JSONObject
@@ -91,40 +92,32 @@ enum class ExitKind(val json: String, val words: String) {
 /** One time Android closed Woodruff ([kind], at [at]); for a native crash, whether its trace shows the camera or video code. */
 data class AppExit(val kind: ExitKind, val at: Long, val inMediaCode: Boolean = false)
 
-/** The doorbell alerts' state on one TV. */
-enum class DoorbellState(val json: String) { WATCHING("watching"), THROUGH("through"), OFF("off"), OFFLINE("offline"), UNREACHABLE("unreachable"), FAILING("failing") }
-
-/** The doorbell row: its state, its value ([text]) and what it's about ([detail]). */
-data class DoorbellFact(val state: DoorbellState, val text: String, val detail: String?) {
-    val failing: Boolean get() = state == DoorbellState.FAILING
-}
-
-private const val DOORBELL_WATCHING = "Doorbell presses pop up on this TV, even when the other TVs are off."
-private const val DOORBELL_OFF = "Set it up in the phone app."
+/** How one TV hears the doorbell, as Settings → Advanced → Doorbell alerts says it (doorbell.md §3.5). */
+enum class DoorbellState(val json: String) { WATCHING("watching"), THROUGH("through"), OFF("off"), FAILING("failing") }
 
 /**
- * The doorbell row from what this TV knows: whether it listens on a subscription itself
- * ([subscribed]) and why its last pull failed ([status], the doorbell's own words; null when it
- * worked). A failure the network explains reads as the sign-ins' connectivity words, never as
- * failing; [networkUp] tells "Offline" from "Can't reach Google".
+ * The doorbell row: its state, its value ([text]), what it's about ([detail]) and whether a person has
+ * to fix it ([attention]: amber, and the report's "doorbell alerts aren't working").
  */
-fun doorbellFact(subscribed: Boolean, status: String?, networkUp: Boolean): DoorbellFact {
-    if (!subscribed) return DoorbellFact(DoorbellState.OFF, "Off", DOORBELL_OFF)
-    val s = status?.trim().orEmpty()
-    if (s.isEmpty()) return DoorbellFact(DoorbellState.WATCHING, "Watching", DOORBELL_WATCHING)
-    val low = s.lowercase()
-    if (NETWORK_WORDS.any { it in low } || Regex("""error 5\d\d""").containsMatchIn(low)) {
-        return if (networkUp) DoorbellFact(DoorbellState.UNREACHABLE, SignInState.UNREACHABLE.words(HealthGrant.CAMERAS), DOORBELL_WATCHING)
-        else DoorbellFact(DoorbellState.OFFLINE, SignInState.OFFLINE.words(HealthGrant.CAMERAS), DOORBELL_WATCHING)
-    }
-    val short = when {
-        "refused" in low || "forbidden" in low -> "Google refused"
-        "not found" in low -> "Subscription not found"
-        "connect your cameras" in low -> "Cameras not connected"
-        else -> "Not working"
-    }
-    return DoorbellFact(DoorbellState.FAILING, short, s)
-}
+data class DoorbellFact(val state: DoorbellState, val text: String, val detail: String?, val attention: Boolean = state == DoorbellState.FAILING)
+
+/**
+ * The doorbell row from how this TV hears the doorbell ([com.woodruff.tvexplorer.nest.Doorbell.alerts]),
+ * word for word as Settings → Advanced says it: "Watching", "Through Living Room" (a TV without its own
+ * subscription, hearing it from the hub), "Off", or what's wrong ("Google refused"), which needs attention.
+ * Offline never changes it: the doorbell comes back by itself.
+ */
+fun doorbellFact(alerts: DoorbellAlerts): DoorbellFact = DoorbellFact(
+    state = when (alerts.state) {
+        DoorbellAlerts.State.WATCHING -> DoorbellState.WATCHING
+        DoorbellAlerts.State.THROUGH -> DoorbellState.THROUGH
+        DoorbellAlerts.State.OFF -> DoorbellState.OFF
+        DoorbellAlerts.State.FAILING -> DoorbellState.FAILING
+    },
+    text = alerts.value,
+    detail = alerts.about,
+    attention = alerts.attention,
+)
 
 private val NETWORK_WORDS = listOf("reach google", "resolve host", "timeout", "timed out", "failed to connect", "connection", "network", "ssl", "unreachable", "no route")
 
@@ -340,7 +333,7 @@ data class HealthReport(
             signIns.forEach { (g, s) ->
                 put(g.json, JSONObject().put("state", s.state.json).put("text", s.text).put("attention", s.attention).apply { s.since?.let { put("since", it) } })
             }
-            put("doorbell", JSONObject().put("state", doorbell.state.json).put("text", doorbell.text).put("attention", doorbell.failing)
+            put("doorbell", JSONObject().put("state", doorbell.state.json).put("text", doorbell.text).put("attention", doorbell.attention)
                 .apply { doorbell.detail?.let { put("detail", it) } })
         })
         .put("lastCrash", lastCrash?.let {
@@ -379,10 +372,12 @@ data class HealthReport(
                     val state = SignInState.of(s?.optString("state")) ?: SignInState.NOT_SET_UP
                     SignInRow(state, s?.optString("text")?.ifEmpty { null } ?: state.words(g), s?.optLong("since")?.takeIf { it > 0 })
                 },
-                doorbell = DoorbellFact(
-                    DoorbellState.entries.firstOrNull { it.json == bell?.optString("state") } ?: DoorbellState.OFF,
-                    bell?.optString("text")?.ifEmpty { null } ?: "Off", bell?.optString("detail")?.ifEmpty { null },
-                ),
+                doorbell = (DoorbellState.entries.firstOrNull { it.json == bell?.optString("state") } ?: DoorbellState.OFF).let { state ->
+                    DoorbellFact(
+                        state, bell?.optString("text")?.ifEmpty { null } ?: "Off", bell?.optString("detail")?.ifEmpty { null },
+                        bell?.optBoolean("attention", state == DoorbellState.FAILING) ?: false,
+                    )
+                },
                 // Scrubbed here too: a report kept from a TV on an older Woodruff passes through this hub to its phones.
                 lastCrash = o.optJSONObject("lastCrash")?.let {
                     CrashRow(it.optLong("at"), it.optString("text"), it.optBoolean("attention"), it.optString("summary"), scrubbed(it.optString("lines")), scrubbed(it.optString("report")))
@@ -566,7 +561,8 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
     // Rule 5: space. Rule 6: the doorbell.
     val lowSpace = f.freeBytes != null && f.freeBytes < GIB
     if (lowSpace) items += HealthItem("space.low", "only ${Format.bytes(f.freeBytes!!)} is free", spaceDetail(tv), "none")
-    if (f.doorbell.failing) items += HealthItem("doorbell.failing", "doorbell alerts aren’t working", f.doorbell.detail ?: DOORBELL_OFF, "none")
+    // Only what a person has to fix: hearing it through another TV, or no doorbell set up, is information.
+    if (f.doorbell.attention) items += HealthItem("doorbell.failing", "doorbell alerts aren’t working", f.doorbell.detail ?: f.doorbell.text, "none")
 
     val closed = if (f.exits == null || f.sdk < 30) null else {
         val shown = recent.maxByOrNull { it.at }

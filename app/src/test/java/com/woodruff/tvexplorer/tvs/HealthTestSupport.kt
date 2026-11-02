@@ -1,5 +1,7 @@
 package com.woodruff.tvexplorer.tvs
 
+import com.woodruff.tvexplorer.nest.DoorbellListening
+import com.woodruff.tvexplorer.nest.doorbellAlerts
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -24,11 +26,18 @@ internal object HealthTest {
         return HealthClock(now, zone, { time.format(java.util.Date(it)) }, { date.format(java.util.Date(it)) })
     }
 
+    /**
+     * The doorbell row of a TV with the family's subscription ([subscription]), its cameras connected or not
+     * ([cameras]), hearing it from [from] (the TV that passed a ring on, if any) and its listener doing [listening].
+     */
+    fun bell(subscription: Boolean = true, cameras: Boolean = true, from: String? = null, listening: DoorbellListening = DoorbellListening.Own) =
+        doorbellFact(doorbellAlerts(subscription = subscription, camerasHere = cameras, relaysOut = false, relayFrom = from, listening = listening))
+
     /** A TV where everything is fine: every sign-in made, up to date, no crash, plenty of room, every key saved. */
     fun facts(
         name: String = "Den",
         signIns: Map<HealthGrant, SignInFact> = HealthGrant.entries.associateWith { SignInFact(SignInState.SIGNED_IN) },
-        doorbell: DoorbellFact = doorbellFact(subscribed = true, status = null, networkUp = true),
+        doorbell: DoorbellFact = bell(),
         update: UpdateFact = UpdateFact("upToDate", latestName = "2.0.171"),
         installAllowed: Boolean? = true,
         crash: CrashFact? = null,
