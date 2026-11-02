@@ -19,6 +19,7 @@ import android.view.View
 import android.view.Window
 import android.view.WindowManager
 import com.woodruff.tvexplorer.ui.motion.DialogWindows
+import com.woodruff.tvexplorer.ui.motion.DpadGate
 import com.woodruff.tvexplorer.util.Presence
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,8 +42,8 @@ import kotlin.math.roundToInt
  * search) is a window of its own over the screen that opened it ([DialogWindows]). A key goes to the
  * window with the focus, as the TV's remote's does, so Back closes a pop-up and OK presses Play on a
  * title page. It carries the time it came and, for an arrow held on the phone, how many times it has
- * repeated: held arrows are gated as the remote's are (never queued), and Settings → Smoothness counts
- * the moves.
+ * repeated: held arrows are gated as the remote's are (never queued, at the phone's own pace), and
+ * Settings → Smoothness counts the moves.
  *
  * The picture is the screen with its pop-ups drawn over it, the screen dimmed behind them as on the
  * TV. Only this app's windows can be copied (Android needs a permission prompt on the TV for anything
@@ -113,7 +114,8 @@ object TvScreen {
         val (down, up) = events(code, repeat, SystemClock.uptimeMillis())
         main.post {
             val target = keyWindow() ?: return@post
-            target.dispatchKeyEvent(down)
+            // A held arrow's repeats keep the phone's own pace through the gate (DpadGate.fromPhone).
+            DpadGate.fromPhone(down) { target.dispatchKeyEvent(down) }
             target.dispatchKeyEvent(up)
         }
         pressedAt = SystemClock.elapsedRealtime() // the next picture should show what it did

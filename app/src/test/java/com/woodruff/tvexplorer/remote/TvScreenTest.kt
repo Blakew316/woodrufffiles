@@ -196,6 +196,30 @@ class TvScreenTest {
         assertEquals(null, offMain { TvScreen.frame() })
     }
 
+    @Test fun aHeldArrowOnThePhoneMovesAtItsOwnPace() {
+        val screen = open()
+        val moves = mutableListOf<Int>()
+        screen.setContent {
+            Dialog(onDismissRequest = {}) {
+                val focus = remember { FocusRequester() }
+                Box(
+                    Modifier.size(200.dp).dpadGate().focusRequester(focus).focusable()
+                        .onKeyEvent { if (it.type == KeyEventType.KeyDown) moves += it.nativeKeyEvent.repeatCount; false },
+                )
+                LaunchedEffect(Unit) { focus.requestFocus() }
+            }
+        }
+        settle()
+        attach(screen)
+        // The phone repeats every 140 ms; Wi-Fi brings some of them in closer together (110 ms here).
+        // Each still moves: none is dropped as "too soon" (the TV's remote's repeats are, at 130 ms).
+        for (n in 0..4) {
+            assertTrue(TvScreen.press("down", n))
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(110))
+        }
+        assertEquals(listOf(0, 1, 2, 3, 4), moves)
+    }
+
     @Test fun whatPicturesAreCopiedIntoIsLetGo() {
         val screen = open()
         screen.setContent { Box(Modifier.fillMaxSize().background(Color(0xFF203040))) }
