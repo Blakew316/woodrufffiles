@@ -371,16 +371,25 @@ object DriveApi {
         val body = runCatching { conn.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull().orEmpty()
         // Why, in Google's words ("userRateLimitExceeded", "accessNotConfigured"…): never shown, only read.
         val reason = runCatching { JSONObject(body).getJSONObject("error").getJSONArray("errors").getJSONObject(0).getString("reason") }.getOrNull()
-        throw DriveHttpException(
-            code,
-            when (code) {
-                404 -> "That file is no longer in Google Drive."
-                // No codes or Google's own messages: a 401 here comes after a fresh token, so it isn't a
-                // sign-in that ended (renewing would have said so).
-                else -> CANT_REACH
-            },
-            busy = code == 403 && reason?.contains("ratelimit", ignoreCase = true) == true,
-        )
+        throw DriveHttpException(code, answerWords(code, reason), busy = code == 403 && reason?.contains("ratelimit", ignoreCase = true) == true)
+    }
+
+    /**
+     * What Drive's error answer [code] (for Google's [reason]) says on screen: no codes or Google's own
+     * messages, and what to do when it won't clear by itself. A 401 here comes after a fresh token, so it
+     * isn't a sign-in that ended (renewing would have said so). A 403 that isn't Drive limiting requests
+     * is a setting to fix (the Drive API not turned on for the keys, or Google Drive not allowed on the
+     * consent page): "can't reach" would have the family wait for something that never comes. Visible
+     * for tests.
+     */
+    internal fun answerWords(code: Int, reason: String?): String = when {
+        code == 404 -> "That file is no longer in Google Drive."
+        code == 403 && reason != null && reason.contains("ratelimit", ignoreCase = true) -> CANT_REACH
+        code == 403 && reason != null && (reason.equals("accessNotConfigured", ignoreCase = true) || reason.contains("disabled", ignoreCase = true)) ->
+            "The Google Drive API isn’t turned on for this TV’s Google keys. Turn it on in Google Cloud, then try again."
+        code == 403 && reason != null && (reason.startsWith("insufficient", ignoreCase = true) || reason.contains("scope", ignoreCase = true)) ->
+            "This TV isn’t allowed to see your Google Drive. Sign out of Google Drive, then sign in again and allow it on Google’s page."
+        else -> CANT_REACH
     }
 
     /** What any other answer from Drive says on screen. */
