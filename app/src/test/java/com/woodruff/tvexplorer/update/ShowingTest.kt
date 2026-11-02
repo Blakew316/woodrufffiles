@@ -136,6 +136,46 @@ class ShowingTest {
         assertEquals(listOf(slideshow, main), showing.top()?.let { showing.stackFrom(it) }?.map { it.key })
     }
 
+    @Test fun aScreenPutBackUnseenStaysOnScreenForTheNextUpdate() {
+        // Put back during the night with the screen off: Android starts it and stops it at once.
+        showing.restoring()
+        open(main, player)
+        showing.stopped(main, false)
+        showing.stopped(player, false)
+        // Hours later another update comes: the film is still what the TV shows.
+        now += 3 * 3_600_000L
+        assertSame(player, showing.top()?.key)
+        // In the morning the TV wakes into it; it's seen; then left for another app: not any more.
+        showing.uncovered()
+        showing.started(player)
+        showing.seen()
+        showing.stopped(player, false)
+        now += 60_000
+        assertNull(showing.top())
+    }
+
+    @Test fun aScreenPutBackWhereSomeoneSeesItIsLeftAsUsual() {
+        showing.restoring()
+        open(main)
+        showing.seen() // its window got the focus
+        showing.stopped(main, false) // Home
+        assertNull(showing.top())
+    }
+
+    @Test fun theTvWakingIntoSomethingElseEndsAScreenPutBackUnseen() {
+        showing.restoring()
+        open(player)
+        showing.stopped(player, false)
+        showing.uncovered()
+        now += Showing.WAKE_GRACE_MS
+        assertNull(showing.top())
+        // And a later stop is a plain leave again.
+        open(player)
+        showing.stopped(player, false)
+        now += Showing.LEFT_GRACE_MS + 1
+        assertNull(showing.top())
+    }
+
     @Test fun theStackOnlyHoldsTheTopScreensOwnTask() {
         showing.created(main, 1)
         showing.started(main)

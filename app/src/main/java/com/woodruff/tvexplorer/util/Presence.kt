@@ -38,11 +38,12 @@ object Presence {
     }
 
     /**
-     * Woodruff came on screen, or got the focus back (the TV's screensaver went away, a pop-up of
-     * Android's closed): whoever brought it there is about to use it. Not a key press, so it leaves
-     * [AppVisibility.lastInput] (what the camera tiles and the backdrop wait on) alone.
+     * Use that isn't a key press: Woodruff came on screen or got the focus back (the TV's screensaver
+     * went away, a pop-up of Android's closed), so whoever brought it there is about to use it; or a
+     * pointer moved over it (a remote with an air mouse). It leaves [AppVisibility.lastInput] (what
+     * the camera tiles and the backdrop wait on) alone: a pointer gliding about mustn't hold them.
      */
-    fun arrived() {
+    fun used() {
         lastUse = clock()
     }
 

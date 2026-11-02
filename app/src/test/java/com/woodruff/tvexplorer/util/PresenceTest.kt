@@ -41,7 +41,7 @@ class PresenceTest {
     @Test fun comingOnScreenIsUseButNotAKeyPress() {
         now += 5 * minute
         AppVisibility.lastInput = 1
-        Presence.arrived()
+        Presence.used()
         assertEquals(0, Presence.sinceUseMs())
         // The camera tiles and the backdrop wait on key presses only.
         assertEquals(1, AppVisibility.lastInput)

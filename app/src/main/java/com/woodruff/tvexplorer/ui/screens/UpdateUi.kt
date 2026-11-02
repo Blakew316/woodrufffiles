@@ -62,6 +62,10 @@ fun versionStatus(s: Updater.State, updated: String?): String =
     if (updated != null && (s.step == Updater.Step.IDLE || (s.step == Updater.Step.UP_TO_DATE && s.message == null))) updated
     else updateStatus(s)
 
+/** [updatedLately] for this copy of Woodruff ([facts]), now, with the time written as the TV writes it. */
+fun updatedLately(c: Context, facts: Updater.InstallFacts, short: Boolean = false): String? =
+    updatedLately(facts.firstInstall, facts.lastUpdate, System.currentTimeMillis(), android.text.format.DateFormat.getTimeFormat(c), short)
+
 /**
  * "Updated today at 3:12 AM" ("yesterday at…" on day two) for a day after this copy of Woodruff was
  * updated ([lastUpdate], as Android keeps it); null after that, or when it was installed fresh rather

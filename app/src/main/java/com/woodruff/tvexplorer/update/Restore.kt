@@ -247,6 +247,9 @@ object Restore {
     fun reopen(c: Context, route: Route, gone: (String) -> Boolean = { isGone(c, it) }) {
         val intents = intents(c, checked(route, gone))
         Log.i("Restore", "reopening ${describe(route)}")
+        // Before they start: if nobody's there to see them (the TV's screensaver, the screen off),
+        // they still count as on screen, for an update that comes before anyone's back.
+        OnScreen.restoring()
         runCatching { c.startActivities(intents.toTypedArray()) }.onFailure { Log.w("Restore", "couldn't reopen after the update", it) }
     }
 

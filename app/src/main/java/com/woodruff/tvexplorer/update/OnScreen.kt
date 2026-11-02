@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
@@ -39,6 +40,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 object OnScreen : Application.ActivityLifecycleCallbacks {
     /** Time that only moves forward. */
     private val showing = Showing { SystemClock.elapsedRealtime() }
+    private val main = Handler(Looper.getMainLooper())
 
     /** Follows every Woodruff screen from now on, and the screen and the TV's screensaver coming and going. */
     fun install(app: Application) {
@@ -71,9 +73,17 @@ object OnScreen : Application.ActivityLifecycleCallbacks {
 
     override fun onActivityStarted(activity: Activity) {
         // Whoever brought it up is about to use it: an update doesn't restart it under them.
-        Presence.arrived()
+        Presence.used()
         showing.started(activity)
     }
+
+    /**
+     * What's about to start is being put back after an update ([Restore.reopen]): until it's been
+     * seen, it stays on screen even if Android stops it at once (started behind the TV's screensaver
+     * or with the screen off), so an update coming before anyone's back puts it back again. Any thread:
+     * posted ahead of the activities' own start.
+     */
+    fun restoring() { main.post { showing.restoring() } }
 
     override fun onActivityStopped(activity: Activity) = showing.stopped(activity, activity.isFinishing)
     override fun onActivityDestroyed(activity: Activity) = showing.destroyed(activity)
@@ -137,18 +147,23 @@ object OnScreen : Application.ActivityLifecycleCallbacks {
     }
 
     /**
-     * An activity's window callback that tells [Presence] about each key press (and click or touch)
-     * before handing it to the activity, and about the window getting the focus back.
+     * An activity's window callback that tells [Presence] about each key press (and tap) before
+     * handing it to the activity, about other input (a pointer moving), and about the window getting
+     * the focus back.
      */
     internal class KeyCounter(private val activity: Window.Callback) : Window.Callback by activity {
         override fun dispatchKeyEvent(event: KeyEvent): Boolean { Presence.pressed(); return activity.dispatchKeyEvent(event) }
         override fun dispatchKeyShortcutEvent(event: KeyEvent): Boolean { Presence.pressed(); return activity.dispatchKeyShortcutEvent(event) }
-        override fun dispatchTouchEvent(event: MotionEvent): Boolean { Presence.pressed(); return activity.dispatchTouchEvent(event) }
-        override fun dispatchTrackballEvent(event: MotionEvent): Boolean { Presence.pressed(); return activity.dispatchTrackballEvent(event) }
-        override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean { Presence.pressed(); return activity.dispatchGenericMotionEvent(event) }
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) Presence.pressed() else Presence.used()
+            return activity.dispatchTouchEvent(event)
+        }
+        override fun dispatchTrackballEvent(event: MotionEvent): Boolean { Presence.used(); return activity.dispatchTrackballEvent(event) }
+        override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean { Presence.used(); return activity.dispatchGenericMotionEvent(event) }
 
         override fun onWindowFocusChanged(hasFocus: Boolean) {
-            if (hasFocus) Presence.arrived()
+            // On screen for someone to see (not behind the TV's screensaver, the screen not off).
+            if (hasFocus) { Presence.used(); showing.seen() }
             activity.onWindowFocusChanged(hasFocus)
         }
 
@@ -160,9 +175,6 @@ object OnScreen : Application.ActivityLifecycleCallbacks {
             if (Build.VERSION.SDK_INT >= 26) activity.onPointerCaptureChanged(hasCapture)
         }
     }
-
-    /** Back to a fresh run, for tests. */
-    internal fun resetForTest() = showing.reset()
 }
 
 /**
@@ -186,6 +198,8 @@ internal class Showing(private val clock: () -> Long) {
     /** Covered by the screensaver or the screen going off, and when that stops counting (after the TV woke). */
     private var covered: Entry? = null
     private var coverEndsAt = Long.MAX_VALUE
+    /** Put back after an update and not seen yet ([restoring]). */
+    private var restoring = false
 
     fun created(key: Any, task: Int) { if (entry(key) == null) live += Entry(key, task) }
 
@@ -200,7 +214,19 @@ internal class Showing(private val clock: () -> Long) {
         if (!started.remove(key) || started.isNotEmpty()) return
         left = if (finishing) null else entry(key)
         leftAt = clock()
+        // Put back unseen and stopped at once: behind the TV's screensaver, or with the screen off.
+        if (restoring && covered == null) left?.let { covered = it; coverEndsAt = Long.MAX_VALUE }
     }
+
+    /**
+     * What starts next is being put back after an update. Android may start it behind the TV's
+     * screensaver or with the screen off, where it stops at once: until it's [seen], or the TV wakes
+     * into something else, it stays on screen as the screen it replaced was.
+     */
+    fun restoring() { restoring = true }
+
+    /** A screen's window got the focus: someone can see it, so from now on leaving it is leaving. */
+    fun seen() { restoring = false }
 
     fun destroyed(key: Any) {
         val e = entry(key) ?: return
@@ -223,6 +249,7 @@ internal class Showing(private val clock: () -> Long) {
 
     /** The screen came on, or the screensaver stopped: the covered screen counts until the TV has woken into something else. */
     fun uncovered() {
+        restoring = false
         if (covered != null && coverEndsAt == Long.MAX_VALUE) coverEndsAt = clock() + WAKE_GRACE_MS
     }
 
@@ -242,7 +269,7 @@ internal class Showing(private val clock: () -> Long) {
     fun isStarted(key: Any?): Boolean = key != null && key in started
 
     fun reset() {
-        live.clear(); started.clear(); left = null; covered = null; coverEndsAt = Long.MAX_VALUE
+        live.clear(); started.clear(); left = null; covered = null; coverEndsAt = Long.MAX_VALUE; restoring = false
     }
 
     private fun entry(key: Any): Entry? = live.firstOrNull { it.key === key }

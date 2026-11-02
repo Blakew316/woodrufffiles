@@ -69,6 +69,17 @@ class OnScreenTest {
         assertEquals(listOf(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_LEFT), player.keys)
     }
 
+    @Test fun aPointerMovingIsUseButNotAKeyPress() {
+        val player = open<FakePlayer>().get()
+        now += 30 * minute
+        AppVisibility.lastInput = 1
+        val hover = android.view.MotionEvent.obtain(0, 0, android.view.MotionEvent.ACTION_HOVER_MOVE, 100f, 100f, 0)
+        player.window.callback.dispatchGenericMotionEvent(hover)
+        hover.recycle()
+        assertEquals(0, Presence.sinceUseMs())
+        assertEquals(1, AppVisibility.lastInput)
+    }
+
     @Test fun comingOnScreenCountsAsUse() {
         now += 30 * minute
         open<FakeMain>()
