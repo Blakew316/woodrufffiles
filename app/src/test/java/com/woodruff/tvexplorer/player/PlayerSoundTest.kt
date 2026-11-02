@@ -125,19 +125,19 @@ class PlayerSoundTest {
         collect(menu.panel)
         val detail = texts.single { it.text == SoundTracks.CANT_PLAY }
         val label = texts.single { it.text == "English · 7.1 · Dolby TrueHD" }
-        // Both dimmed (40 % white) while the platter is on the first row.
-        assertEquals(0x66FFFFFF, detail.currentTextColor)
-        assertEquals(0x66FFFFFF, label.currentTextColor)
+        // Both dimmed (50 % white: 5.2:1 on the menu, REVIEW.md §2.5) while the platter is on the first row.
+        assertEquals(0x80FFFFFF.toInt(), detail.currentTextColor)
+        assertEquals(0x80FFFFFF.toInt(), label.currentTextColor)
         // The detail ends where the row's words end, after the label, on the label's baseline.
         val words = detail.parent as android.view.ViewGroup
         val row = words.parent as android.view.ViewGroup
         assertEquals(row.width - row.paddingRight, words.left + detail.right)
         assertTrue(label.right <= detail.left)
         assertEquals(label.top + label.baseline, detail.top + detail.baseline)
-        // On the white platter: ink, at 55 %.
+        // On the white platter: ink, at 65 % (5.3:1).
         menu.handleKey(KeyEvent.KEYCODE_DPAD_DOWN)
-        assertEquals(0x8C1C1C1E.toInt(), detail.currentTextColor)
-        assertEquals(0x8C1C1C1E.toInt(), label.currentTextColor)
+        assertEquals(0xA61C1C1E.toInt(), detail.currentTextColor)
+        assertEquals(0xA61C1C1E.toInt(), label.currentTextColor)
     }
 
     @Test

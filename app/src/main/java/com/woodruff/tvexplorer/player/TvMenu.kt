@@ -238,8 +238,11 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
 
     private companion object {
         const val WHITE = 0xFFFFFFFF.toInt()
-        /** A row that can't be chosen: its words at 40 % white, and at 55 % ink on the platter. */
-        const val DIM_WHITE = 0x66FFFFFF
-        const val DIM_INK = 0x8C1C1C1E.toInt()
+        /**
+         * A row that can't be chosen: its words at 50 % white (5.2:1 on the menu's glass), and at
+         * 65 % ink on the platter (5.3:1). Its words ("Can’t play") say why, not the dimming alone.
+         */
+        const val DIM_WHITE = 0x80FFFFFF.toInt()
+        const val DIM_INK = 0xA61C1C1E.toInt()
     }
 }
