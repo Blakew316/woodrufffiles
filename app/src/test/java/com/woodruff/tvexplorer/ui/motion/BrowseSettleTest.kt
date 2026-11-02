@@ -53,6 +53,31 @@ class BrowseSettleTest {
     }
 
     @Test
+    fun aChangeDuringAFadeWaitsForItToEnd() = runBlocking {
+        // Settled long ago; a fade runs until t = 520. A change at t = 100 (the banner moving on by
+        // itself, no key) waits for that fade, not cutting it short.
+        val clock = Clock(presses = listOf(-60_000L)).apply { t = 100 }
+        BrowseSettle.awaitSettledAfter(busyUntil = 520, keys = clock.keys(), sleep = clock::sleep)
+        assertEquals(520L, clock.t)
+    }
+
+    @Test
+    fun aKeyWhileTheFadeFinishesMeansWaitingForTheNextCalm() = runBlocking {
+        // As above, but a key at t = 300, while the fade is still running: no new full-screen fade
+        // within 750 ms of it, so not before t = 1,050.
+        val clock = Clock(presses = listOf(-60_000L, 300L)).apply { t = 100 }
+        BrowseSettle.awaitSettledAfter(busyUntil = 520, keys = clock.keys(), sleep = clock::sleep)
+        assertEquals(300L + BrowseSettle.SETTLE_MS, clock.t)
+    }
+
+    @Test
+    fun noFadeUnderWayIsJustTheSettle() = runBlocking {
+        val clock = Clock(presses = listOf(0L))
+        BrowseSettle.awaitSettledAfter(busyUntil = 0, keys = clock.keys(), sleep = clock::sleep)
+        assertEquals(BrowseSettle.SETTLE_MS, clock.t)
+    }
+
+    @Test
     fun aWallClockSetBackwardsDoesNotFreezeTheWait() = runBlocking {
         // A key at t = 0, then the TV sets its clock back an hour: the key now looks an hour ahead.
         val clock = Clock(presses = listOf(0L)).apply { t = 100; wallShift = 0 }

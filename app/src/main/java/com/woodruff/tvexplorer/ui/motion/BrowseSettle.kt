@@ -47,6 +47,24 @@ object BrowseSettle {
         }
     }
 
+    /**
+     * [awaitSettled], and also past [busyUntil] (on the [uptime] clock): when a fade already under
+     * way ends. That fade is never cut short or started again; and a key pressed while it finishes
+     * means waiting for the next calm, so a new full-screen fade never starts within [SETTLE_MS] of
+     * a key, even when the change came without one (the banner moving on by itself).
+     */
+    suspend fun awaitSettledAfter(busyUntil: Long) = awaitSettledAfter(busyUntil, KeyClock()) { delay(it) }
+
+    /** [awaitSettledAfter] on [keys], waiting with [sleep]. Visible for tests. */
+    internal suspend fun awaitSettledAfter(busyUntil: Long, keys: KeyClock, sleep: suspend (Long) -> Unit) {
+        while (true) {
+            awaitSettled(keys, sleep)
+            val running = busyUntil - keys.now()
+            if (running <= 0L) return
+            sleep(running)
+        }
+    }
+
     /** How long after [now] browsing settles, the last key having been at [lastKey] (0: it has). */
     internal fun settleWaitMs(now: Long, lastKey: Long): Long = (SETTLE_MS - (now - lastKey)).coerceIn(0, SETTLE_MS)
 

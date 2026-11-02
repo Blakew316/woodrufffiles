@@ -802,10 +802,9 @@ internal fun PosterBackdrop(art: androidx.compose.runtime.State<String?>, token:
         var fadeEnds = 0L
         androidx.compose.runtime.snapshotFlow { art.value }.collectLatest { next ->
             // No key for 750 ms, and the same title all that time (each decode and cross-fade is a
-            // full-screen repaint, on the screen the graphics chip already struggles with).
-            com.woodruff.tvexplorer.ui.motion.BrowseSettle.awaitSettled()
-            val running = fadeEnds - com.woodruff.tvexplorer.ui.motion.BrowseSettle.uptime()
-            if (running > 0) kotlinx.coroutines.delay(running)
+            // full-screen repaint, on the screen the graphics chip already struggles with); after the
+            // fade under way, with a key while it finishes waiting for the next calm.
+            com.woodruff.tvexplorer.ui.motion.BrowseSettle.awaitSettledAfter(fadeEnds)
             if (next != shown) {
                 shown = next
                 fadeEnds = com.woodruff.tvexplorer.ui.motion.BrowseSettle.uptime() + BACKDROP_FADE_MS

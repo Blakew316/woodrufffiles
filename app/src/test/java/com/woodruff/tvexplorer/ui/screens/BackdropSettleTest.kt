@@ -76,4 +76,40 @@ class BackdropSettleTest {
         compose.waitForIdle()
         assertEquals(listOf("art19"), drawn.toList())
     }
+
+    @Test
+    fun aChangeWithoutAKeyNeverStartsAFadeWithin750msOfOne() {
+        compose.mainClock.autoAdvance = false
+        BrowseSettle.wall = { compose.mainClock.currentTime }
+        BrowseSettle.uptime = { compose.mainClock.currentTime }
+        // Nobody has pressed anything for a minute.
+        AppVisibility.lastInput = compose.mainClock.currentTime - 60_000
+        // When each picture was first drawn: its fade starts then.
+        val drawnAt = LinkedHashMap<String, Long>()
+        val art = mutableStateOf<String?>(null)
+        compose.setContent {
+            CompositionLocalProvider(LocalPosterPainter provides { url -> drawnAt.getOrPut(url) { compose.mainClock.currentTime }; ColorPainter(Color.DarkGray) }) {
+                PosterBackdrop(art, null)
+            }
+        }
+        fun frames(ms: Long) { val until = compose.mainClock.currentTime + ms; while (compose.mainClock.currentTime < until) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle() } }
+        frames(100)
+        // The banner's title, shown once its own fade is done (no key): the backdrop follows at once.
+        art.value = "first"
+        frames(400)
+        val fadeStart = drawnAt["first"]
+        assertTrue("followed at once: $drawnAt", fadeStart != null && drawnAt.size == 1)
+        // While that fade runs (520 ms), the next one comes the same way, then someone presses a key:
+        // the fade under way finishes, and the next waits for 750 ms of calm after the key.
+        art.value = "second"
+        frames(80)
+        val key = compose.mainClock.currentTime
+        assertTrue("the key comes while the first fade runs", key < fadeStart!! + 520)
+        AppVisibility.lastInput = key
+        frames(key + 700 - compose.mainClock.currentTime)
+        assertEquals("a fade started within 750 ms of a key", listOf("first"), drawnAt.keys.toList())
+        frames(key + BrowseSettle.SETTLE_MS + 400 - compose.mainClock.currentTime)
+        assertEquals(listOf("first", "second"), drawnAt.keys.toList())
+        assertTrue("not before 750 ms after the key: ${drawnAt["second"]}", drawnAt.getValue("second") >= key + BrowseSettle.SETTLE_MS)
+    }
 }
