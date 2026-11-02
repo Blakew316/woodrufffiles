@@ -334,6 +334,14 @@ clear();
 await page.tap('#w-hero-play');
 await settle(page, 700);
 check(sent('/api/watch').length === 1 && !(await shown(page, '#menu')), 'one TV: Play plays at once');
+// A double tap on Play is one start (the second tap lands while the first is on its way), never the video starting twice.
+await settle(page, 1500);
+clear();
+await page.route('**/api/watch', async (r) => { await new Promise((ok) => setTimeout(ok, 400)); await r.continue(); });
+await page.locator('#w-hero-play').dblclick();
+await settle(page, 1200);
+await page.unroute('**/api/watch');
+check(sent('/api/watch').length === 1, 'a double tap on Play starts it once');
 await page.tap('#w-hero-info');
 await settle(page, 1300);
 check(!(await shown(page, '#ts-target')), 'one TV: no “On …” under the buttons');

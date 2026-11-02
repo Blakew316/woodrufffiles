@@ -2890,10 +2890,13 @@
     clearTimeout(tvp.timer);
     if (!tvPageShowing() || document.hidden || !tvp.id) return;
     var seq = ++tvp.seq, id = tvp.id, asked = Date.now();
-    fetch('/api/tvs/health?id=' + q(id), { cache: 'no-store' }).then(function (r) {
+    // A linked TV's report takes the hub about 4 s at most; a hub that's gone gives up after 15 (fetchT).
+    fetchT('/api/tvs/health?id=' + q(id), null, 15000).then(function (r) {
       return r.json().then(function (d) { return { r: r, d: d }; }, function () { return { r: r, d: null }; });
     }).then(function (x) {
       if (seq !== tvp.seq) return;
+      // The hub doesn't know this TV any more (unlinked, or linked again as a new TV since a banner named it).
+      if (x.r.status === 400 && id !== 'this') return tvGone();
       var d = x.d, data = x.r.ok && d ? { kind: d.status, report: d }
         : x.r.status === 409 && d ? { kind: d.status, report: d.last, version: d.version, seen: d.seen } : null;
       if (!data) throw new Error();
@@ -2905,6 +2908,14 @@
       if (seq !== tvp.seq) return;
       tvp.failed = true; calm('tvp', renderTvPage);
     }).then(function () { if (seq === tvp.seq) tvp.timer = setTimeout(loadTvHealth, 15000); });
+  }
+  // A TV page for a TV the hub doesn't link any more: said once, and back to the list, which shows the TVs there are.
+  function tvGone() {
+    tvp.seq++; tvp.frameSeq++; clearTimeout(tvp.timer); clearTimeout(tvp.frameTimer);
+    delete healthKept[tvp.id];
+    toast('That TV isn’t linked any more.', true);
+    if (tvPageShowing()) goBack();
+    loadTvs(true);
   }
   // After a fix done from here (a check, a link): asked again shortly, then once more.
   function refreshSoon() { [3000, 10000].forEach(function (ms) { setTimeout(function () { if (tvPageShowing()) loadTvHealth(); }, ms); }); }
@@ -3192,9 +3203,13 @@
         post('/api/tvs/relink', { id: id, code: code }).then(function (r) {
           toast((r.name || name) + ' is linked again');
           tvp.linking = false;
-          api('/api/tvs').then(function (d) { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }, function () {}).then(function () {
-            delete healthKept[id];
+          delete healthKept[id];
+          if (tvp.id === id) tvp.data = null;   // not "Its Link Stopped Working" any more: "Checking…" until its report
+          // The new list first, then the page becomes the new entry's (a reset TV comes back with a new id), then
+          // the list is drawn: never a moment with the page naming a TV the list no longer has.
+          api('/api/tvs').then(function (d) { tvs = d.tvs; tvsAt = Date.now(); }, function () {}).then(function () {
             if (tvPageShowing() && tvp.id === id) { showTvPage(r.id || id); loadTvHealth(); tvpFrame(); }
+            renderTvs();
           });
         }, function (e) { tvp.linking = false; renderTvPage(); toast(e.message || 'Couldn’t reach that TV.', true); });
       } }] });
@@ -3434,7 +3449,8 @@
   function startSignIn() {
     var seq = ++SI.seq; clearTimeout(SI.timer); SI.state = null; SI.url = null; SI.weekly = false; SI.reason = '';
     if (SI.view !== 'starting') paintSignIn('starting');
-    fetch('/api/signin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grant: SI.grant }) }).then(function (r) {
+    // A TV that doesn't answer is "Couldn’t start signing in" within 15 s, not a spinner for as long as Safari waits.
+    fetchT('/api/signin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grant: SI.grant }) }, 15000).then(function (r) {
       return r.json().then(function (d) { return { r: r, d: d }; }, function () { return { r: r, d: null }; });
     }).then(function (x) {
       if (seq !== SI.seq || !SI.open) return;
@@ -4526,7 +4542,13 @@
     }
     startOn(p, target, done);
   }
+  // A start still on its way: a second tap on the same control (a double tap, an impatient one) is that same start,
+  // never the video starting twice.
+  var starting = {};
   function startOn(p, target, done) {
+    var sk = target + '|' + p.key;
+    if (starting[sk]) return;
+    starting[sk] = true;
     haptic();
     var name = target === 'all' ? '' : tvName(target), body = { key: p.key, title: p.title, position: Math.max(0, p.position || 0) };
     var req = target === 'all' ? postJ('/api/tvs/watch', Object.assign({ id: 'all' }, body))
@@ -4542,7 +4564,7 @@
     }, function (e) {
       toast(e.message || 'Can’t reach ' + hubName(), true);
       if (done) done(false);
-    });
+    }).then(function () { delete starting[sk]; }, function () { delete starting[sk]; });
   }
   // The Play On menu: every TV (this one first) with what it plays, the one in use checked, those that can't take it
   // dimmed with why; then All TVs (Watch together). 'ask': the choice plays at once and becomes the picked TV (All TVs

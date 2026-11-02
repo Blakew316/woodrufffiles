@@ -162,6 +162,12 @@ await page.goto(base + '#settings/tvs/b');
 await settle(page, 1500);
 check((await text(page, '#tvp-sum .verdict .t')) === '2 Things Need Attention', '#settings/tvs/b opens Den');
 check((await page.locator('header.navbar.vis .gb.back span').last().innerText()) === 'TVs', 'with TVs under it');
+// A TV the hub doesn't link any more (a banner's old link, or unlinked meanwhile): said once, then back to the list,
+// never "Can’t Reach Living Room" for a hub that answered.
+await page.goto(base + '#settings/tvs/gone-tv');
+await settle(page, 2000);
+check((await text(page, '#toast-t')) === 'That TV isn’t linked any more.', 'a TV that isn’t linked any more says so');
+check((await page.locator('header.navbar.vis .nb-tt').last().innerText()) === 'TVs', 'and its page gives way to the TV list');
 
 // A long name, at 375 pt: one TV needing attention never cuts the sentence.
 await fetch(base + '__mock/set', { method: 'POST', body: JSON.stringify({ tvs: [
