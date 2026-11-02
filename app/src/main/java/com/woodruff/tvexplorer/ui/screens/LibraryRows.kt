@@ -203,9 +203,10 @@ internal fun LibraryRows(
     RowsBackToTop(rowsBack, list, rowStates, rows.firstOrNull()?.first, banner = if (featured.isNotEmpty()) heroFocus else null)
     // The column follows the focus as the app's lists do (keeping it clear of the edges), but only as
     // far as it can scroll: back up on the banner, the one scroll comes to rest at the top rather
-    // than aiming past it and stopping dead there. The rows set their own (PivotScroll, below).
+    // than aiming past it and stopping dead there. The banner shows whole or not at all (see
+    // [bannerWholeOrGone]). The rows set their own (PivotScroll, below).
     val appScroll = LocalBringIntoViewSpec.current
-    val columnScroll = remember(appScroll, list) { WithinEnds(appScroll, list) }
+    val columnScroll = remember(appScroll, list, heroRows) { WithinEnds(appScroll, list, banner = heroRows == 1) }
     CompositionLocalProvider(LocalBringIntoViewSpec provides columnScroll) {
         LazyColumn(
             state = list,
@@ -322,10 +323,11 @@ internal fun LibraryRows(
 /**
  * [spec] (the app's way of following the focus) for [list], but never past the list's ends: a
  * distance it can't scroll stopped the animation dead where the list ran out (as PivotScroll's
- * lists, it now eases into the end instead).
+ * lists, it now eases into the end instead). With a [banner] (the list's first item), the banner
+ * shows whole or not at all ([bannerWholeOrGone]).
  */
 @OptIn(ExperimentalFoundationApi::class)
-private class WithinEnds(private val spec: BringIntoViewSpec, private val list: LazyListState) : BringIntoViewSpec {
+private class WithinEnds(private val spec: BringIntoViewSpec, private val list: LazyListState, private val banner: Boolean) : BringIntoViewSpec {
     override val scrollAnimationSpec: AnimationSpec<Float> get() = spec.scrollAnimationSpec
 
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
@@ -337,9 +339,28 @@ private class WithinEnds(private val spec: BringIntoViewSpec, private val list: 
             else -> (last.offset + last.size + info.afterContentPadding - info.viewportEndOffset).toFloat().coerceAtLeast(0f)
         }
         val backward = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset.toFloat() else Float.POSITIVE_INFINITY
-        return spec.calculateScrollDistance(offset, size, containerSize).coerceIn(-backward, forward)
+        var wanted = spec.calculateScrollDistance(offset, size, containerSize)
+        // The first row, while it's laid out (the list is near its top): where it starts in the viewport,
+        // and how far the list scrolls to take it to the top, just under the header.
+        val rows = if (banner) info.visibleItemsInfo.firstOrNull { it.index == 1 } else null
+        if (rows != null) {
+            val rowsTop = (rows.offset - info.viewportStartOffset).toFloat()
+            wanted = bannerWholeOrGone(wanted, fromBanner = offset + size <= rowsTop, toRows = rows.offset.toFloat())
+        }
+        return wanted.coerceIn(-backward, forward)
     }
 }
+
+/**
+ * How far the Overview scrolls for a request that the app's rule answers with [wanted], so that the banner
+ * (its first item) shows whole or not at all, never as a strip of buttons under the header: a request from
+ * the rows ([fromBanner] false) never leaves the list resting above [toRows], the scroll that takes the first
+ * row to the top (a step down from the banner carries on until the banner is gone; a step back up to the first
+ * row stops there rather than bringing part of the banner back). The banner's own request (it asks to show
+ * all of itself) is left as it is. Pure, so it's unit tested.
+ */
+internal fun bannerWholeOrGone(wanted: Float, fromBanner: Boolean, toRows: Float): Float =
+    if (fromBanner) wanted else maxOf(wanted, toRows)
 
 /** The Overview last worked out for each library (by its place), and what it was worked out from. */
 private val lastOverview = java.util.concurrent.ConcurrentHashMap<String, WorkedOut>()

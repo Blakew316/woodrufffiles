@@ -320,14 +320,22 @@ class TitleGallery {
         }
     }
 
-    /** The TV Shows Overview: the banner, then Recently added with what's new under three posters, in blue. */
+    /**
+     * The TV Shows Overview with the focus on Recently added's first poster, where the TV comes to rest a step
+     * down from the banner (its own way of scrolling, as MainActivity provides it): the banner out of sight,
+     * the row just under the header, what's new under three posters, in blue.
+     */
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     @Test
     fun drawShowsOverview() {
         val shows = sampleShows()
         val news = sampleNews(shows)
         compose.setContent {
             TvExplorerTheme {
-                CompositionLocalProvider(LocalPosterPainter provides ::decode) {
+                CompositionLocalProvider(
+                    LocalPosterPainter provides ::decode,
+                    androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides com.woodruff.tvexplorer.ui.SmoothBringIntoView,
+                ) {
                     key(Palette.light) {
                         Box(Modifier.fillMaxSize().background(Palette.background).ambientBackdrop()) {
                             PosterBackdrop(remember { mutableStateOf(posterArt(shows[0])) }, null)
