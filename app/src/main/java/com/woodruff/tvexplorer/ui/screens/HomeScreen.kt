@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -139,6 +140,10 @@ internal object DashboardSamples {
     var calendar: com.woodruff.tvexplorer.calendar.CalendarState? = null
     /** The Command Center's cameras, in place of [Nest]'s. */
     var nest: com.woodruff.tvexplorer.nest.NestState? = null
+    /** Recently added, in place of the libraries' (the gallery has no Drive). */
+    var added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>? = null
+    /** The shows with new episodes, in place of the libraries'. */
+    var newShows: Map<String, com.woodruff.tvexplorer.cloud.NewShow>? = null
 }
 
 /**
@@ -162,10 +167,15 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         }
     }
     var removeFor by remember { mutableStateOf<RecentItem?>(null) }
+    val scope = rememberCoroutineScope()
     // Coming back from the player: pick up the position it just saved (and a fresh token for the
     // Google-hosted posters: the one from start-up lasts an hour), and what the other TVs watched.
     // And today's calendar, if it's been a while (the TV woken in the morning: today's, not last night's).
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context); TodayCalendar.refreshSoon() }
+    // And Recently added: what's new is worked out again (an episode just watched isn't).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        reloads.trySend(Unit); drive.refreshToken(); FamilySync.pullSoon(context); TodayCalendar.refreshSoon()
+        drive.recheckNew()
+    }
     // Another TV's progress merged in while Home is up: show it.
     val syncSeen = remember { FamilySync.updates.value }
     LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) reloads.trySend(Unit) } }
@@ -178,8 +188,12 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
             context.startActivity(PlayerActivity.intent(context, listOf(now.key), listOf(now.title), now.key))
         }
     }
-    // Recently added movies and shows, after what's in progress.
-    val added by drive.recentlyAdded.collectAsStateWithLifecycle()
+    // Recently added movies and shows, after what's in progress; shows with new episodes among them
+    // by when the newest came, with the NEW badge.
+    val liveAdded by drive.recentlyAdded.collectAsStateWithLifecycle()
+    val liveNews by drive.newEpisodes.collectAsStateWithLifecycle()
+    val added = DashboardSamples.added ?: liveAdded
+    val newShows = DashboardSamples.newShows ?: liveNews
     // Posters for what's in progress, from the Movies / TV Shows entries they belong to.
     val artwork by drive.artwork.collectAsStateWithLifecycle()
     // Read from disk once per run of the app, off the main thread (the posters follow when it's in).
@@ -189,11 +203,13 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Which show (or film folder) each one sits under, looked up once on Drive.
     LaunchedEffect(recent, artwork) { if (artwork.isNotEmpty()) drive.resolveShows(recent.map { it.key }) }
     val driveToken by remember(drive) { drive.state.map { it.token }.distinctUntilChanged() }.collectAsStateWithLifecycle(drive.state.value.token)
+    // What's added, less what already has a resume tile here (its tile leads to the same title): ten at most.
+    val addedShown = remember(recent, added, shows) { notResuming(added, recent.take(RESUME_TILES), shows).take(10) }
+    // A title's page, over Home (Back comes back to its poster); a show with new episodes opens at the first of them.
+    val latestNews by rememberUpdatedState(newShows)
     val openAdded = { (place, f): Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile> ->
-        if (f.isFolder) { drive.openRoot(place); drive.open(DrivePlace.Folder(f.id, f.name)); vm.show(Screen.DRIVE) }
-        else resume { val key = MediaRef.Drive(f.id).key; context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(f.name), key)) }
+        TitlePages.open(place, f, latestNews[f.id]?.takeIf { it.announced }?.first?.id)
     }
-    val scope = rememberCoroutineScope()
     val linked by TvLinks.linked.collectAsStateWithLifecycle()
 
     Column(
@@ -205,7 +221,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         Row(Modifier.fillMaxWidth().height(196.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ContinuePanel(
                 recent, arts, play, onMenu = { removeFor = it },
-                added = added, token = driveToken, openAdded = openAdded,
+                added = addedShown, newShows = newShows, token = driveToken, openAdded = openAdded,
                 onMovies = { drive.openRoot(DrivePlace.Movies); vm.show(Screen.DRIVE) },
                 onShows = { drive.openRoot(DrivePlace.TvShows); vm.show(Screen.DRIVE) },
                 modifier = Modifier.weight(1.5f).fillMaxHeight(),
@@ -251,6 +267,22 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
 
 /** An up-next tile's caption, in place of the progress bar: "Next · S2 E5" ("Up next" without an episode number). */
 internal fun upNextCaption(title: String): String = episodeCode(title)?.let { "Next · $it" } ?: "Up next"
+
+/** Resume tiles Home's Continue watching panel shows, at most. */
+private const val RESUME_TILES = 9
+
+/**
+ * [added], less the titles already in Continue watching ([resuming]: the panel's resume tiles), found
+ * as the Overview's Continue watching finds them ([Library.continuing], [shows]: media key to entry):
+ * a show you're watching isn't repeated among the added posters, new episodes or not.
+ */
+internal fun notResuming(
+    added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>, resuming: List<RecentItem>, shows: Map<String, String>,
+): List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>> {
+    if (resuming.isEmpty() || added.isEmpty()) return added
+    val watching = com.woodruff.tvexplorer.cloud.Library.continuing(added.map { it.second }, resuming, shows, ::matchKeyOf).mapTo(HashSet()) { it.first.id }
+    return added.filter { it.second.id !in watching }
+}
 
 /**
  * Home's Continue watching as last read, kept while the app runs: coming back to Home shows it at
@@ -443,7 +475,8 @@ private fun PanelButton(label: String, icon: ImageVector, onClick: () -> Unit) {
 @Composable
 private fun ContinuePanel(
     recent: List<RecentItem>, arts: Map<String, com.woodruff.tvexplorer.cloud.DriveFile?>, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit,
-    added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>, token: String?,
+    added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>,
+    newShows: Map<String, com.woodruff.tvexplorer.cloud.NewShow>, token: String?,
     openAdded: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
     onMovies: () -> Unit, onShows: () -> Unit, modifier: Modifier,
 ) {
@@ -461,7 +494,7 @@ private fun ContinuePanel(
                     horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                 ) {
                     items(added, key = { "new-" + it.second.id }) { a ->
-                        PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+                        AddedPoster(a, newShows, token, openAdded)
                     }
                 }
             }
@@ -490,16 +523,34 @@ private fun ContinuePanel(
                 item(key = r.key) {
                     ResumeTile(r, arts[r.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
                 }
-                items(recent.drop(1).take(8), key = { it.key }) { m ->
+                items(recent.drop(1).take(RESUME_TILES - 1), key = { it.key }) { m ->
                     ResumeTile(m, arts[m.key], token, play, onMenu, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
                 }
+                // A pause between the two groups (24 dp, against 12 between tiles): whitespace, no line.
+                if (added.isNotEmpty()) item(key = "pause", contentType = "pause") { Spacer(Modifier.width(12.dp)) }
                 // Then what's new in Movies and TV Shows.
                 items(added, key = { "new-" + it.second.id }) { a ->
-                    PosterTile(a.second, token, onClick = { openAdded(a) }, onLongClick = { openAdded(a) }, modifier = Modifier.fillMaxHeight())
+                    AddedPoster(a, newShows, token, openAdded)
                 }
             }
         }
     }
+}
+
+/**
+ * A Recently added poster on Home: OK opens its title page. Home's posters are small, so a show with new
+ * episodes gets the NEW badge rather than words over its art (its page and menu say which).
+ */
+@Composable
+private fun AddedPoster(
+    a: Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>, newShows: Map<String, com.woodruff.tvexplorer.cloud.NewShow>, token: String?,
+    open: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
+) {
+    PosterTile(
+        a.second, token, onClick = { open(a) }, onLongClick = { open(a) }, modifier = Modifier.fillMaxHeight(),
+        label = com.woodruff.tvexplorer.cloud.Library.label(a.second),
+        newBadge = newShows[a.second.id]?.announced == true,
+    )
 }
 
 @Composable

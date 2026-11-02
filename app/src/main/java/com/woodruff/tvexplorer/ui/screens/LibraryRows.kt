@@ -65,6 +65,8 @@ import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.EpisodeShows
 import com.woodruff.tvexplorer.cloud.FolderCache
 import com.woodruff.tvexplorer.cloud.Library
+import com.woodruff.tvexplorer.cloud.NewEpisodes
+import com.woodruff.tvexplorer.cloud.NewShow
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.player.MediaRef
 import com.woodruff.tvexplorer.player.RecentItem
@@ -114,6 +116,11 @@ internal fun LibraryRows(
     marks: State<Int>,
     /** A title taking (true) or losing the focus, banner included: a folder's listing is fetched ahead. */
     onRest: (DriveFile, Boolean) -> Unit = { _, _ -> },
+    /**
+     * TV shows with new episodes ([com.woodruff.tvexplorer.cloud.DriveViewModel.newEpisodes]): Recently
+     * added puts them by when their newest episode came, and their posters say what's new, in blue.
+     */
+    newShows: Map<String, NewShow> = emptyMap(),
 ) {
     val context = LocalContext.current
     // Whether to take the focus once the rows are in: decided as the Overview opens. The rows can
@@ -132,15 +139,16 @@ internal fun LibraryRows(
     // again when the listing changes (TMDB's details arriving), the rows shown meanwhile staying put.
     // Coming back to the same listing (from a show's folders, say), the rows worked out last time for
     // it show at once, with nothing worked out again.
-    val page by produceState(remember { lastOverview[placeKey]?.takeIf { it.isFor(files, recentAtOpen) }?.page }, files) {
-        if (value != null && lastOverview[placeKey]?.isFor(files, recentAtOpen) == true) return@produceState
+    val page by produceState(remember { lastOverview[placeKey]?.takeIf { it.isFor(files, recentAtOpen, newShows) }?.page }, files, newShows) {
+        if (value != null && lastOverview[placeKey]?.isFor(files, recentAtOpen, newShows) == true) return@produceState
         val day = Library.today()
         value = withContext(Dispatchers.Default) {
             // An episode whose name doesn't say its show ("S01E013_Pilot"): the show it's known to sit
             // under. Names are matched by keys worked out ahead, off the main thread (matchKeyOf).
             EpisodeShows.load(context)
             val shows = EpisodeShows.map.value
-            overviewPage(files, recentAtOpen, shows, ::matchKeyOf, day).also { lastOverview[placeKey] = WorkedOut(files, recentAtOpen, shows, day, it) }
+            overviewPage(files, recentAtOpen, shows, ::matchKeyOf, day) { NewEpisodes.addedAt(it, newShows) }
+                .also { lastOverview[placeKey] = WorkedOut(files, recentAtOpen, shows, day, newShows, it) }
         }
     }
     // Shown once both are in, a frame or two after opening, so the tiles come with their bars. The
@@ -222,6 +230,8 @@ internal fun LibraryRows(
                                     val key = MediaRef.Drive(f.id).key
                                     // In Continue watching: what the tile stands for — its progress, or what's next.
                                     val now = playing[f.id]
+                                    // Elsewhere, a show with new episodes says what's new ("New · S3 E2"), in blue.
+                                    val news = if (now == null) newShows[f.id]?.takeIf { it.announced }?.caption else null
                                     val requester = when {
                                         restore != null && restore.first == r && restore.second == c -> restoreTile
                                         r == 0 && c == 0 -> firstTile
@@ -242,7 +252,8 @@ internal fun LibraryRows(
                                         // Both read here, in the tile: a ✓ or a bar changing redraws the tiles alone.
                                         progress = if (now?.upNext == true) null else progress.value?.get(now?.key ?: key),
                                         watched = seen(f),
-                                        caption = now?.takeIf { it.upNext }?.let { upNextCaption(it.title) },
+                                        caption = now?.takeIf { it.upNext }?.let { upNextCaption(it.title) } ?: news,
+                                        captionColor = if (news != null) ArtAccent else CaptionWhite,
                                     )
                                 }
                             }
@@ -291,10 +302,13 @@ private class WithinEnds(private val spec: BringIntoViewSpec, private val list: 
 /** The Overview last worked out for each library (by its place), and what it was worked out from. */
 private val lastOverview = java.util.concurrent.ConcurrentHashMap<String, WorkedOut>()
 
-private class WorkedOut(val files: List<DriveFile>, val recent: List<RecentItem>, val shows: Map<String, String>, val day: Long, val page: OverviewPage) {
-    /** Whether it's what [overviewPage] would give now: the same listing, watching and day. */
-    fun isFor(files: List<DriveFile>, recent: List<RecentItem>): Boolean =
-        this.files === files && this.recent == recent && shows === EpisodeShows.map.value && day == Library.today()
+private class WorkedOut(
+    val files: List<DriveFile>, val recent: List<RecentItem>, val shows: Map<String, String>, val day: Long,
+    val news: Map<String, NewShow>, val page: OverviewPage,
+) {
+    /** Whether it's what [overviewPage] would give now: the same listing, watching, new episodes and day. */
+    fun isFor(files: List<DriveFile>, recent: List<RecentItem>, news: Map<String, NewShow>): Boolean =
+        this.files === files && this.recent == recent && shows === EpisodeShows.map.value && this.news == news && day == Library.today()
 }
 
 /** The Overview as it shows: its rows, what each Continue watching tile stands for, and the featured titles. */
@@ -307,15 +321,17 @@ internal class OverviewPage(
 
 /**
  * The Overview of [files]: Continue watching (what's in [recent], newest first, found in the library
- * as [Library.continuing] finds it; up to 20), then Recently added, Top rated and the genres; and the
- * five featured titles of [day]. Pure, so it can run on a background thread (and is unit tested).
+ * as [Library.continuing] finds it; up to 20), then Recently added (newest first by [addedAt]: a show
+ * with new episodes by its newest one), Top rated and the genres; and the five featured titles of
+ * [day]. Pure, so it can run on a background thread (and is unit tested).
  */
 internal fun overviewPage(
     files: List<DriveFile>, recent: List<RecentItem>, shows: Map<String, String>, matchKey: (String) -> String, day: Long,
+    addedAt: (DriveFile) -> Long = { it.added },
 ): OverviewPage {
     val watching = Library.continuing(files, recent, shows, matchKey).take(20)
     return OverviewPage(
-        Library.overview(files, watching.map { it.first }),
+        Library.overview(files, watching.map { it.first }, addedAt),
         watching.associate { (f, r) -> f.id to r },
         Library.featured(files, day),
     )
@@ -396,10 +412,18 @@ private fun HeroCarousel(
     ) {
         val fade = remember { androidx.compose.animation.core.tween<Float>(700, easing = androidx.compose.animation.core.FastOutSlowInEasing) }
         FadeBetween(current, fade, label = "featured") { f ->
-            // The same request as the one fetched ahead, so it's a memory-cache hit.
-            val request = remember(f, token) { heroRequest(context, f, token) }
-            if (request != null) {
-                AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            val painter = LocalPosterPainter.current
+            if (painter != null) {
+                // The gallery: its sample art, drawn at once.
+                (Library.info(f).backdrop ?: posterArt(f))?.let(painter)?.let {
+                    androidx.compose.foundation.Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+            } else {
+                // The same request as the one fetched ahead, so it's a memory-cache hit.
+                val request = remember(f, token) { heroRequest(context, f, token) }
+                if (request != null) {
+                    AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
             }
         }
         // The same shade under every title's words: drawn once, outside the fades.

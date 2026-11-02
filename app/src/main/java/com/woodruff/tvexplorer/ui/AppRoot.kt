@@ -325,6 +325,8 @@ fun AppRoot(vm: MainViewModel) {
 
     OperationProgress(vm)
     DriveProgress(drive)
+    // Title pages, over whichever screen asked for one (Home, Streaming).
+    com.woodruff.tvexplorer.ui.screens.TitleHost(vm, drive)
     if (typingSearch) {
         TextInputDialog("Search movies and shows", "", "Search", onConfirm = { q -> typingSearch = false; if (q.isNotBlank()) showResults(q.trim()) }, onDismiss = { typingSearch = false })
     }

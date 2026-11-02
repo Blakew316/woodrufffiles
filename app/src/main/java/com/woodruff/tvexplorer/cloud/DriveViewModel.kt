@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.woodruff.tvexplorer.data.FileOperations
 import com.woodruff.tvexplorer.player.RecentStore
+import com.woodruff.tvexplorer.player.Watched
 import com.woodruff.tvexplorer.server.CompanionHub
 import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.ui.Operation
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -30,6 +32,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.woodruff.tvexplorer.tmdb.Tmdb
@@ -285,8 +289,31 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     // Declared before init: the libraries start loading from there.
     private val _recentlyAdded = MutableStateFlow<List<Pair<DrivePlace, DriveFile>>>(emptyList())
-    /** Newest Movies and TV Shows entries (by Drive's modified time), for Home. */
+    /**
+     * The newest Movies and TV Shows entries, newest first (up to [RECENT_COUNT]), for Home, Search and
+     * the phone: by when each was put in Drive, a show with new episodes by when its newest one came
+     * ([NewEpisodes.addedAt], see [newEpisodes]).
+     */
     val recentlyAdded: StateFlow<List<Pair<DrivePlace, DriveFile>>> = _recentlyAdded.asStateFlow()
+
+    private val _newEpisodes = MutableStateFlow<Map<String, NewShow>>(emptyMap())
+    /**
+     * The TV shows with new episodes, by the show's Drive id: episodes put in Drive in the last 30 days
+     * that no TV has watched or started ([NewEpisodes]). Found by one query per TV Shows refresh, and
+     * worked out again as ✓s and progress change (here, or merged in from the other TVs).
+     */
+    val newEpisodes: StateFlow<Map<String, NewShow>> = _newEpisodes.asStateFlow()
+
+    /** Each show's videos put in Drive lately, as the last query found them (or as saved). */
+    @Volatile private var freshEpisodes: Map<String, List<FreshEpisode>> = emptyMap()
+    /** A query got through this run: what's saved from before is older than what it found (even nothing). */
+    @Volatile private var scanned = false
+    /** One query and walk at a time; [walked] is only touched under it. */
+    private val scanLock = Mutex()
+    /** What each folder walked up from a new video turned out to be (null: under no show), kept between refreshes. */
+    private val walked = HashMap<String, Placement?>()
+    private var scanJob: Job? = null
+    private var newJob: Job? = null
     private var artworkJob: Job? = null
     private val _artwork = MutableStateFlow<Map<String, DriveFile>>(emptyMap())
     /**
@@ -352,6 +379,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 if (s.connected && s.library && s.stack.size > 1) load()
             }
         }
+        // Another TV watched a new episode (or started one): it's not new any more, here either.
+        viewModelScope.launch { FamilySync.updates.drop(1).collect { recheckNew() } }
         prefetchLibraries(seed = true)
     }
 
@@ -386,6 +415,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 // Not over a fresher copy: a library opened meanwhile has loaded its own.
                 saved.forEach { (place, s) -> if (s != null && s.files.isNotEmpty()) keepSaved(place, s) }
+                // The new episodes found last time, so Recently added says what's new from the start.
+                seedFresh()
                 if (saved.values.any { !it?.files.isNullOrEmpty() }) updateRecentlyAdded()
             }
             // Let the first screen settle (focus, cameras, dashboard) before the Drive and TMDB work.
@@ -445,10 +476,11 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     // Synchronized: Movies' and TV Shows' refreshes finish on their own threads, maybe at once.
     @Synchronized
     private fun updateRecentlyAdded() {
+        val news = _newEpisodes.value
         _recentlyAdded.value = LIBRARIES
             .flatMap { place -> cache[place].orEmpty().map { place to it } }
-            .sortedByDescending { it.second.added }
-            .take(10)
+            .sortedByDescending { NewEpisodes.addedAt(it.second, news) }
+            .take(RECENT_COUNT)
         // Off the main thread: the name matching runs a few regexes per title.
         val entries = LIBRARIES.flatMap { cache[it].orEmpty() }.filter { it.posterUrl != null }
         artworkJob?.cancel()
@@ -462,6 +494,85 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             _artwork.value = index
         }
     }
+
+    /**
+     * What's new inside the TV shows: one query for the videos put in Drive in the last 30 days, each
+     * walked up to its show (a season's episodes share one walk, and the walk is kept for next time),
+     * then saved, so Home has it at once after a restart. Behind the TV Shows listing, in its own job:
+     * offline or with Drive busy, what was found before stays. Signing out since [gen] keeps nothing.
+     */
+    private fun scanNewEpisodes(gen: Int, token: String, shows: List<DriveFile>) {
+        scanJob?.cancel()
+        val disk = ListingCache.generation()
+        scanJob = viewModelScope.launch(Dispatchers.IO) {
+            val found = scanLock.withLock {
+                val ids = shows.filter { it.isFolder }.mapTo(HashSet()) { it.id }
+                if (ids.isEmpty()) return@withLock emptyMap<String, List<FreshEpisode>>()
+                // The libraries' own folders lead to no show: a walk reaching one stops there.
+                val stops = LIBRARIES.mapNotNullTo(HashSet()) { DriveApi.folderIdOf(it) }
+                try {
+                    val videos = DriveApi.recentVideos(token, System.currentTimeMillis() - NewEpisodes.WINDOW_MS)
+                    NewEpisodes.placeVideos(videos, ids, stops, walked) { DriveApi.folderFacts(token, it) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    return@launch // offline, or Drive busy: what was found before stays, until the next refresh
+                }
+            }
+            kept(gen) { freshEpisodes = found; scanned = true }
+            ListingCache.writeFresh(ctx, found, gen = disk)
+            // Each new episode's show, for Continue watching's poster once one is started.
+            EpisodeShows.remember(ctx, found.flatMap { (show, eps) -> eps.map { it.key to show } }.toMap())
+            recheckNew()
+        }
+    }
+
+    /**
+     * The new episodes found last time (saved on disk), as what's new until the next query: read with
+     * the saved listings at launch. Their season folders seed the walk, so the next query walks only
+     * folders it hasn't seen. Background thread.
+     */
+    private suspend fun seedFresh() {
+        val saved = withContext(Dispatchers.IO) { ListingCache.readFresh(ctx) } ?: return
+        scanLock.withLock {
+            if (scanned) return@withLock // a query got there first
+            freshEpisodes = saved
+            for ((show, eps) in saved) for (e in eps) if (e.seasonId != null) walked.putIfAbsent(e.seasonId, Placement(show, e.seasonId, e.seasonName))
+        }
+        _newEpisodes.value = withContext(Dispatchers.IO) { computeNew() }
+    }
+
+    /**
+     * The shows with new episodes now: what was found ([freshEpisodes]) for the shows TV Shows lists,
+     * less what any TV has watched or started. Reads the ✓s and Continue watching: background threads.
+     */
+    private fun computeNew(): Map<String, NewShow> {
+        val fresh = freshEpisodes
+        val shows = cache[DrivePlace.TvShows]
+        if (fresh.isEmpty() || shows.isNullOrEmpty()) return emptyMap()
+        val progress = RecentStore(ctx).all().associate { it.key to it.progress }
+        return NewEpisodes.shows(fresh, shows.associate { it.id to it.added }, System.currentTimeMillis(), { Watched.isWatched(ctx, it) }, { progress[it] })
+    }
+
+    /**
+     * Works out again which episodes are new, after something may have been watched or started: back
+     * from the player, a ✓ changed on a screen, a title page closed, another TV's progress merged in.
+     * Recently added follows when it changed. Cheap: no network.
+     */
+    fun recheckNew() {
+        newJob?.cancel()
+        newJob = viewModelScope.launch(Dispatchers.IO) {
+            val now = computeNew()
+            ensureActive()
+            if (now != _newEpisodes.value) {
+                _newEpisodes.value = now
+                updateRecentlyAdded()
+            }
+        }
+    }
+
+    /** [place]'s listing as last loaded (Movies or TV Shows; null before it's loaded), for a title page's "More like this". */
+    fun libraryFiles(place: DrivePlace): List<DriveFile>? = cache[place]
 
     // Videos found not to sit under any Movies / TV Shows entry (asked again next launch).
     private val unplaced = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
@@ -607,6 +718,12 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         artworkJob?.cancel()
         _artwork.value = emptyMap()
         _recentlyAdded.value = emptyList()
+        scanJob?.cancel()
+        newJob?.cancel()
+        freshEpisodes = emptyMap()
+        scanned = false
+        _newEpisodes.value = emptyMap()
+        viewModelScope.launch { scanLock.withLock { walked.clear() } }
         placing?.cancel()
         unplaced.clear()
         EpisodeShows.clear(ctx)
@@ -633,6 +750,15 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     fun open(place: DrivePlace) {
         _state.update { it.copy(stack = it.stack + place) }
+        load()
+    }
+
+    /**
+     * [folder] (a show's, or a film's own) inside its library [place], as its title page's "All folders"
+     * and "Open" do, from Home as from Streaming: Back then goes up to the library.
+     */
+    fun openIn(place: DrivePlace, folder: DriveFile) {
+        _state.update { it.copy(stack = listOf(place, DrivePlace.Folder(folder.id, folder.name))) }
         load()
     }
 
@@ -689,7 +815,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 // The rows as LibraryRows makes them: Continue watching, then Recently added and the rest.
                 EpisodeShows.load(ctx)
                 val watching = Library.continuing(files, RecentStore(ctx).continueWatching(), EpisodeShows.map.value, ::matchKeyOf)
-                Library.overviewArt(files, watching.take(20).map { it.first }, Library.today())
+                val news = _newEpisodes.value
+                Library.overviewArt(files, watching.take(20).map { it.first }, Library.today()) { NewEpisodes.addedAt(it, news) }
             } else {
                 null to (if (top) Library.apply(files, filter) else files).asSequence().mapNotNull { it.posterUrl }.take(12).toList()
             }
@@ -890,6 +1017,8 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             }
             kept(gen) { listedAt[place] = System.currentTimeMillis() }
             updateRecentlyAdded()
+            // TV Shows listed: what's new inside its shows, found behind it (the listing is done meanwhile).
+            if (place == DrivePlace.TvShows) scanNewEpisodes(gen, token, withTmdb)
             Fetch.Done
         } catch (e: CancellationException) {
             throw e
@@ -981,6 +1110,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             else f.copy(
                 info = if (!f.hasTmdb && old.hasTmdb) old.info else f.info,
                 posterUrl = f.posterUrl ?: old.posterUrl,
+                episode = f.episode ?: old.episode,
             )
         }
 
@@ -1040,6 +1170,9 @@ fun artworkFor(index: Map<String, DriveFile>, key: String, title: String, shows:
 
 /** Movies and TV Shows: the libraries listed in full, kept warm for Home, search and the sidebar. */
 private val LIBRARIES = listOf(DrivePlace.Movies, DrivePlace.TvShows)
+
+/** Entries [DriveViewModel.recentlyAdded] holds: Home shows about half (after what's in progress), the phone up to 20. */
+internal const val RECENT_COUNT = 20
 
 /**
  * [Library.showMatchKey] of the libraries' names and of what's in progress, worked out on a

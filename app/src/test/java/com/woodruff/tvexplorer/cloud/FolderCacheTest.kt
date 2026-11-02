@@ -19,6 +19,18 @@ class FolderCacheTest {
         assertEquals(emptyList<DriveFile>(), FolderCache.fromJson(FolderCache.toJson(emptyList())))
     }
 
+    @Test fun aListingThatCantGetThroughIsOfflineNotEmpty() {
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(java.net.UnknownHostException("www.googleapis.com")))
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(java.net.SocketTimeoutException()))
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(DriveHttpException(503, "busy")))
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(DriveHttpException(403, "busy", busy = true)))
+        assertEquals(FolderCache.Listing.Offline, FolderCache.listingFailure(org.json.JSONException("cut off")))
+        // Google answered: the folder is gone, or it may not be listed.
+        assertEquals(FolderCache.Listing.Failed, FolderCache.listingFailure(DriveHttpException(404, "gone")))
+        assertEquals(FolderCache.Listing.Failed, FolderCache.listingFailure(DriveHttpException(403, "no")))
+        assertEquals(FolderCache.Listing.Failed, FolderCache.listingFailure(IllegalStateException("x")))
+    }
+
     @Test fun folderIdsAreSafeFileNames() {
         assertEquals("1aB-c_D.json", FolderCache.fileName("1aB-c_D"))
         assertEquals("a_b_c.json", FolderCache.fileName("a/b.c"))

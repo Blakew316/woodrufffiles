@@ -6,7 +6,9 @@ import android.util.JsonToken
 import android.util.JsonWriter
 import android.util.Log
 import com.woodruff.tvexplorer.cloud.DriveFile
+import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import com.woodruff.tvexplorer.cloud.Library
+import com.woodruff.tvexplorer.cloud.trimSynopsis
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.settings.SecretStore
 import kotlinx.coroutines.Dispatchers
@@ -199,15 +201,18 @@ object Tmdb {
     }
 
     /**
-     * Each episode's picture from TMDB as its poster, so episode tiles aren't blank: files named
-     * S02E04, 2x04, or "Episode 4" inside a "Season 2" folder ([seasonFolder]). Episodes with art of
-     * their own keep it.
+     * Each episode as TMDB knows it, on its file: its picture as its poster, so episode tiles aren't
+     * blank (episodes with art of their own keep it), and its name, synopsis and length
+     * ([DriveFile.episode]), whether it has art of its own or not. For files named S02E04, 2x04, or
+     * "Episode 4" inside a "Season 2" folder ([seasonFolder]). One request per season, ever: the
+     * answers are kept on disk.
      */
     suspend fun withEpisodeStills(c: Context, files: List<DriveFile>, show: String, seasonFolder: String?): List<DriveFile> = withContext(Dispatchers.IO) {
         val key = key(c) ?: return@withContext files
         load(c)
         val folderSeason = seasonFolder?.let(::seasonNumber)
-        val wanted = files.mapNotNull { f -> if (f.kind == FileKind.VIDEO && f.posterUrl == null) episodeNumber(f.name, folderSeason) else null }
+        val numbers = files.associate { f -> f.id to (if (f.kind == FileKind.VIDEO) episodeNumber(f.name, folderSeason) else null) }
+        val wanted = numbers.values.filterNotNull()
         if (wanted.isEmpty()) return@withContext files
         val (parsed, year) = parse(lookupName(show), stripExtension = false)
         val title = searchTitle(parsed)
@@ -215,23 +220,24 @@ object Tmdb {
         val before = cache.size
         val seasons = wanted.map { it.first }.distinct().associateWith { s ->
             runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
-                .onFailure { warn("episode pictures failed: $title season $s", it) }
+                .onFailure { warn("episodes failed: $title season $s", it) }
                 .getOrDefault(emptyMap())
         }
         if (cache.size != before) save(c)
         files.map { f ->
-            if (f.kind != FileKind.VIDEO || f.posterUrl != null) return@map f
-            val (s, e) = episodeNumber(f.name, folderSeason) ?: return@map f
-            seasons[s]?.get(e)?.still?.let { f.copy(posterUrl = it) } ?: f
+            val (s, e) = numbers[f.id] ?: return@map f
+            val ep = seasons[s]?.get(e) ?: return@map f
+            f.copy(posterUrl = f.posterUrl ?: ep.still, episode = ep.meta(s, e))
         }
     }
 
     /**
-     * An episode's length in minutes, as TMDB lists it in its season (the same request as its
-     * picture), for "Ends at" on a show's page. [episode] is its file name; [seasonFolder] the
-     * season folder's, for names like "Episode 4". Null when it isn't known.
+     * What TMDB knows of one episode of [show] (its name, synopsis and length), from its season (the
+     * same request as its picture), for the line under a show's buttons: "S2 E4 · The Volcano · Ends at
+     * 11:34 PM". [episode] is its file name; [seasonFolder] the season folder's, for names like "Episode
+     * 4". Null when it isn't known.
      */
-    suspend fun episodeRuntime(c: Context, show: String, episode: String, seasonFolder: String?): Int? = withContext(Dispatchers.IO) {
+    suspend fun episodeMeta(c: Context, show: String, episode: String, seasonFolder: String?): EpisodeMeta? = withContext(Dispatchers.IO) {
         val key = key(c) ?: return@withContext null
         load(c)
         val (s, e) = episodeNumber(episode, seasonFolder?.let(::seasonNumber)) ?: return@withContext null
@@ -239,40 +245,78 @@ object Tmdb {
         val title = searchTitle(parsed)
         if (title.isBlank()) return@withContext null
         val before = cache.size
-        val runtime = runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
-            .onFailure { warn("episode lengths failed: $title season $s", it) }
-            .getOrNull()?.get(e)?.runtime
+        val found = runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
+            .onFailure { warn("episodes failed: $title season $s", it) }
+            .getOrNull()?.get(e)
         if (cache.size != before) save(c)
-        runtime
+        found?.meta(s, e)
     }
 
-    /** One episode as TMDB lists it: its picture and its length in minutes (either can be missing). */
-    internal data class Episode(val still: String?, val runtime: Int?)
+    /** An episode's length in minutes as TMDB lists it (see [episodeMeta]); null when it isn't known. */
+    suspend fun episodeRuntime(c: Context, show: String, episode: String, seasonFolder: String?): Int? =
+        episodeMeta(c, show, episode, seasonFolder)?.minutes
 
-    /** Season [season] of the show: episode number → its picture and length. */
+    /**
+     * One episode as TMDB lists it: its picture, length in minutes, name and synopsis (trimmed to
+     * [EpisodeMeta.OVERVIEW_MAX]); any of them can be missing.
+     */
+    internal data class Episode(val still: String?, val runtime: Int?, val name: String? = null, val overview: String? = null) {
+        fun meta(season: Int, number: Int) = EpisodeMeta(season, number, name, overview, runtime)
+    }
+
+    /**
+     * Season [season] of the show: episode number → what TMDB lists of it. Kept as "ep2:" (with names
+     * and synopses; the older "ep:" entries had only pictures and lengths and are dropped as the cache
+     * loads), the picture as its path alone, so a 10-season show adds tens of kilobytes, not hundreds.
+     */
     private fun episodesOf(key: String, title: String, year: String?, season: Int): Map<Int, Episode> {
-        val json = cachedJson("ep:$title:$year:$season") {
+        val json = cachedJson("ep2:$title:$year:$season") {
             val id = showResult(key, title, year)?.optInt("id")?.takeIf { it > 0 } ?: return@cachedJson null
-            val episodes = seasonEpisodes(get(key, "tv/$id/season/$season"))
-            JSONObject().apply {
-                episodes.forEach { (n, e) -> put(n.toString(), JSONObject().put("s", e.still ?: "").put("r", e.runtime ?: 0)) }
-            }
+            episodesJson(seasonEpisodes(get(key, "tv/$id/season/$season")))
         } ?: return emptyMap()
-        return json.keys().asSequence().mapNotNull { k ->
-            val e = json.optJSONObject(k) ?: return@mapNotNull null
-            k.toIntOrNull()?.let { it to Episode(e.optString("s").ifBlank { null }, e.optInt("r").takeIf { r -> r > 0 }) }
-        }.toMap()
+        return episodesFrom(json)
     }
 
-    /** Reads a season (tv/{id}/season/{n}): episode number → picture and length. Visible for tests. */
+    /** A season's episodes as they're cached: number → {s: picture path, r: minutes, n: name, o: synopsis}. Visible for tests. */
+    internal fun episodesJson(episodes: Map<Int, Episode>): JSONObject = JSONObject().apply {
+        episodes.forEach { (n, e) ->
+            put(n.toString(), JSONObject().apply {
+                e.still?.removePrefix(STILL)?.let { put("s", it) }
+                e.runtime?.let { put("r", it) }
+                e.name?.let { put("n", it) }
+                e.overview?.let { put("o", it) }
+            })
+        }
+    }
+
+    /** Reads what [episodesJson] kept. Visible for tests. */
+    internal fun episodesFrom(json: JSONObject): Map<Int, Episode> = json.keys().asSequence().mapNotNull { k ->
+        val e = json.optJSONObject(k) ?: return@mapNotNull null
+        val still = e.optString("s").ifBlank { null }?.let { if (it.startsWith("http")) it else STILL + it }
+        k.toIntOrNull()?.let { it to Episode(still, e.optInt("r").takeIf { r -> r > 0 }, e.optString("n").ifBlank { null }, e.optString("o").ifBlank { null }) }
+    }.toMap()
+
+    /** Reads a season (tv/{id}/season/{n}): episode number → picture, length, name and synopsis. Visible for tests. */
     internal fun seasonEpisodes(o: JSONObject): Map<Int, Episode> {
         val episodes = o.optJSONArray("episodes") ?: return emptyMap()
         return (0 until episodes.length()).mapNotNull { episodes.optJSONObject(it) }.mapNotNull { e ->
             val n = e.optInt("episode_number").takeIf { it > 0 } ?: return@mapNotNull null
-            val ep = Episode(e.text("still_path")?.let { STILL + it }, e.optInt("runtime").takeIf { it > 0 })
-            if (ep.still == null && ep.runtime == null) null else n to ep
+            val ep = Episode(
+                e.text("still_path")?.let { STILL + it },
+                e.optInt("runtime").takeIf { it > 0 },
+                e.text("name")?.trim()?.takeIf { it.isNotEmpty() && !isPlaceholderName(it, n) },
+                e.text("overview")?.let { trimSynopsis(it) }?.takeIf { it.isNotEmpty() },
+            )
+            if (ep.still == null && ep.runtime == null && ep.name == null && ep.overview == null) null else n to ep
         }.toMap()
     }
+
+    /**
+     * TMDB's stand-in name for an episode nobody has named yet ("Episode 7"): no better than the
+     * card's own "Episode 7", and it would hide a real name in the file. Visible for tests.
+     */
+    internal fun isPlaceholderName(name: String, number: Int): Boolean =
+        name.equals("Episode $number", ignoreCase = true) || name.equals("Episode #$number", ignoreCase = true)
 
     /** Like [cached], for a JSON object ("" = looked up, nothing found). */
     private inline fun cachedJson(query: String, lookup: () -> JSONObject?): JSONObject? {
@@ -289,6 +333,9 @@ object Tmdb {
         if (folderSeason != null) EP_WORD.find(name)?.let { return folderSeason to it.groupValues[1].toInt() }
         return null
     }
+
+    /** "Episode 4" / "Ep 4" in a name → 4 (its season is its folder's); null when the name doesn't say. */
+    fun episodeWord(name: String): Int? = EP_WORD.find(name)?.groupValues?.get(1)?.toIntOrNull()
 
     private val EP_CODE = Regex("(?i)s(\\d{1,2})\\s*e(\\d{1,3})")
     private val EP_X = Regex("(?i)(?<!\\d)(\\d{1,2})x(\\d{2,3})(?!\\d)")
@@ -648,9 +695,13 @@ object Tmdb {
         File(c.applicationContext.filesDir, "tmdb_cache2.json").delete()
         File(c.applicationContext.filesDir, "tmdb_cache3.json").delete()
         runCatching { JsonReader(cacheFile(c).bufferedReader()).use { readCache(it, cache) } }
-        // Episode pictures are kept with the episodes' lengths now ("ep:"): the old entries go.
-        cache.keys.removeAll { it.startsWith("e:") }
+        // Episodes are kept with their names and synopses now ("ep2:"): the older entries go, and each
+        // season is asked for once more.
+        cache.keys.removeAll(::isOldEpisodeEntry)
     }
+
+    /** A cache entry from before episodes kept their names: "e:" (pictures) and "ep:" (pictures and lengths). Visible for tests. */
+    internal fun isOldEpisodeEntry(key: String): Boolean = key.startsWith("e:") || key.startsWith("ep:")
 
     @Synchronized
     private fun save(c: Context) {

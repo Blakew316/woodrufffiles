@@ -35,6 +35,8 @@ data class DriveFile(
     val info: MediaInfo? = null,
     /** When it was put in Drive (0 when not known). */
     val created: Long = 0,
+    /** An episode's season, number, and TMDB's name, synopsis and length (see [EpisodeMeta]); null for anything else. */
+    val episode: EpisodeMeta? = null,
 ) {
     /**
      * When it came into the library, for "Recently added": when it was put in Drive. Not [modified],
@@ -191,12 +193,52 @@ object DriveApi {
         }
     }
 
-    /** The files in the same folder as file [id] (its first parent), in Drive's natural name order. */
     /** The folder a file sits in (its first parent), or null at the top. */
     suspend fun parentOf(token: String, id: String): String? = withContext(Dispatchers.IO) {
         JSONObject(get(token, "$BASE/${enc(id)}?fields=parents&supportsAllDrives=true")).optJSONArray("parents")?.optString(0)?.ifEmpty { null }
     }
 
+    /** Folder [id]'s name and the folder it sits in (none at the top of a drive, or for one shared with you). */
+    suspend fun folderFacts(token: String, id: String): FolderFacts = withContext(Dispatchers.IO) {
+        val o = JSONObject(get(token, "$BASE/${enc(id)}?fields=name,parents&supportsAllDrives=true"))
+        FolderFacts(o.optString("name"), o.optJSONArray("parents")?.optString(0)?.ifEmpty { null })
+    }
+
+    /**
+     * Videos put in Drive since [since] (Drive's createdTime: when each was uploaded or copied in),
+     * newest first, up to [limit]: what's new anywhere in the family's Drive, for the new episodes of
+     * the shows they have. A page of 100 is one small request; most months it's the only one.
+     */
+    suspend fun recentVideos(token: String, since: Long, limit: Int = RECENT_LIMIT): List<RecentVideo> = withContext(Dispatchers.IO) {
+        val after = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(java.util.Date(since))
+        val q = "mimeType contains 'video/' and createdTime > '$after' and trashed = false"
+        val times = Rfc3339()
+        val out = ArrayList<RecentVideo>()
+        var next: String? = null
+        do {
+            ensureActive()
+            val url = "$BASE?q=${enc(q)}&orderBy=${enc("createdTime desc")}&pageSize=100" +
+                "&fields=${enc("nextPageToken,files(id,name,parents,createdTime)")}&includeItemsFromAllDrives=true&supportsAllDrives=true" +
+                (next?.let { "&pageToken=${enc(it)}" } ?: "")
+            val json = JSONObject(get(token, url))
+            val files = json.optJSONArray("files")
+            for (i in 0 until (files?.length() ?: 0)) {
+                val f = files!!.getJSONObject(i)
+                out += RecentVideo(f.getString("id"), f.optString("name"), f.optJSONArray("parents")?.optString(0)?.ifEmpty { null }, times.parse(f.optString("createdTime")))
+            }
+            next = json.optString("nextPageToken").ifEmpty { null }
+        } while (next != null && out.size < limit)
+        if (out.size > limit) out.subList(limit, out.size).clear()
+        out
+    }
+
+    /** New videos looked at, at most: three pages, newest first (a month of a big family's uploads). */
+    const val RECENT_LIMIT = 300
+
+    /** The Drive id of library folder [place], once a listing has found it (null before). */
+    fun folderIdOf(place: DrivePlace.Named): String? = namedIds[place.title]
+
+    /** The files in the same folder as file [id] (its first parent), in Drive's natural name order. */
     suspend fun siblings(token: String, id: String): List<DriveFile> = withContext(Dispatchers.IO) {
         val json = JSONObject(get(token, "$BASE/${enc(id)}?fields=parents&supportsAllDrives=true"))
         val parent = json.optJSONArray("parents")?.optString(0)?.ifEmpty { null } ?: return@withContext emptyList()
