@@ -146,4 +146,30 @@ class BufferingTest {
         clock.reset()
         assertNull(clock.since)
     }
+
+    @Test fun aFilmHeldBackForItsSubtitleFilesShowsTheRingHalfASecondAfterOk() {
+        // OK on a USB film: idle while its folder is looked in (a drive waking up), then it loads.
+        val clock = WaitClock()
+        clock.startNow(now = 0)
+        clock.update(playWhenReady = true, state = Player.STATE_IDLE, isPlaying = false, now = 0)
+        assertNull(look(clock.waitedMs(Player.STATE_IDLE, 400)))
+        assertEquals(BufferingLook(ring = true, caption = null), look(clock.waitedMs(Player.STATE_IDLE, 500)))
+        assertEquals(500L, Buffering.nextChangeMs(clock.waitedMs(Player.STATE_IDLE, 0), null, 0))
+        // Loading at last, a second after OK: the same wait goes on, not a new one from there.
+        clock.update(true, Player.STATE_BUFFERING, false, now = 1_000)
+        assertEquals(1_200L, clock.waitedMs(Player.STATE_BUFFERING, 1_200))
+        // Started again from its spot: a wait already going is kept.
+        clock.startNow(now = 1_100)
+        assertEquals(0L, clock.since)
+    }
+
+    @Test fun aFilmHeldBackWhilePausedShowsNoRing() {
+        // Put back paused after an update, or come back to paused: nothing is waiting to play.
+        val clock = WaitClock()
+        clock.startNow(now = 0)
+        clock.update(playWhenReady = false, state = Player.STATE_IDLE, isPlaying = false, now = 0)
+        assertNull(clock.waitedMs(Player.STATE_IDLE, 2_000))
+        // Nothing started: idle is no wait.
+        assertNull(WaitClock().waitedMs(Player.STATE_IDLE, 5_000))
+    }
 }

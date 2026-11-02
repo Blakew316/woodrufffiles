@@ -91,4 +91,14 @@ internal class WaitClock {
     fun reset() {
         since = null
     }
+
+    /**
+     * A film asked to play is held back a moment before it loads (the subtitle files beside it being
+     * found, a USB drive waking up): the wait starts now, at the press, not once it starts loading,
+     * so the ring comes [Buffering.SHOW_AFTER_MS] after OK. Idle meanwhile, it counts as waiting
+     * ([waitedMs]); paused, [update] clears it, as for any wait.
+     */
+    fun startNow(now: Long) {
+        if (since == null) since = now
+    }
 }

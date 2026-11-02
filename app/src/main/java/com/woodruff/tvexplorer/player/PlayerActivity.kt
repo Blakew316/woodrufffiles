@@ -122,6 +122,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             savedIndex = k.index
             savedPosition = k.positionMs
             savedPlayWhenReady = k.playing
+            stoppedAt = k.stoppedAt
         }
         recent = RecentStore(this)
         com.woodruff.tvexplorer.cloud.EpisodeShows.load(this) // which show name-less episodes belong to
@@ -270,6 +271,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
      * show's next episode offered there instead.
      */
     private fun finished(key: String) {
+        // This player says where the family is with it now: it no longer follows them (catchUp).
+        stopCatchingUp()
         recent.remove(key)
         Watched.mark(this, key)
         upNextAfter(key)
@@ -299,7 +302,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     /** Where the preview frames come from: the same file the player streams (Drive with its token). Off the main thread. */
     private fun previewSource(key: String): Pair<String, Map<String, String>>? = when (val ref = MediaRef.parse(key)) {
-        is MediaRef.Drive -> token().takeIf { it.isNotEmpty() }?.let { com.woodruff.tvexplorer.cloud.DriveApi.mediaUrl(ref.id) to mapOf("Authorization" to "Bearer $it") }
+        is MediaRef.Drive -> tokenOrEmpty().takeIf { it.isNotEmpty() }?.let { com.woodruff.tvexplorer.cloud.DriveApi.mediaUrl(ref.id) to mapOf("Authorization" to "Bearer $it") }
         is MediaRef.Local -> ref.path to emptyMap()
         is MediaRef.Remote -> ref.url to emptyMap()
     }
@@ -845,6 +848,10 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             sidecarJob = lifecycleScope.launch { findQueueSidecars(p) }
             return
         }
+        // Held back for them: the wait counts from now, so the loading ring comes half a second after
+        // OK (not half a second after this wait, up to 1.5 s), and its timer is set.
+        waitClock.startNow(android.os.SystemClock.elapsedRealtime())
+        updateLoading()
         val app = applicationContext
         sidecarJob = lifecycleScope.launch {
             val found = async(kotlinx.coroutines.Dispatchers.IO) {
@@ -1230,7 +1237,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         lifecycleScope.launch {
             val next = runCatching {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val t = token().ifEmpty { return@withContext null }
+                    val t = tokenOrEmpty().ifEmpty { return@withContext null }
                     val showFolder = com.woodruff.tvexplorer.cloud.DriveFile(show, "", com.woodruff.tvexplorer.cloud.DriveFile.FOLDER_MIME, 0, 0, null)
                     val inShow = com.woodruff.tvexplorer.cloud.FolderCache.list(app, t, showFolder) ?: return@withContext null
                     val season = UpNext.seasonOf(inShow, com.woodruff.tvexplorer.cloud.DriveApi.parentOf(t, ref.id), name) ?: return@withContext null
@@ -1316,6 +1323,43 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         leftByChoice = false
     }
 
+    /**
+     * When the player last stopped, by the wall clock Continue watching keeps time by (kept with the
+     * rest, [PlayerKeep]): coming back, the family's progress newer than that wins ([PlayerKeep.comeBack]).
+     */
+    private var stoppedAt: Long? = null
+    /** The item and spot this player started on, or was moved to as it came back ([catchUp]): see [PlayerKeep.touched]. */
+    private var startSpot: Pair<String, Long>? = null
+    /** It has played since it started. */
+    private var playedSinceStart = false
+    /** Back to a film: Continue watching watched for the family's progress until anything is done with it here ([catchUp]). */
+    private var familyWatch: AutoCloseable? = null
+
+    /**
+     * Back to a film, nothing done with it yet, and the family's progress changed (the other TVs',
+     * fetched as it came back): it goes to where the family has got to with it, or, finished on another
+     * TV since, it pauses, as it would have come back had that been known then ([PlayerKeep.comeBack]).
+     */
+    private fun catchUp() {
+        val p = player ?: return
+        val key = p.currentMediaItem?.mediaId ?: return
+        if (timeBar.isScrubbing || PlayerKeep.touched(playedSinceStart, startSpot, key, p.currentPosition)) return
+        when (val back = PlayerKeep.comeBack(key, stoppedAt, recent.all(), recent.removals())) {
+            is PlayerKeep.ComeBack.At -> if (kotlin.math.abs(back.positionMs - p.currentPosition) > PlayerKeep.MOVED_MS) {
+                startSpot = key to back.positionMs
+                p.seekTo(back.positionMs)
+            }
+            PlayerKeep.ComeBack.Finished -> p.playWhenReady = false
+            PlayerKeep.ComeBack.AsItWas -> Unit
+        }
+    }
+
+    /** No more following the family's progress ([catchUp]): the player stopped, or keeps its own now. */
+    private fun stopCatchingUp() {
+        familyWatch?.close()
+        familyWatch = null
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         // So it still comes back paused if Android closed Woodruff meanwhile, to free memory...
@@ -1325,12 +1369,13 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val p = player
         if (p != null && p.mediaItemCount > 0) {
             val items = (0 until p.mediaItemCount).map { p.getMediaItemAt(it) }
+            // Still up (before Android 9): it stops straight after this.
             PlayerKeep.save(
                 outState, items.map { it.mediaId }, items.map { it.mediaMetadata.title?.toString() ?: "" },
-                p.currentMediaItemIndex, p.currentPosition, playing = p.playWhenReady || heldForRate,
+                p.currentMediaItemIndex, p.currentPosition, playing = p.playWhenReady || heldForRate, stoppedAt = System.currentTimeMillis(),
             )
         } else savedQueue?.let { (keys, titles) ->
-            PlayerKeep.save(outState, keys, titles, savedIndex ?: 0, savedPosition ?: 0L, playing = savedPlayWhenReady ?: true)
+            PlayerKeep.save(outState, keys, titles, savedIndex ?: 0, savedPosition ?: 0L, playing = savedPlayWhenReady ?: true, stoppedAt = stoppedAt)
         }
     }
 
@@ -1366,7 +1411,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         rateMatchedFor = null
         nextSeasonFor = null
         matchRate = FrameRateMatch.enabled(this)
-        val startPos = savedPosition ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
+        // Back to a film left a while ago (Home and then the app row, standby, or made again after
+        // Android closed Woodruff): at its spot, unless the family has moved on with it since, on
+        // another TV; finished there since, it's back at its spot, paused (PlayerKeep.comeBack).
+        val back = savedPosition?.let { PlayerKeep.comeBack(keys[start], stoppedAt, recent.all(), recent.removals()) }
+        if (back == PlayerKeep.ComeBack.Finished) savedPlayWhenReady = false
+        val startPos = (back as? PlayerKeep.ComeBack.At)?.positionMs ?: savedPosition
+            ?: intent.getLongExtra(EXTRA_POSITION, -1L).takeIf { it >= 0 } ?: recent.resumePosition(keys[start])
+        // Nothing done with it yet: left as it is, it keeps nothing (keepPlace).
+        startSpot = keys[start] to startPos
+        playedSinceStart = false
 
         // Each with the subtitle files known to sit beside it (the first film's are looked for as it
         // starts, the rest's in the background: prepareWithSidecars).
@@ -1442,6 +1496,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (isPlaying) { retryAtOnce.played(); clearStall() }
                     updateLoading()
+                    // Watched from here: where it stops is worth keeping (keepPlace), and the family's
+                    // progress no longer moves it (catchUp).
+                    if (isPlaying) playedSinceStart = true
                     if (leader) sendSync()
                 }
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -1564,6 +1621,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             if (items.size == 1) fillQueueFromFolder(p)
         }
         updateScreenOn()
+        // Back to a film: the other TVs' latest progress is fetched, and taken up if it comes in before
+        // anything is done with the film here (catchUp).
+        if (back != null) {
+            familyWatch = recent.onChange(::catchUp)
+            if (com.woodruff.tvexplorer.cloud.FamilySync.isShared(keys[start])) com.woodruff.tvexplorer.cloud.FamilySync.pullFresh(this)
+        }
         reporter.post(report)
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
         doorbellJob = lifecycleScope.launch { com.woodruff.tvexplorer.nest.Doorbell.rings.collect { showDoorbell(it) } }
@@ -1574,6 +1637,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     override fun onStop() {
         com.woodruff.tvexplorer.util.FrameStats.detach(this)
+        stopCatchingUp()
         preview?.release(); preview = null
         // Off the screen: the preview, the options and any message go at once, as the cards below do.
         if (::previewCard.isInitialized) previewCard.hide(animate = false)
@@ -1608,6 +1672,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             p.currentMediaItem?.let { item ->
                 keepPlace(RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0))
             }
+            // After what it kept: the spot it saves as it stops is never newer than its stop (PlayerKeep.comeBack).
+            stoppedAt = System.currentTimeMillis()
             // The family's other TVs get where it stopped now, before this TV may go to sleep.
             com.woodruff.tvexplorer.cloud.FamilySync.pushNow(this)
             p.release()
@@ -1640,6 +1706,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
      * 5 %, or the last few seconds) — finished, so it's marked ✓ instead of offered again from there.
      */
     private fun keepPlace(item: RecentItem) {
+        // Opened and left again as it was (a film come back to from the app row, and out again):
+        // nothing to keep. Its spot saved again would be the family's newest, over where another TV
+        // has got to with it since, and would bring back one finished there.
+        if (!PlayerKeep.touched(playedSinceStart, startSpot, item.key, item.positionMs)) return
+        stopCatchingUp()
         val pos = item.positionMs
         // Left before its length was known (Back while it was still opening): keep the length saved
         // before, or it was saved as 0 % watched and dropped from the show's "Resume".
@@ -1660,7 +1731,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         lifecycleScope.launch {
             val folder = runCatching {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val t = token().ifEmpty { return@withContext null }
+                    val t = tokenOrEmpty().ifEmpty { return@withContext null }
                     // The season's subtitle files come with it: the episodes queued below get theirs.
                     com.woodruff.tvexplorer.cloud.DriveApi.siblings(t, ref.id).also { SubtitleIndex.learnNow(it) }
                 }
@@ -1699,11 +1770,17 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     }
 
     /**
-     * Runs on ExoPlayer's loading thread, so blocking here is fine. GoogleAuth keeps the token in
-     * memory until a minute before it runs out and then fetches a new one, so it's always current
-     * (a copy kept here for 30 minutes could outlive it, and kept "" after a failed refresh).
+     * The Google token one of the player's Drive requests carries. Runs on ExoPlayer's loading thread,
+     * so blocking here is fine. GoogleAuth keeps the token in memory until a minute before it runs out
+     * and then fetches a new one, so it's always current (a copy kept here for 30 minutes could outlive
+     * it, and kept "" after a failed refresh). None to be had just now (Google out of reach, or the
+     * TV's Keystore still waking after a power cut): the request fails as a dropped connection does,
+     * and the film is tried again under "Reconnecting…" ([driveToken]).
      */
-    private fun token(): String = GoogleAuth.blockingToken(applicationContext).orEmpty()
+    private fun token(): String = driveToken(GoogleAuth.blockingTokenResult(applicationContext))
+
+    /** The Drive token, or "" while there's none: for the scrub preview and the queue's own Drive lookups, which do without. Blocking. */
+    private fun tokenOrEmpty(): String = GoogleAuth.blockingToken(applicationContext).orEmpty()
 
     // ---- Drive token ---------------------------------------------------------------------------
 
@@ -1916,6 +1993,23 @@ internal const val TOKEN_RENEW_LEAD_MS = 50_000L
 
 /** How long to wait before renewing a token that runs out at [expiresAt]; 0 when that's due already. */
 internal fun tokenRenewDelayMs(expiresAt: Long, now: Long): Long = (expiresAt - TOKEN_RENEW_LEAD_MS - now).coerceAtLeast(0)
+
+/**
+ * The token a Drive request carries, from what GoogleAuth answered ([result]). None to be had just now
+ * (offline: Google out of reach, or the Keystore still waking after a power cut) fails the request as
+ * a dropped connection does ([PlaybackErrors.stallOf] says NETWORK), so the player says "Reconnecting…"
+ * and tries again until there is one. Asked without one, Drive turned it down, and the ring said
+ * "Google Drive turned this down", blaming Google for a TV starting up. Signed out, or the keys refused:
+ * asked all the same, as before, and Drive's answer brings up how to sign in again (or that it's refused).
+ */
+@OptIn(UnstableApi::class)
+internal fun driveToken(result: GoogleAuth.TokenResult): String = when (result) {
+    is GoogleAuth.TokenResult.Ok -> result.token
+    is GoogleAuth.TokenResult.Offline -> throw androidx.media3.datasource.DataSourceException(
+        "No Google token just now", result.cause, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+    )
+    GoogleAuth.TokenResult.SignedOut, is GoogleAuth.TokenResult.Rejected -> ""
+}
 
 /**
  * The player's decoders. The TV's own come first, as before, and so does passing the sound

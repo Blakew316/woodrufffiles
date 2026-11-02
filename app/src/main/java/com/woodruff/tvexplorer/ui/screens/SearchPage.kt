@@ -491,8 +491,10 @@ internal fun SearchScreen(
             val next = Shown(q, found)
             shown.value = next
             // The focused result went with the change (the phone typed on): the first result, else the keyboard.
+            // The results go back to their start as the new ones are laid out (requested, not scrolled to now:
+            // that measures the grid at once, from whatever thread this goes on on, over the old results).
             if (before != null && shownHits(next).none { it.file.id == before }) {
-                if (shownHits(next).isNotEmpty()) { grid.scrollToItem(0); firstResult.focusSoon() }
+                if (shownHits(next).isNotEmpty()) { grid.requestScrollToItem(0); firstResult.focusSoon() }
                 else (lastKey[0] ?: keyA).focusSoon()
             }
         }
