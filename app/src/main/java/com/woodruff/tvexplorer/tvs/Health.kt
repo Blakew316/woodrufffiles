@@ -470,14 +470,16 @@ fun sentenceOf(items: List<HealthItem>): String {
 /**
  * [text] with anything secret or personal taken out: a crash report leaves the TV in a health report (the
  * phone shows and copies it, and a linked hub keeps it), and an exception's message can carry the address it
- * failed on. Keys, tokens and codes in an address ("?api_key=…"), a "Bearer" token, network addresses and
- * email addresses each become "…"; the trace itself (classes, files, lines) stays as it was.
+ * failed on. Keys, tokens and codes in an address ("?api_key=…"), a "Bearer" token, network addresses (IPv4,
+ * and IPv6, where the TV's own is the home's public one) and email addresses each become "…"; the trace itself
+ * (classes, files, lines) stays as it was.
  */
 fun scrubbed(text: String): String = text
     .replace(SECRET_PARAM) { it.groupValues[1] + "…" }
     .replace(BEARER, "Bearer …")
     .replace(EMAIL, "…")
     .replace(IPV4, "…")
+    .replace(IPV6, "…")
 
 private val SECRET_PARAM = Regex(
     """((?<![A-Za-z0-9_])(?:api_?key|key|k|access_token|refresh_token|id_token|token|code|state|client_secret|secret|password|sig)=)[^&;,\s"'<>]+""",
@@ -486,6 +488,13 @@ private val SECRET_PARAM = Regex(
 private val BEARER = Regex("""(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+""")
 private val EMAIL = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
 private val IPV4 = Regex("""(?<![\d.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\d.])""")
+/**
+ * An IPv6 address, in full (eight groups) or shortened with "::", with its "%wlan0" zone: never a time ("21:30:05"),
+ * a line number ("Foo.kt:123") or a version. (An IPv4 tail, "::ffff:192.168.1.20", is taken by [IPV4] first.)
+ */
+private val IPV6 = Regex(
+    """(?<![0-9A-Za-z:])(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4}){0,6}::(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4}){0,6})?|::[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4}){0,6})(?:%[0-9A-Za-z._-]+)?(?![0-9A-Za-z:])""",
+)
 
 /** "IllegalStateException in the player": a crash report in a few words, from its exception and Woodruff's first frame. */
 fun crashSummary(report: String): String {

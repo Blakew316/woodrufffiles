@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.cloud.DriveFile
 import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.cloud.MediaInfo
+import com.woodruff.tvexplorer.remote.TvScreen
 import com.woodruff.tvexplorer.server.CompanionRoutes
 import com.woodruff.tvexplorer.server.answerFor
 import com.woodruff.tvexplorer.server.bodyText
@@ -22,8 +23,10 @@ import fi.iki.elonen.NanoHTTPD.Method
 import fi.iki.elonen.NanoHTTPD.Response.Status
 import kotlinx.coroutines.flow.emptyFlow
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -56,6 +59,11 @@ class SearchPhoneTypingTest {
         routes.answerFor(phoneRequest("/api/type", Method.POST, body = JSONObject().put("id", id).put("text", text))).status
 
     private fun shows(text: String) = compose.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty()
+
+    /** Woodruff's screen is in front (each of its screens tells TvScreen as it starts): the phone types only then. */
+    @Before fun inFront() = TvScreen.attach(compose.activity)
+
+    @After fun gone() = TvScreen.detach(compose.activity)
 
     @Test fun thePhoneTypesOnIntoSearchOnceAPageOverItCloses() {
         // A title page (or a title menu) opened over Search covers it.

@@ -244,10 +244,11 @@ class CompanionRoutes(private val ctx: Context) {
         s.uri == "/api/status" && s.method == Method.GET -> json(TvLinks.status(ctx))
         // This TV's health report (also for a linked hub, with its link key): words and facts, no secrets.
         s.uri == "/api/health" && s.method == Method.GET -> json(Health.report(ctx, probe = true).toJson())
-        // Check for an update now (also for a linked hub): as Settings → Updates → Check for updates does.
+        // Check for an update now, for the phone or a linked hub: it follows the test TV's day, as this TV's own checks
+        // do (only Settings → Updates → Check for updates, on the TV itself, skips that).
         s.uri == "/api/update/check" && s.method == Method.POST -> {
             body(s)
-            com.woodruff.tvexplorer.update.Updater.checkNow(ctx)
+            com.woodruff.tvexplorer.update.Updater.checkNow(ctx, eager = false)
             ok()
         }
         s.uri == "/api/tvs" && s.method == Method.GET -> {
@@ -280,7 +281,7 @@ class CompanionRoutes(private val ctx: Context) {
         }
         s.uri == "/api/tvs/update/check" && s.method == Method.POST -> {
             val id = body(s).optString("id")
-            if (id == "this") com.woodruff.tvexplorer.update.Updater.checkNow(ctx)
+            if (id == "this") com.woodruff.tvexplorer.update.Updater.checkNow(ctx, eager = false)
             else {
                 val tv = TvLinks.find(id) ?: throw IllegalArgumentException("Unknown TV")
                 try {
@@ -420,12 +421,18 @@ class CompanionRoutes(private val ctx: Context) {
         }
 
         // ---- Phone keyboard (also for a linked hub, for its phone: typing is pressing this TV's keys) ----------
-        s.uri == "/api/type" && s.method == Method.GET -> json(JSONObject().put("field", RemoteInput.target?.let { f ->
-            JSONObject().put("id", f.id).put("label", f.label).put("secret", f.secret).put("multiline", f.multiline)
-                .put("text", if (f.secret) "" else f.text)
-        } ?: JSONObject.NULL))
+        // Only while Woodruff is in front, as with the remote's keys: a text box left open behind another app or one of
+        // Android's screens is never typed into, nor its Done pressed, where nobody can see (the phone says why).
+        s.uri == "/api/type" && s.method == Method.GET -> json(
+            if (!TvScreen.canPress()) JSONObject().put("field", JSONObject.NULL).put("note", NOT_IN_FRONT)
+            else JSONObject().put("field", RemoteInput.target?.let { f ->
+                JSONObject().put("id", f.id).put("label", f.label).put("secret", f.secret).put("multiline", f.multiline)
+                    .put("text", if (f.secret) "" else f.text)
+            } ?: JSONObject.NULL),
+        )
         s.uri == "/api/type" && s.method == Method.POST -> {
             val b = body(s)
+            require(TvScreen.canPress()) { NOT_IN_FRONT }
             val id = if (b.has("id")) b.optLong("id") else null
             val open = RemoteInput.fields.value
             require(open.isNotEmpty()) { "No text box is open on ${TvLinks.name(ctx)}" }
@@ -793,6 +800,9 @@ class CompanionRoutes(private val ctx: Context) {
 
 /** The most text the phone's keyboard sends to a text box at once (a long note; a request stays well under 64 KB). */
 private const val MAX_TYPED = 20_000
+
+/** Why the phone can't type into this TV now: Woodruff isn't in front (its remote keys say the same). */
+private const val NOT_IN_FRONT = "Woodruff Family isn’t on the TV screen. Press Home first."
 
 private val PUBLIC_ASSETS = mapOf(
     "/icon-180.png" to "image/png",

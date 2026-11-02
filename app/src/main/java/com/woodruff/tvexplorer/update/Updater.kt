@@ -487,8 +487,13 @@ object Updater {
             java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US).format(java.util.Date(ms))
     }
 
-    /** Settings → Check for updates. */
-    fun checkNow(c: Context) { val app = c.applicationContext; scope.launch { checkAndDownload(app, manual = true) } }
+    /**
+     * Checks for an update now. [eager]: Settings → Check for updates on this TV, which takes the newest build at once,
+     * without the test TV's day. A check asked for from elsewhere (the phone's or a hub TV's Check for Updates) passes
+     * false: it looks now, and keeps or fetches again the build this TV would take anyway, but follows the test TV's
+     * day as this TV's own checks do, so a build the test TV hasn't had a day with never reaches a TV from the phone.
+     */
+    fun checkNow(c: Context, eager: Boolean = true) { val app = c.applicationContext; scope.launch { checkAndDownload(app, manual = eager) } }
 
     /** When the last check started (successful or not). */
     @Volatile private var lastAttempt = 0L
