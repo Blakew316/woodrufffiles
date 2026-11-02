@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -669,7 +670,8 @@ private fun NoticeBanner(modifier: Modifier, onOpen: () -> Unit) {
             shape = shape,
             colors = SurfaceDefaults.colors(containerColor = Palette.glass, contentColor = Palette.text),
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = shape),
-            modifier = Modifier.bannerGlide(transition, fromTop = true).width(NoticeLook.WIDTH_DP.dp),
+            // As wide as its longest line, no wider (long words wrap at the most).
+            modifier = Modifier.bannerGlide(transition, fromTop = true).widthIn(max = NoticeLook.MAX_WIDTH_DP.dp),
         ) {
             Column(Modifier.padding(horizontal = NoticeLook.PAD_H_DP.dp, vertical = NoticeLook.PAD_V_DP.dp)) {
                 Text(

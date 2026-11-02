@@ -73,7 +73,8 @@ internal object PlayerStyle {
         setLineSpacing(dp(c, look.TITLE_LINE_SP - look.TITLE_SP), 1f)
         setPadding(dp(c, look.PAD_H_DP.toFloat()).toInt(), dp(c, look.PAD_V_DP.toFloat()).toInt(), dp(c, look.PAD_H_DP.toFloat()).toInt(), dp(c, look.PAD_V_DP.toFloat()).toInt())
         background = glass(c, look.CORNER_DP.toFloat())
-        maxWidth = dp(c, look.WIDTH_DP.toFloat()).toInt()
+        // As wide as its words (it's laid out wrap-content), up to the app's notices' widest.
+        maxWidth = dp(c, look.MAX_WIDTH_DP.toFloat()).toInt()
         elevation = dp(c, 8f)
     }
 

@@ -4,16 +4,19 @@ package com.woodruff.tvexplorer.notify
  * The notice card in the top-right corner, one size wherever it shows: in Woodruff (AppRoot's
  * banner), over other apps ([NoticeOverlay]) and over a film (the player's doorbell card).
  *
- * Compact: half the screen space of the first design, each side about 70% of it, with the words
- * scaled alike so the same text fits on each line. Every line stays: where it's from, the title
- * and what it says, each allowed a line more than before, so nothing is cut off for being smaller.
- * The card keeps its distance from the screen's edges (some TVs crop them).
+ * Compact: the words at about 70% of the first design's size, and the card only as wide as its
+ * longest line (up to [MAX_WIDTH_DP], where longer words wrap), so there's no empty space beside
+ * them. Every line stays: where it's from, the title and what it says, each allowed a line more
+ * than before, so nothing is cut off. The card keeps its distance from the screen's edges (some
+ * TVs crop them), growing leftwards from there.
  */
 object NoticeLook {
-    const val WIDTH_DP = 250
+    const val MAX_WIDTH_DP = 250
     const val PAD_H_DP = 13
     const val PAD_V_DP = 9
     const val CORNER_DP = 14
+    /** The widest the words get: [MAX_WIDTH_DP] less the padding on both sides. */
+    const val MAX_TEXT_DP = MAX_WIDTH_DP - 2 * PAD_H_DP
 
     /** "FROM YOUR PHONE", "NEW MAIL", "WOODRUFF FAMILY". */
     const val LABEL_SP = 9f

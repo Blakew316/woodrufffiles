@@ -65,17 +65,20 @@ object NoticeOverlay {
             }
             addView(TextView(app).apply {
                 text = when (n.source) { NoticeSource.PHONE -> "From your phone"; NoticeSource.MAIL -> "New mail"; NoticeSource.SYSTEM -> "Woodruff Family" }
+                maxWidth = dp(NoticeLook.MAX_TEXT_DP)
                 setTextColor(0xFF6FB3E6.toInt()); textSize = NoticeLook.LABEL_SP; typeface = font ?: Typeface.DEFAULT_BOLD
                 letterSpacing = 0.04f
                 lines(NoticeLook.LABEL_SP, NoticeLook.LABEL_LINE_SP)
             })
             addView(TextView(app).apply {
+                maxWidth = dp(NoticeLook.MAX_TEXT_DP)
                 text = n.title; setTextColor(0xFFF2F4F7.toInt()); textSize = NoticeLook.TITLE_SP
                 maxLines = NoticeLook.TITLE_LINES; ellipsize = android.text.TextUtils.TruncateAt.END
                 typeface = font ?: Typeface.DEFAULT_BOLD
                 lines(NoticeLook.TITLE_SP, NoticeLook.TITLE_LINE_SP)
             })
             if (n.body.isNotBlank()) addView(TextView(app).apply {
+                maxWidth = dp(NoticeLook.MAX_TEXT_DP)
                 text = n.body; setTextColor(0xFFB8C2CF.toInt()); textSize = NoticeLook.BODY_SP
                 maxLines = NoticeLook.BODY_LINES; ellipsize = android.text.TextUtils.TruncateAt.END
                 typeface = fontBody ?: Typeface.DEFAULT
@@ -88,13 +91,14 @@ object NoticeOverlay {
             setPadding(0, dp(32), 0, 0)
             // Cut off at the window's edge, not at the padding (32 dp down) as a FrameLayout would.
             clipToPadding = false
-            addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+            // As wide as its longest line (each line stops at MAX_TEXT_DP and wraps), against the right edge.
+            addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.END))
         }
         // Read now: the app may not have been on screen since the TV's settings last changed.
         AppMotion.refresh(app)
         val glide = if (AppMotion.windowsAnimate || AppMotion.reduced) null else GlidingCard(card, GlidingCard.Way.Drop)
         val params = WindowManager.LayoutParams(
-            dp(NoticeLook.WIDTH_DP), WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
