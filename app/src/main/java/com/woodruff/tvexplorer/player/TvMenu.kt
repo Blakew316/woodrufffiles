@@ -20,8 +20,22 @@ import com.woodruff.tvexplorer.ui.motion.TvMotion
  * Back; it never takes focus, so the button that opened it keeps it.
  */
 internal class TvMenu(private val context: Context, private val root: FrameLayout) {
-    /** A row: what it says, whether it's the current choice, and what OK on it does. */
-    class Row(val label: String, val checked: Boolean = false, val action: () -> Unit)
+    /**
+     * A row: what it says, whether it's the current choice, and what OK on it does. [detail] is said
+     * small at its right end ("Can't play"). A row that isn't [enabled] is dimmed and never ticked;
+     * the platter still lands on it, so it can be read, and OK on it runs [action] with the menu
+     * staying up (to say why it can't be chosen).
+     */
+    class Row(
+        val label: String,
+        val checked: Boolean = false,
+        val detail: String? = null,
+        val enabled: Boolean = true,
+        val action: () -> Unit,
+    )
+
+    /** A row's words and ✓, recoloured as the platter comes and goes. */
+    private class RowViews(val check: ImageView?, val label: TextView, val detail: TextView?)
 
     private val rowHeight = dp(42f).toInt()
     private val header = TextView(context).apply {
@@ -58,6 +72,7 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
     private val card = GlidingCard(panel, GlidingCard.Way.Zoom)
 
     private var items: List<Row> = emptyList()
+    private val rowViews = ArrayList<RowViews>()
     private var at = 0
 
     /** Up: Up / Down, OK and Back are its own. A menu on its way out no longer is. */
@@ -77,6 +92,7 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
         header.text = title
         val checks = rows.any { it.checked }
         this.rows.removeAllViews()
+        rowViews.clear()
         for (row in rows) this.rows.addView(rowView(row, checks), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, rowHeight))
         at = rows.indexOfFirst { it.checked }.coerceAtLeast(0)
 
@@ -130,9 +146,11 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
             KeyEvent.KEYCODE_DPAD_UP -> move(-1)
             KeyEvent.KEYCODE_DPAD_DOWN -> move(1)
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                val action = items.getOrNull(at)?.action
+                val row = items.getOrNull(at)
+                // A row that can't be chosen says why, and the menu stays for another choice.
+                if (row != null && !row.enabled) { row.action(); return true }
                 hide()
-                action?.invoke()
+                row?.action?.invoke()
             }
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_INFO -> hide()
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> Unit // nowhere to go sideways
@@ -153,11 +171,15 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
         val y = (at * rowHeight).toFloat()
         if (glide) highlightGlide.shiftTo(y, TvMotion.ListGlideMs)
         else { highlightGlide.stop(); highlight.translationY = y }
-        for (i in 0 until rows.childCount) {
-            val lit = i == at
-            val row = rows.getChildAt(i) as ViewGroup
-            (row.getChildAt(row.childCount - 1) as TextView).setTextColor(if (lit) PlayerStyle.INK else 0xFFFFFFFF.toInt())
-            if (row.childCount > 1) (row.getChildAt(0) as ImageView).setColorFilter(if (lit) PlayerStyle.INK else 0xFFFFFFFF.toInt())
+        for ((i, views) in rowViews.withIndex()) {
+            val enabled = items.getOrNull(i)?.enabled != false
+            val color = when {
+                i == at -> if (enabled) PlayerStyle.INK else DIM_INK
+                else -> if (enabled) WHITE else DIM_WHITE
+            }
+            views.label.setTextColor(color)
+            views.detail?.setTextColor(color)
+            views.check?.setColorFilter(color)
         }
         val visible = scroll.layoutParams.height
         if (visible > 0) {
@@ -170,18 +192,40 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(14f).toInt(), 0, dp(18f).toInt(), 0)
-        if (checks) addView(ImageView(context).apply {
+        val check = if (checks) ImageView(context).apply {
             setImageResource(R.drawable.tv_ic_check)
-            visibility = if (row.checked) View.VISIBLE else View.INVISIBLE
-        }, LinearLayout.LayoutParams(dp(16f).toInt(), dp(16f).toInt()).apply { marginEnd = dp(10f).toInt() })
-        addView(TextView(context).apply {
+            visibility = if (row.checked && row.enabled) View.VISIBLE else View.INVISIBLE
+        }.also { addView(it, LinearLayout.LayoutParams(dp(16f).toInt(), dp(16f).toInt()).apply { marginEnd = dp(10f).toInt() }) } else null
+        val label = TextView(context).apply {
             text = row.label
             textSize = 16f
             typeface = PlayerStyle.text(context)
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(WHITE)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        val detail = row.detail?.let { words ->
+            TextView(context).apply {
+                text = words
+                textSize = 13f
+                typeface = PlayerStyle.text(context)
+                setTextColor(WHITE)
+                maxLines = 1
+            }
+        }
+        if (detail == null) {
+            addView(label, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        } else {
+            // The label takes the room left and gives way (ellipsized) first: the detail stays whole
+            // at the right end, its smaller words on the label's baseline. Measured on their own,
+            // they still give the row's natural width (the menu is as wide as its longest row).
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(detail, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16f).toInt() })
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        rowViews += RowViews(check, label, detail)
     }
 
     private fun locationIn(v: View): IntArray {
@@ -191,4 +235,14 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
     }
 
     private fun dp(v: Float) = PlayerStyle.dp(context, v)
+
+    private companion object {
+        const val WHITE = 0xFFFFFFFF.toInt()
+        /**
+         * A row that can't be chosen: its words at 50 % white (5.2:1 on the menu's glass), and at
+         * 65 % ink on the platter (5.3:1). Its words ("Can’t play") say why, not the dimming alone.
+         */
+        const val DIM_WHITE = 0x80FFFFFF.toInt()
+        const val DIM_INK = 0xA61C1C1E.toInt()
+    }
 }

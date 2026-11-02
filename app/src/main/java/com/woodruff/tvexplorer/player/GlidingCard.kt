@@ -21,7 +21,17 @@ internal class GlidingCard(private val view: View, private val way: Way) {
     enum class Way { Rise, Drop, Zoom, Fade }
 
     var shown = false
-        private set
+        private set(value) {
+            if (field == value) return
+            field = value
+            onShownChanged?.invoke(value)
+        }
+
+    /**
+     * Told each time [shown] changes, as the card starts gliding in (true) or out (false): the
+     * player's subtitles step up out of its way, and back down.
+     */
+    var onShownChanged: ((Boolean) -> Unit)? = null
 
     private val glide = ViewGlide(view)
     // Showing, but not laid out yet: how far it glides is its own height, known just before it's drawn.

@@ -129,8 +129,11 @@ object DriveApi {
     /** Folder ids already found for [DrivePlace.Named], so each library opens with one request. */
     private val namedIds = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    /** Signing out: another account's Movies / TV Shows folders are found afresh. */
-    fun forgetFolders() = namedIds.clear()
+    /** Signing out: another account's Movies / TV Shows folders are found afresh, and its subtitle files forgotten. */
+    fun forgetFolders() {
+        namedIds.clear()
+        com.woodruff.tvexplorer.player.SubtitleIndex.forgetDrive()
+    }
 
     /**
      * A library folder (Movies, TV Shows) lists this many entries at most: far more than a family's
@@ -242,6 +245,9 @@ object DriveApi {
                 }
             }.awaitAll()
         }
+        // The subtitle files beside the videos ("Inception.en.srt"), for the player to attach as one
+        // starts (SubtitleIndex). Learned in the background from the listing as it is.
+        com.woodruff.tvexplorer.player.SubtitleIndex.learn(files)
         files.mapNotNull { f ->
             when {
                 f.isFolder -> f.copy(posterUrl = folderPosters[f.id])
@@ -253,8 +259,16 @@ object DriveApi {
                 }
                 else -> f
             }
-        }.filter { it.id !in used && !(it.kind == FileKind.IMAGE && it.name.substringBeforeLast('.').lowercase() in POSTER_NAMES) }
+        }.filter { it.id !in used && isTitle(it) }
     }
+
+    /**
+     * What a library (Movies, TV Shows, and the folders in them) shows: folders, and films and songs.
+     * Not the files that come with them (subtitles, posters and other artwork, .nfo and the like),
+     * which used to show up as blank "films" in the grid, the rows and Recently added.
+     */
+    private fun isTitle(f: DriveFile): Boolean =
+        f.isFolder || ((f.kind == FileKind.VIDEO || f.kind == FileKind.AUDIO) && !FileTypes.isSidecar(f.name))
 
     /** Drive thumbnails come at 220px ("=s220"); ask for a size that's sharp on a TV poster. */
     fun big(link: String) = link.replace(THUMB_SIZE, "") + "=s720"

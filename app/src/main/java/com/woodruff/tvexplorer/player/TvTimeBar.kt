@@ -26,9 +26,14 @@ import java.util.concurrent.CopyOnWriteArraySet
  * times follow it.
  *
  * Left / Right scrub (10 s a press, faster the longer one is held); the spot is played a moment
- * after the last press, or at once with OK. [cancelScrub] (Back) goes back to where it was.
- * Media3's controller drives it like its own bar ([TimeBar]): the position, what's buffered,
- * and seeking when a scrub ends.
+ * after the last press, or at once with OK. [cancelScrub] (Back) goes back to where it was, and so
+ * does scrubbing back to where it started (Left, then Right): nothing is played. Media3's
+ * controller drives it like its own bar ([TimeBar]): the position, what's buffered, and seeking
+ * when a scrub ends.
+ *
+ * A scrub is aimed from where the film really is ([livePosition]), and keeps its distance from it
+ * while the film plays on: one press back lands 10 s behind wherever the film has got to when the
+ * spot is played ([landing]), inside the seconds the player keeps for an instant rewind.
  */
 @OptIn(UnstableApi::class)
 class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs), TimeBar {
@@ -39,10 +44,28 @@ class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private var position = 0L
     private var buffered = 0L
 
+    /**
+     * The player's own position right now, or null when there's no player. A scrub starts from it
+     * and lands relative to it: the bar's own position can be a second old (Media3 refreshes it
+     * about once a second), and the film keeps playing while a spot is chosen. Without it the bar
+     * scrubs from its own position, as it always did.
+     */
+    var livePosition: (() -> Long?)? = null
+
+    /**
+     * Told where a scrub lands before any listener hears that it ended: Media3's controller, the
+     * first listener, sends the player there at once, so this is where the player gets ready for
+     * that seek.
+     */
+    var onLanding: ((Long) -> Unit)? = null
+
     /** Scrubbing with the remote: [scrubPosition] is the spot shown, not yet played. */
     var isScrubbing = false
         private set
     private var scrubPosition = 0L
+    /** Where this scrub started, as shown, and where the film itself was then (null: not known). */
+    private var startShown = 0L
+    private var startLive: Long? = null
     private val commit = Runnable { stopScrub(canceled = false) }
 
     /** 0 at rest, 1 with focus: the bar grows from [BAR_DP] to [BAR_FOCUSED_DP]. */
@@ -151,7 +174,10 @@ class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     private fun startScrub() {
         isScrubbing = true
-        scrubPosition = position
+        // From where the film is now, not where the bar was last told it was.
+        startLive = livePosition?.invoke()?.takeIf { it >= 0 }
+        startShown = (startLive ?: position).coerceIn(0, duration)
+        scrubPosition = startShown
         isPressed = true
         for (l in listeners) l.onScrubStart(this, scrubPosition)
     }
@@ -161,9 +187,15 @@ class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         if (!isScrubbing) return
         isScrubbing = false
         isPressed = false
-        // Shown where it lands at once (the player catches up a moment later).
-        if (!canceled) position = scrubPosition
-        for (l in listeners) l.onScrubStop(this, scrubPosition, canceled)
+        // Back where it started (Left, then Right): nothing to play, the film just carries on.
+        val dropped = canceled || scrubPosition == startShown
+        if (!dropped) {
+            scrubPosition = landing(scrubPosition, startLive, livePosition?.invoke()?.takeIf { it >= 0 }, duration)
+            // Shown where it lands at once (the player catches up a moment later).
+            position = scrubPosition
+            onLanding?.invoke(scrubPosition)
+        }
+        for (l in listeners) l.onScrubStop(this, scrubPosition, dropped)
         invalidate()
     }
 
@@ -215,6 +247,20 @@ class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet?
             repeatCount < 8 -> 10_000L
             repeatCount < 24 -> 30_000L
             else -> 60_000L
+        }
+
+        /**
+         * Where a scrub chosen at [shown] is played from: moved on by however far the film itself
+         * played while the spot was being chosen (from [startLive] to [nowLive]). The spot is played
+         * a second or more after the last press, with the film running meanwhile; taken as it was
+         * shown, one press back landed 11-12 s behind the film, just outside the seconds the player
+         * keeps for an instant rewind, so it downloaded them again. Scrubbed all the way back, it
+         * stays at the very start; with either position unknown, it's the spot as shown.
+         */
+        internal fun landing(shown: Long, startLive: Long?, nowLive: Long?, duration: Long): Long {
+            val end = duration.coerceAtLeast(0)
+            if (shown <= 0L || startLive == null || nowLive == null) return shown.coerceIn(0, end)
+            return (shown + (nowLive - startLive)).coerceIn(0, end)
         }
 
         /** "4:05", "1:02:09": as tvOS shows times. */

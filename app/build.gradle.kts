@@ -84,6 +84,11 @@ dependencies {
     implementation(libs.media3.datasource)
     // Drive streams over OkHttp: one kept-open connection instead of a new one per request.
     implementation(libs.media3.datasource.okhttp)
+    // Sound the TV can't decode or pass through itself (DTS, DTS-HD, Dolby TrueHD; Dolby Digital on
+    // TVs without Dolby) is decoded by FFmpeg, after the TV's own decoders (playerRenderers). Its ARM
+    // libraries add about 2.8 MB (the abiFilters above leave out the x86 ones). GPLv3: see
+    // assets/licenses/ffmpeg.txt. Media3 upgrades must move to a version Jellyfin publishes it for.
+    implementation(libs.media3.ffmpeg.decoder)
     implementation(libs.android.mail)
     implementation(libs.android.activation)
     implementation(libs.webrtc)

@@ -7,6 +7,8 @@ lifecycle = "2.11.0"
 composeBom = "2026.09.00"
 tvMaterial = "1.1.0"
 media3 = "1.5.0"
+# Jellyfin's FFmpeg sound decoder, built for exactly this Media3 version (they publish one per release).
+media3Ffmpeg = "1.5.0+1"
 coil = "2.7.0"
 nanohttpd = "2.3.1"
 zxing = "3.5.3"
@@ -36,6 +38,7 @@ media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "medi
 media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 media3-datasource = { group = "androidx.media3", name = "media3-datasource", version.ref = "media3" }
+media3-ffmpeg-decoder = { group = "org.jellyfin.media3", name = "media3-ffmpeg-decoder", version.ref = "media3Ffmpeg" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 coil-video = { group = "io.coil-kt", name = "coil-video", version.ref = "coil" }
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }

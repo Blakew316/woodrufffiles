@@ -17,3 +17,10 @@
 # optimises; nothing here relies on renamed classes.
 -dontobfuscate
 -keepattributes SourceFile,LineNumberTable
+
+# Films' DTS and TrueHD sound plays through FFmpeg's decoder, which Media3's DefaultRenderersFactory
+# finds by name. Media3's own rules keep its constructor; this keeps the class as well, so a shrinker
+# change can never quietly leave those films silent again.
+-keep class androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer {
+    <init>(android.os.Handler, androidx.media3.exoplayer.audio.AudioRendererEventListener, androidx.media3.exoplayer.audio.AudioSink);
+}

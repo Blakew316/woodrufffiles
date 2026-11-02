@@ -34,6 +34,8 @@ object FolderCache {
         val gen = generation
         val saved = synchronized(disk) { read(c, folderId) } ?: return null
         synchronized(memory) { if (gen == generation && folderId !in memory) memory[folderId] = saved }
+        // The subtitle files beside its videos, for the player (as for a fresh listing, below).
+        com.woodruff.tvexplorer.player.SubtitleIndex.learn(saved, c)
         return saved
     }
 
@@ -65,6 +67,9 @@ object FolderCache {
             if (gen != generation) return
             (memory.put(folderId, files) != files)
         }
+        // A season's or a film's folder: the subtitle files beside its videos ("Pilot.en.srt"), which
+        // the player attaches as one starts. Learned in the background.
+        com.woodruff.tvexplorer.player.SubtitleIndex.learn(files, c)
         // Unchanged since it was last saved: no need to write it again.
         if (changed) withContext(Dispatchers.IO) {
             synchronized(disk) { if (gen == generation) write(c, folderId, files) }
