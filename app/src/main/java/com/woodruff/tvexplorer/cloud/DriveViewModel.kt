@@ -11,7 +11,11 @@ import com.woodruff.tvexplorer.server.CompanionHub
 import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.ui.Operation
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,7 +35,6 @@ import com.woodruff.tvexplorer.tmdb.Tmdb
 import com.woodruff.tvexplorer.util.NetworkWatch
 import com.woodruff.tvexplorer.util.backoffMs
 import com.woodruff.tvexplorer.util.isNetworkFailure
-import kotlinx.coroutines.currentCoroutineContext
 import java.io.File
 
 /** Where the Connect flow is: paste the client from a phone, sign in on a phone, or done. */
@@ -157,6 +160,35 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val cache = java.util.concurrent.ConcurrentHashMap<DrivePlace, List<DriveFile>>()
 
+    /**
+     * When each library was last listed in full — Drive, its posters, TMDB, saved — or, before that
+     * this run, when its saved copy was. Opening one listed less than [FRESH_MS] ago lists nothing.
+     */
+    private val listedAt = java.util.concurrent.ConcurrentHashMap<DrivePlace, Long>()
+
+    /**
+     * Each library's refresh, shared by the screen, both tabs and the warm-up at launch. Off the main
+     * thread (a big library's titles are compared and copied as they arrive), and apart from the
+     * screen's own job: switching tabs doesn't cancel a listing halfway. Signing out does.
+     */
+    private val refreshes = LibraryRefreshes<DrivePlace>(CoroutineScope(SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.Default))
+
+    /** The libraries whose saved copy's art was loaded ahead this run (once each is enough). */
+    private val warmedSaved = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<DrivePlace, Boolean>())
+
+    /**
+     * Bumped by signing out ([forgetLibrary]): a refresh still under way then (on its own thread,
+     * a step from its next check for being cancelled) keeps nothing it finds. Guarded by [libraryLock].
+     */
+    private var generation = 0
+    private val libraryLock = Any()
+
+    /** [block], unless the library was forgotten (signed out) since [gen]: then the refresh ends here. */
+    private inline fun <T> kept(gen: Int, block: () -> T): T = synchronized(libraryLock) {
+        if (gen != generation) throw CancellationException("Signed out meanwhile")
+        block()
+    }
+
     // Declared before init: the libraries start loading from there.
     private val _recentlyAdded = MutableStateFlow<List<Pair<DrivePlace, DriveFile>>>(emptyList())
     /** Newest Movies and TV Shows entries (by Drive's modified time), for Home. */
@@ -201,7 +233,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                     if (step == SignInStep.CONNECTED) load() else prepareSignIn()
                 }
                 // A new TMDB key changes posters: drop cached library listings and fetch again.
-                else if (_state.value.library) { cache.clear(); prefetchLibraries(); load() }
+                else if (_state.value.library) { cache.clear(); listedAt.clear(); prefetchLibraries(); load() }
             }
         }
         prefetchLibraries(seed = true)
@@ -221,7 +253,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      * Warm Movies and TV Shows in the background, so Home has their posters and Recently added,
      * search finds them and the sidebar opens them instantly. [seed] (at launch only: after a new
      * TMDB key, the saved copies are what's being replaced) starts from the copies saved last time,
-     * read just after the first frame, so all that works at once rather than after the refresh.
+     * read just after the first frame, so all that works at once rather than after the refresh. A
+     * library listed moments ago (its saved copy too, before a restart) isn't listed again; one the
+     * Drive screen is listing already is joined, not listed twice.
      */
     private fun prefetchLibraries(seed: Boolean = false) {
         prefetchJob?.cancel()
@@ -230,13 +264,11 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             if (seed && _state.value.connected) {
                 afterNextFrame()
                 val saved = withContext(Dispatchers.IO) {
-                    listOf(DrivePlace.Movies, DrivePlace.TvShows).associateWith { place ->
-                        ListingCache.read(ctx, place)?.let(Library::prepare)?.also { learnMatchKeys(it) }
-                    }
+                    LIBRARIES.associateWith { place -> ListingCache.read(ctx, place)?.also { Library.prepare(it.files); learnMatchKeys(it.files) } }
                 }
                 // Not over a fresher copy: a library opened meanwhile has loaded its own.
-                saved.forEach { (place, files) -> if (!files.isNullOrEmpty()) cache.putIfAbsent(place, files) }
-                if (saved.values.any { !it.isNullOrEmpty() }) updateRecentlyAdded()
+                saved.forEach { (place, s) -> if (s != null && s.files.isNotEmpty()) keepSaved(place, s) }
+                if (saved.values.any { !it?.files.isNullOrEmpty() }) updateRecentlyAdded()
             }
             // Let the first screen settle (focus, cameras, dashboard) before the Drive and TMDB work.
             delay(4_000)
@@ -245,13 +277,11 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             var tries = 0
             while (true) {
                 val mark = NetworkWatch.comebacks.value
-                val token = when (val t = GoogleAuth.tokenResult(ctx)) {
-                    is GoogleAuth.TokenResult.Ok -> t.token
-                    is GoogleAuth.TokenResult.Offline -> null
-                    // Signed out, or the keys refused: the Drive screen says so, nothing to warm.
-                    else -> return@launch
-                }
-                if (token != null && warmLibraries(token)) return@launch
+                val now = System.currentTimeMillis()
+                val outcomes = LIBRARIES.filter { !isFresh(listedAt[it], now) }.map { refreshLibrary(it) }.awaitAll()
+                // Signed out, or the keys refused: the Drive screen says so, nothing to warm. Listed,
+                // or Drive answered something else (no TV Shows folder): done until the next visit.
+                if (outcomes.none { it == Fetch.Offline } || outcomes.any { it == Fetch.SignedOut || it is Fetch.Refused }) return@launch
                 val cameBack = NetworkWatch.awaitComeback(mark, backoffMs(tries, 15_000, 15 * 60_000))
                 tries = if (cameBack) 0 else tries + 1
             }
@@ -259,34 +289,12 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Lists Movies and TV Shows afresh with [token] (posters, TMDB) for Home, search and the
-     * sidebar. False when a listing failed for want of a network, to be tried again.
+     * [saved], read from disk, as [place]'s listing — unless one is in memory already (a fresher
+     * copy, loaded meanwhile). Its time counts as when it was listed, so a library listed just
+     * before Woodruff restarted isn't listed again at once.
      */
-    private suspend fun warmLibraries(token: String): Boolean {
-        // Home's Google-hosted posters need it too, before Streaming is ever opened.
-        _state.update { if (it.connected && it.token != token) it.copy(token = token) else it }
-        // What each library shows first, from the saved copy, for opening it before the fresh one is in.
-        for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) cache[place]?.let { warm(token, listOf(place), it) }
-        var reached = true
-        for (place in listOf(DrivePlace.Movies, DrivePlace.TvShows)) {
-            // What was known before (the saved copy) stands in for a TMDB lookup that fails this time.
-            val before = cache[place]?.associateBy { it.id }
-            try {
-                val files = carryOver(posters(token, listOf(place), parse(DriveApi.list(token, place))), before)
-                cache[place] = files
-                warm(token, listOf(place), files)
-                // Saved, so the next start begins from this copy rather than the last Streaming visit's.
-                withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // The saved copy stays. No network: the whole round again once it's back.
-                if (isNetworkFailure(e)) reached = false
-            }
-        }
-        currentCoroutineContext().ensureActive() // cancelled (signed out, or a newer prefetch): leave Recently added alone
-        updateRecentlyAdded()
-        return reached
+    private fun keepSaved(place: DrivePlace, saved: ListingCache.Saved) {
+        if (cache.putIfAbsent(place, saved.files) == null && saved.listedAt > 0) listedAt.putIfAbsent(place, saved.listedAt)
     }
 
     /**
@@ -314,13 +322,15 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     }
 
 
+    // Synchronized: Movies' and TV Shows' refreshes finish on their own threads, maybe at once.
+    @Synchronized
     private fun updateRecentlyAdded() {
-        _recentlyAdded.value = listOf(DrivePlace.Movies, DrivePlace.TvShows)
+        _recentlyAdded.value = LIBRARIES
             .flatMap { place -> cache[place].orEmpty().map { place to it } }
             .sortedByDescending { it.second.added }
             .take(10)
         // Off the main thread: the name matching runs a few regexes per title.
-        val entries = listOf(DrivePlace.Movies, DrivePlace.TvShows).flatMap { cache[it].orEmpty() }.filter { it.posterUrl != null }
+        val entries = LIBRARIES.flatMap { cache[it].orEmpty() }.filter { it.posterUrl != null }
         artworkJob?.cancel()
         artworkJob = viewModelScope.launch(Dispatchers.Default) {
             val index = HashMap<String, DriveFile>()
@@ -457,7 +467,13 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private fun forgetLibrary() {
         loadJob?.cancel()
         prefetchJob?.cancel()
-        cache.clear()
+        synchronized(libraryLock) {
+            generation++
+            cache.clear()
+            listedAt.clear()
+        }
+        refreshes.cancelAll()
+        warmedSaved.clear()
         artworkJob?.cancel()
         _artwork.value = emptyMap()
         _recentlyAdded.value = emptyList()
@@ -504,16 +520,10 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
-    fun refresh() = load()
+    /** Filter → Refresh: listed again now, however recently it was. */
+    fun refresh() = load(force = true)
 
     fun setFilter(filter: LibraryFilter) = _state.update { it.copy(filters = it.filters + (it.stack.first().title to filter)) }
-
-    /**
-     * Poster art for a Movies / TV Shows listing: the owner's own images first, then TMDB.
-     * Movies: the movies themselves. TV Shows: shows at the top, seasons one level down.
-     */
-    private suspend fun posters(token: String, stack: List<DrivePlace>, files: List<DriveFile>): List<DriveFile> =
-        tmdb(stack, DriveApi.withPosters(token, files))
 
     private fun tmdbMode(stack: List<DrivePlace>) = when {
         stack.first() == DrivePlace.Movies && stack.size == 1 -> Tmdb.Mode.MOVIES
@@ -561,12 +571,17 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         Library.prepare(Library.withInfo(files)).also { learnMatchKeys(it) }
     }
 
-    private fun load() {
+    /**
+     * Shows the place on top of the stack: what's kept of it at once, then a fresh listing. A
+     * library (Movies, TV Shows) listed less than [FRESH_MS] ago is only shown ([force]: Refresh
+     * lists it anyway), and its listing is the shared one ([refreshLibrary]): leaving it meanwhile
+     * doesn't stop it.
+     */
+    private fun load(force: Boolean = false) {
         loadJob?.cancel()
         val place = _state.value.place
         val stack = _state.value.stack
         val library = _state.value.library
-        val filterable = _state.value.filterable
         val cached = cache[place]
         // The status stays as it was until this try says otherwise: offline stays offline (no
         // flicker of the note) while the next place loads from what's saved, and the offline page
@@ -576,11 +591,19 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             // Nothing in memory yet (first visit since the app started): show the saved listing at
             // once, then refresh it from Drive behind the scenes.
             if (cached == null && library) {
-                val saved = withContext(Dispatchers.IO) { ListingCache.read(ctx, place)?.let(Library::prepare)?.also { if (filterable) learnMatchKeys(it) } }
-                if (!saved.isNullOrEmpty()) {
-                    cache[place] = saved
-                    _state.update { if (it.place == place && it.files.isEmpty()) it.copy(files = saved, busy = false) else it }
+                val saved = withContext(Dispatchers.IO) {
+                    ListingCache.read(ctx, place)?.also { Library.prepare(it.files); if (place is DrivePlace.Named) learnMatchKeys(it.files) }
                 }
+                if (saved != null && saved.files.isNotEmpty()) {
+                    if (place is DrivePlace.Named) keepSaved(place, saved) else cache.putIfAbsent(place, saved.files)
+                    val shown = cache[place] ?: saved.files
+                    _state.update { if (it.place == place && it.files.isEmpty()) it.copy(files = shown, busy = false) else it }
+                }
+            }
+            // Listed in full a moment ago (switching tabs, back from a show): as it is.
+            if (place is DrivePlace.Named && !force && isFresh(listedAt[place], System.currentTimeMillis())) {
+                _state.update { if (it.place == place && it.busy && it.files.isNotEmpty()) it.copy(busy = false) else it }
+                return@launch
             }
             // Offline (a TV just back from standby, its Wi-Fi still reconnecting): what's on screen
             // stays, and it tries again the moment the network is back — or after a growing pause
@@ -588,7 +611,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             var tries = 0
             while (true) {
                 val mark = NetworkWatch.comebacks.value
-                val outcome = fetch(place, stack, library, filterable)
+                val outcome = if (place is DrivePlace.Named) refreshLibrary(place).await() else fetch(place, stack, library)
                 // Only a sign-in that really ended (never a network failure) brings the QR code.
                 if (outcome == Fetch.SignedOut) { askToSignIn(); return@launch }
                 // Keys refused, over a saved copy: said in full once, as it starts (the header's note
@@ -604,37 +627,95 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** [place]'s refresh: the listing of it under way, or a new one (see [LibraryRefreshes]). */
+    private fun refreshLibrary(place: DrivePlace.Named): Deferred<Fetch> = refreshes.listing(place) { listLibrary(place) }
+
+    /** [files] as [place]'s listing from now on (unless signed out since [gen]), and on screen if the viewer is there. */
+    private fun publish(gen: Int, place: DrivePlace, files: List<DriveFile>, token: String? = null) {
+        kept(gen) { cache[place] = files }
+        _state.update { if (it.place == place) it.copy(files = files, busy = false, error = null, token = token ?: it.token) else it }
+    }
+
     /**
-     * One try at listing [place] from Drive, putting what arrives on screen (if the viewer is still
-     * there) and saving it. A token Drive won't take (401: the TV's clock was off when it was saved,
-     * or access was just revoked) is renewed once and the listing tried again ([renewed]).
+     * Lists a library (Movies or TV Shows) from Drive in full: its entries, the owner's posters, then
+     * TMDB's details, each put on screen as it arrives (if the viewer is there). Only a listing that
+     * went all the way is saved and counts as fresh ([listedAt]): one cut short keeps what it had in
+     * memory, and is listed again next time. Unchanged, the saved copy isn't written again. A token
+     * Drive won't take (401: the TV's clock was off when it was saved, or access was just revoked)
+     * is renewed once and the listing tried again ([renewed]).
      */
-    private suspend fun fetch(place: DrivePlace, stack: List<DrivePlace>, library: Boolean, filterable: Boolean, renewed: Boolean = false): Fetch {
+    private suspend fun listLibrary(place: DrivePlace.Named, renewed: Boolean = false): Fetch {
+        // Read first: a sign-out from here on leaves nothing of this listing behind, in memory or saved.
+        val gen = synchronized(libraryLock) { generation }
+        val disk = ListingCache.generation()
+        val result = GoogleAuth.tokenResult(ctx)
+        fetchFor(result)?.let { return it }
+        val token = (result as GoogleAuth.TokenResult.Ok).token
+        // Home's Google-hosted posters need it too, before Streaming is ever opened.
+        _state.update { if (it.connected && it.token != token) it.copy(token = token) else it }
+        val stack = listOf<DrivePlace>(place)
+        // What's shown now (the copy in memory, or the one saved last time) already has TMDB's
+        // details; the fresh listing borrows them until its own lookup is done, so the posters,
+        // genres, rows and featured title don't vanish for a moment — taking the focus with them —
+        // and keeps them where a lookup fails this time (TMDB unreachable).
+        val shown = cache[place]
+        val before = shown?.associateBy { it.id }
+        // Its art loaded ahead, once a run: opening it before the fresh listing is in shows pictures.
+        if (shown != null && warmedSaved.add(place)) warm(token, stack, shown)
+        return try {
+            // The listing with the owner's own art first; TMDB's posters follow.
+            val files = parse(DriveApi.withPosters(token, DriveApi.list(token, place)))
+            val interim = carryOver(files, before)
+            if (interim != shown) publish(gen, place, interim, token)
+            val withTmdb = carryOver(tmdb(stack, files), before)
+            warm(token, stack, withTmdb)
+            if (withTmdb != interim) publish(gen, place, withTmdb, token)
+            withContext(Dispatchers.IO) { if (withTmdb == shown) ListingCache.touch(ctx, place, disk) else ListingCache.write(ctx, place, withTmdb, disk) }
+            kept(gen) { listedAt[place] = System.currentTimeMillis() }
+            // Google answered: whatever said offline was out of date.
+            _state.update { if (it.status != DriveStatus.Online) it.copy(status = DriveStatus.Online) else it }
+            updateRecentlyAdded()
+            Fetch.Done
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: DriveHttpException) {
+            if (e.code == 401 && !renewed) {
+                withContext(Dispatchers.IO) { GoogleAuth.forgetAccess(ctx) }
+                listLibrary(place, renewed = true)
+            } else fetchFailure(e, ::explain)
+        } catch (e: Exception) {
+            fetchFailure(e, ::explain)
+        }
+    }
+
+    /**
+     * One try at listing a place that isn't a library's top (a show's seasons, a folder, Shared with
+     * me), putting what arrives on screen (if the viewer is still there) and saving a library
+     * folder's. A token Drive won't take (401) is renewed once and the listing tried again ([renewed]).
+     */
+    private suspend fun fetch(place: DrivePlace, stack: List<DrivePlace>, library: Boolean, renewed: Boolean = false): Fetch {
+        val disk = ListingCache.generation()
         val result = GoogleAuth.tokenResult(ctx)
         fetchFor(result)?.let { return it }
         val token = (result as GoogleAuth.TokenResult.Ok).token
         return try {
             // Show the listing (with the owner's own art) right away; TMDB posters follow.
             val files = DriveApi.list(token, place).let { if (library) DriveApi.withPosters(token, it) else it }
-                .let { if (filterable) parse(it) else it }
-            // What was on screen (the copy in memory or the saved listing) already has TMDB's
-            // details; this fresh listing only gets them when the lookup below finishes. Until
-            // then it borrows them, so the posters, genres, rows and featured title don't
-            // vanish for a moment — taking the focus with them.
+            // What was on screen already has TMDB's pictures; this fresh listing only gets them when
+            // the lookup below finishes. Until then it borrows them, so they don't vanish for a moment.
             val before = if (library && tmdbMode(stack) != Tmdb.Mode.NONE) cache[place]?.associateBy { it.id } else null
             val interim = carryOver(files, before)
             cache[place] = interim
             // Only apply if the viewer is still on this place.
             _state.update { if (it.place == place) it.copy(token = token, files = interim, busy = false) else it }
-            if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files) }
+            if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files, disk) }
             if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
                 // A lookup that failed this time (TMDB unreachable) keeps what was found before.
                 val withTmdb = carryOver(tmdb(stack, files), before)
                 warm(token, stack, withTmdb)
                 cache[place] = withTmdb
                 _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
-                withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb) }
-                if (place == DrivePlace.Movies || place == DrivePlace.TvShows) updateRecentlyAdded()
+                withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb, disk) }
             }
             Fetch.Done
         } catch (e: CancellationException) {
@@ -642,7 +723,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: DriveHttpException) {
             if (e.code == 401 && !renewed) {
                 withContext(Dispatchers.IO) { GoogleAuth.forgetAccess(ctx) }
-                fetch(place, stack, library, filterable, renewed = true)
+                fetch(place, stack, library, renewed = true)
             } else fetchFailure(e, ::explain)
         } catch (e: Exception) {
             fetchFailure(e, ::explain)
@@ -714,6 +795,9 @@ fun artworkFor(index: Map<String, DriveFile>, key: String, title: String, shows:
         ?: (if (key.startsWith("drive:")) index["id:" + key.removePrefix("drive:")] else null)
         ?: matchKeyOf(title).takeIf { it.isNotBlank() }?.let { index[it] }
 }
+
+/** Movies and TV Shows: the libraries listed in full, kept warm for Home, search and the sidebar. */
+private val LIBRARIES = listOf(DrivePlace.Movies, DrivePlace.TvShows)
 
 /**
  * [Library.showMatchKey] of the libraries' names and of what's in progress, worked out on a

@@ -4,7 +4,12 @@ import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.data.FileTypes
 import com.woodruff.tvexplorer.data.OpProgress
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -83,6 +88,8 @@ object DriveApi {
     private const val BASE = "https://www.googleapis.com/drive/v3/files"
     private const val FOLDER = "application/vnd.google-apps.folder"
     private const val FIELDS = "nextPageToken,files(id,name,mimeType,size,modifiedTime,createdTime,thumbnailLink)"
+    /** Entries per request: Drive's most. A library of 1,000 films is one request instead of five. */
+    private const val PAGE_SIZE = 1000
 
     fun mediaUrl(id: String) = "$BASE/${enc(id)}?alt=media&supportsAllDrives=true"
 
@@ -104,10 +111,13 @@ object DriveApi {
             is DrivePlace.Videos -> "mimeType contains 'video/' and trashed = false" to "modifiedTime desc"
         }
         val out = ArrayList<DriveFile>()
+        // One for the whole listing: a new one for every date (two per file) was most of the time
+        // spent reading a big library's answer.
+        val times = Rfc3339()
         var pageToken: String? = null
         do {
             ensureActive()
-            val url = "$BASE?q=${enc(q)}&orderBy=${enc(order)}&pageSize=200&fields=${enc(FIELDS)}" +
+            val url = "$BASE?q=${enc(q)}&orderBy=${enc(order)}&pageSize=$PAGE_SIZE&fields=${enc(FIELDS)}" +
                 "&includeItemsFromAllDrives=true&supportsAllDrives=true" +
                 (pageToken?.let { "&pageToken=${enc(it)}" } ?: "")
             val json = JSONObject(get(token, url))
@@ -119,9 +129,9 @@ object DriveApi {
                     name = f.optString("name"),
                     mimeType = f.optString("mimeType"),
                     size = f.optString("size").toLongOrNull() ?: 0L,
-                    modified = parseTime(f.optString("modifiedTime")),
+                    modified = times.parse(f.optString("modifiedTime")),
                     thumbnailLink = f.optString("thumbnailLink").ifEmpty { null },
-                    created = parseTime(f.optString("createdTime")),
+                    created = times.parse(f.optString("createdTime")),
                 )
             }
             pageToken = json.optString("nextPageToken").ifEmpty { null }
@@ -142,33 +152,43 @@ object DriveApi {
     }
 
     private val POSTER_NAMES = setOf("poster", "folder", "cover")
+    /** Poster lookups at once: a big library's folders are found three times as fast, and Drive isn't flooded. */
+    private const val POSTER_LANES = 3
 
     /**
      * Poster art, Plex/Kodi style: a folder's poster is a poster/folder/cover image inside it; a
      * loose video's poster is an image with the same name next to it (Inception.mp4 + Inception.jpg).
-     * Those images are then hidden from the grid. Costs one extra request per 25 folders.
+     * Those images are then hidden from the grid. Costs one extra request per 25 folders, three at a
+     * time (one after another, a library of 1,000 shows waited on 40 of them in a row).
      */
     suspend fun withPosters(token: String, files: List<DriveFile>): List<DriveFile> = withContext(Dispatchers.IO) {
         val images = files.filter { it.kind == FileKind.IMAGE }
         val byStem = images.associateBy { it.name.substringBeforeLast('.').lowercase() }
         val used = HashSet<String>()
-        val folderPosters = HashMap<String, String>()
-        files.filter { it.isFolder }.chunked(25).forEach { chunk ->
-            ensureActive()
-            val parents = chunk.joinToString(" or ") { "'${it.id.replace("'", "\\'")}' in parents" }
-            val q = "mimeType contains 'image/' and trashed = false and " +
-                "(name contains 'poster' or name contains 'folder' or name contains 'cover') and ($parents)"
-            val url = "$BASE?q=${enc(q)}&pageSize=200&fields=${enc("files(name,parents,thumbnailLink)")}" +
-                "&includeItemsFromAllDrives=true&supportsAllDrives=true"
-            val found = runCatching { JSONObject(get(token, url)).optJSONArray("files") }.getOrNull() ?: return@forEach
-            for (i in 0 until found.length()) {
-                val f = found.getJSONObject(i)
-                val stem = f.optString("name").substringBeforeLast('.').lowercase()
-                val link = f.optString("thumbnailLink").ifEmpty { null } ?: continue
-                if (stem !in POSTER_NAMES) continue
-                val parentsArr = f.optJSONArray("parents") ?: continue
-                for (j in 0 until parentsArr.length()) folderPosters.putIfAbsent(parentsArr.getString(j), big(link))
-            }
+        val folderPosters = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val lanes = Semaphore(POSTER_LANES)
+        coroutineScope {
+            files.filter { it.isFolder }.chunked(25).map { chunk ->
+                async {
+                    lanes.withPermit {
+                        ensureActive()
+                        val parents = chunk.joinToString(" or ") { "'${it.id.replace("'", "\\'")}' in parents" }
+                        val q = "mimeType contains 'image/' and trashed = false and " +
+                            "(name contains 'poster' or name contains 'folder' or name contains 'cover') and ($parents)"
+                        val url = "$BASE?q=${enc(q)}&pageSize=200&fields=${enc("files(name,parents,thumbnailLink)")}" +
+                            "&includeItemsFromAllDrives=true&supportsAllDrives=true"
+                        val found = runCatching { JSONObject(get(token, url)).optJSONArray("files") }.getOrNull() ?: return@withPermit
+                        for (i in 0 until found.length()) {
+                            val f = found.getJSONObject(i)
+                            val stem = f.optString("name").substringBeforeLast('.').lowercase()
+                            val link = f.optString("thumbnailLink").ifEmpty { null } ?: continue
+                            if (stem !in POSTER_NAMES) continue
+                            val parentsArr = f.optJSONArray("parents") ?: continue
+                            for (j in 0 until parentsArr.length()) folderPosters.putIfAbsent(parentsArr.getString(j), big(link))
+                        }
+                    }
+                }
+            }.awaitAll()
         }
         files.mapNotNull { f ->
             when {
@@ -267,10 +287,14 @@ object DriveApi {
         )
     }
 
-    /** RFC 3339 as Drive sends it (e.g. 2026-10-14T00:48:23.123Z); java.time needs API 26. */
-    private fun parseTime(s: String): Long = runCatching {
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(s)!!.time
-    }.getOrDefault(0L)
+    /**
+     * Reads times as Drive sends them, RFC 3339 in UTC (2026-10-14T00:48:23.123Z); java.time needs
+     * API 26. One per listing: it isn't safe to share between threads. 0 for a time it can't read.
+     */
+    internal class Rfc3339 {
+        private val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        fun parse(s: String): Long = if (s.isEmpty()) 0L else runCatching { format.parse(s)!!.time }.getOrDefault(0L)
+    }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 }
