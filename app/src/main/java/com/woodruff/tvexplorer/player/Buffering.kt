@@ -64,8 +64,9 @@ internal object Buffering {
 /**
  * Since when the player has been meant to play without playing: loading the film's start, a seek,
  * or a stall. The moment is kept through a failed try and the try straight after it (an error, and
- * the player preparing again at once), so the ring doesn't blink off and on between them. Playing,
- * pausing, being ready or reaching the end clears it.
+ * the player preparing again at once, or a moment later once a token Drive refused is dropped:
+ * [RetryAtOnce]), so the ring doesn't blink off and on between them. Playing, pausing, being ready
+ * or reaching the end clears it.
  */
 internal class WaitClock {
     var since: Long? = null
@@ -80,8 +81,12 @@ internal class WaitClock {
         }
     }
 
-    /** How long it has waited at [now], while it's loading ([state] buffering); null otherwise. */
-    fun waitedMs(state: Int, now: Long): Long? = since?.takeIf { state == Player.STATE_BUFFERING }?.let { now - it }
+    /**
+     * How long it has waited at [now], while it's loading ([state] buffering) or between a failed try
+     * and the next (idle, the wait kept: see [update]); null otherwise.
+     */
+    fun waitedMs(state: Int, now: Long): Long? =
+        since?.takeIf { state == Player.STATE_BUFFERING || state == Player.STATE_IDLE }?.let { now - it }
 
     fun reset() {
         since = null
