@@ -1,8 +1,10 @@
 package com.woodruff.tvexplorer.server
 
+import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.data.FileOperations
 import com.woodruff.tvexplorer.data.FileTypes
 import com.woodruff.tvexplorer.data.StorageRoot
+import com.woodruff.tvexplorer.util.Format
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
@@ -57,6 +59,9 @@ class TransferServer(
 
     override fun serve(session: IHTTPSession): Response = try {
         route(session)
+    } catch (e: NoRoom) {
+        // Said before a byte is written; the rest of the upload is never read, so the connection closes after this.
+        newFixedLengthResponse(InsufficientStorage, MIME_PLAINTEXT, e.message).apply { closeConnection(true) }
     } catch (e: SecurityException) {
         text(Response.Status.FORBIDDEN, e.message ?: "Forbidden")
     } catch (e: IOException) {
@@ -70,29 +75,30 @@ class TransferServer(
     private fun route(s: IHTTPSession): Response {
         public(s)?.let { return it }
         val keyParam = s.parameters["k"]?.firstOrNull()
-        if (s.uri == "/" && keyParam != null && same(keyParam, token)) {
-            // Swap the key in the URL for a cookie so it doesn't linger in browser history.
-            return newFixedLengthResponse(Response.Status.REDIRECT_SEE_OTHER, MIME_HTML, "").apply {
-                addHeader("Location", "/")
-                addHeader("Set-Cookie", "tvx=$token; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax")
-            }
-        }
         if (!authorized(s, keyParam)) {
             return text(Response.Status.UNAUTHORIZED, "Scan the QR code on the TV (or type the full address shown there) to connect.")
         }
         return when {
-            // The page keeps the key in its address so a Home Screen copy stays paired (see index.html).
-            // ETag: the phone revalidates each launch and gets a tiny 304 unless the app was updated.
+            // The page keeps the key in its address so a Home Screen copy stays paired (see index.html), so "/?k=…" is
+            // answered straight away, in one round trip, with the cookie its pictures and requests use (finding 45;
+            // a redirect to "/" only cost a round trip, since the page puts the key back). ETag: the phone
+            // revalidates each launch and gets a tiny 304 unless the app was updated.
             s.uri == "/" -> currentPage().let { p ->
-                if (s.headers["if-none-match"] == p.tag) {
+                val r = if (s.headers["if-none-match"] == p.tag) {
                     newFixedLengthResponse(Response.Status.NOT_MODIFIED, MIME_HTML, "").apply { addHeader("ETag", p.tag) }
                 } else {
                     newFixedLengthResponse(Response.Status.OK, MIME_HTML, p.html)
                         .apply { addHeader("Cache-Control", "no-cache"); addHeader("ETag", p.tag) }
                 }
+                if (keyParam != null && same(keyParam, token)) r.addHeader("Set-Cookie", "tvx=$token; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax")
+                r
             }
+            // Each storage, and the room a file from the phone has there (finding 44).
             s.uri == "/api/roots" -> json(JSONArray().apply {
-                roots().forEach { put(JSONObject().put("name", it.title).put("path", it.dir.absolutePath)) }
+                roots().forEach { r ->
+                    put(JSONObject().put("name", r.title).put("path", r.dir.absolutePath).put("removable", r.removable)
+                        .apply { UploadRoom.of(r.dir, onTv = !r.removable)?.let { put("free", it) } })
+                }
             })
             s.uri == "/api/list" -> list(resolve(param(s, "path")))
             s.uri == "/api/download" -> download(resolve(param(s, "path")))
@@ -123,7 +129,9 @@ class TransferServer(
                 .put("size", if (it.isFile) it.length() else 0).put("modified", it.lastModified()))
         }
         val parent = dir.parentFile?.takeIf { p -> inRoots(p.canonicalFile) }
-        return json(JSONObject().put("path", dir.absolutePath).put("parent", parent?.absolutePath ?: JSONObject.NULL).put("files", arr))
+        return json(JSONObject().put("path", dir.absolutePath).put("parent", parent?.absolutePath ?: JSONObject.NULL).put("files", arr)
+            // The room an upload has here, for the phone to check a file against before sending it (finding 44).
+            .apply { UploadRoom.of(dir, onTv = rootOf(dir)?.removable != true)?.let { put("free", it) } })
     }
 
     private fun download(f: File): Response {
@@ -137,7 +145,12 @@ class TransferServer(
     private fun upload(s: IHTTPSession): Response {
         val dir = resolve(param(s, "path"))
         if (!dir.isDirectory) throw IllegalArgumentException("Destination is not a folder")
-        val target = FileOperations.uniqueTarget(dir, clean(param(s, "name")))
+        val name = clean(param(s, "name"))
+        // One that won't fit is turned down before a byte is written (the phone checks first; this is the backstop).
+        val root = rootOf(dir)
+        val where = if (root?.removable == true) root.title else homeName().takeIf { it != PhoneIcon.APP_NAME } ?: "the TV"
+        UploadRoom.check(name, s.headers["content-length"]?.toLongOrNull(), UploadRoom.of(dir, onTv = root?.removable != true), where)
+        val target = FileOperations.uniqueTarget(dir, name)
         receiveFile(s, target)
         onActivity("Received ${target.name}")
         return json(JSONObject().put("ok", true).put("name", target.name))
@@ -155,7 +168,10 @@ class TransferServer(
         return f
     }
 
-    private fun inRoots(f: File): Boolean = roots().any { r ->
+    private fun inRoots(f: File): Boolean = rootOf(f) != null
+
+    /** The storage [f] (a canonical path) is on; null when it's on none of them. */
+    private fun rootOf(f: File): StorageRoot? = roots().firstOrNull { r ->
         val root = r.dir.canonicalFile
         f == root || f.path.startsWith(root.path + File.separator)
     }
@@ -183,6 +199,45 @@ class TransferServer(
 
         private fun same(a: String, b: String) = MessageDigest.isEqual(a.toByteArray(), b.toByteArray())
     }
+}
+
+/**
+ * The room a file from the phone has where it goes (finding 44): what's free there, less [KEEP] on the TV's own storage
+ * (Android, its updates and saved posters need some to run), so an upload never fills the TV; on a USB drive or SD
+ * card, all that's free. The phone checks a file against it before sending; [check] is the TV's backstop.
+ */
+internal object UploadRoom {
+    const val KEEP = 200L * 1024 * 1024
+
+    /** The room in [dir] (or the nearest folder above it that exists); null when its storage doesn't say. */
+    fun of(dir: File, onTv: Boolean): Long? {
+        val d = generateSequence(dir.absoluteFile) { it.parentFile }.firstOrNull { it.exists() } ?: return null
+        if (d.totalSpace <= 0) return null
+        return (d.usableSpace - if (onTv) KEEP else 0L).coerceAtLeast(0)
+    }
+
+    /** "This video is 2.1 GB; Living Room has 800 MB free.", or "Living Room is full." with no room at all. */
+    fun words(name: String, size: Long, room: Long, where: String): String {
+        val kind = when (FileTypes.kindOf(name)) { FileKind.VIDEO -> "video"; FileKind.IMAGE -> "photo"; else -> "file" }
+        // (a number never parts from its unit at a line end)
+        fun bytes(b: Long) = Format.bytes(b).replace(' ', '\u00A0')
+        return if (room <= 0) "${where.replaceFirstChar { it.uppercase() }} is full."
+        else "This $kind is ${bytes(size)}; $where has ${bytes(room)} free."
+    }
+
+    /** [NoRoom], in [words], when an upload of [length] bytes named [name] won't fit in [room] ([where] has it). */
+    fun check(name: String, length: Long?, room: Long?, where: String) {
+        if (length != null && room != null && length > room) throw NoRoom(words(name, length, room, where))
+    }
+}
+
+/** An upload that won't fit where it goes: the phone hears 507 and the plain words ([UploadRoom.words]). */
+internal class NoRoom(message: String) : IOException(message)
+
+/** HTTP 507, which NanoHTTPD has no name for. */
+private object InsufficientStorage : Response.IStatus {
+    override fun getDescription() = "507 Insufficient Storage"
+    override fun getRequestStatus() = 507
 }
 
 /**

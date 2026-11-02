@@ -186,10 +186,12 @@ object TvLinks {
      * /api/update/check: check for an update now (harmless; it follows the test TV's day as always).
      * /api/media: ↺10, 30↻, Next and Play/Pause for what this TV plays, from the phone through the hub
      * (no more than its remote keys can already do).
+     * /api/type: the phone's keyboard on this TV, through the hub: which text box is open and the text typed
+     * into it (typing is pressing this TV's keys, which the link key can already do; finding 42).
      */
     val LINK_ROUTES = setOf(
         "/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/keys", "/api/tmdb",
-        "/api/health", "/api/update/check", "/api/media",
+        "/api/health", "/api/update/check", "/api/media", "/api/type",
     )
 
     /**
@@ -578,6 +580,47 @@ object TvLinks {
         val json = JSONObject().put("key", key).apply { if (repeat > 0) put("repeat", repeat) }.toString()
         // Never sent again: a key press arriving seconds late could do the wrong thing.
         reach(tv, again = false) { t -> request("${t.base}/api/key?k=${enc(t.key)}", "POST", json) }
+    }
+
+    // ---- The phone's keyboard on a linked TV (through this TV, the hub; finding 42) --------------------
+
+    /**
+     * The text box open on [tv] for the phone's keyboard (its "id", "label", "secret", "multiline" and "text", empty
+     * when hidden), or null when none is. [TypingRefused] when [tv] turns typing down with its link key.
+     */
+    fun field(tv: LinkedTv): JSONObject? = typing(tv) { t ->
+        val answer = request("${t.base}/api/type?k=${enc(t.key)}", "GET", null)
+        runCatching { JSONObject(answer) }.getOrNull()?.optJSONObject("field")
+    }
+
+    /**
+     * Types [text] into [tv]'s text box [field] (its id, from [field]; null: whichever is open), pressing Done
+     * with [submit]. [Refused] carries [tv]'s own words ("No text box is open on Den"). Never sent again: text
+     * arriving seconds late could land in a box opened since.
+     */
+    fun type(tv: LinkedTv, field: Long?, text: String, submit: Boolean) {
+        val json = JSONObject().put("text", text).put("submit", submit).apply { if (field != null) put("id", field) }.toString()
+        typing(tv) { t -> request("${t.base}/api/type?k=${enc(t.key)}", "POST", json) }
+    }
+
+    /**
+     * [tv] turned the phone's typing down (HTTP 401) though its link key may work for everything else: a TV on a
+     * Woodruff from before typing went through links. (A TV whose link stopped working turns its status down too,
+     * and the status checks say "Link again"; typing never decides that.)
+     */
+    class TypingRefused : IOException("Typing turned down")
+
+    /** Like [reach] without sending again, except that a 401 is [TypingRefused], not a link that stopped working. */
+    private fun <T> typing(tv: LinkedTv, send: (LinkedTv) -> T): T {
+        try {
+            return send(tv).also { answered(tv) }
+        } catch (e: KeyRefused) {
+            throw TypingRefused()
+        } catch (e: IOException) {
+            // A TV that said no (with its reason) is where it should be: nothing to look for.
+            if (e !is Refused) lost(tv)
+            throw e
+        }
     }
 
     private fun parse(o: JSONObject, online: Boolean) = TvStatus(

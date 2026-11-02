@@ -56,6 +56,13 @@ TITLES = {
     'signin': 'Sign in from the phone', 'signin-waiting': 'Sign in · waiting for Google', 'signin-done': 'Sign in · done',
     'signin-banner': 'A sign-in ended (banner)', 'signin-linked': 'Sign in · another TV',
 }
+# Phone polish (L4-5).
+TITLES.update({
+    'remote-unreachable': 'Remote · can’t reach the TV', 'remote-unreachable-linked': 'Remote · can’t reach the picked TV',
+    'keyboard-linked': 'Keyboard · typing into another TV', 'messages-summary': 'Messages that arrived together (banner)',
+    'settings-phone-messages': 'Settings › This Phone › Recent Messages', 'memories-no-room': 'Family Memories · a video too big for the TV',
+    'files-no-room': 'Photos & Files · a file too big for the TV',
+})
 groups = {'tv': {}, 'phone': {}}
 for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     kind, rest = os.path.basename(path)[:-4].split('-', 1)
@@ -87,6 +94,12 @@ PHONE_ORDER = ['remote', 'keyboard',
                'send', 'send-to', 'files', 'files-actions', 'memories', 'memories-photo', 'settings', 'settings-tvs',
                'settings-tv', 'settings-tv-attention', 'settings-tv-attention-sheet', 'settings-tv-off', 'settings-tv-link', 'settings-tv-relink',
                'tv-screen', 'settings-drive', 'signin', 'signin-waiting', 'signin-done', 'signin-banner', 'signin-linked']
+# Phone polish (L4-5): each new shot after the one it belongs with.
+for after, name in [('remote', 'remote-unreachable-linked'), ('remote', 'remote-unreachable'), ('keyboard', 'keyboard-linked'),
+                    ('files-actions', 'files-no-room'), ('memories-photo', 'memories-no-room'), ('signin-banner', 'messages-summary'),
+                    ('messages-summary', 'settings-phone-messages')]:
+    if after in PHONE_ORDER and name not in PHONE_ORDER:
+        PHONE_ORDER.insert(PHONE_ORDER.index(after) + 1, name)
 rank = lambda g: (ORDER.index(g['name']) if g['name'] in ORDER else 99, g['name'])
 data = {
     'build': build,

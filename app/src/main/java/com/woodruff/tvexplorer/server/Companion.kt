@@ -83,8 +83,8 @@ class CompanionRoutes(private val ctx: Context) {
             Notices.post(ctx, NoticeSource.SYSTEM, "TV linked", "${b.optString("from").ifBlank { "Another TV" }} can now see what's playing here.")
             return json(r)
         }
-        // A linked hub TV: its link key opens only status, screen, remote keys, the keys every TV shares,
-        // this TV's health report and an update check (TvLinks.LINK_ROUTES).
+        // A linked hub TV: its link key opens only status, screen, remote keys and typing, the keys every TV
+        // shares, this TV's health report and an update check (TvLinks.LINK_ROUTES).
         if (s.uri in TvLinks.LINK_ROUTES && TvLinks.isLinkKey(ctx, s.parameters["k"]?.firstOrNull())) return handle(s)
         if (s.uri != "/oauth/callback") return null
         val state = s.parameters["state"]?.firstOrNull()
@@ -335,6 +335,32 @@ class CompanionRoutes(private val ctx: Context) {
             }
             ok()
         }
+        // The phone's keyboard on a linked TV, through this one (finding 42): the text box open there, and the
+        // text typed into it. A TV that can't take typing from here isn't "gone": the answer says why instead.
+        s.uri == "/api/tvs/type" && s.method == Method.GET -> {
+            val tv = TvLinks.find(s.parameters["id"]?.firstOrNull().orEmpty()) ?: throw IllegalArgumentException("That TV isn’t linked any more.")
+            try {
+                json(JSONObject().put("field", TvLinks.field(tv) ?: JSONObject.NULL))
+            } catch (e: TvLinks.TypingRefused) {
+                json(JSONObject().put("field", JSONObject.NULL).put("note", cantType(tv)))
+            } catch (e: java.io.IOException) {
+                throw IllegalArgumentException("${tv.name} didn’t respond")
+            }
+        }
+        s.uri == "/api/tvs/type" && s.method == Method.POST -> {
+            val b = body(s)
+            val tv = TvLinks.find(b.optString("id")) ?: throw IllegalArgumentException("That TV isn’t linked any more.")
+            try {
+                TvLinks.type(tv, if (b.has("field")) b.optLong("field") else null, b.optString("text").take(MAX_TYPED), b.optBoolean("submit"))
+            } catch (e: TvLinks.TypingRefused) {
+                throw IllegalArgumentException(cantType(tv))
+            } catch (e: TvLinks.Refused) {
+                throw IllegalArgumentException(e.message ?: "No text box is open on ${tv.name}")
+            } catch (e: java.io.IOException) {
+                throw IllegalArgumentException("${tv.name} didn’t respond")
+            }
+            ok()
+        }
 
         // ---- TV screen & remote ------------------------------------------------------------
         s.uri == "/api/screen" && s.method == Method.GET -> {
@@ -393,7 +419,7 @@ class CompanionRoutes(private val ctx: Context) {
             }
         }
 
-        // ---- Phone keyboard -----------------------------------------------------------------
+        // ---- Phone keyboard (also for a linked hub, for its phone: typing is pressing this TV's keys) ----------
         s.uri == "/api/type" && s.method == Method.GET -> json(JSONObject().put("field", RemoteInput.target?.let { f ->
             JSONObject().put("id", f.id).put("label", f.label).put("secret", f.secret).put("multiline", f.multiline)
                 .put("text", if (f.secret) "" else f.text)
@@ -401,7 +427,11 @@ class CompanionRoutes(private val ctx: Context) {
         s.uri == "/api/type" && s.method == Method.POST -> {
             val b = body(s)
             val id = if (b.has("id")) b.optLong("id") else null
-            require(RemoteInput.type(id, b.optString("text").take(20_000), b.optBoolean("submit"))) { "No text box is open on the TV" }
+            val open = RemoteInput.fields.value
+            require(open.isNotEmpty()) { "No text box is open on ${TvLinks.name(ctx)}" }
+            // Text meant for a box that has closed never lands in another one opened since (finding 42).
+            require(id == null || open.any { it.id == id }) { "That text box isn’t open on ${TvLinks.name(ctx)} any more." }
+            require(RemoteInput.type(id, b.optString("text").take(MAX_TYPED), b.optBoolean("submit"))) { "No text box is open on ${TvLinks.name(ctx)}" }
             ok()
         }
 
@@ -426,7 +456,12 @@ class CompanionRoutes(private val ctx: Context) {
         }
         s.uri == "/api/phones" && s.method == Method.GET -> json(JSONObject().put("phones", phonesJson()))
         s.uri == "/api/phone/delete" && s.method == Method.POST -> { Phones.remove(ctx, body(s).optString("id")); json(JSONObject().put("phones", phonesJson())) }
-        s.uri == "/api/inbox" && s.method == Method.GET -> json(JSONObject().put("messages", Phones.takeInbox(s.parameters["id"]?.firstOrNull().orEmpty())))
+        // A phone's messages after the last one it has (?after=, with the inbox's ?epoch= it was numbered in), never
+        // taken: one whose reply didn't reach the phone comes again (finding 43). Without ?after=, as before numbers.
+        s.uri == "/api/inbox" && s.method == Method.GET -> json(com.woodruff.tvexplorer.phones.PhoneInbox.since(
+            ctx, s.parameters["id"]?.firstOrNull().orEmpty(),
+            after = s.parameters["after"]?.firstOrNull()?.toLongOrNull(), epoch = s.parameters["epoch"]?.firstOrNull(),
+        ))
         s.uri == "/api/announce" && s.method == Method.POST -> {
             val b = body(s)
             val title = b.optString("title").trim()
@@ -717,6 +752,11 @@ class CompanionRoutes(private val ctx: Context) {
             .put("health", health?.toJson() ?: JSONObject().put("status", "unknown").put("count", 0).put("first", JSONObject.NULL))
     }
 
+    /** Why the linked TV [tv] can't be typed into from the phone: its link stopped working, or its Woodruff is older. */
+    private fun cantType(tv: com.woodruff.tvexplorer.tvs.LinkedTv) =
+        if (TvLinks.refuses(tv.id)) "${tv.name}’s link stopped working. Link it again in Settings → TVs."
+        else "${tv.name} needs a newer Woodruff for typing."
+
     /**
      * The TVs a message is for, from its optional "tvs": "all", "this", or TVs by id or name (a list,
      * or comma-separated, e.g. ?tvs=this,Kids Room). Without it, [default].
@@ -750,6 +790,9 @@ class CompanionRoutes(private val ctx: Context) {
 
     private fun html(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 }
+
+/** The most text the phone's keyboard sends to a text box at once (a long note; a request stays well under 64 KB). */
+private const val MAX_TYPED = 20_000
 
 private val PUBLIC_ASSETS = mapOf(
     "/icon-180.png" to "image/png",

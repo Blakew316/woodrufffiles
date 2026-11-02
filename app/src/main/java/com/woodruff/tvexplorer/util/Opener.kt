@@ -45,14 +45,16 @@ object Opener {
         else -> openExternal(context, item.file, chooser = false)
     }
 
+    private fun window(items: List<FileItem>, current: FileItem): List<String> = window(items.map { it.path }, current.path)
+
     /**
-     * Up to [MAX_QUEUE] paths centred on [current]. Intent extras travel through a ~1 MB binder
-     * buffer, and a library category can hold thousands of files.
+     * Up to [max] (300) paths centred on [current]. Intent extras travel through a ~1 MB binder
+     * buffer, and a library category (or Family Memories, shown from the phone) can hold thousands of files.
      */
-    private fun window(items: List<FileItem>, current: FileItem): List<String> {
-        val i = items.indexOfFirst { it.path == current.path }.coerceAtLeast(0)
-        val from = (i - MAX_QUEUE / 2).coerceIn(0, (items.size - MAX_QUEUE).coerceAtLeast(0))
-        return items.subList(from, minOf(items.size, from + MAX_QUEUE)).map { it.path }
+    internal fun window(paths: List<String>, current: String, max: Int = MAX_QUEUE): List<String> {
+        val i = paths.indexOf(current).coerceAtLeast(0)
+        val from = (i - max / 2).coerceIn(0, (paths.size - max).coerceAtLeast(0))
+        return paths.subList(from, minOf(paths.size, from + max))
     }
 
     private const val MAX_QUEUE = 300

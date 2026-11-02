@@ -10,7 +10,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
 
 /** A phone that opened the companion web app, with the name its owner gave it ("Mom's iPhone"). */
@@ -23,7 +22,8 @@ data class Phone(val id: String, val name: String, val topic: String?, val lastS
  * with a push service, which a TV on the home network can't be:
  *  1. Lock-screen alerts through the free ntfy app (ntfy.sh). Each phone gets its own random topic;
  *     the TV posts to it and ntfy pushes to the phone. The topic name is the only secret.
- *  2. An inbox the companion web app checks every few seconds while it's open.
+ *  2. An inbox the companion web app checks every few seconds while it's open ([PhoneInbox]: kept on the TV's
+ *     disk and read without being taken, so a restart or a lost reply never loses a message).
  */
 object Phones {
     private const val KEY = "phones"
@@ -31,7 +31,6 @@ object Phones {
     private val ID = Regex("[A-Za-z0-9-]{8,64}")
     private val _items = MutableStateFlow<List<Phone>>(emptyList())
     val items: StateFlow<List<Phone>> = _items
-    private val inbox = ConcurrentHashMap<String, MutableList<JSONObject>>()
     @Volatile private var loaded = false
 
     @Synchronized
@@ -67,14 +66,8 @@ object Phones {
     @Synchronized
     fun remove(c: Context, id: String) {
         load(c)
-        inbox.remove(id)
+        PhoneInbox.remove(c, id)
         write(c, _items.value.filter { it.id != id })
-    }
-
-    /** Messages waiting for this phone's web app; reading them empties the inbox. */
-    fun takeInbox(id: String): JSONArray {
-        val list = inbox.remove(id) ?: return JSONArray()
-        return synchronized(list) { JSONArray(list) }
     }
 
     /**
@@ -94,10 +87,8 @@ object Phones {
         val targets = _items.value.filter { ids == null || it.id in ids }
         val msg = JSONObject().put("title", title).put("body", body).put("from", from ?: "TV").put("at", System.currentTimeMillis())
             .apply { id?.let { put("id", it) }; link?.let { put("link", it) } }
-        targets.forEach { p ->
-            val box = inbox.getOrPut(p.id) { mutableListOf() }
-            synchronized(box) { box.add(msg); while (box.size > 20) box.removeAt(0) }
-        }
+        // Kept for each phone's web app until it has them (saved, in the background), whether or not it has ntfy.
+        PhoneInbox.add(c, targets.map { it.id }, msg)
         val pushTo = targets.mapNotNull { it.topic }
         if (pushTo.isNotEmpty()) thread(name = "ntfy") { pushTo.forEach { push(it, pushTitle, pushBody) } }
         return targets.size

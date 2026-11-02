@@ -312,6 +312,8 @@
   .tvbar.on i { background:var(--tint); }
   /* Settings › TVs: a TV that needs attention gets a fourth line, in amber, saying what. */
   .att-l { font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--attention); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* A message under Settings › This Phone: its title, up to two lines of its words, and who sent it when. */
+  .row.msg .meta { margin-top:2px; font-size:13px; line-height:18px; letter-spacing:-.08px; color:var(--label2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   /* ---- A TV's page (Settings › TVs › a TV): its screen, controls and health ------------------------------ */
   #tvp-now { padding:12px; }
@@ -363,6 +365,10 @@
   .remote { --k:clamp(46px, 7.4vh, 62px); height:calc(100% - var(--tab-b) - var(--tab-h) - 8px); min-height:480px;
     display:flex; flex-direction:column; align-items:center; padding:4px var(--mr) 6px var(--ml); }
   .remote > .tip { align-self:stretch; margin:0 0 12px; }
+  /* The TV the remote works can't be reached: said calmly above the clickpad (grey, never red), gone when it answers. */
+  .tip.reach > svg { color:var(--label3); }
+  .tip.reach .grow { color:var(--label2); }
+  .tip.reach .tt { color:var(--label); }
   .hint { flex:none; display:inline-flex; align-items:center; gap:8px; height:44px; max-width:100%; margin-top:4px; padding:0 18px; border-radius:22px; background:var(--tint-soft); color:var(--tint); font-size:15px; letter-spacing:-.23px; font-weight:600; }
   .hint svg { width:20px; height:20px; }
   .hint span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -830,7 +836,7 @@
   .banner img { width:38px; height:38px; border-radius:9px; flex:none; }
   .banner small { display:block; font-size:13px; line-height:16px; letter-spacing:-.08px; color:var(--label2); }
   .banner b { display:block; font-weight:600; font-size:15px; line-height:20px; letter-spacing:-.23px; }
-  .banner .s { white-space:normal; }
+  .banner .s { white-space:normal; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; }   /* the whole message is in Settings › This Phone */
 
   /* ---- Content that changes: nothing pops (the script's morph, dissolve and swap) -------------------- */
   /* What went away fades out where it was as a copy (.ghost); a group (an inset card) that grows or shrinks lends
@@ -862,6 +868,7 @@
 <section class="tab" id="tab-remote">
   <div class="page" id="remote-root" data-title="Remote"><div class="scroller">
     <div class="remote">
+      <div class="tip reach" id="rm-reach" role="status" hidden><i data-ic="gTv"></i><div class="grow"><span class="tt" id="rm-reach-t"></span><span id="rm-reach-s"></span></div></div>
       <div class="tip" id="install" hidden><i data-ic="share"></i><div class="grow"><span class="tt">Add to Home Screen</span>Tap <b>Share</b>, then <b>Add to Home Screen</b>. It stays paired with this TV.</div><button class="x" id="install-x" aria-label="Dismiss"><i data-ic="xmark"></i></button></div>
       <button class="hint" id="rm-kb-hint" hidden><i data-ic="keyboard"></i><span id="rm-kb-hint-t">Type on the TV</span></button>
       <div class="padbox">
@@ -1062,6 +1069,11 @@
       <button class="row tap" id="p-ntfy" data-page="set-ntfy" hidden><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button>
     </div>
     <p class="foot">Announcements reach the Lock Screen through the free ntfy app.</p>
+    <div id="p-msgs-sec" hidden>
+      <div class="head">Recent Messages</div>
+      <div class="group" id="p-msgs"></div>
+      <p class="foot">Messages to this phone stay here for a week.</p>
+    </div>
   </div></div>
 
   <div class="page" id="set-ntfy" data-title="How to Set Up"><div class="scroller">
@@ -1203,7 +1215,7 @@
 <div class="menu" id="menu" role="menu"></div>
 <div class="msheet" id="kb" role="dialog" aria-modal="true" aria-label="Keyboard">
   <div class="grab"></div>
-  <div class="sbar"><button class="gb glass ic" id="kb-close" aria-label="Close"><i data-ic="xmark"></i></button><b>Keyboard</b><button class="gb prom" id="kb-enter">Enter</button></div>
+  <div class="sbar"><button class="gb glass ic" id="kb-close" aria-label="Close"><i data-ic="xmark"></i></button><span class="stt"><b>Keyboard</b><small id="kb-tv"></small></span><button class="gb prom" id="kb-enter">Enter</button></div>
   <div class="sbody">
     <div class="group">
       <div class="row"><span class="dot" id="kb-dot"></span><span class="txt t" id="kb-status">Looking for a text box on the TV…</span><button class="link" id="kb-clear">Clear</button></div>
@@ -1319,12 +1331,22 @@
 
   function fmt(b) { if (b < 1024) return b + ' B'; var u = ['KB','MB','GB','TB'], i = -1; do { b /= 1024; i++; } while (b >= 1024 && i < 3); return (b >= 100 ? b.toFixed(0) : b.toFixed(1)) + ' ' + u[i]; }
   function q(s) { return encodeURIComponent(s); }
-  function api(url, opts) {
-    return fetch(url, opts).then(function (r) {
+  // A request gives up when the TV doesn't answer in time, saying so in the TV's name ("Can’t reach Living Room"),
+  // rather than leaving a tap unanswered for as long as iOS waits (finding 45; fetchT). ms: as waitFor says, unless
+  // given. A refusal comes back in the TV's own words.
+  function api(url, opts, ms) {
+    return fetchT(url, opts, ms || waitFor(url)).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.statusText); });
       return r.json();
     });
   }
+  // How long to wait for the TV: 15 s; longer where the TV first waits on something slow itself (a mail server's
+  // sign-in, a place looked up for the weather, a TV linked again, a TMDB key checked, a big Family Memories listed);
+  // shorter for the text box, asked every few seconds, which also tells whether the TV can be reached at all. Through
+  // this TV to a linked one, longer than its 2.5 s + 5 s, so "Den didn’t respond" still comes in its words.
+  var WAITS = { '/api/mail': 50000, '/api/settings/weather': 30000, '/api/memories': 30000, '/api/tvs/relink': 25000,
+    '/api/settings/tmdb': 20000, '/api/type': 6000, '/api/tvs/type': 10000, '/api/tvs': 8000 };
+  function waitFor(url) { return WAITS[String(url).split('?')[0]] || 15000; }
   function post(url, data) { return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}) }); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function err(e) { toast(e.message || String(e), true); }
@@ -2535,7 +2557,7 @@
       // file fades out and the rows below move up; a new folder fades in where it goes), another storage cross-fades.
       morph(p.scroller, function () {
         var same = p.path === d.path;
-        p.path = d.path; p.parent = d.parent; p.files = d.files;
+        p.path = d.path; p.parent = d.parent; p.files = d.files; p.free = typeof d.free === 'number' ? d.free : null;
         if (p === filesRoot) { setHidden($('storage'), roots.length < 2); setText($('storage-name'), rootOf(p.path).name); }
         render(p, same);
       });
@@ -2607,31 +2629,52 @@
       } }
     ]);
   }
+  // One at a time, each in its row with its progress. One that won't fit in the room the folder's storage has (the
+  // listing says, less what the TV keeps for itself on its own storage) says so in its row and isn't sent (finding 44).
   function upload(list) {
     var queue = Array.prototype.slice.call(list), p = topFiles(), target = p.path, box = p.uploads;
+    var left = typeof p.free === 'number' ? p.free : null, root = rootOf(target), where = root && root.removable ? root.name : hubName();
     (function next() {
       var f = queue.shift();
       if (!f) {
         stacks.send.forEach(function (x) { if (x.isFiles && x.path === target) loadInto(x, target); });
-        setTimeout(function () { if (!box.querySelector('.busy')) morph(p.scroller, function () { box.hidden = true; box.textContent = ''; }); }, 2500);
+        // (one that didn't go stays long enough to read why)
+        setTimeout(function () { if (!box.querySelector('.busy')) morph(p.scroller, function () { box.hidden = true; box.textContent = ''; }); }, box.querySelector('.s.warn, .s.err') ? 8000 : 2500);
         return;
       }
       var row = el('div', 'row fi busy'); row.appendChild(icon({ name: f.name, dir: false }));
       var text = el('span', 'txt'); text.appendChild(el('span', 't', f.name)); var pct = el('span', 's', 'Waiting…'); text.appendChild(pct);
       var bar = el('div', 'prog'); var fill = el('i'); bar.appendChild(fill); text.appendChild(bar); row.appendChild(text);
+      var full = noRoom(f.name, f.size, left, where);
+      if (full) { row.classList.remove('busy'); pct.textContent = full; pct.className = 's two warn'; bar.hidden = true; }
       morph(p.scroller, function () { box.hidden = false; box.appendChild(row); });   // it fades in; the list below makes room
+      if (full) return next();
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload?path=' + q(target) + '&name=' + q(f.name));
       xhr.upload.onprogress = function (e) { if (e.lengthComputable) { fill.style.transform = barTf(e.loaded / e.total); pct.textContent = fmt(e.loaded) + ' of ' + fmt(e.total); } };
-      xhr.onload = function () { row.classList.remove('busy'); if (xhr.status === 200) { pct.textContent = 'Uploaded'; pct.className = 's ok'; fill.style.transform = barTf(1); } else { pct.textContent = 'Failed'; pct.className = 's err'; } next(); };
+      xhr.onload = function () {
+        row.classList.remove('busy');
+        if (xhr.status === 200) { pct.textContent = 'Uploaded'; pct.className = 's ok'; fill.style.transform = barTf(1); if (left != null) left -= f.size; }
+        else { pct.textContent = xhr.responseText || 'Couldn’t upload it'; pct.className = 's two ' + (xhr.status === 507 ? 'warn' : 'err'); }   // (the TV's own words)
+        next();
+      };
       xhr.onerror = function () { row.classList.remove('busy'); pct.textContent = 'Connection lost'; pct.className = 's err'; next(); };
       xhr.send(f);
     })();
   }
+  // Whether a file of [size] bytes fits in the room [free] [where] has (null: the TV didn't say); the plain words
+  // when it doesn't: "This video is 2.1 GB; Living Room has 800 MB free." (or "Living Room is full."), as the TV says it.
+  function noRoom(name, size0, free, where) {
+    if (free == null || size0 <= free) return null;
+    if (free <= 0) return where.charAt(0).toUpperCase() + where.slice(1) + ' is full.';
+    var kind = /\.(mov|mp4|m4v|3gp|mkv|webm|avi|ts)$/i.test(name) ? 'video' : IMG.test(name) ? 'photo' : 'file';
+    function size(b) { return fmt(b).replace(' ', '\u00a0'); }   // (a number never parts from its unit at a line end)
+    return 'This ' + kind + ' is ' + size(size0) + '; ' + where + ' has ' + size(free) + ' free.';
+  }
   $('file').onchange = function () { if (this.files.length) upload(this.files); this.value = ''; };
   $('storage').onclick = function () {
     var now = rootOf(filesRoot.path).path;
-    menu($('storage'), roots.map(function (r) { return { label: r.name, checked: r.path === now, fn: function () { loadInto(filesRoot, r.path); } }; }));
+    menu($('storage'), roots.map(function (r) { return { label: r.name, sub: typeof r.free === 'number' ? fmt(r.free) + ' free' : null, checked: r.path === now, fn: function () { loadInto(filesRoot, r.path); } }; }));
   };
   document.addEventListener('dragover', function (e) { e.preventDefault(); });
   document.addEventListener('drop', function (e) { e.preventDefault(); if (current === 'send' && topOf().isFiles && e.dataTransfer.files.length) upload(e.dataTransfer.files); });
@@ -2766,7 +2809,14 @@
   function fmtTime(ms) { var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return (h ? h + ':' + ('0' + m).slice(-2) : m) + ':' + ('0' + (s % 60)).slice(-2); }
   function tvStatus(t) { var p = t.playing; return t.link === 'refused' ? 'Link again' : !t.online ? 'Off' : !p ? 'Nothing playing' : (p.playing ? 'Playing ' : 'Paused · ') + p.title; }
   function chosenTv() { return tvs.filter(function (t) { return t.id === tvId; })[0]; }
-  function chooseTv(id) { tvId = id; renderTvs(); loadTvs(); }
+  function chooseTv(id) { if (id !== tvId) retarget(id); tvId = id; renderTvs(); loadTvs(); pollField(); }
+  // Another TV picked (or the picked one unlinked): the keyboard starts again on that TV's own text box, and nothing
+  // typed for the last one goes to it.
+  function retarget(id) {
+    fieldSeq++; field = null; typing.next = null; clearTimeout(typeTimer); reach.tv = 0;
+    $('kb-text').value = '';
+    showField(null, 'Looking for a text box on ' + tvName(id) + '…');
+  }
   // Every 5 s while the Remote, Watch or Settings › TVs is on screen; once, without polling, for the words
   // elsewhere (Send's To row, the TVs row in Settings).
   function tvsShowing() { return current === 'settings' && (topOf('settings') === PG['set-tvs'] || topOf('settings') === PG['set-tv']); }
@@ -2774,17 +2824,66 @@
   function loadTvs(once) {
     var seq = once ? 0 : ++tvSeq;
     if (!once) { clearTimeout(tvTimer); if ((current !== 'remote' && current !== 'watch' && !tvsShowing()) || document.hidden) return; }
-    api('/api/tvs').then(function (d) { tvsFailed = false; calm('tvs', function () { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }); }, function () {
+    api('/api/tvs').then(function (d) {
+      tvsFailed = false;
+      var picked = d.tvs.filter(function (t) { return t.id === tvId; })[0];
+      reached(true, tvId === 'this' || !picked ? null : !!picked.online);
+      calm('tvs', function () { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); });
+    }, function (e) {
       // Settings › TVs keeps its last rows; it says so once.
       if (!tvsFailed && tvsShowing() && tvs.length) toast('Can’t reach ' + hubName(), true);
       tvsFailed = true;
+      reached(!e.unreachable, null);   // (an answer, even a refusal, means this TV can be reached)
     }).then(function () { if (seq && seq === tvSeq) tvTimer = setTimeout(loadTvs, 5000); });
   }
+  // ---- Can’t reach the TV (finding 45) -----------------------------------------------------------------
+  // The Remote says so when the TV it works can't be reached: after two polls in a row went unanswered (the TV list,
+  // or the text box, both asked every few seconds and given up on after a few), "Can’t Reach Living Room" above the
+  // clickpad, or the picked TV, when it's the one Living Room can't reach (or whose link stopped working). The next
+  // answer puts it away. hub: whether this TV (the one serving this app) answered; tv: whether the picked linked TV
+  // did (null: not known from this poll).
+  var reach = { hub: 0, tv: 0, shown: '' };
+  function reached(hub, tv) {
+    if (hub != null) reach.hub = hub ? 0 : reach.hub + 1;
+    if (tv != null) reach.tv = tv ? 0 : reach.tv + 1;
+    calm('reach', renderReach);
+  }
+  function renderReach() {
+    var t = chosenTv(), linked = tvId !== 'this', who = '', why = '', kb = '';
+    if (reach.hub >= 2) { who = hubName(); why = 'Check that it’s on and this phone is on the same Wi-Fi.'; }
+    else if (linked && t && refused(t)) { who = t.name; why = 'Its link stopped working. Link it again in Settings → TVs.'; kb = who + '’s link stopped working. Link it again in Settings → TVs.'; }
+    else if (linked && reach.tv >= 2) { who = tvName(tvId); why = 'Check that it’s on.'; }
+    if (who && kbOpen) { setClass($('kb-dot'), 'dot'); swapText($('kb-status'), kb || 'Can’t reach ' + who); }
+    var key = who && who + '|' + why, card = $('rm-reach');
+    if (key === reach.shown) return;
+    reach.shown = key;
+    renderTitle();   // (its green dot)
+    // Nothing can be typed then: the keyboard button no longer lights up (it does again with the next text box seen).
+    var kb2 = $('kb-open2'); if (who && kb2 && kb2.classList.contains('ready')) dissolve(kb2, function () { kb2.classList.remove('ready'); });
+    function words() { setText($('rm-reach-t'), 'Can’t Reach ' + who); setText($('rm-reach-s'), why); }
+    if (card.hidden === !who) { if (who) dissolve(card, words); return; }   // another TV, or why: the words change in place
+    if (who) words();
+    // It comes in (or goes) where the "Type into" pill would be, the clickpad making room.
+    function change() { card.hidden = !who; if (who) $('rm-kb-hint').hidden = true; }
+    if (current === 'remote' && !kbOpen && onScreen(card.parentNode)) flipPad(change); else change();
+  }
   function renderTvs() {
+    var t = chosenTv();
+    if (!t && tvs.length) { retarget(tvs[0].id); tvId = tvs[0].id; t = tvs[0]; pollField(); }   // that TV was unlinked
+    renderReach();
+    renderTitle();
+    renderTo();
+    renderTvList();
+    renderNp();
+    if (TS.open) paintTarget();
+    if (W.named != null && libName() !== W.named) calm('watch-name', applyHome);   // "Can’t Reach the TV" → "Can’t Reach Living Room"
+  }
+
+  // The title (Remote, or the TV picker): new words cross-dissolve in place. Its green dot says the TV plays something,
+  // so it isn't there while that TV can't be reached.
+  function renderTitle() {
     var many = tvs.length > 1, t = chosenTv();
-    if (!t && tvs.length) { tvId = tvs[0].id; t = tvs[0]; }   // that TV was unlinked
-    // The title (Remote, or the TV picker): new words cross-dissolve in place.
-    var nm = t ? t.name : $('rm-tv-name').textContent, dot = t ? !playing(t) : $('rm-tv-dot').hidden;
+    var nm = t ? t.name : $('rm-tv-name').textContent, dot = t ? !playing(t) || !!reach.shown : $('rm-tv-dot').hidden;
     if ($('rm-tv').hidden !== !many || $('rm-title').hidden !== many || $('rm-tv-name').textContent !== nm || $('rm-tv-dot').hidden !== dot) {
       dissolve(rmTitle, function () { setHidden($('rm-tv'), !many); setHidden($('rm-title'), many); setText($('rm-tv-name'), nm); setHidden($('rm-tv-dot'), dot); });
     }
@@ -2792,11 +2891,6 @@
     if ($('w-tv').hidden !== !many || $('w-title-t').hidden !== many || $('w-tv-name').textContent !== nm || $('w-tv-dot').hidden !== dot) {
       dissolve(wTitle, function () { setHidden($('w-tv'), !many); setHidden($('w-title-t'), many); setText($('w-tv-name'), nm); setHidden($('w-tv-dot'), dot); });
     }
-    renderTo();
-    renderTvList();
-    renderNp();
-    if (TS.open) paintTarget();
-    if (W.named != null && libName() !== W.named) calm('watch-name', applyHome);   // "Can’t Reach the TV" → "Can’t Reach Living Room"
   }
 
   // ---- Settings › TVs -----------------------------------------------------------------------------
@@ -2882,7 +2976,9 @@
   var ANDROID = { 26: '8', 27: '8.1', 28: '9', 29: '10', 30: '11', 31: '12', 32: '12L', 33: '13', 34: '14', 35: '15', 36: '16' };
   function tvPageShowing() { return current === 'settings' && topOf('settings') === PG['set-tv']; }
   function tvOf(id) { return tvs.filter(function (t) { return t.id === id; })[0]; }
-  function hubName() { var me = tvOf('this'); return me ? me.name : (W.home && W.home.tv) || 'the TV'; }
+  // This TV's name: as the TV list says it, else the name it was given (the page's Home Screen label, there from the start).
+  var HOME_NAME = (function () { var m = doc.querySelector('meta[name=apple-mobile-web-app-title]'), n = (m && m.content) || ''; return /^__|^Woodruff Family$/.test(n) ? '' : n; })();
+  function hubName() { var me = tvOf('this'); return me ? me.name : (W.home && W.home.tv) || HOME_NAME || 'the TV'; }
   function tvName(id) { var t = tvOf(id); return t ? t.name : id === 'this' ? hubName() : 'TV'; }
   // Words as the TV writes them, lower case first unless a name ("signed in", "can’t reach Google").
   function lower(s) { s = s || ''; return /^(Google|Woodruff|Android|TMDB)\b/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1); }
@@ -3570,28 +3666,43 @@
   };
 
   // ---- Keyboard -----------------------------------------------------------------------------------
-  var field = null, typeTimer = null, pollTimer = null, kbOpen = false;
+  // It types into the picked TV (finding 42): this TV's text box, or a linked TV's through this one. Each change sends
+  // the whole text, one request at a time, the newest text going when the one on its way has arrived, so letters never
+  // arrive out of order. Another TV picked: its own text box, and the keyboard starts again, empty.
+  var field = null, typeTimer = null, pollTimer = null, kbOpen = false, fieldSeq = 0, typing = { busy: false, next: null };
   function openKb(focus) {
-    kbOpen = true; presentSheet($('kb'));
+    kbOpen = true; setText($('kb-tv'), tvName(tvId)); presentSheet($('kb'));   // (the TV it types into, named as the TV Screen sheet does)
     if (focus) $('kb-text').focus({ preventScroll: true }); // within the tap, so iOS shows the keyboard
     pollField();
   }
   function closeKb(v, from, appFrom, lead) { kbOpen = false; dismissSheet($('kb'), typeof v === 'number' ? v : 0, from, appFrom, lead); $('kb-text').blur(); pollField(); }
   sheetDrag($('kb'), closeKb);
+  // The picked TV's text box, every 2 s on the Remote (1.2 s with the keyboard open); a reply about a TV no longer
+  // picked, or older than the last ask, is dropped.
   function pollField() {
     clearTimeout(pollTimer);
     if (document.hidden || (current !== 'remote' && !kbOpen)) return;
-    api('/api/type').then(function (d) { calm('field', function () { showField(d.field); }); }, function () {})
-      .then(function () { pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
+    var id = tvId, seq = ++fieldSeq, linked = id !== 'this';
+    // (this TV answers at once, so 4 s is plenty and tells soon when it can't be reached; through it, 10 s)
+    api(linked ? '/api/tvs/type?id=' + q(id) : '/api/type', null, linked ? 10000 : 4000).then(function (d) {
+      if (seq !== fieldSeq) return;
+      reached(true, linked ? true : null);
+      calm('field', function () { if (id === tvId) showField(d.field, d.note); });
+    }, function (e) {
+      // Not answered at all: this TV can't be reached. Answered with a refusal: it can, the linked TV can't.
+      if (seq === fieldSeq) reached(!e.unreachable, linked && !e.unreachable ? false : null);
+    }).then(function () { if (seq === fieldSeq) pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
   }
-  function showField(f) {
-    var pill = !f || kbOpen;
+  // note: why a linked TV can't take typing from here ("Den needs a newer Woodruff for typing").
+  function showField(f, note) {
+    setText($('kb-tv'), tvName(tvId));
+    var pill = !f || kbOpen || !!reach.shown;
     if ($('rm-kb-hint').hidden !== pill) {
       if (current === 'remote' && !kbOpen) flipPad(function () { $('rm-kb-hint').hidden = pill; }); else $('rm-kb-hint').hidden = pill;
     }
     var kb2 = $('kb-open2'), ready = !!f && !kbOpen;   // the keyboard button lights up (cross-fades) when there's a text box
     if (kb2 && kb2.classList.contains('ready') !== ready) dissolve(kb2, function () { kb2.classList.toggle('ready', ready); });
-    if (!f) { field = null; setClass($('kb-dot'), 'dot'); swapText($('kb-status'), 'No text box selected on the TV'); return; }
+    if (!f) { field = null; setClass($('kb-dot'), 'dot'); swapText($('kb-status'), note || 'No text box selected on ' + tvName(tvId)); return; }
     if (!field || field.id !== f.id) { $('kb-text').value = f.text || ''; }
     field = f;
     swapText($('rm-kb-hint-t'), 'Type into ' + f.label);
@@ -3612,12 +3723,28 @@
     tracked(pad.animate([{ transform: 'translateY(' + dy.toFixed(1) + 'px) scale(' + sc.toFixed(4) + ')' }, { transform: 'translateY(0) scale(1)' }], { duration: s.ms, easing: s.easing }));
   }
   function sendText(submit) {
-    if (!field) return toast('Select a text box on the TV first', true);
+    if (!field) return toast('Select a text box on ' + tvName(tvId) + ' first', true);
     var text = $('kb-text').value;
     if (!field.multiline) text = text.replace(/\n/g, ' ');
-    return post('/api/type', { id: field.id, text: text, submit: !!submit }).then(function () {
-      if (submit) { toast('Sent to the TV'); $('kb-text').value = ''; field = null; closeKb(); }
-    }, err);
+    var job = { tv: tvId, field: field.id, text: text, submit: !!submit };
+    if (!typing.busy) return sendTyped(job);
+    // One on its way: this waits, replacing any text still waiting (Enter, once pressed, goes with its own text).
+    if (!(typing.next && typing.next.submit)) typing.next = job;
+  }
+  function sendTyped(job) {
+    typing.busy = true;
+    var sent = job.tv === 'this' ? post('/api/type', { id: job.field, text: job.text, submit: job.submit })
+      : post('/api/tvs/type', { id: job.tv, field: job.field, text: job.text, submit: job.submit });
+    sent.then(function () {
+      if (!job.submit) return;
+      toast('Sent to ' + tvName(job.tv));
+      if (job.tv === tvId) { $('kb-text').value = ''; field = null; closeKb(); }
+    }, function (e) { err(e); pollField(); })   // (a box that closed meanwhile: the next look says so)
+      .then(function () {
+        typing.busy = false;
+        var next = typing.next; typing.next = null;
+        if (next && next.tv === tvId) sendTyped(next);
+      });
   }
   $('kb-text').addEventListener('input', function () { clearTimeout(typeTimer); typeTimer = setTimeout(function () { sendText(false); }, 120); });
   $('kb-text').addEventListener('keydown', function (e) {
@@ -3632,7 +3759,8 @@
   // photos and videos from this phone: a photo is shrunk to the size the TV keeps photos at (upright, as a JPEG) and
   // keeps when it was taken (read from it first: shrinking drops that); they go one at a time, each tile filling its
   // ring, then glide to their places by date. A tap opens one full screen (see the viewer below).
-  var mem = { items: [], fit: [1920, 1080], folder: null, loaded: false, failed: false, seq: 0, ups: [], batch: null, previews: {} };
+  // free: the room a photo or video from this phone has on the TV (as the listing said), less what's been sent since.
+  var mem = { items: [], fit: [1920, 1080], folder: null, loaded: false, failed: false, seq: 0, ups: [], batch: null, previews: {}, free: null, sent: 0 };
   var memRoot = null, upN = 0, upBusy = false, wakeLock = null;
   var VIDEO_NAME = /\.(mov|mp4|m4v|3gp|mkv|webm|avi)$/i, MEDIA_NAME = /\.(jpe?g|png|heic|heif|webp|gif|avif|mov|mp4|m4v|3gp|mkv|webm|avi)$/i;
   var RING = '<svg class="ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="rf" cx="18" cy="18" r="15" pathLength="100" transform="rotate(-90 18 18)"/></svg>';
@@ -3652,6 +3780,7 @@
   // A listing in: the grid changes only when something did, and glides (what stayed moves to its new place).
   function gotMemories(d) {
     mem.fit = d.fit || mem.fit; mem.folder = d.folder;
+    mem.free = typeof d.free === 'number' ? d.free : null; mem.sent = 0;
     var k = JSON.stringify(d.items);
     if (mem.loaded && !mem.failed && k === gotMemories.k) return;
     gotMemories.k = k; mem.items = d.items; mem.loaded = true; mem.failed = false;
@@ -3760,12 +3889,15 @@
     upBusy = true;
     prepare(u).then(function (p) {
       if (u.canvas && !u.tile.contains(u.canvas)) { u.tile.insertBefore(u.canvas, u.tile.firstChild); appear(u.canvas); }
-      return sendUpload(u, p);
+      // One that won't fit on the TV says so before it's sent, rather than failing late (finding 44).
+      var full = noRoom(p.name, p.blob.size, mem.free == null ? null : mem.free - mem.sent, hubName());
+      if (full) { var e = new Error(full); e.room = true; throw e; }
+      return sendUpload(u, p).then(function (item) { mem.sent += p.blob.size; return item; });
     }).then(function (item) {
       u.done = true; u.tile.classList.add('ok'); setRing(u, 1); mem.batch.done++;
       u.tile.dataset.k = mkey(item);   // so the grid's tile for it, once listed, glides from here
     }, function (e) {
-      u.failed = true; u.error = (e && e.message) || String(e); mem.batch.failed++;
+      u.failed = true; u.error = (e && e.message) || String(e); mem.batch.failed++; mem.batch.why = u.error; mem.batch.room = !!(e && e.room);
       u.tile.classList.add('fail');
     }).then(function () { upBusy = false; memCount(); nextUpload(); });
   }
@@ -3773,7 +3905,10 @@
     awake(false);
     var b = mem.batch; if (!b) return;
     mem.batch = null;   // (the ones that failed stay, to try again; the rest until the TV lists them)
-    if (b.failed) toast(b.done ? 'Added ' + b.done + ', ' + b.failed + " couldn't be added" : (b.failed === 1 ? "Couldn't add it" : "Couldn't add them"), true);
+    // One alone that didn't fit says so in an alert, as iOS does for storage ("This video is 2.1 GB; Living Room has
+    // 800 MB free."); one alone that couldn't go for another reason says why.
+    if (b.failed === 1 && !b.done && b.room) alertBox({ title: 'Not Enough Room', message: b.why, actions: [{ label: 'OK', pref: true }] });
+    else if (b.failed) toast(b.done ? 'Added ' + b.done + ', ' + b.failed + " couldn't be added" : (b.failed === 1 ? b.why || "Couldn't add it" : "Couldn't add them"), true);
     else if (b.done) toast(b.done === 1 ? 'Added to Family Memories' : 'Added ' + b.done + ' to Family Memories');
     gotMemories.k = null;
     loadMemories();
@@ -3891,7 +4026,7 @@
       x.open('POST', '/api/memories/add?name=' + q(p.name) + (p.taken ? '&taken=' + p.taken : ''));
       x.upload.onprogress = function (e) { if (e.lengthComputable) setRing(u, e.loaded / e.total * 0.96); };
       x.onload = function () {
-        if (x.status !== 200) return no(new Error(x.responseText || "The TV didn't take it"));
+        if (x.status !== 200) { var e = new Error(x.responseText || "The TV didn't take it"); e.room = x.status === 507; return no(e); }
         try { ok(JSON.parse(x.responseText).item); } catch (e) { no(e); }
       };
       x.onerror = function () { no(new Error('The connection to the TV was lost')); };
@@ -4230,7 +4365,8 @@
     return fetch(url, opts).then(function (r) { clearTimeout(t); return r; }, function () {
       clearTimeout(t);
       if (theirs && theirs.aborted) { var a = new Error('Aborted'); a.name = 'AbortError'; throw a; }   // the caller's own (a newer search)
-      throw new Error('Can’t reach ' + hubName());
+      var gone = new Error('Can’t reach ' + hubName()); gone.unreachable = true;   // (not the TV's own refusal)
+      throw gone;
     });
   }
   function getJ(url, opts, ms) {
@@ -5086,6 +5222,7 @@
     setHidden($('p-ntfy'), !ntfy);   // How to Set Up (ntfy)
     setText($('p-topic'), device.topic || '');
     setHidden($('name-me'), !!device.name);
+    setHidden($('p-msgs-sec'), !device.name);   // (a phone without a name gets no messages)
     swapText($('me-name'), device.name || 'Name This Phone');
     $('me-name').classList.toggle('act', !device.name);
     swapText($('me-sub'), device.name ? 'This phone · Lock-screen alerts ' + (device.alerts ? 'on' : 'off') : 'So it can get announcements too');
@@ -5110,14 +5247,37 @@
     var b = $('alert');
     function set() { b._link = /^#[a-z]/.test(m.link || '') ? m.link : null; setText($('alert-from'), 'From ' + (m.from || 'the TV')); setText($('alert-title'), m.title); setText($('alert-body'), m.body || ''); }
     if (!b.classList.contains('show')) { set(); overlay(b, true, LOOK.banner, spring(0.5, 0.8)); }
-    else swap(b, bannerTf, set);   // another one while it's up: the new one takes its place
-    clearTimeout(showAlert.h); showAlert.h = setTimeout(hideAlert, 8000);
+    else swap(b, bannerTf, set);   // the next one while it's up: the new one takes its place
+    alertTimer(alerts.length ? 5000 : 8000);
   }
   function hideAlert(v, from, lead) { if ($('alert').classList.contains('show')) overlay($('alert'), false, LOOK.banner, spring(0.35, 1, v || 0), from, null, lead); }
+  // Messages that arrive together show one after another (finding 43): each for 5 s while others wait, the last for
+  // 8 s. Four or more waiting at once become one banner ("4 new messages", the newest titles), whose tap opens them
+  // all under Settings › This Phone.
+  var alerts = [];
+  function queueAlerts(list) {
+    alerts = alerts.concat(list);
+    if (alerts.length > 3) alerts = [summaryAlert(alerts)];
+    var b = $('alert');
+    if (!b.classList.contains('show')) return nextAlert();
+    if (!b._held && showAlert.until - Date.now() > 5000) alertTimer(5000);   // the one up makes way sooner
+  }
+  function nextAlert() { var m = alerts.shift(); if (m) showAlert(m); }
+  function alertTimer(ms) { clearTimeout(showAlert.h); showAlert.h = setTimeout(alertDone, ms); showAlert.until = Date.now() + ms; }
+  function alertDone() { if (alerts.length) nextAlert(); else hideAlert(); }
+  // After one is put away (swiped up, or tapped), the next comes once it has gone.
+  function alertAfter() { if (alerts.length) setTimeout(function () { if (!$('alert').classList.contains('show')) nextAlert(); }, 450); }
+  function summaryAlert(list) {
+    var all = [].concat.apply([], list.map(function (m) { return m.items || [m]; }));
+    var from = all.map(function (m) { return m.from || 'the TV'; }).filter(function (f, i, a) { return a.indexOf(f) === i; });
+    return { items: all, title: all.length + ' new messages', link: '#settings/phone',
+      body: all.slice(-3).reverse().map(function (m) { return m.title; }).join(' · '),
+      from: from.length === 1 ? from[0] : from.length === 2 ? from[0] + ' and ' + from[1] : from[0] + ' and ' + (from.length - 1) + ' others' };
+  }
   // A tap puts it away and opens its link, over whatever was open; a swipe up only puts it away.
   $('alert').onclick = function () {
     var link = $('alert')._link;
-    hideAlert();
+    hideAlert(); alertAfter();
     if (!link) return;
     if (menuOpen) closeMenu(); if (dialogOpen) closeDialog(); if (sheetOpen) closeSheet(); if (TS.open) closeTs();
     if (SI.open) closeSignIn(); if (screenOpen) closeScreen(); if (kbOpen) closeKb(); if (mv.open) closeViewer();
@@ -5132,7 +5292,7 @@
     b.addEventListener('touchstart', function (e) {
       if (!b.classList.contains('show')) return;
       var y0 = 0; if (b._ov) { y0 = new DOMMatrix(getComputedStyle(b).transform).m42; b._ov.cancel(); b._ov = null; b.style.transform = 'translate3d(0,' + y0 + 'px,0)'; }
-      d = { y: e.touches[0].clientY - y0, dy: y0, pts: [] }; clearTimeout(showAlert.h);
+      d = { y: e.touches[0].clientY - y0, dy: y0, pts: [] }; clearTimeout(showAlert.h); b._held = true;
     }, { passive: true });
     b.addEventListener('touchmove', function (e) {
       if (!d) return;
@@ -5140,13 +5300,13 @@
       b.style.transform = 'translate3d(0,' + y(d.dy).toFixed(1) + 'px,0)';
     }, { passive: true });
     function end(e) {
-      if (!d) return; var g = d; d = null;
+      if (!d) return; var g = d; d = null; b._held = false;
       var v = 0; if (g.pts.length > 1) { var p = g.pts[0], q = g.pts[g.pts.length - 1]; v = (q[1] - p[1]) / Math.max(1, q[0] - p[0]); }   // px per ms
       var from = { transform: 'translateY(' + y(g.dy).toFixed(1) + 'px)', opacity: 1 }, lead = since(g.pts, e.timeStamp);
       b.style.transform = '';
-      if (Math.abs(g.dy) < 4 && g.pts.length < 2) { showAlert.h = setTimeout(hideAlert, 8000); return; }   // a tap: its click puts it away
-      if (g.dy < -b.offsetHeight / 3 || v < -0.3) hideAlert(-v * 1000 / Math.max(40, b.offsetHeight + 30 + g.dy), from, lead);
-      else { overlay(b, true, LOOK.banner, spring(0.4, 0.75, 0), from, null, lead); showAlert.h = setTimeout(hideAlert, 8000); }
+      if (Math.abs(g.dy) < 4 && g.pts.length < 2) { alertTimer(alerts.length ? 5000 : 8000); return; }   // a tap: its click puts it away
+      if (g.dy < -b.offsetHeight / 3 || v < -0.3) { hideAlert(-v * 1000 / Math.max(40, b.offsetHeight + 30 + g.dy), from, lead); alertAfter(); }
+      else { overlay(b, true, LOOK.banner, spring(0.4, 0.75, 0), from, null, lead); alertTimer(alerts.length ? 5000 : 8000); }
     }
     b.addEventListener('touchend', end, { passive: true }); b.addEventListener('touchcancel', end, { passive: true });
   })();
@@ -5159,9 +5319,58 @@
     store('woodruff.seen', JSON.stringify(seenIds));
     return true;
   }
+  // The TV keeps this phone's messages (the last 20 of the last week), numbered in turn, and never takes them
+  // (finding 43): every 5 s while the app is open it's asked for those after the last one this phone has ("after",
+  // kept with the name of the TV's inbox, so a TV reinstalled since starts again from its first), so a reply lost on
+  // the way just comes again, and a TV that restarted for an update still has them. Each goes on a banner and stays
+  // under Settings › This Phone for a week.
+  var INBOX_KEY = 'woodruff.inbox', MSGS_KEY = 'woodruff.messages', MSG_KEEP = 7 * 864e5, inbox = { epoch: '', after: 0, busy: false };
+  try { (function (s) { inbox.epoch = String(s.epoch || ''); inbox.after = +s.after || 0; })(JSON.parse(stored(INBOX_KEY) || '{}')); } catch (e) {}
+  var messages = (function () { try { var a = JSON.parse(stored(MSGS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } })();
   function checkInbox() {
-    if (!device.name || document.hidden) return;
-    api('/api/inbox?id=' + q(device.id)).then(function (d) { d.messages.forEach(function (m) { if (firstSight(m.id)) showAlert(m); }); }, function () {});
+    if (!device.name || document.hidden || inbox.busy) return;
+    inbox.busy = true;   // (one ask at a time: two at once would bring the same messages)
+    api('/api/inbox?id=' + q(device.id) + '&after=' + inbox.after + '&epoch=' + q(inbox.epoch), null, 10000).then(function (d) {
+      if (d.epoch && d.epoch !== inbox.epoch) { inbox.epoch = d.epoch; inbox.after = 0; }
+      var fresh = (d.messages || []).filter(function (m) { return (m.seq || 0) > inbox.after; });
+      inbox.after = Math.max(inbox.after, d.seq || 0);
+      store(INBOX_KEY, JSON.stringify({ epoch: inbox.epoch, after: inbox.after }));
+      fresh = fresh.filter(function (m) { return firstSight(m.id); });
+      if (fresh.length) { keepMessages(fresh); queueAlerts(fresh); }
+    }, function () {}).then(function () { inbox.busy = false; });
+  }
+  // This phone's last 20 messages of the week, newest first (Settings › This Phone).
+  function keepMessages(list) {
+    var now = Date.now();
+    messages = list.slice().reverse().map(function (m) {
+      return { seq: m.seq || 0, title: m.title || '', body: m.body || '', from: m.from || '', at: m.at || now, link: /^#[a-z]/.test(m.link || '') ? m.link : null };
+    }).concat(messages).filter(function (m) { return now - m.at < MSG_KEEP; }).slice(0, 20);
+    store(MSGS_KEY, JSON.stringify(messages));
+    renderMessages();
+  }
+  // soon: the page is on its way in (drawn at once, not glided).
+  function renderMessages(soon) {
+    var box = $('p-msgs'), now = Date.now(), list = messages.filter(function (m) { return now - m.at < MSG_KEEP; });
+    // Drawn again only when a message came or went, or a minute has passed ("3 min ago" moves on).
+    var k = list.map(function (m) { return m.seq + '.' + m.at; }).join() + '|' + Math.floor(now / 6e4);
+    if (k === renderMessages.k) return;
+    renderMessages.k = k;
+    function fill() {
+      box.textContent = ''; box.classList.toggle('is-empty', false);
+      if (!list.length) { box.appendChild(el('div', 'empty', 'No messages this week')).dataset.k = 'm-none'; return; }
+      list.forEach(function (m) {
+        // One with a link (a sign-in that ended: that TV's page) opens it; the rest are to read.
+        var r = el(m.link ? 'button' : 'div', 'row msg' + (m.link ? ' tap' : ''));
+        r.dataset.k = 'm' + m.seq + '.' + m.at;
+        var tx = r.appendChild(el('span', 'txt'));
+        tx.appendChild(el('span', 't', m.title));
+        if (m.body) tx.appendChild(el('span', 's two', m.body));
+        tx.appendChild(el('span', 'meta', 'From ' + (m.from || 'the TV') + ' · ' + ago(m.at)));
+        if (m.link) { r.insertAdjacentHTML('beforeend', I.chev); r.onclick = function () { route(m.link); }; }
+        box.appendChild(r);
+      });
+    }
+    if (soon !== true && current === 'settings' && topOf('settings') === PG['set-phone']) glideTop(fill); else fill();
   }
   setInterval(checkInbox, 5000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); loadSmooth(); loadTvHealth(); tvpFrame(); pollSignIn(); if (current === 'watch') loadHome(); } });
@@ -5317,6 +5526,7 @@
     ['set-share'], ['set-share-help', null, 'set-share'], ['set-crash']].forEach(function (x) {
     adopt('settings', x[0], { actions: x[1], parent: x[2] });
   });
+  PG['set-phone'].o.onShow = function () { renderMessages(true); };   // its Recent Messages, with times as of now
   doc.querySelectorAll('[data-page]').forEach(function (b) { b.onclick = function () { openPage(b.dataset.page, b); }; });
   // Settings' own crash row is this TV's.
   doc.querySelector('#crash-group button').onclick = function () {
