@@ -30,7 +30,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,9 +44,11 @@ import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.ui.MainViewModel
 import com.woodruff.tvexplorer.ui.Screen
 import com.woodruff.tvexplorer.ui.components.FocusButton
+import com.woodruff.tvexplorer.ui.components.OfflineWords
 import com.woodruff.tvexplorer.ui.components.RowText
 import com.woodruff.tvexplorer.ui.components.ToolButton
 import com.woodruff.tvexplorer.ui.components.TvIcon
+import com.woodruff.tvexplorer.ui.components.rememberOfflineShown
 import com.woodruff.tvexplorer.ui.motion.TintIcon
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
@@ -74,15 +75,9 @@ fun TransferScreen(vm: MainViewModel) {
     LaunchedEffect(Unit) { if (!state.running) TransferService.start(context) }
     val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
     BackHandler { openSidebar() }
-    // Waiting for the home network: said only after a grace, as everywhere (offline-states.md §3.0),
-    // since most wake-ups find the Wi-Fi again within a few seconds.
-    val offline by produceState(false, state.waiting) {
-        value = false
-        if (state.waiting) {
-            delay(OFFLINE_GRACE_MS)
-            value = true
-        }
-    }
+    // Waiting for the home network: said only after the grace every offline state shares
+    // (offline-states.md §3.0), since most wake-ups find the Wi-Fi again within a few seconds.
+    val offline = rememberOfflineShown(state.waiting)
 
     // QR first at a fixed size, text gets the rest: TVs give apps only ~960x540dp.
     Row(
@@ -152,7 +147,7 @@ private fun WaitingForNetwork(onSettings: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TvIcon(Sym.CloudOff, size = 18.dp, tint = Palette.muted)
-            Text("Offline", color = Palette.muted, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 8.dp))
+            Text(OfflineWords.OFFLINE, color = Palette.muted, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 8.dp))
         }
         Text(
             "The code appears here by itself once this TV is on Wi-Fi or Ethernet.",
@@ -176,6 +171,3 @@ private fun WaitingForNetwork(onSettings: () -> Unit) {
         Spacer(Modifier.matchParentSize().border(1.dp, Palette.rim, Shapes.pill))
     }
 }
-
-/** How long the phone connection waits for the network before the screen says "Offline". */
-private const val OFFLINE_GRACE_MS = 4_000L
