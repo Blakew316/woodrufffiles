@@ -1063,7 +1063,7 @@
 
   <div class="page" id="set-phone" data-title="This Phone" data-hash="phone"><div class="scroller">
     <div class="head">Name</div>
-    <div class="group"><label class="row field"><input id="p-name" placeholder="Blake's iPhone" autocomplete="off" enterkeyhint="done" aria-label="Name"></label></div>
+    <div class="group"><label class="row field"><input id="p-name" placeholder="Kitchen iPad" autocomplete="off" enterkeyhint="done" aria-label="Name"></label></div>
     <div class="group">
       <div class="row"><span class="txt t">Lock-Screen Alerts</span><input type="checkbox" class="switch" switch id="p-alerts" aria-label="Lock-screen alerts"></div>
       <button class="row tap" id="p-ntfy" data-page="set-ntfy" hidden><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button>
@@ -2707,7 +2707,7 @@
     });
     renderTo();
   }
-  // The To row in a few words: "Everyone", "All TVs", "Living Room + 2 phones", "Mom's iPhone"…
+  // The To row in a few words: "Everyone", "All TVs", "Living Room + 2 phones", "Kitchen iPad"…
   function renderTo() {
     var on = phones.filter(function (p) { return chosen[p.id]; }), others = phones.filter(function (p) { return p.id !== device.id; });
     var n = on.length, pin = $('n-pin').checked, s;

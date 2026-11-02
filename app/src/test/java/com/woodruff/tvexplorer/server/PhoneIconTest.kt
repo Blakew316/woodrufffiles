@@ -47,14 +47,14 @@ class PhoneIconTest {
     }
 
     @Test fun namesAreSafeInThePage() {
-        assertEquals("Mom &amp; Dad&#39;s &lt;TV&gt; &quot;1&quot;", PhoneIcon.escapeHtml("Mom & Dad's <TV> \"1\""))
-        assertTrue(PhoneIcon.render(page, "k", "Elliot's").contains("""content="Elliot&#39;s">"""))
+        assertEquals("Den &amp; Kitchen&#39;s &lt;TV&gt; &quot;1&quot;", PhoneIcon.escapeHtml("Den & Kitchen's <TV> \"1\""))
+        assertTrue(PhoneIcon.render(page, "k", "Den's").contains("""content="Den&#39;s">"""))
     }
 
     @Test fun aRenamedTvGetsAFreshManifestAddress() {
-        assertEquals(8, PhoneIcon.tag("Elliot").length)
-        assertEquals(PhoneIcon.tag("Elliot"), PhoneIcon.tag("Elliot"))
-        assertNotEquals(PhoneIcon.tag("Elliot"), PhoneIcon.tag("Master Bedroom"))
+        assertEquals(8, PhoneIcon.tag("Den").length)
+        assertEquals(PhoneIcon.tag("Den"), PhoneIcon.tag("Den"))
+        assertNotEquals(PhoneIcon.tag("Den"), PhoneIcon.tag("Master Bedroom"))
     }
 
     @Test fun theManifestIsNamedAfterTheTvAndKeepsEverythingElse() {
@@ -76,13 +76,13 @@ class PhoneIconTest {
 
     @Test fun nameIsWrittenLikeWoodruffFamily() {
         assertEquals("WOODRUFF" to "FAMILY", PhoneIcon.wording("Woodruff Family"))
-        assertEquals("KYLER\u2019S" to "ROOM", PhoneIcon.wording("Kyler's Room"))
-        assertEquals("ELLIOTT\u2019S" to "ROOM", PhoneIcon.wording(" Elliott's   Room "))
+        assertEquals("DEN\u2019S" to "TV", PhoneIcon.wording("Den's TV"))
+        assertEquals("KITCHEN\u2019S" to "TV", PhoneIcon.wording(" Kitchen's   TV "))
         assertEquals("LIVING" to "ROOM", PhoneIcon.wording("Living Room"))
         assertEquals("MASTER" to "BEDROOM", PhoneIcon.wording("Master Bedroom"))
         assertEquals("THE BIG" to "DEN", PhoneIcon.wording("The Big Den"))
-        val one = PhoneIcon.wording("Elliott")
-        assertEquals("ELLIOTT", one.first)
+        val one = PhoneIcon.wording("Basement")
+        assertEquals("BASEMENT", one.first)
         assertNull(one.second)
     }
 
@@ -108,7 +108,7 @@ class PhoneIconTest {
         assertEquals(0.0, difference(base, original, 0, 360), 0.5)
 
         val out = File("build/phone-icons").apply { mkdirs() }
-        for (name in listOf("Living Room", "Elliott's Room", "Kyler's Room", "Master Bedroom", "Elliott")) {
+        for (name in listOf("Living Room", "Den's TV", "Guest Room", "Master Bedroom", "Basement")) {
             for (size in PhoneIcon.PICTURES.values) {
                 val png = PhoneIcon.picture(app, size, name)
                 val bmp = BitmapFactory.decodeByteArray(png, 0, png.size)

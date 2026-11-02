@@ -17,8 +17,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * This TV's web app on a phone's Home Screen is named after the TV (Settings → TVs & phones → This
- * TV's name, e.g. "Kyler's Room"), in the label under the icon and on the icon's picture itself, where
- * "WOODRUFF FAMILY" is written: "KYLER'S" large and white, "ROOM" small and blue under it, over the
+ * TV's name, e.g. "Guest Room"), in the label under the icon and on the icon's picture itself, where
+ * "WOODRUFF FAMILY" is written: "GUEST" large and white, "ROOM" small and blue under it, over the
  * same emblem and background. A TV that hasn't been given a name keeps the app's name and picture.
  * Nothing else changes: the app inside, its own logo and pictures (icon-*.png), and Woodruff on the TV.
  *
@@ -57,7 +57,8 @@ object PhoneIcon {
 
     /**
      * How [label] is written on the icon, as "WOODRUFF FAMILY" is: the first words large, the last
-     * word small under them; a single word on one line. "Kyler's Room" → ("KYLER’S", "ROOM").
+     * word small under them; a single word on one line. "Guest Room" → ("GUEST", "ROOM"); an
+     * apostrophe is written curly, "Den's TV" → ("DEN’S", "TV").
      */
     fun wording(label: String): Pair<String, String?> {
         val words = label.trim().uppercase(Locale.US).replace('\'', '\u2019').split(Regex("\\s+")).filter { it.isNotEmpty() }
