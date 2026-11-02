@@ -92,6 +92,14 @@ class LeanMemoryTest {
         assertTrue(givenBack())
     }
 
+    @Test fun aTrimThatFindsWoodruffBackOnScreenLeavesItAlone() {
+        // Asked for just as someone came back (the ten minutes ran out as they pressed Home's tile, say).
+        open()
+        LeanMemory.trimNow()
+        Thread.sleep(200)
+        assertTrue(cached())
+    }
+
     @Test fun whichOfAndroidsWarningsMeanNow() {
         @Suppress("DEPRECATION")
         val now = listOf(

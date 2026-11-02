@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import coil.ImageLoader
 import com.woodruff.tvexplorer.nest.CameraGl
 import com.woodruff.tvexplorer.remote.TvScreen
@@ -26,7 +27,9 @@ import kotlinx.coroutines.launch
  *
  *  - the posters, banners and backdrops kept decoded for scrolling back ([images]: Coil's memory cache);
  *  - what the phone's TV Screen copies pictures into ([TvScreen.release]);
- *  - the camera tiles' graphics thread ([CameraGl.trim]).
+ *  - the camera tiles' graphics thread ([CameraGl.trim]), when no tile holds it: tiles still up on the
+ *    screen that was left keep it until Woodruff is back (their streams stop at once, but a screen
+ *    off the TV isn't rebuilt, so its tiles aren't let go).
  *
  * It does at once if Android says memory is short while Woodruff is off screen (Android 9 to 13).
  * Everything comes back by itself when it's needed: a screen's pictures decode again from the disk,
@@ -90,19 +93,33 @@ object LeanMemory : Application.ActivityLifecycleCallbacks, ComponentCallbacks2 
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
     override fun onActivityDestroyed(activity: Activity) = Unit
 
+    /** When the last trim asked for a collection (uptime ms); written on [scope]'s threads. */
+    @Volatile private var collectedAt = -COLLECT_GAP_MS
+
     /** Lets go of it all now, in the background. */
     internal fun trimNow() {
         main.removeCallbacks(trimLater)
         val loader = images
         scope.launch {
+            // Back on screen by now (it was asked for just as someone came back): its posters stay.
+            if (onScreen) return@launch
             runCatching { loader?.memoryCache?.clear() }
             TvScreen.release()
             CameraGl.trim()
             // What was let go is only given back once the objects holding it are collected, and the
-            // Java heap of a Woodruff idling behind another app may not be for hours.
-            Runtime.getRuntime().gc()
+            // Java heap of a Woodruff idling behind another app may not be for hours. Once a minute at
+            // most: Android can warn of short memory again and again, and each collection costs the
+            // TV's CPU just when the app in front needs it.
+            val now = SystemClock.uptimeMillis()
+            if (now - collectedAt >= COLLECT_GAP_MS) {
+                collectedAt = now
+                Runtime.getRuntime().gc()
+            }
         }
     }
+
+    /** The least time between two collections a trim asks for. */
+    private const val COLLECT_GAP_MS = 60_000L
 
     /**
      * Whether Android's memory warning [level], arriving while Woodruff is off screen, means memory is

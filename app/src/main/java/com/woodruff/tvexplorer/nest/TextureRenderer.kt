@@ -101,9 +101,9 @@ internal fun holdsPicture(now: Long, lastInput: Long): Boolean = now - lastInput
  * making one waits for it to start and set up GL, and letting one go waits for its GL clean-up,
  * four times over on every visit to Home or the Command center. Now every tile draws on one shared
  * GL thread, made once in the background (as soon as cameras are connected and one of Woodruff's
- * screens is up) and kept while it's used; once Woodruff has been off screen a while it's let go
- * ([trim], util/LeanMemory) and made again with the next tile. The views are set up and let go on a
- * background thread, in the order asked.
+ * screens is up) and kept while it's used; once Woodruff has been off screen a while with no tile
+ * left on it, it's let go ([trim], util/LeanMemory) and made again with the next tile. The views are
+ * set up and let go on a background thread, in the order asked.
  */
 internal object CameraGl {
     private const val TAG = "CameraGl"
