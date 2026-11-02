@@ -86,6 +86,8 @@ object TvLinks {
 
     fun id(c: Context): String = SecretStore.get(c).get(K_ID) ?: UUID.randomUUID().toString().also { SecretStore.get(c).put(K_ID, it) }
     fun name(c: Context): String = SecretStore.get(c).get(K_NAME)?.takeIf { it.isNotBlank() } ?: "${Build.MODEL ?: "Android"} TV"
+    /** The name someone gave this TV (Settings → TVs & phones → This TV's name); null while it has none. */
+    fun givenName(c: Context): String? = SecretStore.get(c).get(K_NAME)?.trim()?.takeIf { it.isNotEmpty() }
     fun setName(c: Context, name: String) = SecretStore.get(c).put(K_NAME, name.trim().take(40).ifBlank { null })
 
     /** What other TVs use to reach this one. Only accepted for [LINK_ROUTES]. */

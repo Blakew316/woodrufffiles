@@ -46,7 +46,15 @@ class CompanionRoutes(private val ctx: Context) {
 
     /** The Google OAuth callback proves itself with the one-time `state`, not the pairing key. */
     fun public(s: IHTTPSession): Response? {
-        // Home Screen app manifest and icons: no secrets in them, and iOS may fetch them without cookies.
+        // The Home Screen app's manifest, named after this TV (PhoneIcon); no secrets in it, and iOS may
+        // fetch it without cookies. (The name is no secret either: the TV announces it on the network.)
+        if (s.uri == "/manifest.webmanifest") {
+            val template = ctx.assets.open("web/manifest.webmanifest").bufferedReader().use { it.readText() }
+            val bytes = PhoneIcon.manifest(template, PhoneIcon.label(ctx)).toByteArray()
+            return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "application/manifest+json", bytes.inputStream(), bytes.size.toLong())
+                .apply { addHeader("Cache-Control", "max-age=604800") }
+        }
+        // Home Screen icons: no secrets in them, and iOS may fetch them without cookies.
         PUBLIC_ASSETS[s.uri]?.let { mime ->
             val bytes = ctx.assets.open("web" + s.uri).use { it.readBytes() }
             return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, mime, bytes.inputStream(), bytes.size.toLong())
@@ -528,7 +536,6 @@ class CompanionRoutes(private val ctx: Context) {
 }
 
 private val PUBLIC_ASSETS = mapOf(
-    "/manifest.webmanifest" to "application/manifest+json",
     "/icon-180.png" to "image/png",
     "/icon-512.png" to "image/png",
     "/emblem.png" to "image/png",

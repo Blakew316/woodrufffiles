@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Woodruff Family">
+<!-- The Home Screen icon's label: this TV's name (Settings → TVs & phones → This TV's name), filled in by
+     the TV, so each TV's icon says which TV it opens. Everything inside stays "Woodruff Family". -->
+<meta name="apple-mobile-web-app-title" content="__TVX_HOME_NAME__">
 <!-- "default", not "black-translucent": with black-translucent iOS always draws the clock and battery in
      white, which disappears over the light grouped background. The layout pads by env(safe-area-inset-*)
      everywhere, so it also fits if the status bar is ever drawn over the page. -->
@@ -14,8 +16,9 @@
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
 <meta name="color-scheme" content="light dark">
 <meta name="format-detection" content="telephone=no">
-<!-- ?v=2: the icons are cached for a week at a fixed address, so a new logo gets a new one (bump it with the icons). -->
-<link rel="manifest" href="/manifest.webmanifest?v=2">
+<!-- ?v=2: the icons are cached for a week at a fixed address, so a new logo gets a new one (bump it with the icons).
+     n: this TV's name, so a renamed TV gives phones a manifest with the new name instead of the cached one. -->
+<link rel="manifest" href="/manifest.webmanifest?v=2&amp;n=__TVX_HOME_TAG__">
 <link rel="apple-touch-icon" href="/icon-180.png?v=2">
 <link rel="icon" href="/icon-180.png?v=2">
 <title>Woodruff Family</title>

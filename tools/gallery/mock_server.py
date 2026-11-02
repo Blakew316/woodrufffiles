@@ -357,7 +357,8 @@ class Handler(BaseHTTPRequestHandler):
             log('GET', self.path, b'')
         if path == '/':
             # Read on every request, so an edited page shows up without restarting the server.
-            page = open(os.path.join(WEB, 'index.html'), encoding='utf-8').read().replace('__TVX_KEY__', 'gallery')
+            page = (open(os.path.join(WEB, 'index.html'), encoding='utf-8').read().replace('__TVX_KEY__', 'gallery')
+                    .replace('__TVX_HOME_NAME__', 'Living Room').replace('__TVX_HOME_TAG__', 'gallery'))
             return self.send(page, 'text/html; charset=utf-8')
         ext = os.path.splitext(path)[1]
         if ext in TYPES and '/' not in path[1:]:

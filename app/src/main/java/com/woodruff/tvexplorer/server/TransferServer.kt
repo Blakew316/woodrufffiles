@@ -37,11 +37,23 @@ class TransferServer(
     private val extra: (IHTTPSession) -> Response? = { null },
     /** Routes that carry their own proof (Google's OAuth callback checks `state`). */
     private val public: (IHTTPSession) -> Response? = { null },
+    /** What a phone's Home Screen icon for the web app is called (this TV's name: [PhoneIcon]), read at each page load. */
+    private val homeName: () -> String = { PhoneIcon.APP_NAME },
 ) : NanoHTTPD(port) {
 
-    private val pageHtml = page.replace("__TVX_KEY__", token)
-    private val pageTag = "\"" + MessageDigest.getInstance("SHA-256").digest(pageHtml.toByteArray())
-        .take(12).joinToString("") { "%02x".format(it) } + "\""
+    /** The page as last filled in, and its ETag, for the Home Screen label it was filled in with. */
+    private class Rendered(val label: String, val html: String, val tag: String)
+    @Volatile private var rendered: Rendered? = null
+
+    /** The page with its pairing key and Home Screen label; filled in again when the TV is renamed. */
+    private fun currentPage(): Rendered {
+        val label = homeName()
+        rendered?.let { if (it.label == label) return it }
+        val html = PhoneIcon.render(page, token, label)
+        val tag = "\"" + MessageDigest.getInstance("SHA-256").digest(html.toByteArray())
+            .take(12).joinToString("") { "%02x".format(it) } + "\""
+        return Rendered(label, html, tag).also { rendered = it }
+    }
 
     override fun serve(session: IHTTPSession): Response = try {
         route(session)
@@ -71,11 +83,13 @@ class TransferServer(
         return when {
             // The page keeps the key in its address so a Home Screen copy stays paired (see index.html).
             // ETag: the phone revalidates each launch and gets a tiny 304 unless the app was updated.
-            s.uri == "/" -> if (s.headers["if-none-match"] == pageTag) {
-                newFixedLengthResponse(Response.Status.NOT_MODIFIED, MIME_HTML, "").apply { addHeader("ETag", pageTag) }
-            } else {
-                newFixedLengthResponse(Response.Status.OK, MIME_HTML, pageHtml)
-                    .apply { addHeader("Cache-Control", "no-cache"); addHeader("ETag", pageTag) }
+            s.uri == "/" -> currentPage().let { p ->
+                if (s.headers["if-none-match"] == p.tag) {
+                    newFixedLengthResponse(Response.Status.NOT_MODIFIED, MIME_HTML, "").apply { addHeader("ETag", p.tag) }
+                } else {
+                    newFixedLengthResponse(Response.Status.OK, MIME_HTML, p.html)
+                        .apply { addHeader("Cache-Control", "no-cache"); addHeader("ETag", p.tag) }
+                }
             }
             s.uri == "/api/roots" -> json(JSONArray().apply {
                 roots().forEach { put(JSONObject().put("name", it.title).put("path", it.dir.absolutePath)) }

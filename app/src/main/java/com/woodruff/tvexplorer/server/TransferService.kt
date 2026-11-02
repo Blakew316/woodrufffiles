@@ -91,7 +91,8 @@ class TransferService : Service() {
         val routes = CompanionRoutes(applicationContext)
         val token = PairingKey.get(applicationContext)
         for (port in PORTS) {
-            val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public)
+            val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public,
+                homeName = { PhoneIcon.label(applicationContext) })
             try {
                 s.start(SOCKET_TIMEOUT_MS, true)
                 // Stopped while this was starting (it runs in the background now): don't leave it open.
