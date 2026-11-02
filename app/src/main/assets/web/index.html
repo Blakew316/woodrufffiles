@@ -365,6 +365,10 @@
   .remote { --k:clamp(46px, 7.4vh, 62px); height:calc(100% - var(--tab-b) - var(--tab-h) - 8px); min-height:480px;
     display:flex; flex-direction:column; align-items:center; padding:4px var(--mr) 6px var(--ml); }
   .remote > .tip { align-self:stretch; margin:0 0 12px; }
+  /* The TV the remote works can't be reached: said calmly above the clickpad (grey, never red), gone when it answers. */
+  .tip.reach > svg { color:var(--label3); }
+  .tip.reach .grow { color:var(--label2); }
+  .tip.reach .tt { color:var(--label); }
   .hint { flex:none; display:inline-flex; align-items:center; gap:8px; height:44px; max-width:100%; margin-top:4px; padding:0 18px; border-radius:22px; background:var(--tint-soft); color:var(--tint); font-size:15px; letter-spacing:-.23px; font-weight:600; }
   .hint svg { width:20px; height:20px; }
   .hint span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -864,6 +868,7 @@
 <section class="tab" id="tab-remote">
   <div class="page" id="remote-root" data-title="Remote"><div class="scroller">
     <div class="remote">
+      <div class="tip reach" id="rm-reach" role="status" hidden><i data-ic="gTv"></i><div class="grow"><span class="tt" id="rm-reach-t"></span><span id="rm-reach-s"></span></div></div>
       <div class="tip" id="install" hidden><i data-ic="share"></i><div class="grow"><span class="tt">Add to Home Screen</span>Tap <b>Share</b>, then <b>Add to Home Screen</b>. It stays paired with this TV.</div><button class="x" id="install-x" aria-label="Dismiss"><i data-ic="xmark"></i></button></div>
       <button class="hint" id="rm-kb-hint" hidden><i data-ic="keyboard"></i><span id="rm-kb-hint-t">Type on the TV</span></button>
       <div class="padbox">
@@ -1326,12 +1331,22 @@
 
   function fmt(b) { if (b < 1024) return b + ' B'; var u = ['KB','MB','GB','TB'], i = -1; do { b /= 1024; i++; } while (b >= 1024 && i < 3); return (b >= 100 ? b.toFixed(0) : b.toFixed(1)) + ' ' + u[i]; }
   function q(s) { return encodeURIComponent(s); }
-  function api(url, opts) {
-    return fetch(url, opts).then(function (r) {
+  // A request gives up when the TV doesn't answer in time, saying so in the TV's name ("Can’t reach Living Room"),
+  // rather than leaving a tap unanswered for as long as iOS waits (finding 45; fetchT). ms: as waitFor says, unless
+  // given. A refusal comes back in the TV's own words.
+  function api(url, opts, ms) {
+    return fetchT(url, opts, ms || waitFor(url)).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.statusText); });
       return r.json();
     });
   }
+  // How long to wait for the TV: 15 s; longer where the TV first waits on something slow itself (a mail server's
+  // sign-in, a place looked up for the weather, a TV linked again, a TMDB key checked, a big Family Memories listed);
+  // shorter for the text box, asked every few seconds, which also tells whether the TV can be reached at all. Through
+  // this TV to a linked one, longer than its 2.5 s + 5 s, so "Den didn’t respond" still comes in its words.
+  var WAITS = { '/api/mail': 50000, '/api/settings/weather': 30000, '/api/memories': 30000, '/api/tvs/relink': 25000,
+    '/api/settings/tmdb': 20000, '/api/type': 6000, '/api/tvs/type': 10000, '/api/tvs': 8000 };
+  function waitFor(url) { return WAITS[String(url).split('?')[0]] || 15000; }
   function post(url, data) { return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}) }); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function err(e) { toast(e.message || String(e), true); }
@@ -2757,7 +2772,7 @@
   // Another TV picked (or the picked one unlinked): the keyboard starts again on that TV's own text box, and nothing
   // typed for the last one goes to it.
   function retarget(id) {
-    fieldSeq++; field = null; typing.next = null; clearTimeout(typeTimer);
+    fieldSeq++; field = null; typing.next = null; clearTimeout(typeTimer); reach.tv = 0;
     $('kb-text').value = '';
     showField(null, 'Looking for a text box on ' + tvName(id) + '…');
   }
@@ -2768,17 +2783,66 @@
   function loadTvs(once) {
     var seq = once ? 0 : ++tvSeq;
     if (!once) { clearTimeout(tvTimer); if ((current !== 'remote' && current !== 'watch' && !tvsShowing()) || document.hidden) return; }
-    api('/api/tvs').then(function (d) { tvsFailed = false; calm('tvs', function () { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); }); }, function () {
+    api('/api/tvs').then(function (d) {
+      tvsFailed = false;
+      var picked = d.tvs.filter(function (t) { return t.id === tvId; })[0];
+      reached(true, tvId === 'this' || !picked ? null : !!picked.online);
+      calm('tvs', function () { tvs = d.tvs; tvsAt = Date.now(); renderTvs(); });
+    }, function () {
       // Settings › TVs keeps its last rows; it says so once.
       if (!tvsFailed && tvsShowing() && tvs.length) toast('Can’t reach ' + hubName(), true);
       tvsFailed = true;
+      reached(false, null);
     }).then(function () { if (seq && seq === tvSeq) tvTimer = setTimeout(loadTvs, 5000); });
   }
+  // ---- Can’t reach the TV (finding 45) -----------------------------------------------------------------
+  // The Remote says so when the TV it works can't be reached: after two polls in a row went unanswered (the TV list,
+  // or the text box, both asked every few seconds and given up on after a few), "Can’t Reach Living Room" above the
+  // clickpad, or the picked TV, when it's the one Living Room can't reach (or whose link stopped working). The next
+  // answer puts it away. hub: whether this TV (the one serving this app) answered; tv: whether the picked linked TV
+  // did (null: not known from this poll).
+  var reach = { hub: 0, tv: 0, shown: '' };
+  function reached(hub, tv) {
+    if (hub != null) reach.hub = hub ? 0 : reach.hub + 1;
+    if (tv != null) reach.tv = tv ? 0 : reach.tv + 1;
+    calm('reach', renderReach);
+  }
+  function renderReach() {
+    var t = chosenTv(), linked = tvId !== 'this', who = '', why = '';
+    if (reach.hub >= 2) { who = hubName(); why = 'Check that it’s on and this phone is on the same Wi-Fi.'; }
+    else if (linked && t && refused(t)) { who = t.name; why = 'Its link stopped working. Link it again in Settings → TVs.'; }
+    else if (linked && reach.tv >= 2) { who = tvName(tvId); why = 'Check that it’s on.'; }
+    if (who && kbOpen) { setClass($('kb-dot'), 'dot'); swapText($('kb-status'), 'Can’t reach ' + who); }
+    var key = who && who + '|' + why, card = $('rm-reach');
+    if (key === reach.shown) return;
+    reach.shown = key;
+    renderTitle();   // (its green dot)
+    // Nothing can be typed then: the keyboard button no longer lights up (it does again with the next text box seen).
+    var kb2 = $('kb-open2'); if (who && kb2 && kb2.classList.contains('ready')) dissolve(kb2, function () { kb2.classList.remove('ready'); });
+    function words() { setText($('rm-reach-t'), 'Can’t Reach ' + who); setText($('rm-reach-s'), why); }
+    if (card.hidden === !who) { if (who) dissolve(card, words); return; }   // another TV, or why: the words change in place
+    if (who) words();
+    // It comes in (or goes) where the "Type into" pill would be, the clickpad making room.
+    function change() { card.hidden = !who; if (who) $('rm-kb-hint').hidden = true; }
+    if (current === 'remote' && !kbOpen && onScreen(card.parentNode)) flipPad(change); else change();
+  }
   function renderTvs() {
-    var many = tvs.length > 1, t = chosenTv();
+    var t = chosenTv();
     if (!t && tvs.length) { retarget(tvs[0].id); tvId = tvs[0].id; t = tvs[0]; pollField(); }   // that TV was unlinked
-    // The title (Remote, or the TV picker): new words cross-dissolve in place.
-    var nm = t ? t.name : $('rm-tv-name').textContent, dot = t ? !playing(t) : $('rm-tv-dot').hidden;
+    renderReach();
+    renderTitle();
+    renderTo();
+    renderTvList();
+    renderNp();
+    if (TS.open) paintTarget();
+    if (W.named != null && libName() !== W.named) calm('watch-name', applyHome);   // "Can’t Reach the TV" → "Can’t Reach Living Room"
+  }
+
+  // The title (Remote, or the TV picker): new words cross-dissolve in place. Its green dot says the TV plays something,
+  // so it isn't there while that TV can't be reached.
+  function renderTitle() {
+    var many = tvs.length > 1, t = chosenTv();
+    var nm = t ? t.name : $('rm-tv-name').textContent, dot = t ? !playing(t) || !!reach.shown : $('rm-tv-dot').hidden;
     if ($('rm-tv').hidden !== !many || $('rm-title').hidden !== many || $('rm-tv-name').textContent !== nm || $('rm-tv-dot').hidden !== dot) {
       dissolve(rmTitle, function () { setHidden($('rm-tv'), !many); setHidden($('rm-title'), many); setText($('rm-tv-name'), nm); setHidden($('rm-tv-dot'), dot); });
     }
@@ -2786,11 +2850,6 @@
     if ($('w-tv').hidden !== !many || $('w-title-t').hidden !== many || $('w-tv-name').textContent !== nm || $('w-tv-dot').hidden !== dot) {
       dissolve(wTitle, function () { setHidden($('w-tv'), !many); setHidden($('w-title-t'), many); setText($('w-tv-name'), nm); setHidden($('w-tv-dot'), dot); });
     }
-    renderTo();
-    renderTvList();
-    renderNp();
-    if (TS.open) paintTarget();
-    if (W.named != null && libName() !== W.named) calm('watch-name', applyHome);   // "Can’t Reach the TV" → "Can’t Reach Living Room"
   }
 
   // ---- Settings › TVs -----------------------------------------------------------------------------
@@ -3580,14 +3639,19 @@
   function pollField() {
     clearTimeout(pollTimer);
     if (document.hidden || (current !== 'remote' && !kbOpen)) return;
-    var id = tvId, seq = ++fieldSeq;
-    api(id === 'this' ? '/api/type' : '/api/tvs/type?id=' + q(id)).then(function (d) {
-      if (seq === fieldSeq) calm('field', function () { if (id === tvId) showField(d.field, d.note); });
-    }, function () {}).then(function () { if (seq === fieldSeq) pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
+    var id = tvId, seq = ++fieldSeq, linked = id !== 'this';
+    api(linked ? '/api/tvs/type?id=' + q(id) : '/api/type').then(function (d) {
+      if (seq !== fieldSeq) return;
+      reached(true, linked ? true : null);
+      calm('field', function () { if (id === tvId) showField(d.field, d.note); });
+    }, function (e) {
+      // Not answered at all: this TV can't be reached. Answered with a refusal: it can, the linked TV can't.
+      if (seq === fieldSeq) reached(!e.unreachable, linked && !e.unreachable ? false : null);
+    }).then(function () { if (seq === fieldSeq) pollTimer = setTimeout(pollField, kbOpen ? 1200 : 2000); });
   }
   // note: why a linked TV can't take typing from here ("Den needs a newer Woodruff for typing").
   function showField(f, note) {
-    var pill = !f || kbOpen;
+    var pill = !f || kbOpen || !!reach.shown;
     if ($('rm-kb-hint').hidden !== pill) {
       if (current === 'remote' && !kbOpen) flipPad(function () { $('rm-kb-hint').hidden = pill; }); else $('rm-kb-hint').hidden = pill;
     }
@@ -4248,7 +4312,8 @@
     return fetch(url, opts).then(function (r) { clearTimeout(t); return r; }, function () {
       clearTimeout(t);
       if (theirs && theirs.aborted) { var a = new Error('Aborted'); a.name = 'AbortError'; throw a; }   // the caller's own (a newer search)
-      throw new Error('Can’t reach ' + hubName());
+      var gone = new Error('Can’t reach ' + hubName()); gone.unreachable = true;   // (not the TV's own refusal)
+      throw gone;
     });
   }
   function getJ(url, opts, ms) {

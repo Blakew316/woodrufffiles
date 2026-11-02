@@ -70,26 +70,23 @@ class TransferServer(
     private fun route(s: IHTTPSession): Response {
         public(s)?.let { return it }
         val keyParam = s.parameters["k"]?.firstOrNull()
-        if (s.uri == "/" && keyParam != null && same(keyParam, token)) {
-            // Swap the key in the URL for a cookie so it doesn't linger in browser history.
-            return newFixedLengthResponse(Response.Status.REDIRECT_SEE_OTHER, MIME_HTML, "").apply {
-                addHeader("Location", "/")
-                addHeader("Set-Cookie", "tvx=$token; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax")
-            }
-        }
         if (!authorized(s, keyParam)) {
             return text(Response.Status.UNAUTHORIZED, "Scan the QR code on the TV (or type the full address shown there) to connect.")
         }
         return when {
-            // The page keeps the key in its address so a Home Screen copy stays paired (see index.html).
-            // ETag: the phone revalidates each launch and gets a tiny 304 unless the app was updated.
+            // The page keeps the key in its address so a Home Screen copy stays paired (see index.html), so "/?k=…" is
+            // answered straight away, in one round trip, with the cookie its pictures and requests use (finding 45;
+            // a redirect to "/" only cost a round trip, since the page puts the key back). ETag: the phone
+            // revalidates each launch and gets a tiny 304 unless the app was updated.
             s.uri == "/" -> currentPage().let { p ->
-                if (s.headers["if-none-match"] == p.tag) {
+                val r = if (s.headers["if-none-match"] == p.tag) {
                     newFixedLengthResponse(Response.Status.NOT_MODIFIED, MIME_HTML, "").apply { addHeader("ETag", p.tag) }
                 } else {
                     newFixedLengthResponse(Response.Status.OK, MIME_HTML, p.html)
                         .apply { addHeader("Cache-Control", "no-cache"); addHeader("ETag", p.tag) }
                 }
+                if (keyParam != null && same(keyParam, token)) r.addHeader("Set-Cookie", "tvx=$token; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax")
+                r
             }
             s.uri == "/api/roots" -> json(JSONArray().apply {
                 roots().forEach { put(JSONObject().put("name", it.title).put("path", it.dir.absolutePath)) }
