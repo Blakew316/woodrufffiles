@@ -51,5 +51,15 @@ class NetworkWatchCallbackTest {
         cb.onCapabilitiesChanged(wifi, validated)
         assertTrue(NetworkWatch.online.value)
         assertEquals(before + 2, NetworkWatch.comebacks.value)
+
+        // A VPN that's up counts as online, even unchecked (some TVs never mark one validated).
+        val vpn = ShadowNetwork.newInstance(102)
+        val vpnCaps = ShadowNetworkCapabilities.newInstance().also {
+            org.robolectric.Shadows.shadowOf(it).addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            org.robolectric.Shadows.shadowOf(it).addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+        }
+        cb.onAvailable(vpn)
+        cb.onCapabilitiesChanged(vpn, vpnCaps)
+        assertTrue(NetworkWatch.online.value)
     }
 }

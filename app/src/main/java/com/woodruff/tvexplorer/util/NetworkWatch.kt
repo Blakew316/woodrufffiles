@@ -86,7 +86,12 @@ object NetworkWatch {
         if (change.cameBack) _comebacks.update { it + 1 }
     }
 
-    private fun NetworkCapabilities.validated() = hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    /**
+     * Whether Android checked the network reaches the internet. A VPN counts as checked: some TVs
+     * (Android 9 and 10) never mark one validated, and a VPN that's up reaches what it reaches.
+     */
+    private fun NetworkCapabilities.validated() =
+        hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) || hasTransport(NetworkCapabilities.TRANSPORT_VPN)
 }
 
 /**
