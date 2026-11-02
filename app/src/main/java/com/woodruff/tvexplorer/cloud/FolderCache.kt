@@ -60,8 +60,7 @@ object FolderCache {
     suspend fun fetch(c: Context, token: String?, folder: DriveFile): Listing = if (galleryOffline) Listing.Offline else try {
         val gen = generation
         val result = GoogleAuth.tokenResult(c)
-        // A fresh token; else the one the screen has (it may have a while left yet).
-        val t = (result as? GoogleAuth.TokenResult.Ok)?.token ?: token
+        val t = listingToken(result, token)
         when {
             t != null -> Listing.Listed(DriveApi.list(t, DrivePlace.Folder(folder.id, folder.name)).also { keep(c, folder.id, it, gen) })
             result is GoogleAuth.TokenResult.Offline -> Listing.Offline
@@ -71,6 +70,19 @@ object FolderCache {
         throw e
     } catch (e: Exception) {
         listingFailure(e)
+    }
+
+    /**
+     * The token to list a folder with, after asking for a fresh one came to [result]: that one; else,
+     * when renewing couldn't get through (offline) or Google refused the keys, the one the screen has
+     * ([screen]: it may have a while left yet). Never for a sign-in Google ended: its old token is
+     * refused, and that refusal would read as Google not answering (offline, tried again and again).
+     * Visible for tests.
+     */
+    internal fun listingToken(result: GoogleAuth.TokenResult, screen: String?): String? = when (result) {
+        is GoogleAuth.TokenResult.Ok -> result.token
+        is GoogleAuth.TokenResult.Offline, is GoogleAuth.TokenResult.Rejected -> screen
+        GoogleAuth.TokenResult.SignedOut -> null
     }
 
     /** [e], thrown while listing a folder, as a [Listing]: the network failing, or Google not answering properly, is [Listing.Offline]. Visible for tests. */
