@@ -113,5 +113,7 @@ class TvGallery {
             TvStatus("bed", "Bedroom", false, false, null),
         )
         DashboardSamples.cameras = listOf("Front Door", "Backyard", "Garage", "Driveway")
+        // Settings' first row, TV health: the same four TVs as the health shots (HealthGallery).
+        HealthGallery.seedSamples(app)
     }
 }

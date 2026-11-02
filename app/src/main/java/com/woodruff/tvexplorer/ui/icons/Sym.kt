@@ -208,6 +208,11 @@ object Sym {
     val AccountCircle: ImageVector by lazy { line("M 2 12 A 10 10 0 1 0 22 12 A 10 10 0 1 0 2 12 Z", "M 9 10 A 3 3 0 1 0 15 10 A 3 3 0 1 0 9 10 Z", "M 7 20.662 V 19 a 2 2 0 0 1 2 -2 h 6 a 2 2 0 0 1 2 2 v 1.662") }
     /** Lucide "tv-minimal-play". */
     val Streaming: ImageVector by lazy { line("M 15.033 9.44 a 0.647 0.647 0 0 1 0 1.12 l -4.065 2.352 a 0.645 0.645 0 0 1 -0.968 -0.56 V 7.648 a 0.645 0.645 0 0 1 0.967 -0.56 z", "M 7 21 h 10", "M 4 3 H 20 A 2 2 0 0 1 22 5 V 15 A 2 2 0 0 1 20 17 H 4 A 2 2 0 0 1 2 15 V 5 A 2 2 0 0 1 4 3 Z") }
+    // TV health (lane L4).
+    /** Lucide "activity": TV health. */
+    val Activity: ImageVector by lazy { line("M 22 12 h -4 l -3 9 L 9 3 l -3 9 H 2") }
+    /** Lucide "circle-alert": something needs attention, a crash. */
+    val AlertCircle: ImageVector by lazy { line("M 2 12 A 10 10 0 1 0 22 12 A 10 10 0 1 0 2 12 Z", "M 12 8 v 4", "M 12 16 h 0.01") }
 }
 
 /** Stroke weight on the 24-unit grid: close to SF Symbols' regular weight at TV sizes. */

@@ -50,8 +50,22 @@ import com.woodruff.tvexplorer.nest.Nest
 import com.woodruff.tvexplorer.tmdb.Tmdb
 import com.woodruff.tvexplorer.settings.SharedKey
 import com.woodruff.tvexplorer.settings.SharedKeys
+import com.woodruff.tvexplorer.tvs.Health
+import com.woodruff.tvexplorer.tvs.HealthGrant
+import com.woodruff.tvexplorer.tvs.HealthReport
+import com.woodruff.tvexplorer.tvs.HealthRow
 import com.woodruff.tvexplorer.tvs.LinkedTv
+import com.woodruff.tvexplorer.tvs.RowAction
+import com.woodruff.tvexplorer.tvs.RowIcon
+import com.woodruff.tvexplorer.tvs.TvHealth
+import com.woodruff.tvexplorer.tvs.TvHealthKind
+import com.woodruff.tvexplorer.tvs.TvHealthView
 import com.woodruff.tvexplorer.tvs.TvLinks
+import com.woodruff.tvexplorer.tvs.aboutTv
+import com.woodruff.tvexplorer.tvs.healthOverview
+import com.woodruff.tvexplorer.tvs.insideRows
+import com.woodruff.tvexplorer.tvs.listStatus
+import com.woodruff.tvexplorer.tvs.reportRows
 import com.woodruff.tvexplorer.server.AutoStart
 import com.woodruff.tvexplorer.update.Updater
 import androidx.compose.runtime.produceState
@@ -158,6 +172,8 @@ private sealed interface SettingsDialog {
     data object ICloud : SettingsDialog
     data object BrowseTypes : SettingsDialog
     data class RemoveTv(val tv: LinkedTv) : SettingsDialog
+    /** Link again a TV whose link stopped working (health-tv.md §3.5). */
+    data class RelinkTv(val tv: LinkedTv) : SettingsDialog
     data class RemovePhone(val phone: Phone) : SettingsDialog
     data object DriveAgain : SettingsDialog
 }
@@ -207,11 +223,30 @@ fun SettingsScreen(vm: MainViewModel) {
     }
     val update by Updater.state.collectAsStateWithLifecycle()
     val doorbellStatus by Doorbell.status.collectAsStateWithLifecycle()
-    // Asked of the other TVs over the network, so only while their page is open.
-    val otherTvs by produceState(emptyList<com.woodruff.tvexplorer.tvs.TvStatus>(), v, here) {
-        if (here == SettingsPage.TVS) value = runCatching { TvLinks.statuses(context) }.getOrDefault(emptyList())
+    val linkedState by TvLinks.linked.collectAsStateWithLifecycle()
+    val linkedTvs = HealthSamples.linked?.map { it.first } ?: linkedState
+
+    // TV health (health-tv.md): this TV's report, made off the main thread, and the linked TVs' as
+    // they arrive. Asked only while Settings' first page, a health page or Other TVs is open: on
+    // opening, every 30 s while it stays open, and when this TV's update state changes. Nothing
+    // polls in the background. [reportFor]: the TV whose report page is open ("this" or a linked id).
+    var reportFor by remember { mutableStateOf("this") }
+    val healthOpen = here == SettingsPage.HOME || here == SettingsPage.HEALTH || here == SettingsPage.HEALTH_TV || here == SettingsPage.TVS
+    var thisReport by remember { mutableStateOf(HealthSamples.thisReport ?: Health.lastReport()) }
+    val healthTick by TvHealth.changes.collectAsStateWithLifecycle()
+    val refusedTvs by TvLinks.refused.collectAsStateWithLifecycle()
+    var checkingAll by remember { mutableStateOf(false) }
+    // A Check for updates asked of a TV (its id) and whether it's still under way.
+    var checkAsked by remember { mutableStateOf<String?>(null) }
+    var checkingTv by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(healthOpen, update.step) {
+        if (!healthOpen || HealthSamples.thisReport != null) return@LaunchedEffect
+        while (true) {
+            withContext(Dispatchers.IO) { runCatching { Health.report(context, fresh = true, probe = true) }.getOrNull() }?.let { thisReport = it }
+            launch { TvHealth.checkAll(context) }
+            delay(30_000)
+        }
     }
-    val linkedTvs by TvLinks.linked.collectAsStateWithLifecycle()
     val changed = { version++; CompanionHub.settingsChanged.tryEmit(Unit) }
     LaunchedEffect(Unit) { Phones.load(context) }
     val phones by Phones.items.collectAsStateWithLifecycle()
@@ -233,10 +268,76 @@ fun SettingsScreen(vm: MainViewModel) {
     }
 
     val installed = remember(v) { Updater.installFacts(context) }
+
+    // ---- TV health -----------------------------------------------------------------------
+    /** This TV as the health pages show it. */
+    fun thisView(): TvHealthView = TvHealth.thisView(facts.tvName, thisReport)
+    /** A linked TV as the health pages show it (the gallery's samples instead, when it draws). */
+    fun linkedView(tv: LinkedTv): TvHealthView = HealthSamples.linked?.firstOrNull { it.first.id == tv.id }?.second ?: TvHealth.view(tv)
+    fun viewOf(id: String): TvHealthView? = if (id == "this") thisView() else linkedTvs.firstOrNull { it.id == id }?.let(::linkedView)
+
+    /** A TV's row on the TV list (and Other TVs): its status, what needs attention, the start of its report. */
+    fun tvRow(id: String, view: TvHealthView, title: String, about: String?): SettingItem {
+        val clock = Health.clock(context)
+        return SettingItem(
+            if (view.kind == TvHealthKind.REFUSED) Sym.LinkOff else Sym.Tv, title, listStatus(view, clock),
+            attention = view.kind.needsAttention, opens = SettingsPage.HEALTH_TV, tv = id, about = about,
+            inside = insideRows(view, clock).map { healthItem(it) {} },
+        )
+    }
+
+    /** What OK does on a row of [view]'s report ([tv]: the linked TV, null for this one). */
+    fun act(row: HealthRow, view: TvHealthView, tv: LinkedTv?) {
+        when (row.action) {
+            RowAction.NONE -> Unit
+            RowAction.SIGN_IN -> if (tv != null) vm.say("Sign in on ${tv.name} itself: sign-ins aren’t shared between TVs.") else when (row.grant) {
+                HealthGrant.DRIVE -> vm.show(Screen.DRIVE)
+                HealthGrant.PHOTOS -> showPhotos = true
+                HealthGrant.CALENDAR -> showCalendar = true
+                HealthGrant.CAMERAS -> vm.show(Screen.CAMERAS)
+                null -> Unit
+            }
+            RowAction.KEYS -> if (tv != null) vm.say("Fix the keys in the phone app: Settings → Connections → Google Drive.")
+                else { left = null; path = listOf(SettingsPage.ACCOUNTS, SettingsPage.KEYS); moves++ }
+            RowAction.VERSION -> if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
+            RowAction.CHECK -> {
+                val id = tv?.id ?: "this"
+                checkAsked = id
+                if (tv == null) Updater.checkNow(context)
+                else {
+                    checkingTv = id
+                    scope.launch {
+                        val sent = withContext(Dispatchers.IO) { runCatching { TvLinks.checkForUpdates(tv) }.isSuccess }
+                        if (!sent) { checkingTv = null; vm.say("${tv.name} didn’t respond"); return@launch }
+                        // Its report says how the check went: asked again shortly, then once more.
+                        delay(3_000); TvHealth.check(context, tv, fresh = true)
+                        delay(7_000); TvHealth.check(context, tv, fresh = true)
+                        if (checkingTv == id) checkingTv = null
+                    }
+                }
+            }
+            RowAction.RELINK -> tv?.let { dialog = SettingsDialog.RelinkTv(it) }
+            RowAction.UNLINK -> tv?.let { dialog = SettingsDialog.RemoveTv(it) }
+        }
+    }
+
     fun rows(page: SettingsPage): List<SettingItem> = when (page) {
         SettingsPage.HOME -> {
             val linked = listOf(facts.connected, facts.photosConnected, calendar.connected, facts.nestConnected).count { it } + facts.accounts.size
+            // Read so the rows follow TV health's answers.
+            healthTick; refusedTvs
+            val me = thisView()
+            val others = linkedTvs.map { it to linkedView(it) }
+            val overview = healthOverview(me, others.map { it.second })
+            val tvLines = listOf(tvRow("this", me, "${me.name} (this TV)", null)) + others.map { (tv, view) -> tvRow(tv.id, view, tv.name, null) }
             listOf(
+                SettingItem(
+                    Sym.Activity, SettingsPage.HEALTH.title, overview,
+                    attention = me.kind.needsAttention || others.any { it.second.kind.needsAttention },
+                    opens = if (linkedTvs.isEmpty()) SettingsPage.HEALTH_TV else SettingsPage.HEALTH, tv = "this",
+                    about = if (linkedTvs.isEmpty()) "How this TV is doing: sign-ins, updates, crashes and space." else SettingsPage.HEALTH.about,
+                    inside = tvLines,
+                ),
                 opener(SettingsPage.ACCOUNTS, if (linked == 0) "Not set up" else "$linked connected"),
                 opener(SettingsPage.LOOK, if (Palette.light) "Light" else "Dark"),
                 opener(SettingsPage.SCREENSAVER, if (Appearance.idleMinutes == 0) "Off" else "After ${Appearance.idleMinutes} min"),
@@ -347,15 +448,9 @@ fun SettingsScreen(vm: MainViewModel) {
             else phones.map { p -> SettingItem(Sym.Smartphone, p.name, Format.date(p.lastSeen), about = "Last seen ${Format.date(p.lastSeen)}. OK forgets this phone.") { dialog = SettingsDialog.RemovePhone(p) } }
         SettingsPage.TVS -> buildList {
             add(SettingItem(Sym.Add, "Add another TV", about = "Enter the code the other TV shows in its Settings.") { dialog = SettingsDialog.AddTv })
-            linkedTvs.forEach { tv ->
-                val s = otherTvs.firstOrNull { it.id == tv.id }
-                val status = when {
-                    s == null -> null
-                    s.online -> "Online" + (s.version?.let { " · $it" } ?: "")
-                    else -> "Off or unreachable"
-                }
-                add(SettingItem(Sym.Tv, tv.name, status, about = "OK unlinks this TV.") { dialog = SettingsDialog.RemoveTv(tv) })
-            }
+            healthTick; refusedTvs
+            // OK opens a TV's health report; unlinking is at the bottom of it.
+            linkedTvs.forEach { tv -> add(tvRow(tv.id, linkedView(tv), tv.name, "OK shows how ${tv.name} is doing. Unlinking is at the bottom of its page.")) }
             add(SettingItem(Sym.Link, "Link this TV to another", spaced = true, about = "Shows a code to enter on the other TV.") { dialog = SettingsDialog.LinkCode })
             add(SettingItem(Sym.LinkOff, "Stop other TVs seeing this one", danger = true, about = "Every linked TV loses access. Link again with a new code.") { dialog = SettingsDialog.UnlinkHubs })
         }
@@ -386,6 +481,31 @@ fun SettingsScreen(vm: MainViewModel) {
                 about = "When Woodruff was installed fresh on this TV and last updated, and what installed it. Installing over the top keeps every sign-in; uninstalling first erases them.",
             ),
         )
+        SettingsPage.HEALTH -> {
+            healthTick; refusedTvs
+            val me = thisView()
+            listOf(tvRow("this", me, "${me.name} (this TV)", aboutTv(me))) +
+                linkedTvs.map { tv -> linkedView(tv).let { tvRow(tv.id, it, tv.name, aboutTv(it)) } } +
+                SettingItem(Sym.Refresh, "Check every TV again", if (checkingAll) "Checking…" else null, spaced = true) {
+                    if (!checkingAll && HealthSamples.linked == null) {
+                        checkingAll = true
+                        scope.launch {
+                            withContext(Dispatchers.IO) { runCatching { Health.report(context, fresh = true, probe = true) }.getOrNull() }?.let { thisReport = it }
+                            TvHealth.checkAll(context, fresh = true)
+                            checkingAll = false
+                        }
+                    }
+                }
+        }
+        SettingsPage.HEALTH_TV -> {
+            healthTick; refusedTvs
+            val id = reportFor
+            val tv = linkedTvs.firstOrNull { it.id == id }
+            val view = viewOf(id) ?: TvHealthView(tv?.name ?: facts.tvName, isThis = false, kind = TvHealthKind.OFF)
+            val asked = checkAsked == id
+            val checking = asked && (if (tv == null) update.step == Updater.Step.CHECKING else checkingTv == id)
+            reportRows(view, Health.clock(context), checking, asked).map { r -> healthItem(r) { act(r, view, tv) } }
+        }
         SettingsPage.ADVANCED -> listOf(
             SettingItem(Sym.Speed, "Smoothness", detail = smoothness, about = "Slow frames while navigating on each screen, and what they were spent on. OK starts counting again and records 3 minutes for the phone's Smoothness Report.") {
                 FrameStats.reset(); smoothness = FrameStats.summary()
@@ -447,7 +567,11 @@ fun SettingsScreen(vm: MainViewModel) {
                 here, enter = TvMotion.PageIn, exit = TvMotion.PageOut, fill = false,
                 layer = { shown, _, _ -> alpha = shown },
             ) { p ->
-                Text(p.title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 16.dp, top = 30.dp, bottom = 10.dp))
+                val title = if (p == SettingsPage.HEALTH_TV) viewOf(reportFor)?.name ?: facts.tvName else p.title
+                Text(
+                    title, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 16.dp, top = 30.dp, bottom = 10.dp),
+                )
             }
             // A page opened slides in from the right as the one it replaces slides out to the left (and
             // the other way going back), both fading, on springs, in their drawing layers: nothing is
@@ -475,15 +599,20 @@ fun SettingsScreen(vm: MainViewModel) {
             ) { shown ->
                 val page = shown.lastOrNull() ?: SettingsPage.HOME
                 val items = rowsOf(page)
-                // The first row of a page just opened; after Back, the row that opened the page left.
-                val focusOn = if (shown != path || moves == 0) null else items.indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0)
+                // The first row of a page just opened; after Back, the row that opened the page left
+                // (for a TV's report, that TV's row).
+                val focusOn = if (shown != path || moves == 0) null else items.indexOfFirst { it.reopens(left, reportFor) }.coerceAtLeast(0)
                 // Only the page on screen opens another: until a new page takes the focus (a frame
                 // later), a quick second press still reaches the one sliding out.
-                SettingsList(items, focusOn, moves, onOpen = { p -> if (shown == path) open(p) }, onFocused = { i -> hovered.value = page to i })
+                SettingsList(
+                    items, focusOn, moves,
+                    onOpen = { item -> if (shown == path) { item.tv?.let { reportFor = it }; item.opens?.let(open) } },
+                    onFocused = { i -> hovered.value = page to i },
+                )
             }
         }
         // On the right: what the focused row is about, following the focus (OK still does the choosing).
-        AboutPanel(hovered, here, left, rowsOf, Modifier.weight(1f).fillMaxHeight().padding(start = 56.dp))
+        AboutPanel(hovered, here, left, reportFor, rowsOf, Modifier.weight(1f).fillMaxHeight().padding(start = 56.dp))
     }
 
     if (showCalendar) CalendarConnectDialog(onDismiss = { showCalendar = false })
@@ -559,9 +688,25 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsDialog.LinkCode -> LinkCodeDialog(onDismiss = { dialog = null })
         SettingsDialog.AddTv -> AddTvDialog(onDismiss = { dialog = null }, onResult = { vm.say(it); changed() })
+        is SettingsDialog.RelinkTv -> AddTvDialog(
+            onDismiss = { dialog = null },
+            onResult = { msg ->
+                vm.say(msg)
+                changed()
+                // The new link's report, at once.
+                scope.launch { TvLinks.linked.value.firstOrNull { it.id == reportFor }?.let { TvHealth.check(context, it, fresh = true) } }
+            },
+            target = d.tv,
+            onLinked = { tv -> if (reportFor == d.tv.id) reportFor = tv.id },
+        )
         is SettingsDialog.RemoveTv -> ConfirmDialog(
             "Unlink ${d.tv.name}?", "This TV stops showing what ${d.tv.name} is playing.", "Unlink",
-            onConfirm = { TvLinks.remove(context, d.tv.id) }, onDismiss = { dialog = null },
+            onConfirm = {
+                TvLinks.remove(context, d.tv.id)
+                // Unlinked from its own report: back to the TV list.
+                if (here == SettingsPage.HEALTH_TV && reportFor == d.tv.id) back()
+            },
+            onDismiss = { dialog = null },
         )
         SettingsDialog.ICloud -> ICloudDialog(onDismiss = { dialog = null }, onStart = { dialog = null; vm.show(Screen.TRANSFER) })
         SettingsDialog.BrowseTypes -> ActionMenu(
@@ -711,6 +856,9 @@ private fun addMail(
 /** The pages of Settings: the first, and the ones opened from it. */
 private enum class SettingsPage(val title: String, val icon: ImageVector, val about: String) {
     HOME("Settings", Sym.Settings, ""),
+    HEALTH("TV health", Sym.Activity, "How every TV in the house is doing: sign-ins, updates, crashes and space."),
+    /** One TV's report; its title is the TV's name. */
+    HEALTH_TV("", Sym.Tv, ""),
     ACCOUNTS("Accounts", Sym.AccountCircle, "Google Drive, Photos, Calendar, cameras and mail."),
     MAIL("Mail", Sym.Email, "The mail accounts the Command Center shows."),
     KEYS("Keys & sign-out", Sym.Key, "The keys from Google and TMDB, and signing out."),
@@ -726,13 +874,57 @@ private enum class SettingsPage(val title: String, val icon: ImageVector, val ab
 
 /**
  * One row. A row that [opens] a page shows a chevron; any other runs [onClick]. [spaced]: a gap
- * above it. [about] and [detail] show on the right while the row has the focus.
+ * above it. [about] and [detail] show on the right while the row has the focus, with [inside] (or
+ * the rows of the page it opens) listed under them. [attention]: its value needs a person (amber).
+ * [tv]: the TV a health row is about ("this" or a linked TV's id).
  */
 private class SettingItem(
     val icon: ImageVector, val title: String, val value: String? = null,
     val detail: String? = null, val danger: Boolean = false,
-    val opens: SettingsPage? = null, val spaced: Boolean = false, val about: String? = null, val onClick: () -> Unit = {},
+    val opens: SettingsPage? = null, val spaced: Boolean = false, val about: String? = null,
+    val attention: Boolean = false, val tv: String? = null, val inside: List<SettingItem>? = null,
+    val onClick: () -> Unit = {},
+) {
+    /** Whether this is the row that opened [left] (for a TV's report, the one for [reportFor]): it takes the focus back after Back. */
+    fun reopens(left: SettingsPage?, reportFor: String): Boolean =
+        opens != null && opens == left && (left != SettingsPage.HEALTH_TV || tv == reportFor)
+}
+
+/** A row of a TV's health report ([HealthRow]) as a Settings row. */
+private fun healthItem(r: HealthRow, onClick: () -> Unit) = SettingItem(
+    r.icon.symbol(), r.title, r.value, detail = r.detail, danger = r.danger, spaced = r.spaced, about = r.about,
+    attention = r.attention, onClick = onClick,
 )
+
+private fun RowIcon.symbol(): ImageVector = when (this) {
+    RowIcon.CHECK_CIRCLE -> Sym.CheckCircle
+    RowIcon.ALERT_CIRCLE -> Sym.AlertCircle
+    RowIcon.TV -> Sym.Tv
+    RowIcon.LINK_OFF -> Sym.LinkOff
+    RowIcon.LINK -> Sym.Link
+    RowIcon.UPDATE -> Sym.SystemUpdate
+    RowIcon.DRIVE -> Sym.AddToDrive
+    RowIcon.PHOTOS -> Sym.PhotoLibrary
+    RowIcon.CALENDAR -> Sym.Event
+    RowIcon.CAMERAS -> Sym.Videocam
+    RowIcon.DOORBELL -> Sym.NotificationsActive
+    RowIcon.INFO -> Sym.Info
+    RowIcon.INSTALL -> Sym.InstallMobile
+    RowIcon.POWER -> Sym.PowerSettingsNew
+    RowIcon.STORAGE -> Sym.Storage
+    RowIcon.KEY -> Sym.Key
+    RowIcon.REFRESH -> Sym.Refresh
+    RowIcon.ACTIVITY -> Sym.Activity
+}
+
+/**
+ * Sample TV health for the UI gallery: this TV's report and the linked TVs as health pages show
+ * them, instead of asking any TV (no network in the gallery). Never set outside it.
+ */
+internal object HealthSamples {
+    var thisReport: HealthReport? = null
+    var linked: List<Pair<LinkedTv, TvHealthView>>? = null
+}
 
 /** The row that opens [page], named and pictured like the page. */
 private fun opener(page: SettingsPage, value: String?, spaced: Boolean = false) =
@@ -807,7 +999,7 @@ private fun mask(s: String, keep: Int) = if (s.length <= keep) s else s.take(kee
 
 /** One page's rows. [focusOn]: the row that takes the focus as the page appears after a move. */
 @Composable
-private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, onOpen: (SettingsPage) -> Unit, onFocused: (Int) -> Unit) {
+private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, onOpen: (SettingItem) -> Unit, onFocused: (Int) -> Unit) {
     val focus = remember(items.size) { List(items.size) { FocusRequester() } }
     var focused by remember { mutableIntStateOf(0) }
     LaunchedEffect(moves) {
@@ -824,9 +1016,9 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
             Modifier.fillMaxSize()
                 // Right opens a group too, like stepping into it.
                 .onPreviewKeyEvent { e ->
-                    val opens = items.getOrNull(focused)?.opens
-                    if (e.key == androidx.compose.ui.input.key.Key.DirectionRight && opens != null) {
-                        if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) onOpen(opens)
+                    val item = items.getOrNull(focused)
+                    if (e.key == androidx.compose.ui.input.key.Key.DirectionRight && item?.opens != null) {
+                        if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) onOpen(item)
                         true
                     } else false
                 }
@@ -846,7 +1038,7 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
                     Modifier.padding(top = if (item.spaced) 22.dp else 0.dp)
                         .focusRequester(focus[i])
                         .onFocusChanged { if (it.isFocused) { focused = i; onFocused(i) } },
-                ) { item.opens?.let(onOpen) ?: item.onClick() }
+                ) { if (item.opens != null) onOpen(item) else item.onClick() }
             }
         }
     }
@@ -859,7 +1051,7 @@ private fun SettingsList(items: List<SettingItem>, focusOn: Int?, moves: Int, on
  */
 @Composable
 private fun AboutPanel(
-    hovered: State<Pair<SettingsPage, Int>?>, here: SettingsPage, left: SettingsPage?,
+    hovered: State<Pair<SettingsPage, Int>?>, here: SettingsPage, left: SettingsPage?, reportFor: String,
     rowsOf: (SettingsPage) -> List<SettingItem>, modifier: Modifier,
 ) {
     // The focused row, once the focus settles. A held arrow steps every 100 ms or so: while steps
@@ -877,7 +1069,7 @@ private fun AboutPanel(
         }
     }
     val (p, i) = rested?.takeIf { it.first == here }
-        ?: (here to rowsOf(here).indexOfFirst { it.opens != null && it.opens == left }.coerceAtLeast(0))
+        ?: (here to rowsOf(here).indexOfFirst { it.reopens(left, reportFor) }.coerceAtLeast(0))
     // One panel at a time, each new one fading in. The fade is the layer's alpha, applied as it
     // draws: no second panel composed and no offscreen buffer, as a cross-fade had. The first panel
     // is there at once (the screen itself eases in).
@@ -889,7 +1081,7 @@ private fun AboutPanel(
     }
     Box(modifier.graphicsLayer { alpha = fade.value; compositingStrategy = CompositingStrategy.ModulateAlpha }) {
         val item = rowsOf(p).getOrNull(i)
-        if (item != null) SettingAbout(item, item.opens?.let { rowsOf(it) })
+        if (item != null) SettingAbout(item, item.inside ?: item.opens?.let { rowsOf(it) })
     }
 }
 
@@ -903,7 +1095,10 @@ private fun SettingAbout(item: SettingItem, inside: List<SettingItem>?) {
         TvIcon(item.icon, size = 72.dp, tint = Palette.text)
         Text(item.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 18.dp))
         if (item.value != null) {
-            Text(item.value, style = MaterialTheme.typography.titleMedium, color = Palette.muted, modifier = Modifier.padding(top = 4.dp))
+            Text(
+                item.value, style = MaterialTheme.typography.titleMedium, color = if (item.attention) Palette.attention else Palette.muted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp),
+            )
         }
         if (item.about != null) {
             Text(item.about, style = MaterialTheme.typography.bodyLarge, color = Palette.muted, modifier = Modifier.padding(top = 14.dp).widthIn(max = 460.dp))
@@ -922,7 +1117,8 @@ private fun SettingAbout(item: SettingItem, inside: List<SettingItem>?) {
                         )
                         if (sub.value != null) {
                             Text(
-                                sub.value, style = MaterialTheme.typography.bodyMedium, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                sub.value, style = MaterialTheme.typography.bodyMedium, color = if (sub.attention) Palette.attention else Palette.muted,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(start = 12.dp).widthIn(max = 200.dp),
                             )
                         }
@@ -951,7 +1147,10 @@ private fun SettingRow(item: SettingItem, platter: FocusPlatter, modifier: Modif
     // Red only off the focus: on the white platter it washes out, so it takes the row's dark text.
     val titleColor = if (item.danger) Palette.danger else text
     val titleTint = remember(motion, titleColor, onWhite) { FocusColor(motion, titleColor, onWhite) }
-    val valueTint = remember(motion, text, onWhite) { FocusColor(motion, text.copy(alpha = 0.62f), onWhite.copy(alpha = 0.62f)) }
+    // Values at rest: 62 % in dark, 70 % in light (62 % fell to 4.25:1 where the light backdrop's
+    // glow is strongest); a value that needs a person is amber. On the white platter all turn dark.
+    val valueColor = if (item.attention) Palette.attention else text.copy(alpha = if (Palette.light) 0.70f else 0.62f)
+    val valueTint = remember(motion, valueColor, onWhite) { FocusColor(motion, valueColor, onWhite.copy(alpha = 0.62f)) }
     TvCard(
         onClick = onClick,
         shape = SettingRowShape,
