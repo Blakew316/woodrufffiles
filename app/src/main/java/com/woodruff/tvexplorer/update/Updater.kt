@@ -689,7 +689,9 @@ object Updater {
                 }
             }
             nextTryAt = 0
-            val choice = choose(releases, current, System.currentTimeMillis(), eager = manual || isTestTv(c), ready = ready)
+            // Every TV takes a new build as soon as it's out (no longer a day after the test TV): the family updates
+            // every device with one release, and the iPhone's Update button means now.
+            val choice = choose(releases, current, System.currentTimeMillis(), eager = true, ready = ready)
             val build = choice.build
             if (build == null) {
                 // A download that's no longer wanted (taken down since) goes.
