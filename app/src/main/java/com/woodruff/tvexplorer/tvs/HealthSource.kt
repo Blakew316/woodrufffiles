@@ -134,7 +134,9 @@ object Health {
             ),
             installed = InstallFact(installed.summary(), installed.installedBy, installed.firstInstall, installed.lastUpdate),
             installAllowed = if (Build.VERSION.SDK_INT >= 26) runCatching { c.packageManager.canRequestPackageInstalls() }.getOrNull() else null,
-            popUpsAllowed = if (Build.VERSION.SDK_INT >= 29) runCatching { Settings.canDrawOverlays(c) }.getOrNull() else null,
+            // Not asked of a TV Android counts as low on memory: it never lets an app show pop-ups over others there (its
+            // page for that opens and closes at once), so there's nothing to fix and nothing to warn about.
+            popUpsAllowed = if (Build.VERSION.SDK_INT >= 29 && !lowRam(c)) runCatching { Settings.canDrawOverlays(c) }.getOrNull() else null,
             crash = crash,
             crashesClearedAt = p.getLong(K_CRASH_CLEARED, 0L),
             exits = ExitReasons.recent(c),
@@ -173,3 +175,7 @@ internal fun crashTime(report: String, now: Long, zone: TimeZone = TimeZone.getD
     if (at.timeInMillis > now + 24 * 3_600_000L) at.add(Calendar.YEAR, -1)
     return at.timeInMillis
 }
+
+/** Android counts this TV as low on memory (it then never allows pop-ups over other apps). */
+internal fun lowRam(c: android.content.Context): Boolean =
+    runCatching { (c.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice }.getOrDefault(false)

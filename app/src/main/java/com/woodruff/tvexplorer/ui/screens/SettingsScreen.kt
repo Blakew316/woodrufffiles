@@ -581,7 +581,8 @@ fun SettingsScreen(vm: MainViewModel) {
                 attention = facts.doorbell.attention,
             ),
             SettingItem(
-                Sym.NotificationsActive, "Pop-ups over other apps", onOff(facts.overlay),
+                Sym.NotificationsActive, "Pop-ups over other apps",
+                if (com.woodruff.tvexplorer.tvs.lowRam(context)) "Not available on this TV" else onOff(facts.overlay),
                 // Android 12+ lets a background service come back after a kill only for apps allowed this (TransferService),
                 // and Android 10+ lets Woodruff open again by itself after an update (update/Restore) only for them.
                 about = when {
@@ -590,7 +591,9 @@ fun SettingsScreen(vm: MainViewModel) {
                     else -> "Lets alerts show while another app is open."
                 },
             ) {
-                if (!facts.overlay) {
+                if (com.woodruff.tvexplorer.tvs.lowRam(context)) {
+                    vm.say("Android doesn’t allow pop-ups over other apps on this TV.")
+                } else if (!facts.overlay) {
                     val r = Opener.firstThatStarts(
                         context,
                         // The list itself, where Woodruff Family is picked and turned on: on some Google TVs the page for
