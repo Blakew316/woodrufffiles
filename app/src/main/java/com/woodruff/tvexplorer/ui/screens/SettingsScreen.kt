@@ -361,6 +361,11 @@ fun SettingsScreen(vm: MainViewModel) {
                 // For a day after an update, "Updated today": no notice says so (update/Restore).
                 opener(SettingsPage.UPDATES, versionStatus(update, updatedLately(context, installed, short = true))),
                 opener(SettingsPage.ADVANCED, null, spaced = true),
+                // Everything above can be changed from the Woodruff app on an iPhone or Mac too, for every TV at once.
+                SettingItem(
+                    Sym.Smartphone, "Woodruff app", "iPhone & Mac",
+                    about = "Accounts, keys, mail, notes, TV names and updates can all be changed in the Woodruff app on your iPhone or Mac (Settings there), for every TV at once.",
+                ) { vm.say("Open Settings in the Woodruff app on your iPhone or Mac.") },
             )
         }
         SettingsPage.ACCOUNTS -> listOfNotNull(
