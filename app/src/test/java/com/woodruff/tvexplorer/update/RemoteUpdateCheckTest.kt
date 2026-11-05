@@ -26,9 +26,8 @@ import java.io.IOException
 
 /**
  * Check for Updates asked for away from the TV (the phone's TV page, or a hub TV's health page through
- * /api/update/check) looks at once but follows the test TV's day, as this TV's own checks do: a build out for an
- * hour is left to the test TV, and arrives here a day after it came out. Settings → Check for updates on the TV
- * itself still takes it at once. Releases and downloads are stand-ins: no network.
+ * /api/update/check) takes a new build at once, as every TV's own checks now do (no day's wait after the test TV).
+ * Releases and downloads are stand-ins: no network.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -74,18 +73,15 @@ class RemoteUpdateCheckTest {
         }
     }
 
-    @Test fun thePhonesCheckLeavesABuildTheTestTvHasntHadADayWith() {
+    @Test fun thePhonesCheckTakesANewBuildAtOnce() {
         fromThePhone()
-        waitUntil("it looked") { checks == 1 && Updater.state.value.step == Step.UP_TO_DATE }
-        assertEquals(0, fetched)
+        waitUntil("it was fetched") { fetched == 1 && Updater.state.value.step == Step.ERROR }
         assertEquals(next, Updater.state.value.latest)
-        assertTrue(Updater.state.value.message.orEmpty(), Updater.state.value.message.orEmpty().endsWith("(after the test TV)"))
     }
 
     @Test fun aHubTvsCheckDoesToo() {
         fromAHub()
-        waitUntil("it looked") { checks == 1 && Updater.state.value.step == Step.UP_TO_DATE }
-        assertEquals(0, fetched)
+        waitUntil("it was fetched") { fetched == 1 && Updater.state.value.step == Step.ERROR }
     }
 
     @Test fun settingsOnTheTvItselfStillTakesItAtOnce() {
