@@ -561,8 +561,9 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
     // broadcast, in the background) only when it may show pop-ups over other apps. Without that, an update
     // that installs by itself leaves the TV on its home screen instead of where Woodruff was.
     val popUps = f.popUpsAllowed?.takeIf { f.sdk >= 29 }
-    val noPopUps = u.auto && popUps == false
-    if (noPopUps) items += HealthItem("update.popUps", "Woodruff can’t open again by itself after an update", popUpsFix(tv), "none")
+    // Not a warning any more: on some TVs Android's page for it opens and closes at once, so it can't be fixed there,
+    // and without it only the reopening after an update is missed (Settings → Advanced still shows it).
+    val noPopUps = false
 
     // Rules 3 and 4: crashes and Android's reasons in the last 7 days (one item each, the latest).
     val week = now - 7 * DAY

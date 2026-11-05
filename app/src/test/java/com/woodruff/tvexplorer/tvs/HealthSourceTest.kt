@@ -61,7 +61,7 @@ class HealthSourceTest {
         ShadowSettings.setCanDrawOverlays(false)
         Health.report(c, fresh = true).let { r ->
             assertEquals("Not allowed", r.popUps!!.text)
-            assertTrue(r.attention.any { it.id == "update.popUps" })
+            assertTrue(r.attention.none { it.id == "update.popUps" })
         }
         ShadowSettings.setCanDrawOverlays(true)
         Health.report(c, fresh = true).let { r ->
