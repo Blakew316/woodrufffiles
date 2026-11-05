@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
+import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.data.StorageRepository
 import com.woodruff.tvexplorer.mail.MailPoller
 import com.woodruff.tvexplorer.nest.Doorbell
@@ -215,7 +216,8 @@ class TransferService : Service() {
         val storage = StorageRepository(app)
         val routes = CompanionRoutes(app)
         for (port in portsToTry(lastPort)) {
-            val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public, homeName = { PhoneIcon.label(app) })
+            val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public, homeName = { PhoneIcon.label(app) },
+                driveToken = { GoogleAuth.blockingToken(app) })
             try {
                 s.start(SOCKET_TIMEOUT_MS, true)
             } catch (e: IOException) {

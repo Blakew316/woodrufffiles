@@ -41,6 +41,8 @@ class TransferServer(
     private val public: (IHTTPSession) -> Response? = { null },
     /** What a phone's Home Screen icon for the web app is called (this TV's name: [PhoneIcon]), read at each page load. */
     private val homeName: () -> String = { PhoneIcon.APP_NAME },
+    /** This TV's Google Drive token, for a Drive video played on a phone (null: none to be had). Blocking. */
+    private val driveToken: () -> String? = { null },
 ) : NanoHTTPD(port) {
 
     /** The page as last filled in, and its ETag, for the Home Screen label it was filled in with. */
@@ -102,6 +104,8 @@ class TransferServer(
             })
             s.uri == "/api/list" -> list(resolve(param(s, "path")))
             s.uri == "/api/download" -> download(resolve(param(s, "path")))
+            // A film played on the phone itself, from where it's asked (see [PhoneStream]).
+            s.uri == "/api/stream" -> stream(s)
             s.uri == "/api/upload" && s.method == Method.POST -> upload(s)
             s.uri == "/api/mkdir" && s.method == Method.POST -> {
                 val dir = FileOperations.uniqueTarget(resolve(param(s, "path")), clean(param(s, "name")))
@@ -140,6 +144,19 @@ class TransferServer(
         return newFixedLengthResponse(Response.Status.OK, FileTypes.mimeOf(f.name), WhileSending(FileInputStream(f)), f.length()).apply {
             addHeader("Content-Disposition", "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(f.name, "UTF-8").replace("+", "%20"))
         }
+    }
+
+    private fun stream(s: IHTTPSession): Response {
+        val key = param(s, "media")
+        val range = s.headers["range"]
+        if (key.startsWith("drive:")) {
+            val token = driveToken() ?: throw IOException("This TV isn’t signed in to Google Drive just now")
+            return PhoneStream.drive(key.removePrefix("drive:"), range, token)
+        }
+        val f = resolve(key)
+        if (!f.isFile) throw IllegalArgumentException("Not a file")
+        onActivity("Playing ${f.name} on a phone")
+        return PhoneStream.file(f, range)
     }
 
     private fun upload(s: IHTTPSession): Response {
