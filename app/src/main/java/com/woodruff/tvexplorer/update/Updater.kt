@@ -554,6 +554,19 @@ object Updater {
      */
     fun checkNow(c: Context, eager: Boolean = true) { val app = c.applicationContext; scope.launch { checkAndDownload(app, manual = eager) } }
 
+    /**
+     * Update pressed in the Woodruff app on an iPhone or Mac: the newest build now (not the test TV's day), and in
+     * at once, as an urgent fix goes in: only a film that's playing, the doorbell's camera or a job that mustn't be
+     * cut short holds it back, and then the usual quiet moment installs it.
+     */
+    fun updateNowFromPhone(c: Context) {
+        val app = c.applicationContext
+        scope.launch {
+            checkAndDownload(app, manual = true)
+            installUrgently(app)
+        }
+    }
+
     /** When the last check started (successful or not). */
     @Volatile private var lastAttempt = 0L
     /**

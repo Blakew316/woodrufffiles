@@ -250,8 +250,9 @@ class CompanionRoutes(private val ctx: Context) {
         // Check for an update now, for the phone or a linked hub: it follows the test TV's day, as this TV's own checks
         // do (only Settings → Updates → Check for updates, on the TV itself, skips that).
         s.uri == "/api/update/check" && s.method == Method.POST -> {
-            body(s)
-            com.woodruff.tvexplorer.update.Updater.checkNow(ctx, eager = false)
+            // "now": Update pressed in the Woodruff app: download and install at once.
+            if (body(s).optBoolean("now")) com.woodruff.tvexplorer.update.Updater.updateNowFromPhone(ctx)
+            else com.woodruff.tvexplorer.update.Updater.checkNow(ctx, eager = false)
             ok()
         }
         s.uri == "/api/tvs" && s.method == Method.GET -> {
@@ -283,12 +284,16 @@ class CompanionRoutes(private val ctx: Context) {
             }
         }
         s.uri == "/api/tvs/update/check" && s.method == Method.POST -> {
-            val id = body(s).optString("id")
-            if (id == "this") com.woodruff.tvexplorer.update.Updater.checkNow(ctx, eager = false)
-            else {
+            val b = body(s)
+            val id = b.optString("id")
+            val now = b.optBoolean("now")
+            if (id == "this") {
+                if (now) com.woodruff.tvexplorer.update.Updater.updateNowFromPhone(ctx)
+                else com.woodruff.tvexplorer.update.Updater.checkNow(ctx, eager = false)
+            } else {
                 val tv = TvLinks.find(id) ?: throw IllegalArgumentException("Unknown TV")
                 try {
-                    TvLinks.checkForUpdates(tv)
+                    TvLinks.checkForUpdates(tv, now)
                 } catch (e: java.io.IOException) {
                     throw IllegalArgumentException("${tv.name} didn’t respond")
                 }

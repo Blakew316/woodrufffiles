@@ -549,9 +549,12 @@ object TvLinks {
         data object Unreachable : HealthAnswer
     }
 
-    /** Asks [tv] to check for an update now (it still follows the test TV's day, as its own checks do). */
-    fun checkForUpdates(tv: LinkedTv) {
-        request("${tv.base}/api/update/check?k=${enc(tv.key)}", "POST", "{}")
+    /**
+     * Asks [tv] to check for an update now (it still follows the test TV's day, as its own checks do); [now]: Update
+     * was pressed in the Woodruff app, so it takes the newest build and installs it at once.
+     */
+    fun checkForUpdates(tv: LinkedTv, now: Boolean = false) {
+        request("${tv.base}/api/update/check?k=${enc(tv.key)}", "POST", if (now) "{\"now\":true}" else "{}")
         answered(tv)
     }
 
