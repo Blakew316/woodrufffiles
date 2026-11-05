@@ -593,9 +593,11 @@ fun SettingsScreen(vm: MainViewModel) {
                 if (!facts.overlay) {
                     val r = Opener.firstThatStarts(
                         context,
+                        // The list itself, where Woodruff Family is picked and turned on: on some Google TVs the page for
+                        // one app (asked for by its package) opens and closes again in a blink, so it can't be turned on.
                         listOf(
-                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")),
                             Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION),
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")),
                         ),
                         "",
                     )
