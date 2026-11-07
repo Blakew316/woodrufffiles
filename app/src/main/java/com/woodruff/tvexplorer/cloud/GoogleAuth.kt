@@ -67,8 +67,13 @@ object GoogleAuth {
         val expiresKey = "$prefix.expires"
         /** The scopes Google actually granted (its consent screen lets each one be unticked). */
         val scopesKey = "$prefix.scopes"
+        /**
+         * When this sign-in was made (ms), here or in the Woodruff app ([receive]): a sign-in the app
+         * hands over replaces this TV's only when it's the newer one.
+         */
+        val atKey = "$prefix.at"
         /** Everything stored for this sign-in, removed together when it ends. */
-        val stored: Array<String> get() = arrayOf(refreshKey, accessKey, expiresKey, scopesKey)
+        val stored: Array<String> get() = arrayOf(refreshKey, accessKey, expiresKey, scopesKey, atKey)
         /**
          * When Google ended this sign-in (ms), kept after its tokens are gone: Settings says "Sign-in
          * ended" rather than "Not signed in", and Streaming asks to sign in *again*. Gone with a new
@@ -280,6 +285,7 @@ object GoogleAuth {
                 // Google always says what it granted; without that, take it as what was asked for.
                 if (json.optString("scope").isBlank()) st.put(attempt.grant.scopesKey, attempt.grant.scope)
                 st.put(attempt.grant.refreshKey, refresh)
+                st.put(attempt.grant.atKey, System.currentTimeMillis().toString())
                 // Signed in again: neither ended nor refused any more.
                 st.remove(*attempt.grant.marks)
             }
@@ -290,6 +296,28 @@ object GoogleAuth {
             // Now with the shared folder, usually: swap progress with the other TVs.
             FamilySync.signedIn(c)
         }
+    }
+
+    /**
+     * A sign-in made in the Woodruff app and handed to this TV (POST /api/grant): kept like one made
+     * here, so the family signs in once on any phone or Mac and every TV has it. Not kept when it's
+     * the one this TV already has, or older than a sign-in made on this TV since ([at], ms). True
+     * when it was kept.
+     */
+    fun receive(c: Context, grant: Grant, refresh: String, scope: String?, at: Long): Boolean {
+        val st = s(c)
+        synchronized(lock(grant)) {
+            if (st.get(grant.refreshKey) == refresh) return false
+            val mine = st.get(grant.atKey)?.toLongOrNull() ?: 0L
+            if (at in 1 until mine) return false
+            st.remove(grant.accessKey, grant.expiresKey)
+            st.put(grant.refreshKey, refresh)
+            st.put(grant.scopesKey, scope?.ifBlank { null } ?: grant.scope)
+            st.put(grant.atKey, (if (at > 0) at else System.currentTimeMillis()).toString())
+            st.remove(*grant.marks)
+        }
+        _accountChanges.tryEmit(grant)
+        return true
     }
 
     /**

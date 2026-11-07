@@ -568,6 +568,21 @@ class CompanionRoutes(private val ctx: Context) {
             CompanionHub.settingsChanged.tryEmit(Unit)
             json(settingsJson(s))
         }
+        // A Google Photos or Calendar sign-in made in the Woodruff app (which keeps the family's
+        // sign-ins and syncs them to every phone and Mac): kept here like one made on this TV.
+        s.uri == "/api/grant" && s.method == Method.POST -> {
+            val b = body(s)
+            val grant = when (b.optString("grant")) {
+                "photos" -> GoogleAuth.Grant.PHOTOS
+                "calendar" -> GoogleAuth.Grant.CALENDAR
+                else -> throw IllegalArgumentException("Unknown sign-in")
+            }
+            val refresh = b.optString("refresh").trim()
+            require(refresh.isNotEmpty()) { "No sign-in" }
+            val kept = GoogleAuth.receive(ctx, grant, refresh, b.optString("scope"), b.optLong("at"))
+            if (kept) CompanionHub.settingsChanged.tryEmit(Unit)
+            json(JSONObject().put("kept", kept))
+        }
         s.uri == "/api/settings/tmdb" && s.method == Method.POST -> {
             // Checked with TMDB first (one light request): a key it refuses isn't saved, and the phone
             // says why. One that can't be checked now is saved, and the phone says it's checked later.

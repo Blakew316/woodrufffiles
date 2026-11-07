@@ -203,10 +203,12 @@ object TvLinks {
      * (no more than its remote keys can already do).
      * /api/type: the phone's keyboard on this TV, through the hub: which text box is open and the text typed
      * into it (typing is pressing this TV's keys, which the link key can already do; finding 42).
+     * /api/grant: a Google Photos or Calendar sign-in from the Woodruff app, through the hub (like the
+     * shared keys at /api/keys, which the link key can already write).
      */
     val LINK_ROUTES = setOf(
         "/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/keys", "/api/tmdb",
-        "/api/health", "/api/update/check", "/api/media", "/api/type",
+        "/api/health", "/api/update/check", "/api/media", "/api/type", "/api/grant",
     )
 
     /**
