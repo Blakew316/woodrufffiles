@@ -1,9 +1,13 @@
 package com.woodruff.tvexplorer.net
 
+import okhttp3.ConnectionPool
 import okhttp3.Dns
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.URL
 import java.util.concurrent.TimeUnit
 
 /**
@@ -19,6 +23,23 @@ object Http {
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
+
+    /**
+     * For the app's short calls ([open]): [client]'s address order, on connections of their own, one
+     * request at a time on each (HTTP/1.1), as those calls always had. They stay off the connection
+     * a film is streaming on.
+     */
+    private val calls: OkHttpClient by lazy {
+        client.newBuilder().connectionPool(ConnectionPool()).protocols(listOf(Protocol.HTTP_1_1)).build()
+    }
+
+    /**
+     * A connection to [url] for a short call (a listing, a camera, a poster's details, the weather):
+     * used exactly as Android's own, which `URL(url).openConnection()` gives, but IPv4 first
+     * ([Ipv4First]). Every call to Google and the other services goes through this or [client]; only
+     * the updater and the TVs' calls to each other (addresses on the home network) keep Android's.
+     */
+    fun open(url: String): HttpURLConnection = OkConnection(URL(url), calls)
 }
 
 /**

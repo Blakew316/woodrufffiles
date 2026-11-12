@@ -18,8 +18,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -628,7 +626,7 @@ object GoogleAuth {
         s(c).remove(*grant.stored, *grant.marks)
         if (grant == Grant.DRIVE) _driveSignOuts.tryEmit(Unit)
         if (refresh != null) runCatching {
-            (URL("https://oauth2.googleapis.com/revoke?token=${enc(refresh)}").openConnection() as HttpURLConnection).apply {
+            Http.open("https://oauth2.googleapis.com/revoke?token=${enc(refresh)}").apply {
                 requestMethod = "POST"; doOutput = true; outputStream.close(); responseCode; disconnect()
             }
         }

@@ -10,6 +10,7 @@ import com.woodruff.tvexplorer.cloud.EpisodeMeta
 import com.woodruff.tvexplorer.cloud.Library
 import com.woodruff.tvexplorer.cloud.trimSynopsis
 import com.woodruff.tvexplorer.data.FileKind
+import com.woodruff.tvexplorer.net.Http
 import com.woodruff.tvexplorer.settings.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -25,7 +26,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 
@@ -625,7 +625,7 @@ object Tmdb {
     private fun connect(key: String, path: String, connectMs: Int = 10_000, readMs: Int = 15_000): HttpURLConnection {
         val bearer = key.startsWith("eyJ")
         val url = API + path + if (bearer) "" else (if ('?' in path) "&" else "?") + "api_key=${enc(key)}"
-        return (URL(url).openConnection() as HttpURLConnection).apply {
+        return Http.open(url).apply {
             connectTimeout = connectMs
             readTimeout = readMs
             if (bearer) setRequestProperty("Authorization", "Bearer $key")

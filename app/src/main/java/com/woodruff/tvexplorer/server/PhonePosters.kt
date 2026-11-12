@@ -6,14 +6,13 @@ import com.woodruff.tvexplorer.cloud.FolderCache
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.cloud.isGoogleUrl
 import com.woodruff.tvexplorer.data.FileKind
+import com.woodruff.tvexplorer.net.Http
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Response
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
 
 /**
@@ -104,7 +103,7 @@ internal object PhonePosters {
     }
 
     private fun fetch(url: String, token: String, to: File) {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+        val conn = Http.open(url).apply {
             setRequestProperty("Authorization", "Bearer $token")
             connectTimeout = 8_000
             readTimeout = 15_000

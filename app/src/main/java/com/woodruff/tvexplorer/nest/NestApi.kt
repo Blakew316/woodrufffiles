@@ -2,12 +2,11 @@ package com.woodruff.tvexplorer.nest
 
 import android.content.Context
 import com.woodruff.tvexplorer.cloud.GoogleAuth
+import com.woodruff.tvexplorer.net.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 
 /** A Google Home / Nest camera or doorbell that can stream live. */
 data class Camera(
@@ -75,7 +74,7 @@ object NestApi {
     private fun call(c: Context, method: String, path: String, body: JSONObject?): JSONObject {
         // No network (a TV just woken) is GoogleAuth.AuthException.Offline, never "sign-in expired".
         val token = GoogleAuth.requireToken(c, GoogleAuth.Grant.NEST, signedOut = "Connect your cameras again.")
-        val conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+        val conn = Http.open(BASE + path).apply {
             requestMethod = method
             connectTimeout = 15_000
             readTimeout = 20_000

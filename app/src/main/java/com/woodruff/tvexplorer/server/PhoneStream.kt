@@ -2,14 +2,13 @@ package com.woodruff.tvexplorer.server
 
 import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.data.FileTypes
+import com.woodruff.tvexplorer.net.Http
 import fi.iki.elonen.NanoHTTPD.Response
 import fi.iki.elonen.NanoHTTPD.newChunkedResponse
 import fi.iki.elonen.NanoHTTPD.newFixedLengthResponse
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * A film or episode played on the phone itself (the Woodruff app's "Play on iPhone"): the file, or the part of it the
@@ -61,7 +60,7 @@ internal object PhoneStream {
 
     /** A Drive video, passed through as Drive sends it (Drive answers ranges itself). */
     fun drive(id: String, range: String?, token: String): Response {
-        val c = URL(DriveApi.mediaUrl(id)).openConnection() as HttpURLConnection
+        val c = Http.open(DriveApi.mediaUrl(id))
         c.connectTimeout = 15_000
         c.readTimeout = 30_000
         c.setRequestProperty("Authorization", "Bearer $token")

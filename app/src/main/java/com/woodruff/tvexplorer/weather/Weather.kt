@@ -2,14 +2,13 @@ package com.woodruff.tvexplorer.weather
 
 import android.content.Context
 import android.util.Log
+import com.woodruff.tvexplorer.net.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 
 /**
@@ -102,7 +101,7 @@ object Weather {
     )
 
     private fun get(url: String): String {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 10_000; readTimeout = 15_000 }
+        val conn = Http.open(url).apply { connectTimeout = 10_000; readTimeout = 15_000 }
         try {
             if (conn.responseCode !in 200..299) throw IOException("Weather service answered ${conn.responseCode}")
             return conn.inputStream.bufferedReader().use { it.readText() }

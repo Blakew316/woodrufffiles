@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.phones
 
 import android.content.Context
 import android.util.Log
+import com.woodruff.tvexplorer.net.Http
 import com.woodruff.tvexplorer.server.TransferServer
 import com.woodruff.tvexplorer.settings.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,8 +10,6 @@ import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlin.concurrent.thread
 
 /** A phone that opened the companion web app, with the name its owner gave it ("Kitchen iPad"). */
@@ -137,7 +136,7 @@ object Phones {
 
     private fun push(topic: String, title: String, body: String) {
         try {
-            val conn = URL(NTFY).openConnection() as HttpURLConnection
+            val conn = Http.open(NTFY)
             conn.requestMethod = "POST"
             conn.connectTimeout = 10_000
             conn.readTimeout = 10_000

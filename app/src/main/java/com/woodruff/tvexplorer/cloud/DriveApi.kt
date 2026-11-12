@@ -3,6 +3,7 @@ package com.woodruff.tvexplorer.cloud
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.data.FileTypes
 import com.woodruff.tvexplorer.data.OpProgress
+import com.woodruff.tvexplorer.net.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,7 +17,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -374,7 +374,7 @@ object DriveApi {
         }
     }
 
-    private fun open(token: String, url: String) = (URL(url).openConnection() as HttpURLConnection).apply {
+    private fun open(token: String, url: String) = Http.open(url).apply {
         setRequestProperty("Authorization", "Bearer $token")
         connectTimeout = 15_000
         readTimeout = 30_000

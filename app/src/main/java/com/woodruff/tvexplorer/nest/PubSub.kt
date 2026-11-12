@@ -1,10 +1,9 @@
 package com.woodruff.tvexplorer.nest
 
+import com.woodruff.tvexplorer.net.Http
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * Google Cloud Pub/Sub's REST API, as the doorbell uses it: reading a subscription's topic, making
@@ -39,7 +38,7 @@ internal object PubSub {
     }
 
     private fun call(token: String, method: String, path: String, body: JSONObject?, readTimeoutMs: Int = 20_000): JSONObject {
-        val conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+        val conn = Http.open(BASE + path).apply {
             requestMethod = method
             connectTimeout = 15_000
             readTimeout = readTimeoutMs

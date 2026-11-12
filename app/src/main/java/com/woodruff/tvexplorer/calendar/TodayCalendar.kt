@@ -3,6 +3,7 @@ package com.woodruff.tvexplorer.calendar
 import android.content.Context
 import android.util.Log
 import com.woodruff.tvexplorer.cloud.GoogleAuth
+import com.woodruff.tvexplorer.net.Http
 import com.woodruff.tvexplorer.server.CompanionHub
 import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.util.NetworkWatch
@@ -24,8 +25,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -282,7 +281,7 @@ object TodayCalendar {
     }
 
     private fun get(token: String, path: String): JSONObject {
-        val conn = (URL(API + path).openConnection() as HttpURLConnection).apply {
+        val conn = Http.open(API + path).apply {
             connectTimeout = 15_000
             readTimeout = 20_000
             setRequestProperty("Authorization", "Bearer $token")

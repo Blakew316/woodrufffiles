@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.cloud
 
 import android.content.Context
 import android.util.Log
+import com.woodruff.tvexplorer.net.Http
 import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.ShowPrefs
@@ -28,9 +29,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
 import java.net.ProtocolException
-import java.net.URL
 import java.net.URLEncoder
 
 /**
@@ -463,12 +462,12 @@ object FamilySync {
     private fun request(token: String, method: String, url: String, quick: Boolean, body: ByteArray? = null, type: String? = null): String {
         // The token only ever goes to Google.
         if (!isGoogleUrl(url)) throw IOException("Not a Google address")
-        val conn = URL(url).openConnection() as HttpURLConnection
+        val conn = Http.open(url)
         try {
             conn.connectTimeout = if (quick) 5_000 else 15_000
             conn.readTimeout = if (quick) 10_000 else 30_000
             if (method == "PATCH") {
-                // Android's HttpURLConnection takes PATCH; Google also reads it from this header, should one not.
+                // The connection takes PATCH; Google also reads it from this header, should one not.
                 try {
                     conn.requestMethod = "PATCH"
                 } catch (e: ProtocolException) {

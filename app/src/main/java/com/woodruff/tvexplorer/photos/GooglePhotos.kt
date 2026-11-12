@@ -5,6 +5,7 @@ import android.os.Environment
 import android.util.Log
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.data.FileOperations
+import com.woodruff.tvexplorer.net.Http
 import com.woodruff.tvexplorer.screensaver.Appearance
 import com.woodruff.tvexplorer.server.CompanionHub
 import com.woodruff.tvexplorer.server.TransferService
@@ -29,7 +30,6 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 
 /**
@@ -217,9 +217,13 @@ object GooglePhotos {
                             try {
                                 // Photos at the size the TV draws them; videos as-is ("=dv").
                                 val conn = open(if (item.video) "${item.url}=dv" else "${item.url}$sized", "GET")
-                                if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
-                                conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 256 * 1024) } }
-                                conn.disconnect()
+                                try {
+                                    if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
+                                    conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it, 256 * 1024) } }
+                                } finally {
+                                    // Let go of the connection whatever happened (an answer that wasn't read holds it).
+                                    conn.disconnect()
+                                }
                                 // rename() replaces the empty placeholder atomically, keeping the name reserved.
                                 if (!tmp.renameTo(target)) throw IOException("Couldn’t save ${target.name}")
                                 item.taken?.let { MediaDates.record(app, target, it) }
@@ -386,7 +390,7 @@ object GooglePhotos {
     private fun open(url: String, method: String): HttpURLConnection {
         // No network is "Can't reach Google right now", never "sign-in expired".
         val token = GoogleAuth.requireToken(app, GoogleAuth.Grant.PHOTOS, signedOut = "Connect Google Photos again.")
-        return (URL(url).openConnection() as HttpURLConnection).apply {
+        return Http.open(url).apply {
             requestMethod = method
             connectTimeout = 15_000
             readTimeout = 60_000
