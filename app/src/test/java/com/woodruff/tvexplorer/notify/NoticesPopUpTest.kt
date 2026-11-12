@@ -28,6 +28,29 @@ class NoticesPopUpTest {
         Notices.dismissLatest()
     }
 
+    @Test fun nothingIsDrawnOverTheAppleTvButAMessageFromAPhone() {
+        Notices.load(app)
+        Notices.dismissLatest()
+        val before = Notices.overAppleTv
+        Notices.overAppleTv = { true }
+        try {
+            // A camera's news: kept, unread, and no card.
+            val seen = Notices.post(app, NoticeSource.SYSTEM, "Person seen", "Backyard")
+            assertSame(seen, Notices.items.value.first())
+            assertEquals(false, seen.read)
+            assertNull(Notices.latest.value)
+            // The doorbell too, and without its chime.
+            Notices.post(app, NoticeSource.SYSTEM, "Someone's at the door", "Front Door", chime = Chime.Sound.DOORBELL)
+            assertNull(Notices.latest.value)
+            // What a person sends this TV still shows.
+            val sent = Notices.post(app, NoticeSource.PHONE, "Dinner", "In ten minutes", chime = Chime.Sound.ANNOUNCE)
+            assertSame(sent, Notices.latest.value)
+        } finally {
+            Notices.overAppleTv = before
+            Notices.dismissLatest()
+        }
+    }
+
     @Test fun anOrdinaryNoticeShowsItsCard() {
         Notices.load(app)
         val n = Notices.post(app, NoticeSource.SYSTEM, "Person seen", "Backyard")

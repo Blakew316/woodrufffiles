@@ -119,6 +119,20 @@ class NowPlayingTest {
         assertNull(NowPlaying.current(c))
     }
 
+    @Test fun theAppleTvsInputIsToldFromAnAppPlaying() {
+        val input = Playing("Apple TV HDMI 4", null, "TV", true, 0, 0)
+        assertTrue(isAppleTvInput(input))
+        assertTrue(isAppleTvInput(input.copy(title = "Apple TV", app = "Live TV")))
+        // Another input; an input left behind (no longer playing); the app called Apple TV, with a
+        // film's name or none; Woodruff's own film; nothing.
+        assertFalse(isAppleTvInput(input.copy(title = "HDMI 2")))
+        assertFalse(isAppleTvInput(input.copy(playing = false)))
+        assertFalse(isAppleTvInput(Playing("Severance", "Apple TV", "Apple TV", true, 60_000, 3_000_000)))
+        assertFalse(isAppleTvInput(Playing("Apple TV", null, "Apple TV", true, 0, 0)))
+        assertFalse(isAppleTvInput(film))
+        assertFalse(isAppleTvInput(null))
+    }
+
     @Test fun aLinkedTvMayAlsoPassOnTheControlsButNothingMore() {
         assertTrue("/api/media" in TvLinks.LINK_ROUTES)
         // Starting a video on a linked TV was already allowed; marking and listing stay with the hub's own phone.

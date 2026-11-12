@@ -306,7 +306,10 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   the title and the message), even over other apps once
   "Pop-ups over other apps" is allowed in Settings (also on Android 7 TVs, such as older Fire TV sticks). They're also
   kept in the Notifications screen. Announcements and the doorbell play a soft chime (Settings → Advanced → *Chime for
-  announcements*; never for mail, never while the TV is asleep).
+  announcements*; never for mail, never while the TV is asleep). While the TV's screen is on the input the Apple TV is
+  plugged into (an input whose name says "Apple TV"), the TV draws and chimes nothing of its own over it (camera and
+  doorbell alerts, mail): Woodruff on the Apple TV shows those itself. They're still kept in Notifications, and a
+  message someone sends the TV from a phone still shows.
 - **Typeface**: Inter, the closest open-license match to Apple's San Francisco font, with Apple-style tracking.
 
 - **Google Drive**: stream videos and music (with seeking), view photos, or download files to the TV. Read-only access.

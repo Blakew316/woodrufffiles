@@ -87,7 +87,11 @@ object Notices {
         val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link, chime = sound)
         _items.update { (listOf(n) + it).take(MAX) }
         save(context)
-        if (quiet) {
+        // The TV's screen is on the Apple TV (one of its inputs): Woodruff on the Apple TV shows what
+        // happens there itself, so this TV draws and chimes nothing over it. Kept, unread, like quiet
+        // news. What someone sends this TV from a phone still shows.
+        val elsewhere = source != NoticeSource.PHONE && !AppVisibility.foreground && overAppleTv(context)
+        if (quiet || elsewhere) {
             // Woodruff's own banner while its main screen is in front; otherwise stored, unread, for
             // when someone next looks: nothing pops up now.
             if (popUp && AppVisibility.foreground) _latest.value = n
@@ -111,6 +115,9 @@ object Notices {
             if (Settings.canDrawOverlays(context)) NoticeOverlay.show(context, n) else systemNotification(context, n)
         }
     }
+
+    /** Whether the TV's screen is on the Apple TV's input ([NowPlaying.onAppleTv]); replaced in tests. */
+    internal var overAppleTv: (Context) -> Boolean = { NowPlaying.onAppleTv(it) }
 
     private val shown = RecentIds(200)
 

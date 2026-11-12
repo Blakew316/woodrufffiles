@@ -121,6 +121,12 @@ object NowPlaying {
     /** What's playing, with what the phone can do to it ([Playing.can]). */
     fun current(c: Context): Playing? = ownPlayer?.let { it.copy(can = ownCan(it, playerListens)) } ?: fromSessions(c)
 
+    /**
+     * Whether this TV's screen is on the input the Apple TV is plugged into ([isAppleTvInput]). False
+     * when other apps can't be seen (no Notification access), and while Woodruff's own player is open.
+     */
+    fun onAppleTv(c: Context): Boolean = ownPlayer == null && isAppleTvInput(fromSessions(c.applicationContext))
+
     fun canSeeOtherApps(c: Context): Boolean = try {
         sessions(c); true
     } catch (e: Exception) {
@@ -223,6 +229,22 @@ object NowPlaying {
         null
     }
 }
+
+/**
+ * Whether [p], what Android says is playing here, is one of the TV's inputs with the Apple TV on it.
+ * While an input is on screen the TV's own input app says it is "playing" under the input's name
+ * ("Apple TV HDMI 4"), with no length. An app called Apple TV playing a film isn't an input: it has
+ * the film's name, and usually a length. Visible for tests.
+ */
+internal fun isAppleTvInput(p: Playing?): Boolean {
+    if (p == null || !p.playing || p.key != null || p.durationMs > 0) return false
+    val title = p.title.lowercase()
+    val input = "hdmi" in title || p.app.trim().lowercase() in INPUT_APPS
+    return input && ("apple tv" in title || "appletv" in title)
+}
+
+/** What the TVs' own input apps are called. */
+private val INPUT_APPS = setOf("tv", "live tv", "live channels", "tv input", "input", "inputs", "source", "sources")
 
 private fun PlayerCommand.wire(): String = when (this) {
     PlayerCommand.BACK_10 -> MediaAction.BACK_10.wire
