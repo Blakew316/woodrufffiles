@@ -246,6 +246,11 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
     private fun handleOpen(intent: Intent?, fresh: Boolean = true) {
         // (Only when this brings Woodruff on screen: a tap while it's showing starts nothing.)
         openedFor = intent?.getStringExtra(EXTRA_OPEN) != null && !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+        // Chosen as the device's home screen: the remote's Home button (and power-up) always lands on Woodruff's Home.
+        if (intent?.hasCategory(Intent.CATEGORY_HOME) == true) {
+            vm.show(Screen.HOME)
+            return
+        }
         when (intent?.getStringExtra(EXTRA_OPEN)) {
             "notifications" -> vm.show(Screen.NOTIFICATIONS)
             "home" -> vm.show(Screen.HOME)
