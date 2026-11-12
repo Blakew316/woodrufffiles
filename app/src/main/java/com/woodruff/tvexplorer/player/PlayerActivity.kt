@@ -1923,13 +1923,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         private var starts = 0
 
         /**
-         * The app's HTTP client (and its connections) with Media3's own timeouts for video, as
-         * before: 8 s to connect, and 8 s without data before a stalled stream is tried again.
-         * The app's own are longer, for everything else.
+         * The app's HTTP client (and its connections) with short waits for video: 3 s for an address
+         * to answer (Google's do in a tenth of that; one that doesn't is given up for the next, and
+         * with 8 s each a film waited that long on every address that led nowhere), and 8 s without
+         * data before a stalled stream is tried again, as Media3's own. The app's own are longer, for
+         * everything else.
          */
         private val streamClient by lazy {
-            Http.client.newBuilder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
+            Http.client.newBuilder().connectTimeout(STREAM_CONNECT_S, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
         }
+        private const val STREAM_CONNECT_S = 3L
 
         /** [keys] are [MediaRef] keys; [titles] line up with them. */
         fun intent(context: Context, keys: List<String>, titles: List<String>, start: String, positionMs: Long? = null, together: Boolean = false): Intent =

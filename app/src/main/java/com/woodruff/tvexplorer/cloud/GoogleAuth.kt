@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.cloud
 
 import android.content.Context
 import android.util.Base64
+import com.woodruff.tvexplorer.net.Http
 import com.woodruff.tvexplorer.notify.SignInNotice
 import com.woodruff.tvexplorer.settings.SecretStore
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -19,6 +23,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.concurrent.TimeUnit
 
 /**
  * Google sign-in for Drive, done on the user's phone.
@@ -676,46 +681,40 @@ object GoogleAuth {
         else -> TokenError.Kind.OTHER
     }
 
-    /** One request to Google's token endpoint; anything but tokens is a [TokenError]. */
+    /**
+     * One request to Google's token endpoint; anything but tokens is a [TokenError]. Over the app's own
+     * HTTP client, which tries a host's IPv4 addresses first ([com.woodruff.tvexplorer.net.Ipv4First]):
+     * asked the old way, a renewal at a film's start waited on each of Google's IPv6 addresses in turn
+     * on a network where those lead nowhere.
+     */
     private fun post(params: List<Pair<String, String>>): JSONObject {
-        val conn = try {
-            (URL(TOKEN_URL).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                connectTimeout = 15_000
-                readTimeout = 20_000
-                setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            }
+        val request = Request.Builder().url(TOKEN_URL)
+            .post(form(params).toRequestBody("application/x-www-form-urlencoded".toMediaType()))
+            .build()
+        val (code, body) = try {
+            tokenClient.newCall(request).execute().use { answer -> answer.code to answer.body?.string().orEmpty() }
         } catch (e: IOException) {
+            // Whatever the network did, Google never answered: nothing about the sign-in changed.
             throw TokenError(TokenError.Kind.NETWORK, NO_ANSWER, e)
         }
-        try {
-            val code: Int
-            val body: String
-            try {
-                conn.outputStream.use { it.write(form(params).toByteArray()) }
-                code = conn.responseCode
-                body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            } catch (e: IOException) {
-                // Whatever the network did, Google never answered: nothing about the sign-in changed.
-                throw TokenError(TokenError.Kind.NETWORK, NO_ANSWER, e)
-            }
-            val json = runCatching { JSONObject(body) }.getOrDefault(JSONObject())
-            if (code in 200..299) return json
-            val err = json.optString("error")
-            val desc = json.optString("error_description").ifEmpty { err.ifEmpty { "HTTP $code" } }
-            val kind = tokenErrorKind(code, err)
-            throw TokenError(
-                kind,
-                when (kind) {
-                    TokenError.Kind.BAD_CLIENT -> BAD_CLIENT
-                    TokenError.Kind.UNAVAILABLE -> "Google’s sign-in service is busy. Try again in a moment."
-                    else -> "Google sign-in failed: $desc"
-                },
-            )
-        } finally {
-            conn.disconnect()
-        }
+        val json = runCatching { JSONObject(body) }.getOrDefault(JSONObject())
+        if (code in 200..299) return json
+        val err = json.optString("error")
+        val desc = json.optString("error_description").ifEmpty { err.ifEmpty { "HTTP $code" } }
+        val kind = tokenErrorKind(code, err)
+        throw TokenError(
+            kind,
+            when (kind) {
+                TokenError.Kind.BAD_CLIENT -> BAD_CLIENT
+                TokenError.Kind.UNAVAILABLE -> "Google’s sign-in service is busy. Try again in a moment."
+                else -> "Google sign-in failed: $desc"
+            },
+        )
+    }
+
+    /** The app's client with the token endpoint's waits: 5 s for an address to answer, 20 s for Google's answer. */
+    private val tokenClient by lazy {
+        Http.client.newBuilder().connectTimeout(5, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
     }
 
     private const val NO_ANSWER = "Couldn’t reach Google. Check the TV’s internet connection and try again."
