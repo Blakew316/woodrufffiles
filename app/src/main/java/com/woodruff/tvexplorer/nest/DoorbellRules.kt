@@ -25,6 +25,8 @@ internal data class CameraEvent(
     val session: String?,
     /** When it happened, by Google's clock; null when the message doesn't say. */
     val at: Long?,
+    /** The event's own id (Nest's eventId), which the family's Mac names its picture of it by; null when it doesn't say. */
+    val event: String? = null,
 )
 
 /** The events Woodruff announces, by Google's names, the press first. */
@@ -48,8 +50,9 @@ internal fun cameraEvents(json: String): List<CameraEvent> {
     val at = eventTime(event.optString("timestamp"))
     return EVENT_KINDS.mapNotNull { (key, kind) ->
         if (!events.has(key)) return@mapNotNull null
-        val session = events.optJSONObject(key)?.optString("eventSessionId")?.trim()?.ifEmpty { null }
-        CameraEvent(camera, kind, session, at)
+        val about = events.optJSONObject(key)
+        val session = about?.optString("eventSessionId")?.trim()?.ifEmpty { null }
+        CameraEvent(camera, kind, session, at, about?.optString("eventId")?.trim()?.ifEmpty { null })
     }
 }
 

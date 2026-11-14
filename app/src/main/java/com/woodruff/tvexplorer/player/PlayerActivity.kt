@@ -154,8 +154,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         nextEp = PlayerStyle.pill(this, "Next Episode", com.woodruff.tvexplorer.R.drawable.tv_ic_play)
         nextCard = GlidingCard(nextEp, GlidingCard.Way.Rise)
         // "Someone’s at the door" when the doorbell rings: a notice at the top right, as tvOS shows them.
-        doorbell = PlayerStyle.notice(this)
-        doorbellCard = GlidingCard(doorbell, GlidingCard.Way.Drop)
+        doorbell = PlayerStyle.noticeWords(this)
+        doorbellBox = PlayerStyle.notice(this, doorbell)
+        doorbellCard = GlidingCard(doorbellBox, GlidingCard.Way.Drop)
         // The player's own messages ("Sleeping in 30 minutes"), at the bottom in the middle: Android's
         // toasts popped up over the film in the system's own way.
         message = PlayerStyle.message(this)
@@ -192,7 +193,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.END,
         ).apply { setMargins(0, 0, cardMargin, cardMargin) })
-        root.addView(doorbell, android.widget.FrameLayout.LayoutParams(
+        root.addView(doorbellBox, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.TOP or android.view.Gravity.END,
         ).apply { setMargins(0, cardMargin / 2, cardMargin, 0) })
@@ -1259,20 +1260,27 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     // ---- Doorbell ------------------------------------------------------------------------------
 
+    /** The doorbell card's words, and the card itself (the words, and the ring's picture before them once it's there). */
     private lateinit var doorbell: android.widget.TextView
+    private lateinit var doorbellBox: android.widget.LinearLayout
     private lateinit var doorbellCard: GlidingCard
     /** The doorbell's card is up (for 20 s, or until Back). */
     private var ringing = false
     /** The camera that rang, for OK; null when this TV's cameras aren't signed in (a linked TV's ring). */
     private var ringingCamera: String? = null
+    /** The ring the card is up for, which the family's Mac's picture of it is matched to, and whether the card shows it. */
+    private var ringingAlert: com.woodruff.tvexplorer.nest.CameraAlert? = null
+    private var doorbellPictured = false
     private var doorbellJob: kotlinx.coroutines.Job? = null
     private val hideDoorbell = Runnable { dismissDoorbell() }
 
     /**
-     * The doorbell rang: a card over the film for 20 s. OK opens that camera live; the player keeps
-     * its place while it's covered, and Back there returns to the film.
+     * The doorbell rang ([ring]): a card over the film for 20 s, with the ring's picture when it came
+     * ([com.woodruff.tvexplorer.nest.AlertPictures]). OK opens that camera live; the player keeps its
+     * place while it's covered, and Back there returns to the film.
      */
-    private fun showDoorbell(camera: String) {
+    private fun showDoorbell(ring: com.woodruff.tvexplorer.nest.CameraAlert) {
+        val camera = ring.camera
         val nest = com.woodruff.tvexplorer.nest.Nest.state.value
         val canLook = nest.step == com.woodruff.tvexplorer.nest.NestStep.CONNECTED
         val label = nest.cameras.firstOrNull { it.name == camera }?.label
@@ -1289,6 +1297,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 setSpan(android.text.style.RelativeSizeSpan(0.85f), from, length, 0)
             }
         }
+        // The picture of this ring, when it came already (one from a ring before goes).
+        ringingAlert = ring
+        com.woodruff.tvexplorer.notify.clearNoticePicture(doorbellBox)
+        val picture = com.woodruff.tvexplorer.nest.AlertPictures.forAlert(ring)
+        picture?.let { com.woodruff.tvexplorer.notify.addNoticePicture(doorbellBox, it) }
+        doorbellPictured = picture != null
         ringing = true
         view.hideController()
         doorbellCard.show()
@@ -1297,11 +1311,23 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         countdown.postDelayed(hideDoorbell, 20_000)
     }
 
+    /**
+     * A camera alert's picture came ([com.woodruff.tvexplorer.nest.AlertPictures]): the doorbell's card up
+     * for that ring takes it before its words, the same card, its 20 s as they were.
+     */
+    private fun doorbellPictureCame(p: com.woodruff.tvexplorer.nest.Shelved<android.graphics.Bitmap>) {
+        val ring = ringingAlert ?: return
+        if (!ringing || doorbellPictured || !com.woodruff.tvexplorer.nest.pictureFits(p.alert, ring)) return
+        com.woodruff.tvexplorer.notify.addNoticePicture(doorbellBox, p.picture)
+        doorbellPictured = true
+    }
+
     /** [animate] false: gone at once (the player stopping). */
     private fun dismissDoorbell(animate: Boolean = true) {
         countdown.removeCallbacks(hideDoorbell)
         ringing = false
         ringingCamera = null
+        ringingAlert = null
         if (::doorbellCard.isInitialized) doorbellCard.hide(animate)
     }
 
@@ -1633,7 +1659,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         }
         reporter.post(report)
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
-        doorbellJob = lifecycleScope.launch { com.woodruff.tvexplorer.nest.Doorbell.rings.collect { showDoorbell(it) } }
+        doorbellJob = lifecycleScope.launch {
+            // A ring's picture from the family's Mac, for its card if it comes after the ring.
+            launch { com.woodruff.tvexplorer.nest.AlertPictures.arrivals.collect { doorbellPictureCame(it) } }
+            com.woodruff.tvexplorer.nest.Doorbell.rings.collect { showDoorbell(it) }
+        }
         // The phone's ↺10, 30↻ and Next, while this player is on screen.
         player?.let(::answerPhones)
         keepDriveTokenFresh(keys)

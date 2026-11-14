@@ -205,10 +205,12 @@ object TvLinks {
      * into it (typing is pressing this TV's keys, which the link key can already do; finding 42).
      * /api/grant: a Google Photos or Calendar sign-in from the Woodruff app, through the hub (like the
      * shared keys at /api/keys, which the link key can already write).
+     * /api/camera-picture: a camera alert's picture for its card, let in as /api/notice is (a message
+     * shown on this TV).
      */
     val LINK_ROUTES = setOf(
         "/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/keys", "/api/tmdb",
-        "/api/health", "/api/update/check", "/api/media", "/api/type", "/api/grant",
+        "/api/health", "/api/update/check", "/api/media", "/api/type", "/api/grant", "/api/camera-picture",
     )
 
     /**
@@ -576,11 +578,18 @@ object TvLinks {
     /**
      * Doorbell rang (seen by the TV that watches for it): tell [tv] too. [session] is the visit it
      * belongs to, so a TV that also hears it from its own subscription rings once; [from], this TV's
-     * name, for that TV's Settings ("Through Living Room").
+     * name, for that TV's Settings ("Through Living Room"); [event] (Nest's id for it) and [at] (when
+     * it happened), so the family's Mac's picture of it finds its card there too.
      */
-    fun doorbell(tv: LinkedTv, camera: String, label: String, kind: String = "doorbell", session: String? = null, from: String? = null) {
+    fun doorbell(
+        tv: LinkedTv, camera: String, label: String, kind: String = "doorbell", session: String? = null, from: String? = null,
+        event: String? = null, at: Long? = null,
+    ) {
         val json = JSONObject().put("camera", camera).put("label", label).put("kind", kind)
-            .apply { if (session != null) put("session", session); if (from != null) put("from", from) }.toString()
+            .apply {
+                if (session != null) put("session", session); if (from != null) put("from", from)
+                if (event != null) put("event", event); if (at != null) put("at", at)
+            }.toString()
         reach(tv, again = true) { t -> request("${t.base}/api/doorbell?k=${enc(t.key)}", "POST", json) }
     }
 

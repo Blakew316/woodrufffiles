@@ -35,7 +35,8 @@ TITLES = {
     'settings-popups': 'Settings › Advanced › Pop-ups over other apps',
     'recovery': 'Recovery screen', 'recovery-ready': 'Recovery screen · fix ready',
     'recovery-details': 'Recovery screen · what happened', 'recovery-busy': 'Recovery screen · GitHub busy',
-    'home-person-notice': 'Home · person seen', 'home-cameras': 'Home · camera states',
+    'home-person-notice': 'Home · person seen', 'home-person-notice-picture': 'Home · person seen, with its picture',
+    'home-cameras': 'Home · camera states',
     'command-center-cameras': 'Command Center · camera states',
     'doorbell-ring-home': 'Doorbell · from Home', 'doorbell-slideshow': 'Doorbell · over the slideshow',
     'doorbell-connecting': 'Doorbell · connecting', 'doorbell-reconnecting': 'Doorbell · reconnecting',
@@ -91,7 +92,7 @@ for path in sorted(glob.glob(os.path.join(raw, '*.png'))):
     im.save(os.path.join(img_dir, out), 'WEBP', quality=82, method=6)
     groups[kind].setdefault(name, {'name': name, 'title': TITLES.get(name, name.title())})[scheme] = 'img/' + out
 
-ORDER = ['home', 'home-menu', 'home-notice', 'home-person-notice', 'home-cameras', 'home-added', 'title-menu', 'title-film',
+ORDER = ['home', 'home-menu', 'home-notice', 'home-person-notice', 'home-person-notice-picture', 'home-cameras', 'home-added', 'title-menu', 'title-film',
          'home-new-episodes', 'home-offline', 'home-signin-notice',
          'movies', 'tv-shows', 'movies-back-to-top', 'movies-grid-back-to-top',
          'search', 'search-results', 'search-no-matches', 'search-setup', 'search-offline', 'search-loading',

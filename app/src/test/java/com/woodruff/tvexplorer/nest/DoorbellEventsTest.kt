@@ -31,7 +31,8 @@ class DoorbellEventsTest {
 
     @Test fun aPressIsADoorbellEventOfItsVisit() {
         val events = cameraEvents(message("2026-10-26T19:42:05.000Z", chime))
-        assertEquals(listOf(CameraEvent(door, "doorbell", "CjY5Y3VKaTZwR3o4Y19YbTVfMF", 1_793_043_725_000L)), events)
+        // With its own id, which the family's Mac names its picture of it by.
+        assertEquals(listOf(CameraEvent(door, "doorbell", "CjY5Y3VKaTZwR3o4Y19YbTVfMF", 1_793_043_725_000L, event = "n:1")), events)
     }
 
     @Test fun theBatteryDoorbellsFollowUpIsTheSameVisitAndRingsOnce() {
@@ -47,6 +48,7 @@ class DoorbellEventsTest {
     @Test fun eachEventInAMessageCountsAndThePressComesFirst() {
         val events = cameraEvents(message("2026-10-26T19:42:05Z", "$person,$chime"))
         assertEquals(listOf("doorbell", "person"), events.map { it.kind })
+        assertEquals(listOf("n:1", "n:2"), events.map { it.event })
         // Handled in that order, the person seen with the press doesn't pop up a card of its own.
         val visits = Visits()
         assertEquals(listOf(true, false), events.map { visits.admit(it.camera, it.session, it.kind) })

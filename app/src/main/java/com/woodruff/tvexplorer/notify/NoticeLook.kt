@@ -9,6 +9,10 @@ package com.woodruff.tvexplorer.notify
  * them. Every line stays: where it's from, the title and what it says, each allowed a line more
  * than before, so nothing is cut off. The card keeps its distance from the screen's edges (some
  * TVs crop them), growing leftwards from there.
+ *
+ * A camera alert's card shows its picture from the family's Mac (nest/AlertPictures) beside the
+ * words: [PICTURE_HEIGHT_DP] high (160 px on a 1080p screen), as wide as the picture is at that
+ * height (square to 16:9), its corners rounded; the card's edge beside it as above and below it.
  */
 object NoticeLook {
     const val MAX_WIDTH_DP = 250
@@ -28,4 +32,10 @@ object NoticeLook {
 
     const val TITLE_LINES = 3
     const val BODY_LINES = 4
+
+    /** A camera alert's picture: its height, its corners, the room between it and the words, and the card's edge beside it. */
+    const val PICTURE_HEIGHT_DP = 80
+    const val PICTURE_CORNER_DP = 8
+    const val PICTURE_GAP_DP = 10
+    const val PICTURE_INSET_DP = PAD_V_DP
 }

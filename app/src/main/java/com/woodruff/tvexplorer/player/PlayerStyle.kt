@@ -5,6 +5,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.res.ResourcesCompat
 import com.woodruff.tvexplorer.R
@@ -67,16 +68,29 @@ internal object PlayerStyle {
 
     /**
      * The notice at the top right over the film (the doorbell's): the same compact card as the app's
-     * notices elsewhere ([com.woodruff.tvexplorer.notify.NoticeLook]). Its second line is set smaller.
+     * notices elsewhere ([com.woodruff.tvexplorer.notify.NoticeLook]), a row of its words
+     * ([noticeWords]) and, for a camera alert, its picture before them
+     * ([com.woodruff.tvexplorer.notify.addNoticePicture]).
      */
-    fun notice(c: Context): TextView = card(c, com.woodruff.tvexplorer.notify.NoticeLook.TITLE_SP).apply {
+    fun notice(c: Context, words: TextView): LinearLayout = LinearLayout(c).apply {
         val look = com.woodruff.tvexplorer.notify.NoticeLook
-        setLineSpacing(dp(c, look.TITLE_LINE_SP - look.TITLE_SP), 1f)
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(c, look.PAD_H_DP.toFloat()).toInt(), dp(c, look.PAD_V_DP.toFloat()).toInt(), dp(c, look.PAD_H_DP.toFloat()).toInt(), dp(c, look.PAD_V_DP.toFloat()).toInt())
         background = glass(c, look.CORNER_DP.toFloat())
-        // As wide as its words (it's laid out wrap-content), up to the app's notices' widest.
-        maxWidth = dp(c, look.MAX_WIDTH_DP.toFloat()).toInt()
         elevation = dp(c, 8f)
+        addView(words)
+    }
+
+    /** A [notice]'s words, white on its glass; its second line is set smaller. */
+    fun noticeWords(c: Context): TextView = TextView(c).apply {
+        val look = com.woodruff.tvexplorer.notify.NoticeLook
+        setTextColor(0xFFFFFFFF.toInt())
+        textSize = look.TITLE_SP
+        typeface = text(c)
+        setLineSpacing(dp(c, look.TITLE_LINE_SP - look.TITLE_SP), 1f)
+        // As wide as its words (it's laid out wrap-content), up to the app's notices' widest.
+        maxWidth = dp(c, look.MAX_TEXT_DP.toFloat()).toInt()
     }
 
     /** A message or notice card over the film: glass, white text. */

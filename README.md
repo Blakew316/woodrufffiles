@@ -290,6 +290,13 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   for 25 s. One visitor rings once: a battery doorbell's follow-up message about the same visit doesn't ring again,
   and two doorbells ringing at once open one camera view (the second switches it), so one press of Back closes it.
   Each TV asks Google again as soon as a check comes back empty, so a ring shows within seconds.
+- **Camera alert pictures**: the family's Mac sends every TV its close-up of who or what each camera alert is about
+  (`POST /api/camera-picture`). A doorbell, person or motion card then shows it as a rounded picture beside its words,
+  in Woodruff, over other apps and on the player's card over a film. A picture that comes after its card is added to
+  that card, with no second chime and its time on screen unchanged; one that comes first waits up to 3 minutes for
+  its card (10 at most). It belongs to the alert of the same visit, else of the same event, else (for an alert passed
+  on by an older TV) the same camera's within 2 minutes. Each is decoded and sized once, off the main thread. Without
+  one, a card is as before. The doorbell's live view is unchanged.
 
   Google only announces rings through Cloud Pub/Sub: turn on Pub/Sub for the Device Access project, create a pull
   subscription to its topic in Google Cloud, and enter the subscription's full name in the phone app (Settings →
@@ -726,11 +733,12 @@ The other `tools/gallery/phone_*_check.mjs` scripts run the same way. `phone.mjs
   box while Woodruff is in front there (the same as pressing its keys; it's how the phone's keyboard reaches a linked
   TV), pass on the phone's playback controls (Play/Pause, −10 s, +30 s, Next: no more than its remote keys could do),
   start a Google Drive video there and keep Watch together in step, ask it to check for an update (it still waits for
-  the test TV's day), show messages, the family message board and doorbell alerts, and read or update the shared
-  settings (TMDB, Google's Client ID and secret, the cameras project, the doorbell's Pub/Sub subscription name and the
-  person/motion choice). It can never touch files, mail, sign-ins (it can't start one) or any other setting. The
-  subscription name isn't a credential: using it needs a Google sign-in with Pub/Sub access. **Stop other TVs seeing
-  this one** in Settings revokes every link. Linking codes last 10 minutes, work once, and die after 5 wrong tries.
+  the test TV's day), show messages, the family message board, doorbell alerts and camera alerts' pictures, and read
+  or update the shared settings (TMDB, Google's Client ID and secret, the cameras project, the doorbell's Pub/Sub
+  subscription name and the person/motion choice). It can never touch files, mail, sign-ins (it can't start one) or
+  any other setting. The subscription name isn't a credential: using it needs a Google sign-in with Pub/Sub access.
+  **Stop other TVs seeing this one** in Settings revokes every link. Linking codes last 10 minutes, work once, and die
+  after 5 wrong tries.
 - A linked TV turns a hub away only when its own saved link key says no: if it can't read its keys for a moment after
   power-on, it never makes a new link key, so hubs don't show *Link again* for a TV that was never reset. A TV's id and
   name are kept in plain app settings (they aren't secrets), so a Keystore that loses its key never makes a TV look

@@ -1,6 +1,7 @@
 package com.woodruff.tvexplorer.notify
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -11,10 +12,13 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.res.ResourcesCompat
 import com.woodruff.tvexplorer.R
+import com.woodruff.tvexplorer.nest.Shelved
+import com.woodruff.tvexplorer.nest.pictureFits
 import com.woodruff.tvexplorer.player.GlidingCard
 import com.woodruff.tvexplorer.ui.motion.AppMotion
 import com.woodruff.tvexplorer.ui.motion.TvMotion
@@ -31,6 +35,9 @@ import com.woodruff.tvexplorer.ui.motion.TvMotion
  * has run, as it does for toasts. With the TV's window animations off, WindowManager would just show
  * it and take it away: then the card glides in its window itself ([GlidingCard]), and the window goes
  * once the card has glided out.
+ *
+ * A camera alert's card shows its picture from the family's Mac beside the words ([addNoticePicture]);
+ * one that comes while the card is up is added to it there ([picture]), its time on screen as it was.
  */
 object NoticeOverlay {
     private val main = Handler(Looper.getMainLooper())
@@ -38,10 +45,17 @@ object NoticeOverlay {
     /** Takes [current] away once its time is up. */
     private var dismiss: Runnable? = null
 
-    /** A notice on screen: its window's view, and its card's own glide when the window doesn't animate. */
-    private class Shown(val root: View, val glide: GlidingCard?)
+    /**
+     * A notice on screen: its window's view, its card (where a picture that comes later goes), the notice
+     * as it shows, and its card's own glide when the window doesn't animate.
+     */
+    private class Shown(val root: View, val card: LinearLayout, val notice: Notice, val glide: GlidingCard?) {
+        var pictured = notice.picture != null
+    }
 
-    fun show(context: Context, n: Notice) = main.post {
+    fun show(context: Context, notice: Notice) = main.post {
+        // Its camera alert's picture, if that came while this waited its turn on the main thread.
+        val n = Notices.withPicture(notice)
         val app = context.applicationContext
         val wm = app.getSystemService(WindowManager::class.java)
         // A newer notice replaces the one up: that one glides away as this one comes in over it.
@@ -54,15 +68,9 @@ object NoticeOverlay {
         val font = runCatching { ResourcesCompat.getFont(app, R.font.inter_semibold) }.getOrNull()
         val fontBody = runCatching { ResourcesCompat.getFont(app, R.font.inter_regular) }.getOrNull()
 
-        val card = LinearLayout(app).apply {
+        // Where it's from, the title and what it says.
+        val words = LinearLayout(app).apply {
             orientation = LinearLayout.VERTICAL
-            // Compact, the same size as in Woodruff and over a film (NoticeLook).
-            setPadding(dp(NoticeLook.PAD_H_DP), dp(NoticeLook.PAD_V_DP), dp(NoticeLook.PAD_H_DP), dp(NoticeLook.PAD_V_DP))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(NoticeLook.CORNER_DP).toFloat()
-                setColor(0xF20E1726.toInt())
-                setStroke(dp(1), 0x33FFFFFF)
-            }
             addView(TextView(app).apply {
                 text = when (n.source) { NoticeSource.PHONE -> "From your phone"; NoticeSource.MAIL -> "New mail"; NoticeSource.SYSTEM -> "Woodruff Family" }
                 maxWidth = dp(NoticeLook.MAX_TEXT_DP)
@@ -84,6 +92,19 @@ object NoticeOverlay {
                 typeface = fontBody ?: Typeface.DEFAULT
                 lines(NoticeLook.BODY_SP, NoticeLook.BODY_LINE_SP)
             })
+        }
+        val card = LinearLayout(app).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            // Compact, the same size as in Woodruff and over a film (NoticeLook).
+            setPadding(dp(NoticeLook.PAD_H_DP), dp(NoticeLook.PAD_V_DP), dp(NoticeLook.PAD_H_DP), dp(NoticeLook.PAD_V_DP))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(NoticeLook.CORNER_DP).toFloat()
+                setColor(0xF20E1726.toInt())
+                setStroke(dp(1), 0x33FFFFFF)
+            }
+            addView(words)
+            n.picture?.let { addNoticePicture(this, it) }
         }
         // Its window reaches up to the screen's top edge (see-through above the card, which still rests
         // 32 dp down), so the card glides down from that edge, whichever of the two moves it.
@@ -110,7 +131,7 @@ object NoticeOverlay {
             // Already on its way in (from its first frame) when it glides itself.
             glide?.show()
             wm.addView(root, params)
-            val shown = Shown(root, glide)
+            val shown = Shown(root, card, n, glide)
             current = shown
             // Its time up, it glides away.
             val away = Runnable {
@@ -124,6 +145,18 @@ object NoticeOverlay {
             // notification instead (the history list has it either way).
             Notices.systemNotification(app, n)
         }
+    }
+
+    /**
+     * A camera alert's picture came ([com.woodruff.tvexplorer.nest.AlertPictures]): the card up for that
+     * alert takes it beside its words, in place (its window grows to fit). Its time up stays as it was.
+     */
+    internal fun picture(p: Shelved<Bitmap>) = main.post {
+        val s = current ?: return@post
+        val alert = s.notice.alert ?: return@post
+        if (s.pictured || !pictureFits(p.alert, alert)) return@post
+        s.pictured = true
+        addNoticePicture(s.card, p.picture)
     }
 
     /** Spaces this text's lines [lineSp] apart, as the in-app card does (for its [sizeSp] text). */
@@ -150,4 +183,26 @@ object NoticeOverlay {
     private fun overlayType(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else WindowManager.LayoutParams.TYPE_PHONE
+}
+
+/**
+ * A camera alert's picture ([bitmap]: decoded, sized and rounded already, so it's drawn as it is) at the
+ * start of a notice [card] (a horizontal row of the picture and the words): over other apps here, and the
+ * player's doorbell card. The card's edge beside it is as far as above and below it ([NoticeLook]).
+ */
+internal fun addNoticePicture(card: LinearLayout, bitmap: Bitmap) {
+    val d = card.resources.displayMetrics.density
+    card.addView(
+        ImageView(card.context).apply { setImageBitmap(bitmap); scaleType = ImageView.ScaleType.FIT_XY },
+        0,
+        LinearLayout.LayoutParams(bitmap.width, bitmap.height).apply { rightMargin = (NoticeLook.PICTURE_GAP_DP * d).toInt() },
+    )
+    card.setPadding((NoticeLook.PICTURE_INSET_DP * d).toInt(), card.paddingTop, card.paddingRight, card.paddingBottom)
+}
+
+/** [card] without a picture again ([addNoticePicture]): as a notice is with none. */
+internal fun clearNoticePicture(card: LinearLayout) {
+    if (card.childCount > 1 && card.getChildAt(0) is ImageView) card.removeViewAt(0)
+    val d = card.resources.displayMetrics.density
+    card.setPadding((NoticeLook.PAD_H_DP * d).toInt(), card.paddingTop, card.paddingRight, card.paddingBottom)
 }

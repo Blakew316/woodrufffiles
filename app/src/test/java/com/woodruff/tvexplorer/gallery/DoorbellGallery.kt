@@ -3,6 +3,7 @@ package com.woodruff.tvexplorer.gallery
 import android.app.Application
 import android.graphics.BitmapFactory
 import android.os.Looper
+import android.util.Base64
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -20,7 +21,9 @@ import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.woodruff.tvexplorer.nest.AlertPictures
 import com.woodruff.tvexplorer.nest.Camera
+import com.woodruff.tvexplorer.nest.CameraAlert
 import com.woodruff.tvexplorer.nest.CameraStream
 import com.woodruff.tvexplorer.notes.Notes
 import com.woodruff.tvexplorer.notify.NoticeSource
@@ -40,6 +43,7 @@ import com.woodruff.tvexplorer.ui.screens.cameraHint
 import com.woodruff.tvexplorer.ui.screens.rangAt
 import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
+import org.json.JSONObject
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -149,6 +153,28 @@ class DoorbellGallery {
             compose.mainClock.advanceTimeBy(1_000)
             compose.waitForIdle()
             compose.onRoot().captureRoboImage(File(out, "tv-home-person-notice-${if (light) "light" else "dark"}.png").path)
+            compose.runOnIdle { Notices.dismissLatest() }
+            compose.mainClock.advanceTimeBy(1_000)
+        }
+        // The same alert with the family's Mac's picture of it beside the words (the sample porch standing in for
+        // its close-up), decoded in the background as a picture from the Mac is.
+        val alert = CameraAlert("enterprises/sample/devices/backyard", "person", "gallery-visit", "gallery-event", System.currentTimeMillis())
+        val jpeg = javaClass.getResourceAsStream("/gallery/cameras/front_door.jpg")!!.use { it.readBytes() }
+        AlertPictures.receive(app, JSONObject().put("camera", alert.camera).put("kind", alert.kind).put("session", alert.session)
+            .put("event", alert.event).put("at", alert.at).put("cropped", false).put("picture", Base64.encodeToString(jpeg, Base64.NO_WRAP)))
+        val until = System.currentTimeMillis() + 10_000
+        while (AlertPictures.forAlert(alert) == null && System.currentTimeMillis() < until) Thread.sleep(20)
+        var pictured: com.woodruff.tvexplorer.notify.Notice? = null
+        for (light in listOf(false, true)) {
+            compose.runOnIdle { Palette.light = light; vm.show(Screen.HOME) }
+            compose.mainClock.advanceTimeBy(1_500)
+            compose.waitForIdle()
+            compose.runOnIdle {
+                pictured = pictured?.also { Notices.popUp(app, it) } ?: Notices.post(app, NoticeSource.SYSTEM, "Person seen", "Backyard", alert = alert)
+            }
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.waitForIdle()
+            compose.onRoot().captureRoboImage(File(out, "tv-home-person-notice-picture-${if (light) "light" else "dark"}.png").path)
             compose.runOnIdle { Notices.dismissLatest() }
             compose.mainClock.advanceTimeBy(1_000)
         }

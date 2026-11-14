@@ -90,6 +90,7 @@ import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.produceState
 import android.graphics.BitmapFactory
@@ -638,13 +639,15 @@ private fun RailItem(label: String, icon: ImageVector, active: Boolean, platter:
 
 /**
  * In-app notification card (top right) for messages from the phone and new mail while the app
- * is open. Outside the app the same notice appears as an overlay or system notification.
+ * is open. Outside the app the same notice appears as an overlay or system notification. A camera
+ * alert's card shows the family's Mac's picture of it beside the words (nest/AlertPictures).
  */
 @Composable
 private fun NoticeBanner(modifier: Modifier, onOpen: () -> Unit) {
     // Collected here, so a notice coming or going redraws only this card.
     val notice by Notices.latest.collectAsStateWithLifecycle()
-    LaunchedEffect(notice) { if (notice != null) { delay(7000); Notices.dismissLatest() } }
+    // 7 s from when it came: its picture coming later (the same notice, the same card) doesn't start them again.
+    LaunchedEffect(notice?.id) { if (notice != null) { delay(7000); Notices.dismissLatest() } }
     // The last one shown, so it's still there as it glides away (a new one replaces it at once).
     val kept = remember { Kept<com.woodruff.tvexplorer.notify.Notice>() }
     notice?.let { kept.value = it }
@@ -662,23 +665,42 @@ private fun NoticeBanner(modifier: Modifier, onOpen: () -> Unit) {
             shape = shape,
             colors = SurfaceDefaults.colors(containerColor = Palette.glass, contentColor = Palette.text),
             border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Palette.rim), shape = shape),
-            // As wide as its longest line, no wider (long words wrap at the most).
-            modifier = Modifier.bannerGlide(transition, fromTop = true).widthIn(max = NoticeLook.MAX_WIDTH_DP.dp),
+            modifier = Modifier.bannerGlide(transition, fromTop = true),
         ) {
-            Column(Modifier.padding(horizontal = NoticeLook.PAD_H_DP.dp, vertical = NoticeLook.PAD_V_DP.dp)) {
-                Text(
-                    when (n.source) { NoticeSource.PHONE -> "FROM YOUR PHONE"; NoticeSource.MAIL -> "NEW MAIL"; NoticeSource.SYSTEM -> "WOODRUFF FAMILY" },
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = NoticeLook.LABEL_SP.sp, lineHeight = NoticeLook.LABEL_LINE_SP.sp),
-                    color = Palette.accent,
-                )
-                Text(
-                    n.title, maxLines = NoticeLook.TITLE_LINES, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = NoticeLook.TITLE_SP.sp, lineHeight = NoticeLook.TITLE_LINE_SP.sp),
-                )
-                if (n.body.isNotBlank()) Text(
-                    n.body, color = Palette.muted, maxLines = NoticeLook.BODY_LINES, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = NoticeLook.BODY_SP.sp, lineHeight = NoticeLook.BODY_LINE_SP.sp),
-                )
+            val picture = n.picture
+            Row(
+                Modifier.padding(
+                    start = (if (picture != null) NoticeLook.PICTURE_INSET_DP else NoticeLook.PAD_H_DP).dp,
+                    end = NoticeLook.PAD_H_DP.dp, top = NoticeLook.PAD_V_DP.dp, bottom = NoticeLook.PAD_V_DP.dp,
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (picture != null) {
+                    // Decoded, sized and rounded once already: drawn as it is.
+                    val image = remember(picture) { picture.asImageBitmap() }
+                    val density = LocalDensity.current
+                    Image(
+                        image, contentDescription = null, contentScale = ContentScale.FillBounds,
+                        modifier = Modifier.size(with(density) { picture.width.toDp() }, with(density) { picture.height.toDp() }),
+                    )
+                    Spacer(Modifier.width(NoticeLook.PICTURE_GAP_DP.dp))
+                }
+                // As wide as its longest line, no wider (long words wrap at the most).
+                Column(Modifier.widthIn(max = NoticeLook.MAX_TEXT_DP.dp)) {
+                    Text(
+                        when (n.source) { NoticeSource.PHONE -> "FROM YOUR PHONE"; NoticeSource.MAIL -> "NEW MAIL"; NoticeSource.SYSTEM -> "WOODRUFF FAMILY" },
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = NoticeLook.LABEL_SP.sp, lineHeight = NoticeLook.LABEL_LINE_SP.sp),
+                        color = Palette.accent,
+                    )
+                    Text(
+                        n.title, maxLines = NoticeLook.TITLE_LINES, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = NoticeLook.TITLE_SP.sp, lineHeight = NoticeLook.TITLE_LINE_SP.sp),
+                    )
+                    if (n.body.isNotBlank()) Text(
+                        n.body, color = Palette.muted, maxLines = NoticeLook.BODY_LINES, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = NoticeLook.BODY_SP.sp, lineHeight = NoticeLook.BODY_LINE_SP.sp),
+                    )
+                }
             }
         }
     }

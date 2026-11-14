@@ -59,7 +59,8 @@ import java.util.concurrent.atomic.AtomicLong
  * On a ring this TV chimes, and opens the camera over Woodruff's own screens, slideshow and
  * screensaver ([opens]), or pops up a card over the player, the photo viewer and other apps; and it
  * tells the TVs linked to it, for those whose cameras aren't connected. One visit rings once
- * ([Visits]), however many messages Google sends about it and whichever way they arrive.
+ * ([Visits]), however many messages Google sends about it and whichever way they arrive. An alert's
+ * card shows the family's Mac's picture of it beside its words, once that comes ([AlertPictures]).
  *
  * Where Google won't make a TV a subscription of its own (a project that doesn't allow it), the TV
  * where the subscription was set listens on the family's one itself, as every TV did before, and the
@@ -161,9 +162,9 @@ object Doorbell {
     private val main = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
 
-    private val _rings = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    /** Camera resource names that just rang (for the player's "Someone’s at the door" card). */
-    val rings: SharedFlow<String> = _rings.asSharedFlow()
+    private val _rings = MutableSharedFlow<CameraAlert>(extraBufferCapacity = 4)
+    /** Doorbells that just rang, with the visit and event of each (for the player's "Someone’s at the door" card and its picture). */
+    val rings: SharedFlow<CameraAlert> = _rings.asSharedFlow()
 
     /** The screens a ring's camera opens on (doorbell.md §2). */
     enum class Host {
@@ -370,9 +371,14 @@ object Doorbell {
      * A doorbell rang ([kind] "doorbell"), or a person / motion was seen: here, and (when [relay])
      * on every linked TV. [session] is the visit it belongs to (see [Visits]); [from], the TV that
      * passed it on to this one. [label]: the camera's name as the sender knows it (this TV's own
-     * camera list comes first). Only the doorbell opens a camera.
+     * camera list comes first). [event] (Nest's id for it) and [at] (when it happened, by Google's
+     * clock when known) are how the family's Mac's picture of it finds its card ([AlertPictures]).
+     * Only the doorbell opens a camera.
      */
-    fun ring(c: Context, camera: String, label: String, relay: Boolean, kind: String = "doorbell", session: String? = null, from: String? = null) {
+    fun ring(
+        c: Context, camera: String, label: String, relay: Boolean, kind: String = "doorbell", session: String? = null, from: String? = null,
+        event: String? = null, at: Long? = null,
+    ) {
         if (kind !in KINDS) return
         val app = c.applicationContext
         @Suppress("NAME_SHADOWING") val session = cleanSession(session)
@@ -384,16 +390,18 @@ object Doorbell {
         }
         val now = clock()
         if (!isNews(camera, session, kind, now)) return
+        // The alert as its picture from the family's Mac is matched to it, on each card it shows on.
+        val alert = cameraAlert(camera, kind, session, event, at?.takeIf { it > 0 } ?: now)
         // What happened, then which camera: "Person seen" / "Backyard" reads right for every name.
         val name = Nest.label(camera) ?: label.trim().ifEmpty { null }
         when (kind) {
-            "person" -> Notices.post(app, NoticeSource.SYSTEM, "Person seen", name ?: SOME_CAMERA)
-            "motion" -> Notices.post(app, NoticeSource.SYSTEM, "Motion seen", name ?: SOME_CAMERA)
-            else -> announce(app, camera, name ?: "Doorbell", now)
+            "person" -> Notices.post(app, NoticeSource.SYSTEM, "Person seen", name ?: SOME_CAMERA, alert = alert)
+            "motion" -> Notices.post(app, NoticeSource.SYSTEM, "Motion seen", name ?: SOME_CAMERA, alert = alert)
+            else -> announce(app, camera, name ?: "Doorbell", now, alert)
         }
         if (relay) scope.launch {
             val me = TvLinks.name(app)
-            TvLinks.forEachLinked(app) { TvLinks.doorbell(it, camera, name.orEmpty(), kind, session, me) }
+            TvLinks.forEachLinked(app) { TvLinks.doorbell(it, camera, name.orEmpty(), kind, session, me, alert.event, alert.at) }
         }
     }
 
@@ -410,8 +418,8 @@ object Doorbell {
         true
     }
 
-    /** The doorbell [camera] ([name]) rang at [at]: the chime, and its camera or its card. */
-    private fun announce(app: Context, camera: String, name: String, at: Long) {
+    /** The doorbell [camera] ([name]) rang at [at] (this TV's clock): the chime, and its camera or its card ([alert]'s, for its picture). */
+    private fun announce(app: Context, camera: String, name: String, at: Long, alert: CameraAlert) {
         _ringTimes.update { it + (camera to at) }
         val host = pickHost(
             camerasHere = GoogleAuth.isConnected(app, GoogleAuth.Grant.NEST),
@@ -422,7 +430,7 @@ object Doorbell {
         // A camera is about to open: WebRTC is made ready meanwhile, so its picture comes sooner.
         if (host != null) Rtc.warm(app)
         // The camera opening is the notice: no card over it (it's kept in Notifications all the same).
-        val notice = Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", name, chime = Chime.Sound.DOORBELL, popUp = host == null)
+        val notice = Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", name, chime = Chime.Sound.DOORBELL, popUp = host == null, alert = alert)
         if (host != null) {
             val ring = Ring(ringIds.incrementAndGet(), camera, at, host)
             _opens.tryEmit(ring)
@@ -434,7 +442,7 @@ object Doorbell {
                 if (!opened) Notices.popUp(app, notice)
             }
         }
-        _rings.tryEmit(camera)
+        _rings.tryEmit(alert)
     }
 
     // ---- Listening ------------------------------------------------------------------------------
@@ -740,7 +748,7 @@ object Doorbell {
                 else -> true
             }
             if (!wanted) continue
-            ring(app, event.camera, labelFor(event.camera).orEmpty(), relay = true, kind = event.kind, session = event.session)
+            ring(app, event.camera, labelFor(event.camera).orEmpty(), relay = true, kind = event.kind, session = event.session, event = event.event, at = event.at)
         }
     }
 

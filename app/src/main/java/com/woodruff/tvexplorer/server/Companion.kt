@@ -240,7 +240,15 @@ class CompanionRoutes(private val ctx: Context) {
                 ctx, b.optString("camera"), b.optString("label"), relay = false, kind = b.optString("kind").ifBlank { "doorbell" },
                 // The visit (one ring per visit, however it's heard) and the TV that passed it on.
                 session = b.optString("session").ifBlank { null }, from = b.optString("from").ifBlank { null },
+                // Its event and when it happened, for the family's Mac's picture of it (a TV from before sends neither).
+                event = b.optString("event").ifBlank { null }, at = b.optLong("at").takeIf { it > 0 },
             )
+            ok()
+        }
+        // The family's Mac: its close-up of who or what a camera alert is about, for that alert's card here
+        // (AlertPictures). Answered at once, the picture decoded after; a body that isn't one is a 400.
+        s.uri == "/api/camera-picture" && s.method == Method.POST -> {
+            com.woodruff.tvexplorer.nest.AlertPictures.receive(ctx, jsonBody(s, MAX_PICTURE_REQUEST))
             ok()
         }
         // ---- Several TVs (this one is the hub) ------------------------------------------------
@@ -764,6 +772,21 @@ class CompanionRoutes(private val ctx: Context) {
         }
     }
 
+    /** A request's body that must be a JSON object, of up to [limit] bytes; anything else is a 400. */
+    private fun jsonBody(s: IHTTPSession, limit: Int): JSONObject {
+        val len = s.headers["content-length"]?.toIntOrNull() ?: 0
+        require(len > 0) { "Nothing was sent" }
+        require(len <= limit) { "Request too large" }
+        val buf = ByteArray(len)
+        var read = 0
+        while (read < len) {
+            val n = s.inputStream.read(buf, read, len - read)
+            if (n < 0) break
+            read += n
+        }
+        return runCatching { JSONObject(String(buf, 0, read, Charsets.UTF_8)) }.getOrElse { throw IllegalArgumentException("That isn’t JSON") }
+    }
+
     private fun phonesJson() = JSONArray().apply { Phones.load(ctx); Phones.items.value.forEach { put(Phones.toJson(it, withTopic = false)) } }
 
     /**
@@ -826,6 +849,9 @@ class CompanionRoutes(private val ctx: Context) {
 
 /** The most text the phone's keyboard sends to a text box at once (a long note; a request stays well under 64 KB). */
 private const val MAX_TYPED = 20_000
+
+/** The largest camera alert's picture taken (its JPEG is about 150 KB, 200 KB as base64, in a request of about that). */
+private const val MAX_PICTURE_REQUEST = 4 * 1024 * 1024
 
 /** Why the phone can't type into this TV now: Woodruff isn't in front (its remote keys say the same). */
 private const val NOT_IN_FRONT = "Woodruff Family isn’t on the TV screen. Press Home first."

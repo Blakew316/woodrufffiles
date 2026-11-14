@@ -266,7 +266,7 @@ class DoorbellActivity : ComponentActivity(), com.woodruff.tvexplorer.update.OnS
         /** Stopped for this long (not over a film): it was left, and goes. */
         internal const val LEAVE_GRACE_MS = 3_000L
 
-        /** Over the film (OK on the player's card): [camera] is the one that rang (as [Doorbell.rings] gives it). */
+        /** Over the film (OK on the player's card): [camera] is the one that rang (its resource name, as [Doorbell.rings] gives it). */
         fun intent(context: Context, camera: String): Intent =
             Intent(context, DoorbellActivity::class.java).putExtra(EXTRA_CAMERA, camera)
 
