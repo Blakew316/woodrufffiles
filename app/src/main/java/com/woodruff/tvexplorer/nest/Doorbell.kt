@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -136,8 +138,10 @@ object Doorbell {
     val KINDS = setOf("doorbell", "person", "motion")
 
     /**
-     * One pop-up per camera and kind every 2 minutes (30 s for the doorbell): a person walking
-     * around isn't ten alerts, and a double press is one ring.
+     * One pop-up per camera and kind every 2 minutes (30 s for the doorbell) for events that don't say
+     * which visit they belong to (older devices): a person walking around isn't ten alerts, and a
+     * double press is one ring. One that does is grouped by its visit ([Visits]) instead: another
+     * visitor, or another person seen, within the pause is an alert of its own.
      */
     private val lastAlert = ConcurrentHashMap<String, Long>()
     /**
@@ -394,13 +398,14 @@ object Doorbell {
     }
 
     /**
-     * Whether [kind] on [camera] at [now] is news: a new visit (or one without a visit) and past the
-     * camera's pause. In one step, as the same event can arrive from two TVs at the same moment.
+     * Whether [kind] on [camera] at [now] is news: a new visit, or, without a visit, past the camera's
+     * pause. Every alert starts the pause, so the same event passed on by a TV too old to say its visit
+     * still shows once. In one step, as the same event can arrive from two TVs at the same moment.
      */
     private fun isNews(camera: String, session: String?, kind: String, now: Long): Boolean = synchronized(lastAlert) {
         if (!visits.admit(camera, session, kind)) return false
         val k = "$kind|$camera"
-        if (now - (lastAlert[k] ?: 0L) < if (kind == "doorbell") 30_000 else 120_000) return false
+        if (session == null && now - (lastAlert[k] ?: 0L) < if (kind == "doorbell") 30_000 else 120_000) return false
         lastAlert[k] = now
         true
     }
@@ -441,8 +446,49 @@ object Doorbell {
     @Synchronized fun start(c: Context) {
         val app = c.applicationContext
         Awake.start(app)
+        if (watching == null) watching = scope.launch { watchWakes() }
+        // Not listening until now (Woodruff just started, or its phone connection had stopped): what
+        // Google kept meanwhile is a backlog. Started again while listening, it's still listening.
+        if (job == null) listeningSince = clock()
         job?.cancel()
         job = scope.launch { listen(app) }
+    }
+
+    /**
+     * When this TV began listening as it is now: Woodruff started listening, the screen last came on,
+     * or it pulled again after a while it didn't (asleep, nothing set up, the cameras not connected).
+     * What happened over 90 s before then is a backlog nobody was in front of the TV for ([isStale]);
+     * anything later shows, however late Google sends it.
+     */
+    @Volatile private var listeningSince = 0L
+    /** The pull waiting on Google now, to cut short ([cutPullShort]); and whether it was. */
+    @Volatile private var inFlight: java.net.HttpURLConnection? = null
+    @Volatile private var cutShort = false
+    private var watching: Job? = null
+
+    /**
+     * The screen coming on starts a new [listeningSince]. That, or the network coming back: a pull held
+     * open from before (across standby, or on a network that has gone) would wait out its whole 70 s
+     * for nothing, and a ring meanwhile with it, so it's cut short and made again at once.
+     */
+    private suspend fun watchWakes() {
+        coroutineScope {
+            launch {
+                var on = Awake.on.value
+                Awake.on.collect { now ->
+                    if (now && !on) { listeningSince = clock(); cutPullShort() }
+                    on = now
+                }
+            }
+            launch { NetworkWatch.comebacks.drop(1).collect { cutPullShort() } }
+        }
+    }
+
+    /** Cuts the pull waiting on Google now short: [pull] makes it again at once. */
+    private fun cutPullShort() {
+        val conn = inFlight ?: return
+        cutShort = true
+        runCatching { conn.disconnect() }
     }
 
     /** What to wait for before the next step. */
@@ -472,8 +518,12 @@ object Doorbell {
                 Next.Now -> yield()
                 is Next.After -> pause(next.ms, null, nudged)
                 Next.Offline -> pause(OFFLINE_PAUSES[offline.coerceAtMost(OFFLINE_PAUSES.size - 1)], mark, nudged)
-                Next.Asleep -> withTimeoutOrNull(ASLEEP_CHECK_MS) {
-                    merge(Awake.on.filter { it }.map { }, nudges.filter { it != nudged }.map { }).first()
+                Next.Asleep -> {
+                    withTimeoutOrNull(ASLEEP_CHECK_MS) {
+                        merge(Awake.on.filter { it }.map { }, nudges.filter { it != nudged }.map { }).first()
+                    }
+                    // Nothing was pulled meanwhile: what Google kept is a backlog.
+                    listeningSince = clock()
                 }
             }
             offline = if (next == Next.Offline) offline + 1 else 0
@@ -627,8 +677,9 @@ object Doorbell {
     /** One pull from [target]: handles any rings, acknowledges everything. */
     private suspend fun pull(app: Context, token: String, target: Target): Next {
         val asked = android.os.SystemClock.elapsedRealtime()
+        cutShort = false
         val messages = try {
-            PubSub.pull(token, target.name)
+            PubSub.pull(token, target.name) { inFlight = it }
         } catch (e: PubSub.Answer) {
             if (!target.own || (e.code != 404 && e.code != 403)) throw e
             val p = prefs(app)
@@ -643,21 +694,35 @@ object Doorbell {
             // or no longer allowed: made again now (or found refused), in a moment if just made.
             p.edit().remove(K_OWN).remove(K_OWN_FOR).apply()
             return if (failure == OwnPullFailure.MAKE_AGAIN_LATER) Next.After(30_000) else Next.Now
+        } catch (e: java.io.IOException) {
+            // Cut short (the screen came on, the network came back): made again now, not waited on as offline.
+            if (cutShort) return Next.Now
+            throw e
+        } finally {
+            inFlight = null
         }
+        // The first pull after not listening (nothing set up, the cameras not connected here, refused, failing):
+        // what Google kept meanwhile is a backlog.
+        if (_listening.value != DoorbellListening.Own && _listening.value != DoorbellListening.Shared) listeningSince = clock()
         setListening(app, if (target.own) DoorbellListening.Own else DoorbellListening.Shared)
         // Nothing: after a pull Google held open, the next goes at once; after one answered at once, in a moment.
         if (messages.length() == 0) {
             val pause = emptyPullPauseMs(android.os.SystemClock.elapsedRealtime() - asked)
             return if (pause > 0) Next.After(pause) else Next.Now
         }
-        // Acknowledged first: if handling one goes wrong, it still isn't delivered (and announced) again.
-        // From here they're this TV's to announce, even if listening was restarted meanwhile (a long
-        // pull still waiting when the phone saved the Cameras page, say): Google won't send them again.
+        // Shown first, then acknowledged: acknowledged first, an alert waited on that round trip to Google,
+        // and one Woodruff closed before showing was never sent again. One message going wrong doesn't keep
+        // the rest from showing; one Google sends again after all (its acknowledgement lost) is known by its
+        // id and not shown twice ([handle]). From here they're this TV's to announce, even if listening was
+        // restarted meanwhile (a long pull still waiting when the phone saved the Cameras page, say).
         withContext(NonCancellable) {
             val acks = JSONArray()
-            for (i in 0 until messages.length()) acks.put(messages.getJSONObject(i).optString("ackId"))
+            for (i in 0 until messages.length()) {
+                val m = messages.getJSONObject(i)
+                runCatching { m.optJSONObject("message")?.let { handle(app, it) } }.onFailure { Log.w("Doorbell", "message: $it") }
+                acks.put(m.optString("ackId"))
+            }
             runCatching { PubSub.acknowledge(token, target.name, acks) }.onFailure { Log.w("Doorbell", "acknowledge: ${it.message}") }
-            for (i in 0 until messages.length()) messages.getJSONObject(i).optJSONObject("message")?.let { handle(app, it) }
         }
         return Next.Now
     }
@@ -667,9 +732,8 @@ object Doorbell {
         val id = message.optString("messageId")
         if (id.isNotEmpty() && synchronized(seen) { seen.put(id, Unit) != null }) return
         val json = runCatching { String(Base64.decode(message.optString("data"), Base64.DEFAULT)) }.getOrNull() ?: return
-        val now = clock()
         for (event in cameraEvents(json)) {
-            if (isStale(event.at, now)) continue
+            if (isStale(event.at, listeningSince)) continue
             val wanted = when (event.kind) {
                 "person" -> personAlerts(app)
                 "motion" -> motionAlerts(app)

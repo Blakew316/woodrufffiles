@@ -64,10 +64,14 @@ internal fun eventTime(s: String?): Long? {
 }
 
 /**
- * Whether an event from [at] is too old to announce at [now]: a backlog from while the TV was off
- * or asleep isn't news any more. One without a time is taken as just now.
+ * Whether an event from [at] is a backlog from while the TV was off or asleep, which isn't news any
+ * more: it happened over 90 s before this TV began listening as it is now ([since]: Woodruff started
+ * listening, the screen came on, or it pulled again after a while it didn't). One that comes late while
+ * it was listening (the network down a while, the pull waiting out an error, Google slow to send it,
+ * the TV's clock running ahead of Google's) still shows: judged against the time it arrived, every
+ * such alert was dropped. One without a time is taken as just now.
  */
-internal fun isStale(at: Long?, now: Long): Boolean = at != null && now - at > 90_000
+internal fun isStale(at: Long?, since: Long): Boolean = at != null && since - at > 90_000
 
 /**
  * One visit, one ring. Google sends several messages about one visit (Nest's eventSessionId): a
@@ -76,7 +80,7 @@ internal fun isStale(at: Long?, now: Long): Boolean = at != null && now - at > 9
  * press still shows, and the press still rings. Each kind shows once per visit. It's the same on
  * every TV, whether the event came from its own subscription or from the TV that passed it on, so
  * hearing a visit both ways rings once. Events without a visit (older devices) are always new here:
- * the per-camera pause in [Doorbell.ring] covers them. The last [max] visits are remembered.
+ * the per-camera pause in [Doorbell.ring] covers them, and only them. The last [max] visits are remembered.
  */
 internal class Visits(private val max: Int = 200) {
     private val seen = object : LinkedHashMap<String, MutableSet<String>>() {

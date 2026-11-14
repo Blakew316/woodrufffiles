@@ -4,6 +4,7 @@ import com.woodruff.tvexplorer.net.Http
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.HttpURLConnection
 
 /**
  * Google Cloud Pub/Sub's REST API, as the doorbell uses it: reading a subscription's topic, making
@@ -16,9 +17,12 @@ internal object PubSub {
     /** Google answered [code] (403, 404, 409…); [status] is its reason ("PERMISSION_DENIED"), for the log. */
     class Answer(val code: Int, val status: String) : IOException("Pub/Sub answered $code $status")
 
-    /** Messages waiting on [subscription] (up to 10; Google holds the request a while when there are none). */
-    fun pull(token: String, subscription: String): JSONArray =
-        call(token, "POST", "$subscription:pull", JSONObject().put("maxMessages", 10), readTimeoutMs = 70_000)
+    /**
+     * Messages waiting on [subscription] (up to 10; Google holds the request a while when there are none).
+     * [opened]: the connection it waits on, so it can be cut short (disconnected) from another thread.
+     */
+    fun pull(token: String, subscription: String, opened: (HttpURLConnection) -> Unit = {}): JSONArray =
+        call(token, "POST", "$subscription:pull", JSONObject().put("maxMessages", 10), readTimeoutMs = 70_000, opened = opened)
             .optJSONArray("receivedMessages") ?: JSONArray()
 
     /** Tells Google the messages [ackIds] arrived, so they aren't delivered again. */
@@ -37,7 +41,9 @@ internal object PubSub {
         call(token, "DELETE", name, null)
     }
 
-    private fun call(token: String, method: String, path: String, body: JSONObject?, readTimeoutMs: Int = 20_000): JSONObject {
+    private fun call(
+        token: String, method: String, path: String, body: JSONObject?, readTimeoutMs: Int = 20_000, opened: (HttpURLConnection) -> Unit = {},
+    ): JSONObject {
         val conn = Http.open(BASE + path).apply {
             requestMethod = method
             connectTimeout = 15_000
@@ -48,6 +54,7 @@ internal object PubSub {
                 setRequestProperty("Content-Type", "application/json")
             }
         }
+        opened(conn)
         try {
             if (body != null) conn.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = conn.responseCode

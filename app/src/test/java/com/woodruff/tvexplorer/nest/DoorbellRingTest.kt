@@ -86,6 +86,33 @@ class DoorbellRingTest {
         }
     }
 
+    @Test fun aNewVisitWithinThePauseIsAnAlertOfItsOwn() {
+        Notices.load(app)
+        var t = 1_900_000_000_000L
+        Doorbell.clock = { t }
+        try {
+            val door = camera()
+            val yard = camera()
+            val before = Notices.items.value.size
+            // Another visitor 10 s after the last (within the doorbell's 30 s pause): Google says it's a new visit.
+            Doorbell.ring(app, door, "Front Door", relay = false, session = "visit-p")
+            t += 10_000
+            Doorbell.ring(app, door, "Front Door", relay = false, session = "visit-q")
+            assertEquals(before + 2, Notices.items.value.size)
+            // That ring passed on a moment later by a TV too old to say its visit: still once.
+            t += 1_000
+            Doorbell.ring(app, door, "Front Door", relay = false)
+            assertEquals(before + 2, Notices.items.value.size)
+            // Another person in the yard a minute after the first (within the 2 minutes): shown too.
+            Doorbell.ring(app, yard, "Backyard", relay = false, kind = "person", session = "visit-r")
+            t += 60_000
+            Doorbell.ring(app, yard, "Backyard", relay = false, kind = "person", session = "visit-s")
+            assertEquals(before + 4, Notices.items.value.size)
+        } finally {
+            Doorbell.clock = System::currentTimeMillis
+        }
+    }
+
     @Test fun anAlertKindNobodyKnowsIsIgnored() {
         Notices.load(app)
         val before = Notices.items.value.size

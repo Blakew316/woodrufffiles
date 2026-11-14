@@ -78,12 +78,22 @@ class DoorbellRulesTest {
     }
 
     @Test fun aBacklogFromWhileTheTvWasOffIsNoNews() {
-        val now = 10_000_000L
-        assertFalse(isStale(null, now))
-        assertFalse(isStale(now - 30_000, now))
-        assertTrue(isStale(now - 91_000, now))
+        // [since]: when the TV began listening (Woodruff started, the screen came on).
+        val since = 10_000_000L
+        assertFalse(isStale(null, since))
+        assertFalse(isStale(since - 30_000, since))
+        assertTrue(isStale(since - 91_000, since))
         // Google's clock a little ahead of the TV's.
-        assertFalse(isStale(now + 5_000, now))
+        assertFalse(isStale(since + 5_000, since))
+    }
+
+    @Test fun anAlertThatComesLateWhileTheTvListensStillShows() {
+        val since = 10_000_000L
+        // Rung 5 minutes after the TV began listening, and only sent now (the network was down, Google
+        // was slow): it isn't judged by when it arrived.
+        assertFalse(isStale(since + 5 * 60_000, since))
+        // Rung just before the TV woke: still news.
+        assertFalse(isStale(since - 60_000, since))
     }
 
     // ---- Each TV's own subscription -----------------------------------------------------------------
