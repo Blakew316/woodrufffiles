@@ -593,6 +593,15 @@ object TvLinks {
         reach(tv, again = true) { t -> request("${t.base}/api/doorbell?k=${enc(t.key)}", "POST", json) }
     }
 
+    /**
+     * A camera alert's picture the family's Mac sent this TV ([json], its body as it came), for [tv] too: the Mac
+     * reaches only the TVs it's paired with. Fire and forget, 3 s at most, straight to the TV (not through
+     * [reach]): a TV that's off, or on a Woodruff from before pictures, misses it, which says nothing of where it is.
+     */
+    fun cameraPicture(tv: LinkedTv, json: String) {
+        request("${tv.base}/api/camera-picture?k=${enc(tv.key)}", "POST", json, timeoutMs = 3_000)
+    }
+
     // The keys every TV shares (SharedKeys). Straight to the TV, not through [reach]: a TV running a
     // Woodruff from before keys were shared refuses the route, which mustn't count as it having moved,
     // and a TV that's off is caught up on the hub's next check anyway.
@@ -695,14 +704,14 @@ object TvLinks {
         board = if (o.has("board")) o.optLong("board") else null,
     )
 
-    private fun open(url: String, method: String) = (URL(url).openConnection() as HttpURLConnection).apply {
+    private fun open(url: String, method: String, timeoutMs: Int? = null) = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = method
-        connectTimeout = 2_500
-        readTimeout = 5_000
+        connectTimeout = timeoutMs ?: 2_500
+        readTimeout = timeoutMs ?: 5_000
     }
 
-    private fun request(url: String, method: String, body: String?): String {
-        val conn = open(url, method)
+    private fun request(url: String, method: String, body: String?, timeoutMs: Int? = null): String {
+        val conn = open(url, method, timeoutMs)
         try {
             if (body != null) {
                 conn.doOutput = true

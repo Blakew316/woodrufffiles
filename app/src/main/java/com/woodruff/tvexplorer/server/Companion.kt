@@ -246,9 +246,11 @@ class CompanionRoutes(private val ctx: Context) {
             ok()
         }
         // The family's Mac: its close-up of who or what a camera alert is about, for that alert's card here
-        // (AlertPictures). Answered at once, the picture decoded after; a body that isn't one is a 400.
+        // (AlertPictures), and passed on to the TVs linked to this one; one a linked TV passed on (with its
+        // link key) isn't passed on again. Answered at once, the picture decoded after; a body that isn't one is a 400.
         s.uri == "/api/camera-picture" && s.method == Method.POST -> {
-            com.woodruff.tvexplorer.nest.AlertPictures.receive(ctx, jsonBody(s, MAX_PICTURE_REQUEST))
+            val fromTv = TvLinks.isLinkKey(ctx, s.parameters["k"]?.firstOrNull())
+            com.woodruff.tvexplorer.nest.AlertPictures.receive(ctx, jsonBody(s, MAX_PICTURE_REQUEST), relay = !fromTv)
             ok()
         }
         // ---- Several TVs (this one is the hub) ------------------------------------------------

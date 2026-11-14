@@ -41,6 +41,17 @@ internal fun pictureFits(picture: CameraAlert, alert: CameraAlert): Boolean {
 }
 
 /**
+ * Whether two pictures are one sent twice (by the family's Mac and passed on by a linked TV): taken for the
+ * same event; else, when neither says its event, for the same visit on the same camera; else (a vehicle the
+ * Mac saw itself, which says neither) of the same camera, kind and moment.
+ */
+internal fun samePicture(a: CameraAlert, b: CameraAlert): Boolean = when {
+    a.event != null || b.event != null -> a.event == b.event
+    a.session != null || b.session != null -> a.session == b.session && a.camera == b.camera
+    else -> a.camera == b.camera && a.kind == b.kind && a.at == b.at
+}
+
+/**
  * A picture waiting for its alert: the alert it was taken for, whether it's cut to who or what was seen
  * ([cropped]), when it came ([got], ms by this TV's clock) and the picture itself.
  */
@@ -66,12 +77,14 @@ internal fun <T> bestPicture(alert: CameraAlert, pictures: Collection<Shelved<T>
 internal class PictureShelf<T>(private val max: Int = PICTURE_MAX, private val keepMs: Long = PICTURE_KEEP_MS) {
     private val items = ArrayList<Shelved<T>>()
 
-    /** Keeps [item]; [now] is this TV's clock, as [Shelved.got] is. */
+    /** Keeps [item], unless it's kept already ([samePicture]): true when it's kept now. [now] is this TV's clock, as [Shelved.got] is. */
     @Synchronized
-    fun add(item: Shelved<T>, now: Long) {
+    fun add(item: Shelved<T>, now: Long): Boolean {
         prune(now)
+        if (items.any { samePicture(it.alert, item.alert) }) return false
         items += item
         while (items.size > max) items.removeAt(0)
+        return true
     }
 
     /** The picture [alert]'s card shows at [now] ([bestPicture]), if one came. */

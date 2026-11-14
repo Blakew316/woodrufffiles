@@ -37,10 +37,9 @@ private val EVENT_KINDS = linkedMapOf(
 )
 
 /**
- * The events in one message ([json]: its data, decoded). Each counts on its own: one message can
- * carry a press and a person seen. The press comes first, so a person seen in the same message
- * as the press it belongs to doesn't pop up a card of its own. Anything else in a message (a clip
- * preview, a sound) is left out.
+ * The events in one message ([json]: its data, decoded), the press first, then a person seen, then
+ * motion: one message can carry several, and shows one of them ([messageAlert]). Anything else in a
+ * message (a clip preview, a sound) is left out.
  */
 internal fun cameraEvents(json: String): List<CameraEvent> {
     val event = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
@@ -56,6 +55,14 @@ internal fun cameraEvents(json: String): List<CameraEvent> {
     }
 }
 
+/**
+ * The one alert a message shows: of its [events] (as [cameraEvents] gives them, the press first), the
+ * first the family wants ([wanted], by kind). One message is one moment: the person seen with a press is
+ * who pressed it, and motion seen with a person is that person moving, so it shows its most specific kind
+ * once, not "Person seen" and at once "Motion seen" over it. Null when it wants none of them.
+ */
+internal fun messageAlert(events: List<CameraEvent>, wanted: (String) -> Boolean): CameraEvent? = events.firstOrNull { wanted(it.kind) }
+
 /** Google's time ("2026-11-02T19:42:05.123Z", always in UTC) in ms since 1970; null when it isn't one. */
 internal fun eventTime(s: String?): Long? {
     if (s == null || s.length < 19) return null
@@ -69,12 +76,66 @@ internal fun eventTime(s: String?): Long? {
 /**
  * Whether an event from [at] is a backlog from while the TV was off or asleep, which isn't news any
  * more: it happened over 90 s before this TV began listening as it is now ([since]: Woodruff started
- * listening, the screen came on, or it pulled again after a while it didn't). One that comes late while
- * it was listening (the network down a while, the pull waiting out an error, Google slow to send it,
- * the TV's clock running ahead of Google's) still shows: judged against the time it arrived, every
- * such alert was dropped. One without a time is taken as just now.
+ * listening, the screen came on, or it pulled again after a while it didn't; on Google's clock where
+ * Google says the time, [sinceByGoogle]). One that comes late while it was listening (the network down
+ * a while, the pull waiting out an error, Google slow to send it, the TV's clock running ahead of
+ * Google's) still shows: judged against the time it arrived, every such alert was dropped. One without
+ * a time is taken as just now.
  */
 internal fun isStale(at: Long?, since: Long): Boolean = at != null && since - at > 90_000
+
+/**
+ * When this TV began listening as it is now, on Google's clock, the one its events' times are on:
+ * [google] is Google's time when Pub/Sub answered with the message (the answer's own date, or the
+ * message's publishTime when that's later), less [listenedMs], how long the TV had listened by then by
+ * its steady clock. So the TV's own clock doesn't matter: one running minutes fast just after waking
+ * dropped every alert of those minutes. (publishTime alone can't tell a backlog: Google publishes at
+ * once, and a backlog is messages that waited.) Without Google's time (0), the TV's ([tvNow]) stands in.
+ */
+internal fun sinceByGoogle(google: Long, listenedMs: Long, tvNow: Long): Long = (if (google > 0) google else tvNow) - listenedMs.coerceAtLeast(0)
+
+/**
+ * Pub/Sub messages already shown, by id: the last [max], each for [keepMs] (a day). Pub/Sub delivers at
+ * least once: a message comes again when its acknowledgement was lost, or when Woodruff stopped between
+ * showing it and acknowledging it (a crash, an update); and a message keeps its id in every subscription,
+ * so one heard on two (while switching) shows once. Kept in the TV's settings ([saved], [restore]), so a
+ * restart doesn't forget them.
+ */
+internal class SeenMessages(private val max: Int = 300, private val keepMs: Long = 24 * 60 * 60_000L) {
+    private val ids = LinkedHashMap<String, Long>()
+
+    /** Whether the message [id] is new at [now] (this TV's clock); if it is, it's noted. A blank id is always new. */
+    @Synchronized
+    fun add(id: String, now: Long): Boolean {
+        if (id.isBlank()) return true
+        forgetOld(now)
+        if (id in ids) return false
+        ids[id] = now
+        while (ids.size > max) ids.remove(ids.keys.first())
+        return true
+    }
+
+    /** As the settings keep them: "time id", one a line, oldest first. */
+    @Synchronized
+    fun saved(): String = ids.entries.joinToString("\n") { "${it.value} ${it.key}" }
+
+    /** Back from what [saved] gave ([text]; null: nothing kept yet), at [now]: any older than a day are gone. */
+    @Synchronized
+    fun restore(text: String?, now: Long) {
+        ids.clear()
+        text?.lineSequence()?.forEach { line ->
+            val at = line.substringBefore(' ').toLongOrNull() ?: return@forEach
+            val id = line.substringAfter(' ', "").trim()
+            if (id.isNotEmpty()) ids[id] = at
+        }
+        forgetOld(now)
+        while (ids.size > max) ids.remove(ids.keys.first())
+    }
+
+    private fun forgetOld(now: Long) {
+        ids.values.removeAll { now - it > keepMs }
+    }
+}
 
 /**
  * One visit, one ring. Google sends several messages about one visit (Nest's eventSessionId): a

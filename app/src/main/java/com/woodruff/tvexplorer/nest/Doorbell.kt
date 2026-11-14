@@ -79,6 +79,8 @@ object Doorbell {
     private const val K_REFUSED_AT = "refusedAt"
     /** The TV that last passed an alert on to this one ("Through Living Room"; blank: one too old to say). */
     private const val K_RELAY_FROM = "relayFrom"
+    /** The Pub/Sub messages already shown ([SeenMessages.saved]). */
+    private const val K_SEEN = "seen"
 
     /** Once Google refused this TV a subscription of its own, how long until it asks again (the family may change the project's permissions). */
     private const val REFUSED_RETRY_MS = 6 * 60 * 60_000L
@@ -146,12 +148,12 @@ object Doorbell {
      */
     private val lastAlert = ConcurrentHashMap<String, Long>()
     /**
-     * Messages already handled. Pub/Sub delivers at least once, so a redelivery doesn't ring again;
-     * and a message keeps its id in every subscription, so one heard on two (while switching) rings once.
+     * Messages already handled ([SeenMessages]): a redelivery doesn't ring again, even after Woodruff
+     * restarted, and one heard on two subscriptions (while switching) rings once. Read from the settings
+     * the first time ([seenHere]).
      */
-    private val seen = object : LinkedHashMap<String, Unit>() {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?) = size > 200
-    }
+    private val seen = SeenMessages()
+    @Volatile private var seenRead = false
     private val visits = Visits()
     /**
      * The time a ring is judged by (pauses, visits, freshness): the TV's clock, which tests move on
@@ -457,7 +459,7 @@ object Doorbell {
         if (watching == null) watching = scope.launch { watchWakes() }
         // Not listening until now (Woodruff just started, or its phone connection had stopped): what
         // Google kept meanwhile is a backlog. Started again while listening, it's still listening.
-        if (job == null) listeningSince = clock()
+        if (job == null) listeningSince = android.os.SystemClock.elapsedRealtime()
         job?.cancel()
         job = scope.launch { listen(app) }
     }
@@ -466,7 +468,8 @@ object Doorbell {
      * When this TV began listening as it is now: Woodruff started listening, the screen last came on,
      * or it pulled again after a while it didn't (asleep, nothing set up, the cameras not connected).
      * What happened over 90 s before then is a backlog nobody was in front of the TV for ([isStale]);
-     * anything later shows, however late Google sends it.
+     * anything later shows, however late Google sends it. By the TV's steady clock (elapsedRealtime):
+     * each pull's events are judged against it on Google's clock ([sinceByGoogle]).
      */
     @Volatile private var listeningSince = 0L
     /** The pull waiting on Google now, to cut short ([cutPullShort]); and whether it was. */
@@ -484,7 +487,7 @@ object Doorbell {
             launch {
                 var on = Awake.on.value
                 Awake.on.collect { now ->
-                    if (now && !on) { listeningSince = clock(); cutPullShort() }
+                    if (now && !on) { listeningSince = android.os.SystemClock.elapsedRealtime(); cutPullShort() }
                     on = now
                 }
             }
@@ -531,7 +534,7 @@ object Doorbell {
                         merge(Awake.on.filter { it }.map { }, nudges.filter { it != nudged }.map { }).first()
                     }
                     // Nothing was pulled meanwhile: what Google kept is a backlog.
-                    listeningSince = clock()
+                    listeningSince = android.os.SystemClock.elapsedRealtime()
                 }
             }
             offline = if (next == Next.Offline) offline + 1 else 0
@@ -686,8 +689,10 @@ object Doorbell {
     private suspend fun pull(app: Context, token: String, target: Target): Next {
         val asked = android.os.SystemClock.elapsedRealtime()
         cutShort = false
+        // Google's time as it answered, which this pull's events are judged by ([sinceByGoogle]).
+        var google = 0L
         val messages = try {
-            PubSub.pull(token, target.name) { inFlight = it }
+            PubSub.pull(token, target.name, opened = { inFlight = it }, answered = { google = it })
         } catch (e: PubSub.Answer) {
             if (!target.own || (e.code != 404 && e.code != 403)) throw e
             val p = prefs(app)
@@ -709,25 +714,35 @@ object Doorbell {
         } finally {
             inFlight = null
         }
+        val got = android.os.SystemClock.elapsedRealtime()
+        val tvNow = clock()
         // The first pull after not listening (nothing set up, the cameras not connected here, refused, failing):
         // what Google kept meanwhile is a backlog.
-        if (_listening.value != DoorbellListening.Own && _listening.value != DoorbellListening.Shared) listeningSince = clock()
+        if (_listening.value != DoorbellListening.Own && _listening.value != DoorbellListening.Shared) listeningSince = got
+        val listened = got - listeningSince
         setListening(app, if (target.own) DoorbellListening.Own else DoorbellListening.Shared)
         // Nothing: after a pull Google held open, the next goes at once; after one answered at once, in a moment.
         if (messages.length() == 0) {
-            val pause = emptyPullPauseMs(android.os.SystemClock.elapsedRealtime() - asked)
+            val pause = emptyPullPauseMs(got - asked)
             return if (pause > 0) Next.After(pause) else Next.Now
         }
         // Shown first, then acknowledged: acknowledged first, an alert waited on that round trip to Google,
         // and one Woodruff closed before showing was never sent again. One message going wrong doesn't keep
-        // the rest from showing; one Google sends again after all (its acknowledgement lost) is known by its
-        // id and not shown twice ([handle]). From here they're this TV's to announce, even if listening was
-        // restarted meanwhile (a long pull still waiting when the phone saved the Cameras page, say).
+        // the rest from showing; one Google sends again after all (its acknowledgement lost, or Woodruff
+        // stopped before acknowledging it) is known by its id and not shown twice ([handle]). From here
+        // they're this TV's to announce, even if listening was restarted meanwhile (a long pull still waiting
+        // when the phone saved the Cameras page, say).
         withContext(NonCancellable) {
             val acks = JSONArray()
             for (i in 0 until messages.length()) {
                 val m = messages.getJSONObject(i)
-                runCatching { m.optJSONObject("message")?.let { handle(app, it) } }.onFailure { Log.w("Doorbell", "message: $it") }
+                runCatching {
+                    m.optJSONObject("message")?.let {
+                        // When this TV began listening, on Google's clock: its answer's time, or this message's publishTime if later.
+                        val published = eventTime(it.optString("publishTime")) ?: 0L
+                        handle(app, it, sinceByGoogle(maxOf(google, published), listened, tvNow))
+                    }
+                }.onFailure { Log.w("Doorbell", "message: $it") }
                 acks.put(m.optString("ackId"))
             }
             runCatching { PubSub.acknowledge(token, target.name, acks) }.onFailure { Log.w("Doorbell", "acknowledge: ${it.message}") }
@@ -735,21 +750,40 @@ object Doorbell {
         return Next.Now
     }
 
-    /** One message from Google: each event in it, if it's news. */
-    private suspend fun handle(app: Context, message: JSONObject) {
+    /**
+     * One message from Google: the one alert it shows ([messageAlert]), if it's news ([since]: when this TV
+     * began listening, on Google's clock). Its id is kept on disk once it's handled.
+     */
+    private suspend fun handle(app: Context, message: JSONObject, since: Long) {
         val id = message.optString("messageId")
-        if (id.isNotEmpty() && synchronized(seen) { seen.put(id, Unit) != null }) return
-        val json = runCatching { String(Base64.decode(message.optString("data"), Base64.DEFAULT)) }.getOrNull() ?: return
-        for (event in cameraEvents(json)) {
-            if (isStale(event.at, listeningSince)) continue
-            val wanted = when (event.kind) {
-                "person" -> personAlerts(app)
-                "motion" -> motionAlerts(app)
-                else -> true
-            }
-            if (!wanted) continue
+        if (!seenHere(app).add(id, System.currentTimeMillis())) return
+        try {
+            val json = runCatching { String(Base64.decode(message.optString("data"), Base64.DEFAULT)) }.getOrNull() ?: return
+            val event = messageAlert(cameraEvents(json)) { kind ->
+                when (kind) {
+                    "person" -> personAlerts(app)
+                    "motion" -> motionAlerts(app)
+                    else -> true
+                }
+            } ?: return
+            if (isStale(event.at, since)) return
             ring(app, event.camera, labelFor(event.camera).orEmpty(), relay = true, kind = event.kind, session = event.session, event = event.event, at = event.at)
+        } finally {
+            // Written at once (commit, on this background thread; apply writes a moment later), before it's
+            // acknowledged: a Woodruff stopped in between doesn't show it again when Google sends it again.
+            if (id.isNotBlank()) prefs(app).edit().putString(K_SEEN, seen.saved()).commit()
         }
+    }
+
+    /** [seen], as this TV kept it: read from its settings the first time. */
+    private fun seenHere(app: Context): SeenMessages {
+        if (!seenRead) synchronized(seen) {
+            if (!seenRead) {
+                seen.restore(prefs(app).getString(K_SEEN, null), System.currentTimeMillis())
+                seenRead = true
+            }
+        }
+        return seen
     }
 
     /**

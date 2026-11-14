@@ -28,6 +28,7 @@ class DoorbellEventsTest {
     private val chime = """"sdm.devices.events.DoorbellChime.Chime":{"eventSessionId":"CjY5Y3VKaTZwR3o4Y19YbTVfMF","eventId":"n:1"}"""
     private val clip = """"sdm.devices.events.CameraClipPreview.ClipPreview":{"eventSessionId":"CjY5Y3VKaTZwR3o4Y19YbTVfMF","previewUrl":"https://previewurl.example/abc"}"""
     private val person = """"sdm.devices.events.CameraPerson.Person":{"eventSessionId":"CjY5Y3VKaTZwR3o4Y19YbTVfMF","eventId":"n:2"}"""
+    private val motion = """"sdm.devices.events.CameraMotion.Motion":{"eventSessionId":"CjY5Y3VKaTZwR3o4Y19YbTVfMF","eventId":"n:3"}"""
 
     @Test fun aPressIsADoorbellEventOfItsVisit() {
         val events = cameraEvents(message("2026-10-26T19:42:05.000Z", chime))
@@ -45,13 +46,21 @@ class DoorbellEventsTest {
         assertFalse(visits.admit(second.single().camera, second.single().session, second.single().kind))
     }
 
-    @Test fun eachEventInAMessageCountsAndThePressComesFirst() {
+    @Test fun eachEventInAMessageIsReadThePressFirstAndItShowsThePressAlone() {
         val events = cameraEvents(message("2026-10-26T19:42:05Z", "$person,$chime"))
         assertEquals(listOf("doorbell", "person"), events.map { it.kind })
         assertEquals(listOf("n:1", "n:2"), events.map { it.event })
-        // Handled in that order, the person seen with the press doesn't pop up a card of its own.
-        val visits = Visits()
-        assertEquals(listOf(true, false), events.map { visits.admit(it.camera, it.session, it.kind) })
+        // The person seen with the press doesn't pop up a card of its own.
+        assertEquals("n:1", messageAlert(events) { true }?.event)
+    }
+
+    @Test fun aPersonAndMotionInOneMessageShowPersonSeenOnce() {
+        val events = cameraEvents(message("2026-10-26T19:42:05Z", "$motion,$person"))
+        assertEquals(listOf("person", "motion"), events.map { it.kind })
+        // With motion alerts on: "Person seen", and no "Motion seen" over it.
+        assertEquals("person", messageAlert(events) { true }?.kind)
+        // With person alerts off: the motion.
+        assertEquals("motion", messageAlert(events) { it == "motion" }?.kind)
     }
 
     @Test fun anythingElseIsNoAlert() {

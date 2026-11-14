@@ -14,6 +14,7 @@ import android.util.Base64
 import android.util.Log
 import com.woodruff.tvexplorer.notify.NoticeLook
 import com.woodruff.tvexplorer.notify.Notices
+import com.woodruff.tvexplorer.tvs.TvLinks
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,9 +26,10 @@ import org.json.JSONObject
 import kotlin.math.roundToInt
 
 /**
- * Camera alerts' pictures. The family's Mac sends every Woodruff TV its close-up of who or what each
- * camera alert is about (POST /api/camera-picture: the camera, the alert's kind, its event and visit,
- * when it happened, and a JPEG of at most 720 px), at about the time Google tells the TVs of the alert.
+ * Camera alerts' pictures. The family's Mac sends every Woodruff TV it's paired with its close-up of who
+ * or what each camera alert is about (POST /api/camera-picture: the camera, the alert's kind, its event and
+ * visit, when it happened, and a JPEG of at most 720 px), at about the time Google tells the TVs of the
+ * alert, and each passes it on to the TVs linked to it. A picture is kept once, however many ways it comes.
  * Each is decoded and cut to its card's size once, off the main thread, and waits here 3 minutes for its
  * alert (at most 10 wait: AlertPictureRules.kt). An alert's card shows its picture beside its words, and
  * a card already up when its picture comes takes it in place: [Notices.pictureCame] for the cards in
@@ -54,17 +56,26 @@ object AlertPictures {
         return Request(cameraAlert(camera, text("kind"), text("session"), text("event"), at), body.optBoolean("cropped"), jpeg)
     }
 
-    /** A picture from the family's Mac ([body]): taken now and decoded after, in the background. IllegalArgumentException when it isn't one. */
-    fun receive(c: Context, body: JSONObject) {
+    /**
+     * A picture ([body]): taken now and decoded after, in the background. IllegalArgumentException when it isn't one.
+     * [relay]: it came from the family's Mac, so it goes on to the TVs linked to this one as it came (the Mac reaches
+     * only the TVs it's paired with), as a ring does; one a linked TV passed on isn't passed on again.
+     */
+    fun receive(c: Context, body: JSONObject, relay: Boolean = false) {
         val r = request(body)
         val app = c.applicationContext
+        if (relay) scope.launch {
+            val json = body.toString()
+            runCatching { TvLinks.forEachLinked(app) { TvLinks.cameraPicture(it, json) } }
+        }
         scope.launch {
             val bitmap = runCatching { decode(app, r.jpeg) }.onFailure { Log.w("AlertPictures", "couldn’t decode a picture: $it") }.getOrNull()
                 ?: return@launch
             val got = SystemClock.elapsedRealtime()
             val item = Shelved(r.alert, r.cropped, got, bitmap)
-            // Kept first, then given to the cards up: a card that comes up meanwhile finds it here.
-            shelf.add(item, got)
+            // Kept first, then given to the cards up: a card that comes up meanwhile finds it here. One kept
+            // already (from the Mac and from a linked TV) isn't kept or given again.
+            if (!shelf.add(item, got)) return@launch
             Notices.pictureCame(app, item)
             _arrivals.tryEmit(item)
         }

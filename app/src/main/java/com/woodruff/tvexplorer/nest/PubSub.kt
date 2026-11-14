@@ -20,9 +20,10 @@ internal object PubSub {
     /**
      * Messages waiting on [subscription] (up to 10; Google holds the request a while when there are none).
      * [opened]: the connection it waits on, so it can be cut short (disconnected) from another thread.
+     * [answered]: Google's time as it answered (its Date, to the second; 0 when it doesn't say).
      */
-    fun pull(token: String, subscription: String, opened: (HttpURLConnection) -> Unit = {}): JSONArray =
-        call(token, "POST", "$subscription:pull", JSONObject().put("maxMessages", 10), readTimeoutMs = 70_000, opened = opened)
+    fun pull(token: String, subscription: String, opened: (HttpURLConnection) -> Unit = {}, answered: (Long) -> Unit = {}): JSONArray =
+        call(token, "POST", "$subscription:pull", JSONObject().put("maxMessages", 10), readTimeoutMs = 70_000, opened = opened, answered = answered)
             .optJSONArray("receivedMessages") ?: JSONArray()
 
     /** Tells Google the messages [ackIds] arrived, so they aren't delivered again. */
@@ -43,6 +44,7 @@ internal object PubSub {
 
     private fun call(
         token: String, method: String, path: String, body: JSONObject?, readTimeoutMs: Int = 20_000, opened: (HttpURLConnection) -> Unit = {},
+        answered: (Long) -> Unit = {},
     ): JSONObject {
         val conn = Http.open(BASE + path).apply {
             requestMethod = method
@@ -58,6 +60,7 @@ internal object PubSub {
         try {
             if (body != null) conn.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = conn.responseCode
+            answered(conn.date)
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             val json = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
             if (code in 200..299) return json

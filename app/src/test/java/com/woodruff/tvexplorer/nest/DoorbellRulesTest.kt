@@ -69,6 +69,62 @@ class DoorbellRulesTest {
         assertFalse(visits.admit(door, "c", "doorbell"))
     }
 
+    @Test fun aPersonAndMotionInOneMessageShowAsAPersonSeenOnce() {
+        fun event(kind: String) = CameraEvent(yard, kind, "visit-3", 1_000L, "e-$kind")
+        val both = listOf(event("person"), event("motion"))
+        // Motion alerts on: "Person seen", not "Motion seen" over it a moment later.
+        assertEquals(event("person"), messageAlert(both) { true })
+        // Person alerts off: the motion, as Google had sent it alone.
+        assertEquals(event("motion"), messageAlert(both) { it != "person" })
+        // A press with them: the press alone.
+        assertEquals(event("doorbell"), messageAlert(listOf(event("doorbell")) + both) { true })
+        // None wanted: nothing.
+        assertNull(messageAlert(both) { it == "doorbell" })
+        assertNull(messageAlert(emptyList()) { true })
+    }
+
+    // ---- Messages shown once, across restarts ----------------------------------------------------------
+
+    private val day = 24 * 60 * 60_000L
+
+    @Test fun aMessageShownBeforeARestartIsntShownAgain() {
+        val now = 1_800_000_000_000L
+        val seen = SeenMessages()
+        assertTrue(seen.add("17402841902", now))
+        assertFalse(seen.add("17402841902", now + 1_000))
+        // Woodruff stopped before Google heard it was acknowledged; started again, it reads what it kept.
+        val again = SeenMessages().apply { restore(seen.saved(), now + 60_000) }
+        assertFalse(again.add("17402841902", now + 60_000))
+        assertTrue(again.add("17402841903", now + 60_000))
+    }
+
+    @Test fun shownMessagesAreKeptADayAndAFewHundredAtMost() {
+        val now = 1_800_000_000_000L
+        val seen = SeenMessages(max = 3)
+        for (i in 1..4) assertTrue(seen.add("m$i", now + i))
+        // The oldest went to make room.
+        assertTrue(seen.add("m1", now + 5))
+        assertFalse(seen.add("m4", now + 6))
+        // A day on, none is known any more, in this run or the next.
+        assertTrue(SeenMessages().apply { restore(seen.saved(), now + day + 10) }.add("m4", now + day + 10))
+        assertTrue(seen.add("m4", now + day + 10))
+        // 300 at most, unless told otherwise.
+        val many = SeenMessages()
+        for (i in 0 until 301) many.add("n$i", now)
+        assertTrue(many.add("n0", now))
+        assertFalse(many.add("n300", now))
+    }
+
+    @Test fun aMessageWithoutAnIdIsAlwaysNewAndAnUnreadableListIsNone() {
+        val seen = SeenMessages()
+        repeat(2) { assertTrue(seen.add("", 0)); assertTrue(seen.add(" ", 0)) }
+        seen.restore("not a list\n12 \n\n99 m1", 100)
+        assertFalse(seen.add("m1", 100))
+        assertEquals("99 m1", seen.saved())
+        seen.restore(null, 100)
+        assertTrue(seen.add("m1", 100))
+    }
+
     @Test fun googlesTimesAreReadInUtc() {
         assertEquals(1_793_043_725_000L, eventTime("2026-10-26T19:42:05.123Z"))
         assertEquals(1_793_043_725_000L, eventTime("2026-10-26T19:42:05Z"))
@@ -94,6 +150,27 @@ class DoorbellRulesTest {
         assertFalse(isStale(since + 5 * 60_000, since))
         // Rung just before the TV woke: still news.
         assertFalse(isStale(since - 60_000, since))
+    }
+
+    @Test fun aTvWhoseClockRunsFastStillShowsAlertsJustAfterWaking() {
+        // Pub/Sub answered at Google's [google]; the TV woke 20 s before by its steady clock, its own clock 5 minutes fast.
+        val google = 1_800_000_000_000L
+        val since = sinceByGoogle(google, listenedMs = 20_000, tvNow = google + 5 * 60_000)
+        assertEquals(google - 20_000, since)
+        // Rung 10 s ago: news (by the TV's own clock it rang nearly 5 minutes before it woke, and was dropped).
+        assertFalse(isStale(google - 10_000, since))
+        assertTrue(isStale(google - 10_000, google + 5 * 60_000 - 20_000))
+        // A minute before the TV woke: still news; two minutes before, a backlog, by Google's clock as well.
+        assertFalse(isStale(google - 20_000 - 60_000, since))
+        assertTrue(isStale(google - 20_000 - 120_000, since))
+        // Pub/Sub's publishTime is read as Google's other times are (to the second).
+        assertEquals(1_793_043_725_000L, eventTime("2026-10-26T19:42:05.123456789Z"))
+    }
+
+    @Test fun withoutGooglesTimeTheTvsClockStandsIn() {
+        assertEquals(10_000_000L - 20_000, sinceByGoogle(0, listenedMs = 20_000, tvNow = 10_000_000))
+        // A steady clock read just before listening began again: no time to take off.
+        assertEquals(10_000_000L, sinceByGoogle(10_000_000, listenedMs = -50, tvNow = 0))
     }
 
     // ---- Each TV's own subscription -----------------------------------------------------------------

@@ -111,6 +111,32 @@ class AlertPictureRulesTest {
         assertEquals(0, shelf.count(1_000L + 180_001))
     }
 
+    @Test fun aPictureThatComesTwiceIsKeptOnce() {
+        // From the family's Mac, and passed on by a linked TV a moment later: the same event.
+        val shelf = PictureShelf<String>()
+        assertTrue(shelf.add(Shelved(alert(), true, 1_000L, "from the Mac"), 1_000L))
+        assertFalse(shelf.add(Shelved(alert(), true, 1_100L, "passed on"), 1_100L))
+        assertEquals("from the Mac", shelf.find(alert(), 1_100L)?.picture)
+        // Another event of the same visit is a picture of its own.
+        assertTrue(shelf.add(Shelved(alert(kind = "person", event = "e-2"), true, 1_200L, "the person"), 1_200L))
+        assertEquals(2, shelf.count(1_200L))
+    }
+
+    @Test fun picturesAreOneByTheirEventElseTheirVisitAndCameraElseTheirCameraKindAndMoment() {
+        assertTrue(samePicture(alert(), alert(kind = "person", at = t + 5_000)))
+        assertFalse(samePicture(alert(), alert(event = "e-2")))
+        assertFalse(samePicture(alert(), alert(event = null)))
+        // Neither says its event: the visit, on the same camera.
+        assertTrue(samePicture(alert(event = null), alert(event = null, kind = "person")))
+        assertFalse(samePicture(alert(event = null), alert(event = null, camera = yard)))
+        assertFalse(samePicture(alert(event = null), alert(event = null, session = "visit-2")))
+        // Neither says either (a vehicle the Mac saw itself): its camera, kind and moment.
+        val vehicle = alert(kind = "vehicle", session = null, event = null)
+        assertTrue(samePicture(vehicle, alert(kind = "vehicle", session = null, event = null)))
+        assertFalse(samePicture(vehicle, alert(kind = "vehicle", session = null, event = null, at = t + 1)))
+        assertFalse(samePicture(vehicle, alert(kind = "person", session = null, event = null)))
+    }
+
     @Test fun atMostTenWaitTheOldestGoingFirst() {
         val shelf = PictureShelf<String>()
         for (i in 0 until 11) shelf.add(Shelved(alert(session = "visit-$i", event = "e-$i"), true, i.toLong(), "picture $i"), i.toLong())
