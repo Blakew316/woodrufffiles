@@ -121,8 +121,14 @@ class RetryAtOnceTest {
 
     @Test fun onlyADriveFilmIsTriedAgainAtOnceAndOnlyARefusedTokenIsRenewed() {
         assertEquals(RetryAtOnce.Way.NEW_TOKEN, RetryAtOnce.way(http = 401, drive = true, tried = false))
-        // Busy, refused for another reason (a quota), failing, or no answer at all: as it was.
-        for (http in listOf(403, 429, 500, 503, null)) assertEquals(RetryAtOnce.Way.AS_IT_WAS, RetryAtOnce.way(http, drive = true, tried = false))
+        // A 403 that isn't one of Google's limits can be the token too (Google stops taking one early).
+        assertEquals(RetryAtOnce.Way.NEW_TOKEN, RetryAtOnce.way(http = 403, drive = true, tried = false))
+        assertEquals(RetryAtOnce.Way.NEW_TOKEN, RetryAtOnce.way(http = 403, drive = true, tried = false, reason = "forbidden"))
+        // Google's limits (a new token changes nothing), busy, failing, or no answer at all: as it was.
+        for (reason in listOf("downloadQuotaExceeded", "userRateLimitExceeded", "rateLimitExceeded")) {
+            assertEquals(reason, RetryAtOnce.Way.AS_IT_WAS, RetryAtOnce.way(http = 403, drive = true, tried = false, reason = reason))
+        }
+        for (http in listOf(429, 500, 503, null)) assertEquals(RetryAtOnce.Way.AS_IT_WAS, RetryAtOnce.way(http, drive = true, tried = false))
         // Had its try: the player waits.
         for (http in listOf(401, 403, 503, null)) assertNull(RetryAtOnce.way(http, drive = true, tried = true))
         // A link from the phone that fails won't change its mind a moment later.

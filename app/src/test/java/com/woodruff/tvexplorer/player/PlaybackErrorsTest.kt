@@ -36,6 +36,29 @@ class PlaybackErrorsTest {
         assertNull(PlaybackErrors.stallOf(403, badStatus, drive = false))
     }
 
+    @Test fun googlesOwnReasonSaysWhichRefusalItIs() {
+        // Its daily limit: said as that, and asked again every few minutes.
+        assertEquals(Stall.LIMIT, PlaybackErrors.stallOf(403, badStatus, drive = true, reason = "downloadQuotaExceeded"))
+        // Limiting how fast requests come: it passes by itself, as Google being busy does.
+        assertEquals(Stall.BUSY, PlaybackErrors.stallOf(403, badStatus, drive = true, reason = "userRateLimitExceeded"))
+        assertEquals(Stall.BUSY, PlaybackErrors.stallOf(403, badStatus, drive = true, reason = "rateLimitExceeded"))
+        // Any other reason, or none: turned down, waited out.
+        assertEquals(Stall.REFUSED, PlaybackErrors.stallOf(403, badStatus, drive = true, reason = "forbidden"))
+        assertEquals(Stall.REFUSED, PlaybackErrors.stallOf(401, badStatus, drive = true, reason = "authError"))
+        // A link from the phone stays as it was.
+        assertNull(PlaybackErrors.stallOf(403, badStatus, drive = false, reason = "downloadQuotaExceeded"))
+    }
+
+    @Test fun aRefusalOfTheTokenIsToldFromGooglesLimits() {
+        assertTrue(PlaybackErrors.tokenRefused(401, null))
+        assertTrue(PlaybackErrors.tokenRefused(403, null))
+        assertTrue(PlaybackErrors.tokenRefused(403, "forbidden"))
+        assertFalse(PlaybackErrors.tokenRefused(403, "downloadQuotaExceeded"))
+        assertFalse(PlaybackErrors.tokenRefused(403, "userRateLimitExceeded"))
+        assertFalse(PlaybackErrors.tokenRefused(500, null))
+        assertFalse(PlaybackErrors.tokenRefused(null, null))
+    }
+
     @Test fun theFilmsOwnTroubleIsNotWaitedOut() {
         assertNull(PlaybackErrors.stallOf(404, badStatus, drive = true))
         assertNull(PlaybackErrors.stallOf(400, badStatus, drive = true))

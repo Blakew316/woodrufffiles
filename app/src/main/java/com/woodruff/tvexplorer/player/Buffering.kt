@@ -30,6 +30,8 @@ internal object Buffering {
     const val STILL_RECONNECTING = "Still reconnecting."
     const val CHECK_CONNECTION = "Check the TV’s internet connection."
     const val REFUSED = "Google Drive turned this down. Trying again…"
+    const val LIMIT = "Google Drive won’t send this film right now (its daily limit)."
+    const val LIMIT_HOW = "It usually clears within a day. The TV keeps trying every few minutes."
     const val SIGN_IN = "Sign in to Google Drive again"
     const val SIGN_IN_HOW = "Open Streaming on this TV and scan the code with your phone."
 
@@ -46,6 +48,7 @@ internal object Buffering {
             else BufferingLook(ring = true, caption = RECONNECTING)
         Stall.BUSY -> BufferingLook(ring = true, caption = RECONNECTING)
         Stall.REFUSED -> BufferingLook(ring = true, caption = REFUSED)
+        Stall.LIMIT -> BufferingLook(ring = true, caption = LIMIT, detail = LIMIT_HOW)
         null -> when {
             waitingMs == null || waitingMs < SHOW_AFTER_MS -> null
             waitingMs >= STILL_LOADING_MS -> BufferingLook(ring = true, caption = STILL_LOADING)

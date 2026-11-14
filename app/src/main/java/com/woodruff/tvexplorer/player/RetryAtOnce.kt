@@ -12,7 +12,7 @@ import kotlin.coroutines.CoroutineContext
  * [PlaybackErrors.stallOf]), before the player stays on it and waits ([RetryWait]). Most of those are
  * a moment's hiccup, so the film is tried again from where it was, as it was.
  *
- * Drive refusing the access token itself (401) is different: offered the same token again, it refuses
+ * Drive refusing the access token itself (401, or a 403 that isn't one of its limits) is different: offered the same token again, it refuses
  * again, every time, until the token runs out by the TV's clock. That can be most of an hour, for a
  * token kept while the TV's clock was off, or one Google stopped taking early. So that token is dropped
  * first ([forgetAccess], GoogleAuth's), and the try asks Google for a new one. A sign-in Google has
@@ -46,8 +46,8 @@ internal class RetryAtOnce(
      * when the player should wait instead ([way]). [http] is the server's answer, if one came; [drive]:
      * the film is in Google Drive.
      */
-    fun tryAgain(p: Player, key: String?, http: Int?, drive: Boolean): Boolean {
-        val way = way(http, drive, tried = key == tried) ?: return false
+    fun tryAgain(p: Player, key: String?, http: Int?, drive: Boolean, reason: String? = null): Boolean {
+        val way = way(http, drive, tried = key == tried, reason = reason) ?: return false
         tried = key
         when (way) {
             Way.AS_IT_WAS -> p.prepare()
@@ -69,11 +69,12 @@ internal class RetryAtOnce(
         /**
          * How a stalled film is tried again at once: only a Drive film (a link sent from the phone that
          * fails won't change its mind a moment later), only once ([tried]), and with a new token when
-         * Drive refused the one it had ([http] 401). Null: not at once; the player waits.
+         * Drive refused the one it had: a 401, or a 403 that isn't one of Google's limits ([reason];
+         * [PlaybackErrors.tokenRefused]). Null: not at once; the player waits.
          */
-        fun way(http: Int?, drive: Boolean, tried: Boolean): Way? = when {
+        fun way(http: Int?, drive: Boolean, tried: Boolean, reason: String? = null): Way? = when {
             !drive || tried -> null
-            http == 401 -> Way.NEW_TOKEN
+            PlaybackErrors.tokenRefused(http, reason) -> Way.NEW_TOKEN
             else -> Way.AS_IT_WAS
         }
     }

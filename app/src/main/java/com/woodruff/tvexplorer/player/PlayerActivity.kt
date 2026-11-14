@@ -518,7 +518,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // during the next try: they'd come and go every few seconds over "Reconnecting…". The ring
         // says what's happening; OK or Play/Pause still bring the controls up.
         view.controllerAutoShow = false
-        retry.arm()
+        // Google's daily limit doesn't pass in seconds: asked again every few minutes, not every 10 s.
+        retry.arm(if (kind == Stall.LIMIT) LIMIT_RETRY_MS else RETRY_MS)
         if (kind == Stall.REFUSED) checkDriveSignIn(p)
         updateLoading()
     }
@@ -1469,13 +1470,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     if (key != null && startAgainFromDrive(p, key, error)) return
                     val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
                     val drive = key?.startsWith("drive:") == true
+                    // Google's own word for a refusal (its daily limit, a rate limit), kept in the TV's log.
+                    val reason = if (http == 401 || http == 403) PlaybackErrors.reasonOf(error) else null
+                    if (drive && (http == 401 || http == 403)) android.util.Log.w("Player", "Google Drive refused $key: $http ${reason ?: "(no reason given)"}")
                     // The connection or Google, not this file: every other item would fail the same way.
-                    val kind = PlaybackErrors.stallOf(http, error.errorCode, drive)
+                    val kind = PlaybackErrors.stallOf(http, error.errorCode, drive, reason)
                     if (kind != null) {
                         // A hiccup, or Google Drive turning the token down: try this episode again at
                         // once, from where it was; with a new token when Drive refused the one it had
                         // (dropped off the main thread first: see RetryAtOnce).
-                        if (retryAtOnce.tryAgain(p, key, http, drive)) return
+                        if (retryAtOnce.tryAgain(p, key, http, drive, reason)) return
                         // Stay on it and try again (it used to skip ahead, item after item, until the
                         // Wi-Fi came back many episodes later), the ring saying what's going on.
                         stalled(p, key, kind)
@@ -1906,6 +1910,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
          * (it was down for a moment only, or it's Google that's failing): see [RetryWait].
          */
         private const val RETRY_MS = 10_000L
+        /** Between tries while Google's daily limit holds a film back. */
+        private const val LIMIT_RETRY_MS = 5 * 60_000L
         /** How long after a film's first picture its sound is looked at: after the window's own entrance. */
         private const val SOUND_CHECK_DELAY_MS = 1_000L
         private const val EXTRA_KEYS = "keys"

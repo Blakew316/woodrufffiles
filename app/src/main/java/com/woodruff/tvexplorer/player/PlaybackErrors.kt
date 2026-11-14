@@ -1,6 +1,9 @@
 package com.woodruff.tvexplorer.player
 
+import androidx.annotation.OptIn
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
 
 /**
  * Why the player is trying the same film again instead of playing it: what the loading ring says
@@ -15,6 +18,12 @@ internal enum class Stall {
 
     /** Google Drive turned the request down (HTTP 401 / 403) while the TV is still signed in to it. */
     REFUSED,
+
+    /**
+     * Google Drive won't send this film for now: its daily limit ("downloadQuotaExceeded"). It clears by
+     * itself, usually within a day, so it's said as that and tried again every few minutes, not every 10 s.
+     */
+    LIMIT,
 
     /**
      * Google ended the TV's Drive sign-in: nothing from Drive plays until someone signs in again,
@@ -34,9 +43,11 @@ internal object PlaybackErrors {
      * staying on the film and trying again, and which kind; null when the film itself can't play.
      * [http] is the server's answer, if one came; [drive]: the film is in Google Drive, the one
      * server whose refusals pass (a sign-in renewed, a quota reset). A link sent from the phone
-     * that refuses won't change its mind.
+     * that refuses won't change its mind. [reason]: Google's own word for a refusal ([reasonOf]).
      */
-    fun stallOf(http: Int?, errorCode: Int, drive: Boolean): Stall? = when {
+    fun stallOf(http: Int?, errorCode: Int, drive: Boolean, reason: String? = null): Stall? = when {
+        drive && http == 403 && isDailyLimit(reason) -> Stall.LIMIT
+        drive && http == 403 && isRateLimit(reason) -> Stall.BUSY
         http == 401 || http == 403 -> if (drive) Stall.REFUSED else null
         http == 429 || (http != null && http in 500..599) -> Stall.BUSY
         http != null -> null
@@ -61,6 +72,36 @@ internal object PlaybackErrors {
 
     /** The whole message, said over the film for 6 s as the player moves on. */
     fun cantPlay(title: String?, why: String): String = "Can’t play ${title?.ifBlank { null } ?: "this file"}: $why."
+
+    /**
+     * Google's own reason in a refusal's answer ("downloadQuotaExceeded", "userRateLimitExceeded",
+     * "forbidden"…), when the answer gave one: never shown, only read.
+     */
+    @OptIn(UnstableApi::class)
+    fun reasonOf(error: Throwable?): String? {
+        val refused = generateSequence(error) { it.cause }.take(10)
+            .filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull() ?: return null
+        val body = refused.responseBody
+        if (body.isEmpty()) return null
+        return runCatching {
+            org.json.JSONObject(String(body, Charsets.UTF_8)).getJSONObject("error").getJSONArray("errors").getJSONObject(0).getString("reason")
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
+    /** Google's daily limit for a file. */
+    fun isDailyLimit(reason: String?): Boolean = reason.equals("downloadQuotaExceeded", ignoreCase = true)
+
+    /** Google limiting how fast requests come ("rateLimitExceeded", "userRateLimitExceeded"): it passes by itself. */
+    fun isRateLimit(reason: String?): Boolean = reason?.contains("ratelimit", ignoreCase = true) == true
+
+    /**
+     * Whether Drive's refusal can be of the token it was given, so a new one is worth asking for: a 401,
+     * or a 403 that isn't one of Google's limits. Google sometimes stops taking a token before it runs
+     * out and says so with a 403: offered it again, it refused every try until the token ran out by the
+     * TV's clock, up to an hour of "Google Drive turned this down".
+     */
+    fun tokenRefused(http: Int?, reason: String?): Boolean =
+        http == 401 || (http == 403 && !isDailyLimit(reason) && !isRateLimit(reason))
 
     /** Whether the TV ran out of memory anywhere in [error]'s causes. */
     fun outOfMemory(error: Throwable): Boolean = generateSequence(error) { it.cause }.take(10).any { it is OutOfMemoryError }

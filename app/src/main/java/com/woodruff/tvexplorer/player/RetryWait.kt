@@ -31,12 +31,12 @@ internal class RetryWait(
     /** A try is coming (armed, not yet tried or stopped). */
     val waiting: Boolean get() = job?.isActive == true
 
-    /** Waits for the next try, in place of any wait under way. */
-    fun arm() {
+    /** Waits for the next try ([wait] at most), in place of any wait under way. */
+    fun arm(wait: Long = delayMs) {
         job?.cancel()
         val mark = beforeTry ?: comebacks.value
         job = scope.launch {
-            withTimeoutOrNull(delayMs) { comebacks.first { it != mark } }
+            withTimeoutOrNull(wait) { comebacks.first { it != mark } }
             beforeTry = comebacks.value
             tryAgain()
         }
