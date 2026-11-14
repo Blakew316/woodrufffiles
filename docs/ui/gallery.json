@@ -1,7 +1,7 @@
 {
- "build": "184",
- "commit": "d7d4ad4",
- "updated": "2026-11-14 09:46 UTC",
+ "build": "185",
+ "commit": "41aede0",
+ "updated": "2026-11-14 10:33 UTC",
  "tv": [
   {
    "name": "home",
@@ -26,6 +26,12 @@
    "title": "Home \u00b7 person seen",
    "dark": "img/tv-home-person-notice-dark.webp",
    "light": "img/tv-home-person-notice-light.webp"
+  },
+  {
+   "name": "home-person-notice-picture",
+   "title": "Home \u00b7 person seen, with its picture",
+   "dark": "img/tv-home-person-notice-picture-dark.webp",
+   "light": "img/tv-home-person-notice-picture-light.webp"
   },
   {
    "name": "home-cameras",
