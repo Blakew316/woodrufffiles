@@ -34,6 +34,9 @@ internal object Buffering {
     const val LIMIT_HOW = "It usually clears within a day. The TV keeps trying every few minutes."
     const val SIGN_IN = "Sign in to Google Drive again"
     const val SIGN_IN_HOW = "Open Streaming on this TV and scan the code with your phone."
+    /** Google refusing this TV's keys: Settings says the same ("Keys not accepted"), and where to fix them. */
+    const val KEYS = "Google Drive keys not accepted"
+    const val KEYS_HOW = "Check them in Settings → Accounts → Keys & sign-out."
 
     /**
      * The look for a player that has been meant to play without playing for [waitingMs] (null: it
@@ -43,6 +46,7 @@ internal object Buffering {
      */
     fun look(waitingMs: Long?, stall: Stall?, stalledMs: Long, reduced: Boolean): BufferingLook? = when (stall) {
         Stall.SIGNED_OUT -> BufferingLook(ring = false, caption = SIGN_IN, detail = SIGN_IN_HOW)
+        Stall.KEYS_REFUSED -> BufferingLook(ring = false, caption = KEYS, detail = KEYS_HOW)
         Stall.NETWORK ->
             if (stalledMs >= STILL_RECONNECTING_MS) BufferingLook(ring = true, caption = STILL_RECONNECTING, detail = CHECK_CONNECTION)
             else BufferingLook(ring = true, caption = RECONNECTING)

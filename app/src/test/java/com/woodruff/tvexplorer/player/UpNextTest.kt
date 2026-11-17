@@ -50,4 +50,22 @@ class UpNextTest {
         assertNull(UpNext.firstEpisode(listOf(video("b", "Behind the scenes.mp4"), folder("f", "S01E01")), 2))
         assertNull(UpNext.firstEpisode(emptyList(), 2))
     }
+
+    @Test fun upNextsPictureIsTheListingsAsTheShowsPageShowsIt() {
+        // TMDB's still first, else Drive's own frame of the video, at the size posters ask for.
+        val still = "https://image.tmdb.org/t/p/w780/still.jpg"
+        assertEquals(still, UpNext.art(video("e2", "Show S01E02.mkv").copy(posterUrl = still, thumbnailLink = "https://lh3.googleusercontent.com/drive-storage/abc=s220")))
+        assertEquals("https://lh3.googleusercontent.com/drive-storage/abc=s720", UpNext.art(video("e2", "Show S01E02.mkv").copy(thumbnailLink = "https://lh3.googleusercontent.com/drive-storage/abc=s220")))
+        assertNull(UpNext.art(video("e2", "Show S01E02.mkv")))
+    }
+
+    @Test fun aDriveEpisodesPictureIsNeverReadOutOfTheEpisode() {
+        // Its frame from the film itself was its header, its index and a frame from Drive, for one picture.
+        val known = mapOf("drive:e2" to "https://image.tmdb.org/t/p/w780/still.jpg")
+        assertEquals(UpNextArt.Picture("https://image.tmdb.org/t/p/w780/still.jpg"), UpNext.artFor("drive:e2", known::get))
+        assertEquals(UpNextArt.None, UpNext.artFor("drive:e3", known::get))
+        // A file on this TV costs nothing to read: a frame from it, as before.
+        assertEquals(UpNextArt.Frame, UpNext.artFor("/storage/USB/Shows/Show S01E02.mkv", known::get))
+        assertEquals(UpNextArt.None, UpNext.artFor("https://example.com/clip.mp4", known::get))
+    }
 }

@@ -188,12 +188,18 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   where the film really is, so going back 10 seconds is instant (TVs that give Woodruff little memory keep 5 seconds,
   so there it loads again).
 - **Loading and Wi-Fi drops**: the player keeps up to 50 seconds of the film loaded ahead (as much as the TV's memory
-  allows), topped up as it plays, so most Wi-Fi hiccups pass unnoticed. When the picture does pause to load for more
-  than half a second, a ring turns in the middle of the screen (*Still loading…* after 10 seconds). If the connection
+  allows), topped up as it plays, so most Wi-Fi hiccups pass unnoticed. A paused film loads only a few seconds ahead,
+  and the next episode nothing until it plays, so Google's daily download allowance isn't spent on what nobody
+  watches. When the picture does pause to load for more than half a second, a ring turns in the middle of the screen
+  (*Still loading…* after 10 seconds). If the connection
   drops, it says *Reconnecting…* and carries on the moment the Wi-Fi is back (or tries again every 10 seconds); after
   half a minute it suggests checking the TV's internet connection. The screen stays on for the first five minutes of
   trying; after that the TV may sleep as it would for a paused film. If Google has ended the Drive sign-in, it says so
-  and how to sign in again. A film that can't play says why in plain words, and the next one starts.
+  and how to sign in again; if Google doesn't accept the TV's keys, it says so and where to fix them. While Google is
+  busy or limiting requests it tries again after 10 seconds, then 30, a minute, two, and then every five minutes;
+  Google's daily limit for a film is said as that and tried every five minutes. A film that can't play says why in
+  plain words (*Google Drive won't send this file* for one Drive has flagged or whose downloads are turned off), and
+  the next one starts.
 - **Match frame rate** (Settings → Appearance, off by default): films play at their own frame rate, so slow pans
   don't stutter. The screen goes black for a second or two when a film starts and when you leave the player.
 - **Morning briefing**: before 10am Home's greeting line becomes today's weather (from Open-Meteo, no account)
@@ -220,10 +226,10 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   arrow to keep scrolling: it moves at a steady pace, never faster than the TV can draw, and stops the moment you let
   go. Play/Pause also works with Netflix, YouTube and other apps in front (most reliably with
   *See what other apps are playing* on).
-- **Up next**: when an episode (or any queued video) ends, the last frame darkens and a picture from the next one
-  comes up with its show, episode and name; a ring on **Play Now** counts down 10 seconds to it. OK plays it now,
-  Right then OK (**Done**) or Back stops. Finishing an episode puts the next one in Continue watching (*Next · S2 E5*) and on the
-  show's page; near a season's end the next season's first episode is queued.
+- **Up next**: when an episode (or any queued video) ends, the last frame darkens and a picture of the next one (the
+  one its show's page shows) comes up with its show, episode and name; a ring on **Play Now** counts down 10 seconds
+  to it. OK plays it now, Right then OK (**Done**) or Back stops. Finishing an episode puts the next one in Continue
+  watching (*Next · S2 E5*) and on the show's page; near a season's end the next season's first episode is queued.
 - **Recently added**: Home's first panel shows the newest Movies and TV Shows (posters) after what's in progress,
   or on their own when nothing is; a show already in Continue watching isn't repeated there. A poster opens the
   title's page, and Back returns to the poster. Posters, Recently added and Search are ready right after start, from
@@ -347,8 +353,10 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   of each Drive film (its header and index) stay on the TV, up to 96 MB with the oldest making way, so resuming from
   Continue watching asks Drive for one thing instead of three and starts sooner; a film replaced in Drive is noticed
   and read afresh. Scrub pictures read only a little past each frame and stop once the scrub is played, so they don't
-  slow the seek. You sign in on your phone, by scanning a QR code or from the phone app the TV serves; it needs a
-  one-time setup, described [below](#connect-google-drive-one-time-setup).
+  slow the seek. Subtitle files beside a film are read from Drive once per film. *Download to this TV* carries on from
+  where a download stopped (a Wi-Fi drop, Google's daily limit) the next time it's chosen. You sign in on your phone,
+  by scanning a QR code or from the phone app the TV serves; it needs a one-time setup, described
+  [below](#connect-google-drive-one-time-setup).
 - **Continue watching**: playback resumes where you stopped, and Home shows what you're partway through, one tile per
   show. It follows the family to every TV signed in to the same Google account: what's in progress (Drive videos), the
   ✓s and each show's Skip intro and languages, through one small hidden file per TV in Drive (Settings → Accounts →

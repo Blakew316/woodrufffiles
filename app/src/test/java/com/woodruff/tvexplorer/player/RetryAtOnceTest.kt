@@ -77,9 +77,38 @@ class RetryAtOnceTest {
         // Dropped once, never on the main thread (GoogleAuth's lock can be held by a renewal).
         assertEquals(1, tokens.dropped.size)
         assertNotSame(Looper.getMainLooper().thread, tokens.dropped.single())
-        // Asked with the refused token (Media3 asks again a few times by itself), then only with the new one.
-        assertEquals("Bearer stale", drive.asked.first())
+        // Asked once with the refused token (Media3 no longer asks again three times by itself), then
+        // only with the new one.
+        assertEquals(listOf("Bearer stale"), drive.asked.takeWhile { it == "Bearer stale" })
         assertEquals(listOf("Bearer fresh"), drive.asked.dropWhile { it == "Bearer stale" }.distinct())
+    }
+
+    @Test fun googlesDailyLimitIsOneRequestAndNoTryAtOnce() {
+        // Google won't send this film today: one request, and the player goes straight to waiting (every
+        // 5 minutes). It used to be four requests (Media3's own tries), then four more at once.
+        val tokens = Tokens(kept = "good") { "renewed" }
+        val drive = FakeDrive(takes = setOf("good")).apply { refusal = 403 to "downloadQuotaExceeded" }
+        drivePlayer(drive, tokens)
+
+        until { waits.isNotEmpty() || cantPlay.isNotEmpty() }
+
+        assertEquals(listOf<Int?>(403), waits)
+        assertEquals(1, drive.asked.size)
+        assertEquals(0, tokens.dropped.size)
+        idle(Duration.ofSeconds(4))
+        assertEquals("nothing more by itself", 1, drive.asked.size)
+    }
+
+    @Test fun tooManyRequestsIsOneRequestAndNoTryAtOnce() {
+        for (refusal in listOf(429 to null, 403 to "userRateLimitExceeded")) {
+            waits.clear()
+            player?.release()
+            val drive = FakeDrive(takes = setOf("good")).apply { this.refusal = refusal }
+            drivePlayer(drive, Tokens(kept = "good") { "renewed" })
+            until { waits.isNotEmpty() || cantPlay.isNotEmpty() }
+            assertEquals("$refusal", listOf<Int?>(refusal.first), waits)
+            assertEquals("$refusal", 1, drive.asked.size)
+        }
     }
 
     @Test fun aSignInGoogleEndedFailsItsOneTryAndThePlayerGoesOnToWait() {
@@ -124,11 +153,13 @@ class RetryAtOnceTest {
         // A 403 that isn't one of Google's limits can be the token too (Google stops taking one early).
         assertEquals(RetryAtOnce.Way.NEW_TOKEN, RetryAtOnce.way(http = 403, drive = true, tried = false))
         assertEquals(RetryAtOnce.Way.NEW_TOKEN, RetryAtOnce.way(http = 403, drive = true, tried = false, reason = "forbidden"))
-        // Google's limits (a new token changes nothing), busy, failing, or no answer at all: as it was.
+        // Google's limits: not at once at all (asked again a moment later, Google says the same, and counts it).
         for (reason in listOf("downloadQuotaExceeded", "userRateLimitExceeded", "rateLimitExceeded")) {
-            assertEquals(reason, RetryAtOnce.Way.AS_IT_WAS, RetryAtOnce.way(http = 403, drive = true, tried = false, reason = reason))
+            assertNull(reason, RetryAtOnce.way(http = 403, drive = true, tried = false, reason = reason))
         }
-        for (http in listOf(429, 500, 503, null)) assertEquals(RetryAtOnce.Way.AS_IT_WAS, RetryAtOnce.way(http, drive = true, tried = false))
+        assertNull(RetryAtOnce.way(http = 429, drive = true, tried = false))
+        // Busy, failing, or no answer at all: as it was.
+        for (http in listOf(500, 503, null)) assertEquals(RetryAtOnce.Way.AS_IT_WAS, RetryAtOnce.way(http, drive = true, tried = false))
         // Had its try: the player waits.
         for (http in listOf(401, 403, 503, null)) assertNull(RetryAtOnce.way(http, drive = true, tried = true))
         // A link from the phone that fails won't change its mind a moment later.
@@ -138,8 +169,10 @@ class RetryAtOnceTest {
     @Test fun eachFilmHasOneTryUntilItPlays() {
         val p = Counting(base())
         val retry = RetryAtOnce(scope, current = { p }) {}
+        assertFalse(retry.hadTry("drive:a"))
         assertTrue(retry.tryAgain(p, "drive:a", 503, drive = true))
         assertEquals(1, p.prepares)
+        assertTrue("its next failure isn't a first one", retry.hadTry("drive:a"))
         p.state = Player.STATE_IDLE // that try failed too
         assertFalse(retry.tryAgain(p, "drive:a", 503, drive = true))
         // Next pressed: the next film has a try of its own.
@@ -184,7 +217,9 @@ class RetryAtOnceTest {
      * can't play. [beforeTry]: what changes in the world just as it fails (a hiccup passing).
      */
     private fun drivePlayer(drive: FakeDrive, tokens: Tokens, beforeTry: () -> Unit = {}): ExoPlayer {
-        val p = ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(driveAuthorized(drive.sources, tokens::token))).build()
+        val p = ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(driveAuthorized(drive.sources, tokens::token)).setLoadErrorHandlingPolicy(FilmStartsErrorPolicy()))
+            .build()
         player = p
         val retry = RetryAtOnce(scope, current = { player }, forgetAccess = tokens::forget)
         p.addListener(object : Player.Listener {
@@ -192,9 +227,10 @@ class RetryAtOnceTest {
                 val key = p.currentMediaItem?.mediaId
                 val http = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
                 val isDrive = key?.startsWith("drive:") == true
-                if (PlaybackErrors.stallOf(http, error.errorCode, isDrive) == null) { cantPlay += error.errorCodeName; return }
+                val reason = PlaybackErrors.reasonOf(error)
+                if (PlaybackErrors.stallOf(http, error.errorCode, isDrive, reason) == null) { cantPlay += error.errorCodeName; return }
                 beforeTry()
-                if (retry.tryAgain(p, key, http, isDrive)) return
+                if (retry.tryAgain(p, key, http, isDrive, reason)) return
                 waits += http
             }
 
@@ -247,6 +283,8 @@ class RetryAtOnceTest {
     private inner class FakeDrive(private val takes: Set<String>) {
         val asked = CopyOnWriteArrayList<String>()
         @Volatile var busy = false
+        /** Every request turned down with this answer and Google's reason for it (its daily limit, say). */
+        @Volatile var refusal: Pair<Int, String?>? = null
         val sources = DataSource.Factory { Source() }
 
         private inner class Source : DataSource {
@@ -257,7 +295,11 @@ class RetryAtOnceTest {
             override fun open(dataSpec: DataSpec): Long {
                 val auth = dataSpec.httpRequestHeaders["Authorization"].orEmpty()
                 asked += auth
-                fun answer(code: Int): Nothing = throw HttpDataSource.InvalidResponseCodeException(code, null, null, emptyMap(), dataSpec, ByteArray(0))
+                fun answer(code: Int, reason: String? = null): Nothing {
+                    val body = reason?.let { """{"error":{"errors":[{"reason":"$it"}],"code":$code}}""".toByteArray() } ?: ByteArray(0)
+                    throw HttpDataSource.InvalidResponseCodeException(code, null, null, emptyMap(), dataSpec, body)
+                }
+                refusal?.let { (code, reason) -> answer(code, reason) }
                 if (busy) answer(503)
                 if (auth.removePrefix("Bearer ") !in takes) answer(401)
                 spec = dataSpec

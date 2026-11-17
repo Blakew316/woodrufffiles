@@ -46,6 +46,14 @@ object FolderCache {
     /** The last listing of [folderId] if it's in memory: no disk read, so fine on the main thread. */
     fun inMemory(folderId: String): List<DriveFile>? = synchronized(memory) { memory[folderId] }
 
+    /**
+     * File [id] as a listing in memory has it (the season a show's page just showed, say), newest
+     * listing first; null when none has it. No disk read, nothing asked of Drive: fine on the main thread.
+     */
+    fun fileInMemory(id: String): DriveFile? = synchronized(memory) {
+        memory.values.reversed().firstNotNullOfOrNull { files -> files.firstOrNull { it.id == id } }
+    }
+
     /** Lists [folder] from Drive with a current token and keeps it; null when it can't be listed. */
     suspend fun list(c: Context, token: String?, folder: DriveFile): List<DriveFile>? = (fetch(c, token, folder) as? Listing.Listed)?.files
 

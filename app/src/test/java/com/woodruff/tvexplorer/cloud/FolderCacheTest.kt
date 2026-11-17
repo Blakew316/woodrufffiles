@@ -140,6 +140,16 @@ class FolderCacheTest {
         assertNull(FolderCache.listingToken(GoogleAuth.TokenResult.Offline(java.io.IOException()), null))
     }
 
+    @Test fun aFileIsFoundInTheListingsInMemoryNewestFirst() {
+        // Up next's picture of the next episode: from the season a show's page just listed, nothing fetched.
+        val old = DriveFile("ep2-up-next", "Show S01E02.mkv", "video/x-matroska", 1, 1, "https://lh3.googleusercontent.com/old=s220")
+        val now = old.copy(thumbnailLink = "https://lh3.googleusercontent.com/new=s220")
+        FolderCache.seed("season-a-up-next", listOf(old))
+        FolderCache.seed("season-b-up-next", listOf(DriveFile("other", "Other.mkv", "video/x-matroska", 1, 1, null), now))
+        assertEquals(now, FolderCache.fileInMemory("ep2-up-next"))
+        assertNull(FolderCache.fileInMemory("never-listed"))
+    }
+
     @Test fun folderIdsAreSafeFileNames() {
         assertEquals("1aB-c_D.json", FolderCache.fileName("1aB-c_D"))
         assertEquals("a_b_c.json", FolderCache.fileName("a/b.c"))

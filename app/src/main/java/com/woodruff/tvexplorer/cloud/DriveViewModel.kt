@@ -1298,7 +1298,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) {
                 say("Download cancelled")
             } catch (e: Exception) {
-                say(explain(e))
+                // What came is kept: downloading it again carries on from there (DriveApi.download).
+                val kept = withContext(Dispatchers.IO) { DriveApi.partialFor(dir, file).length() }
+                say(explain(e) + (downloadCarriesOn(kept, file.size)?.let { " $it" } ?: ""))
             } finally {
                 _state.update { it.copy(operation = null) }
             }
@@ -1315,6 +1317,16 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         e is java.io.IOException -> e.message ?: DriveApi.CANT_REACH
         else -> DriveApi.CANT_REACH
     }
+}
+
+/**
+ * What a download that stopped says it kept, [kept] bytes of [size]: that downloading it again carries
+ * on from there ("Downloading it again carries on from 90%."); null when nothing was kept.
+ */
+internal fun downloadCarriesOn(kept: Long, size: Long): String? {
+    if (kept <= 0) return null
+    val percent = if (size > 0) (kept * 100 / size).coerceIn(0, 99) else null
+    return if (percent != null) "Downloading it again carries on from $percent%." else "Downloading it again carries on from where it stopped."
 }
 
 /**

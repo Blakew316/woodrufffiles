@@ -86,6 +86,7 @@ class PlaybackErrorsTest {
             PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
         )) assertEquals("the file seems to be damaged", why(code))
         assertEquals("it’s no longer in Google Drive", why(badStatus, http = 404))
+        assertEquals("Google Drive won’t send this file", why(badStatus, http = 403))
         assertEquals("this TV ran out of memory", why(PlaybackException.ERROR_CODE_DECODING_FAILED, oom = true))
         assertEquals("this TV ran out of memory", why(PlaybackException.ERROR_CODE_UNSPECIFIED, oom = true))
         // Anything else, and a web link's missing file (it was never in Google Drive).
@@ -110,6 +111,51 @@ class PlaybackErrorsTest {
                 http?.let { assertFalse(text, text.contains(it.toString())) }
             }
         }
+    }
+
+    @Test fun aFileDriveTurnsDownAgainAfterItsTryIsTurnedDownForGood() {
+        // Drive flagged the video, its owner turned downloads off, these keys may not open it: after the
+        // one try with a new token, it's said and the player moves on (it was tried every 10 s for hours).
+        for (reason in listOf("cannotDownloadAbusiveFile", "cannotDownloadFile", "appNotAuthorizedToFile", "forbidden", null)) {
+            assertTrue("$reason", PlaybackErrors.refusedForGood(403, drive = true, reason = reason, hadTry = true))
+            // Its first refusal has its try first: Google sometimes stops taking a token early, with a 403.
+            assertFalse("$reason", PlaybackErrors.refusedForGood(403, drive = true, reason = reason, hadTry = false))
+        }
+        // Google's limits pass by themselves: waited out, never "won't send".
+        for (reason in listOf("downloadQuotaExceeded", "userRateLimitExceeded", "rateLimitExceeded")) {
+            assertFalse(reason, PlaybackErrors.refusedForGood(403, drive = true, reason = reason, hadTry = true))
+        }
+        // A token turned down (401) is the sign-in's business; a link from the phone was never waited out.
+        assertFalse(PlaybackErrors.refusedForGood(401, drive = true, reason = null, hadTry = true))
+        assertFalse(PlaybackErrors.refusedForGood(403, drive = false, reason = "forbidden", hadTry = true))
+        assertEquals(
+            "Can’t play Midnight Harbor: Google Drive won’t send this file.",
+            PlaybackErrors.cantPlay("Midnight Harbor", PlaybackErrors.why(badStatus, 403, drive = true, outOfMemory = false)),
+        )
+    }
+
+    @Test fun googleBusyOrLimitingWaitsLongerEachTimeAndTheDailyLimitFiveMinutes() {
+        // No connection: every 10 s (the network coming back is heard at once anyway).
+        for (tries in 0..6) assertEquals(10_000L, PlaybackErrors.retryWaitMs(Stall.NETWORK, tries))
+        // Google's daily limit: every 5 minutes.
+        for (tries in 0..6) assertEquals(300_000L, PlaybackErrors.retryWaitMs(Stall.LIMIT, tries))
+        // Busy, failing, limiting requests, or still turning the token down: 10 s, 30 s, 1 min, 2, then 5 for good.
+        for (stall in listOf(Stall.BUSY, Stall.REFUSED)) {
+            assertEquals(
+                listOf(10_000L, 30_000L, 60_000L, 120_000L, 300_000L, 300_000L, 300_000L),
+                (0..6).map { PlaybackErrors.retryWaitMs(stall, it) },
+            )
+        }
+        assertTrue(Stall.SIGNED_OUT.stopped)
+        assertTrue(Stall.KEYS_REFUSED.stopped)
+        for (s in listOf(Stall.NETWORK, Stall.BUSY, Stall.REFUSED, Stall.LIMIT)) assertFalse(s.stopped)
+    }
+
+    @Test fun refusalsASecondTryCantChangeGoStraightToThePlayer() {
+        // Media3 asked again three times, a second apart, before the player heard: four requests a refusal.
+        for (http in listOf(401, 403, 404, 410, 416, 429)) assertTrue("$http", PlaybackErrors.noRetryFor(http))
+        // A server busy or failing for a moment, or no answer at all: Media3 still tries again by itself.
+        for (http in listOf(500, 502, 503, 408, null)) assertFalse("$http", PlaybackErrors.noRetryFor(http))
     }
 
     @Test fun runningOutOfMemoryIsFoundDeepInTheCauses() {

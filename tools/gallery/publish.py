@@ -44,6 +44,7 @@ TITLES = {
     'player-audio-menu': 'Player › Audio menu', 'player-no-sound': 'Player · sound this TV can’t play',
     'player-buffering': 'Player · loading', 'player-reconnecting': 'Player · reconnecting',
     'player-still-reconnecting': 'Player · still reconnecting', 'player-signed-out': 'Player · Drive sign-in ended',
+    'player-keys-refused': 'Player · Drive keys not accepted',
     'player-subtitles': 'Player · subtitles', 'player-subtitles-raised': 'Player · subtitles above the controls',
     'player-subtitle-size': 'Player › Subtitle size', 'settings-subtitle-size': 'Settings › Appearance › Subtitle size',
     'title-show': 'Title page · show', 'title-show-episodes': 'Title page · show, on a new episode',
@@ -107,7 +108,7 @@ ORDER = ['home', 'home-menu', 'home-notice', 'home-person-notice', 'home-person-
          'settings-accounts-ended', 'settings-updated', 'settings-updates', 'settings-updates-asks', 'settings-updates-busy', 'settings-start', 'settings-popups',
          'update-offer', 'update-offer-retry', 'recovery', 'recovery-ready', 'recovery-busy', 'recovery-details',
          'player', 'player-menu', 'player-up-next', 'player-audio-menu', 'player-no-sound',
-         'player-buffering', 'player-reconnecting', 'player-still-reconnecting', 'player-signed-out',
+         'player-buffering', 'player-reconnecting', 'player-still-reconnecting', 'player-signed-out', 'player-keys-refused',
          'player-subtitles', 'player-subtitles-raised', 'player-subtitle-size', 'settings-subtitle-size', 'player-restored', 'restore-gone', 'files', 'tv', 'keyboard', 'send']
 PHONE_ORDER = ['remote', 'keyboard',
                'watch', 'watch-scrolled', 'watch-title-movie', 'watch-title-show', 'watch-play-on', 'watch-context', 'watch-movies',

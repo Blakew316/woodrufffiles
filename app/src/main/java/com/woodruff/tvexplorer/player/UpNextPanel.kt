@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.os.SystemClock
@@ -143,6 +144,17 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
     fun setArt(frame: Bitmap?) {
         if (frame == null) return
         art.setImageBitmap(frame)
+        fadeInArt()
+    }
+
+    /** The next episode's picture from its listing ([UpNext.art]), once it has come. */
+    fun setPicture(picture: Drawable?) {
+        if (picture == null) return
+        art.setImageDrawable(picture)
+        fadeInArt()
+    }
+
+    private fun fadeInArt() {
         art.alpha = 0f
         art.animate().alpha(1f).setDuration(250).start()
     }

@@ -17,6 +17,7 @@ import androidx.media3.datasource.TransferListener
 import androidx.media3.extractor.text.CuesWithTiming
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.extractor.text.SubtitleParser
+import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -52,10 +53,47 @@ internal object SidecarLoading {
     /**
      * [upstream], with subtitle files ([mark]) that can't be read coming back empty instead of failing,
      * once [RETRY_PAUSES_MS] more tries haven't helped where they might ([worthTryingAgain]). [pause]
-     * waits between tries (false: the film is closing, so stop).
+     * waits between tries (false: the film is closing, so stop). A subtitle file read in full is kept in
+     * memory for as long as this factory (the player's) is in use ([KeptSidecars]): Media3 reads each
+     * one again from its start at every rewind past what it still holds (more than 12 s, to before the
+     * first line, past the last) and at every try again after a stall, which was a request to Drive
+     * for each of a film's subtitle files every time.
      */
-    fun dataSourceFactory(upstream: DataSource.Factory, pause: (Long) -> Boolean = ::sleep): DataSource.Factory =
-        DataSource.Factory { SafeSidecarSource(upstream.createDataSource(), pause) }
+    fun dataSourceFactory(upstream: DataSource.Factory, pause: (Long) -> Boolean = ::sleep): DataSource.Factory {
+        val kept = KeptSidecars()
+        return DataSource.Factory { SafeSidecarSource(upstream.createDataSource(), pause, kept) }
+    }
+
+    /**
+     * The subtitle files read in full, by address (the player's: as long as it plays). At most
+     * [MAX_FILE_BYTES] each (a subtitle file is text: a few hundred KB at most) and [MAX_BYTES] in all,
+     * the ones read longest ago making way. Shared by the player's loading threads.
+     */
+    internal class KeptSidecars(private val maxBytes: Int = MAX_BYTES, private val maxFileBytes: Int = MAX_FILE_BYTES) {
+        private val files = LinkedHashMap<String, ByteArray>(8, 0.75f, true)
+        private var bytes = 0
+
+        @Synchronized fun get(uri: Uri): ByteArray? = files[uri.toString()]
+
+        /** Whether a file of [size] bytes so far may still be kept. */
+        fun fits(size: Int): Boolean = size <= maxFileBytes
+
+        @Synchronized fun put(uri: Uri, data: ByteArray) {
+            if (!fits(data.size)) return
+            files.remove(uri.toString())?.let { bytes -= it.size }
+            files[uri.toString()] = data
+            bytes += data.size
+            val oldest = files.entries.iterator()
+            while (bytes > maxBytes && oldest.hasNext()) {
+                val e = oldest.next()
+                bytes -= e.value.size
+                oldest.remove()
+            }
+        }
+    }
+
+    const val MAX_FILE_BYTES = 4 * 1024 * 1024
+    const val MAX_BYTES = 16 * 1024 * 1024
 
     /**
      * The pauses before each further try at a subtitle file that failed in a way that may pass: a
@@ -158,9 +196,10 @@ internal object SidecarLoading {
      * reads as empty, and one cut short mid-read ends where it was cut, unless trying again may help
      * ([worthTryingAgain]): then it's tried again ([RETRY_PAUSES_MS]), from where it got to. A first
      * try that fails opens as a file of unknown length, so the film starts at once; the tries come as
-     * it's read, on its own loading thread. Everything else passes straight through.
+     * it's read, on its own loading thread. One read in full is kept ([kept]) and read from memory
+     * from then on. Everything else passes straight through.
      */
-    private class SafeSidecarSource(private val inner: DataSource, private val pause: (Long) -> Boolean) : DataSource {
+    private class SafeSidecarSource(private val inner: DataSource, private val pause: (Long) -> Boolean, private val kept: KeptSidecars) : DataSource {
         private var sidecar = false
         private var empty = false
         /** Not open: the last try failed, and the next is due as it's read ([reconnect]). */
@@ -170,6 +209,12 @@ internal object SidecarLoading {
         private var done = 0L
         /** Further tries made (each after its pause). */
         private var tries = 0
+        /** Read from memory instead ([KeptSidecars]): the whole file, read from [memoryAt] up to [memoryEnd]. */
+        private var memory: ByteArray? = null
+        private var memoryAt = 0
+        private var memoryEnd = 0
+        /** The file as it's read from its first byte, kept once it has all come; null when it won't be. */
+        private var collected: ByteArrayOutputStream? = null
 
         override fun addTransferListener(transferListener: TransferListener) = inner.addTransferListener(transferListener)
 
@@ -180,7 +225,13 @@ internal object SidecarLoading {
             pending = false
             done = 0
             tries = 0
+            memory = null
+            collected = null
             if (!sidecar) return inner.open(dataSpec)
+            // Read in full before: from memory, nothing asked of Drive.
+            kept.get(dataSpec.uri)?.let { return fromMemory(it, dataSpec) }
+            // Read from its start to its end, it's kept as it comes in.
+            if (dataSpec.position == 0L && dataSpec.length == C.LENGTH_UNSET.toLong()) collected = ByteArrayOutputStream()
             return try {
                 inner.open(dataSpec)
             } catch (e: IOException) {
@@ -192,31 +243,66 @@ internal object SidecarLoading {
                 } else {
                     Log.w(TAG, "Couldn't read a subtitle file: ${e.javaClass.simpleName}")
                     empty = true
+                    collected = null
                     0
                 }
             }
         }
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            memory?.let { whole ->
+                if (memoryAt >= memoryEnd) return C.RESULT_END_OF_INPUT
+                val n = minOf(length, memoryEnd - memoryAt)
+                System.arraycopy(whole, memoryAt, buffer, offset, n)
+                memoryAt += n
+                return n
+            }
             if (empty) return C.RESULT_END_OF_INPUT
             if (!sidecar) return inner.read(buffer, offset, length)
             while (true) {
                 if (pending && !reconnect()) return C.RESULT_END_OF_INPUT
                 try {
                     val n = inner.read(buffer, offset, length)
-                    if (n > 0) done += n
+                    if (n > 0) {
+                        done += n
+                        collect(buffer, offset, n)
+                    } else if (n == C.RESULT_END_OF_INPUT) keepWhole()
                     return n
                 } catch (e: IOException) {
                     runCatching { inner.close() }
                     if (!worthTryingAgain(e) || tries >= RETRY_PAUSES_MS.size) {
                         Log.w(TAG, "A subtitle file was cut short: ${e.javaClass.simpleName}")
                         empty = true
+                        collected = null // cut short: not the whole file
                         return C.RESULT_END_OF_INPUT
                     }
                     Log.w(TAG, "A subtitle file was cut short, trying again: ${e.javaClass.simpleName}")
                     pending = true
                 }
             }
+        }
+
+        /** [whole] (kept in memory) as the answer to [dataSpec]: the part it asks for. */
+        private fun fromMemory(whole: ByteArray, dataSpec: DataSpec): Long {
+            memory = whole
+            memoryAt = dataSpec.position.coerceIn(0L, whole.size.toLong()).toInt()
+            memoryEnd = if (dataSpec.length == C.LENGTH_UNSET.toLong()) whole.size
+            else minOf(whole.size.toLong(), memoryAt + dataSpec.length).toInt()
+            return (memoryEnd - memoryAt).toLong()
+        }
+
+        /** [n] more bytes of the file, for keeping it ([collected]); a file too big to keep stops being collected. */
+        private fun collect(b: ByteArray, off: Int, n: Int) {
+            val c = collected ?: return
+            if (!kept.fits(c.size() + n)) { collected = null; return }
+            c.write(b, off, n)
+        }
+
+        /** The whole file has come: kept for the next time it's read. */
+        private fun keepWhole() {
+            val c = collected ?: return
+            collected = null
+            spec?.let { kept.put(it.uri, c.toByteArray()) }
         }
 
         /**
@@ -239,17 +325,19 @@ internal object SidecarLoading {
             Log.w(TAG, "Couldn't read a subtitle file: it stays empty for this start")
             pending = false
             empty = true
+            collected = null
             return false
         }
 
-        override fun getUri(): Uri? = if (empty || pending) spec?.uri else inner.uri
+        override fun getUri(): Uri? = if (empty || pending || memory != null) spec?.uri else inner.uri
 
-        override fun getResponseHeaders(): Map<String, List<String>> = if (empty || pending) emptyMap() else inner.responseHeaders
+        override fun getResponseHeaders(): Map<String, List<String>> = if (empty || pending || memory != null) emptyMap() else inner.responseHeaders
 
         override fun close() {
             try {
                 // A subtitle file's trouble closing is no more the film's than its trouble reading.
-                if (sidecar) runCatching { inner.close() } else inner.close()
+                // One read from memory never opened anything.
+                if (memory == null) { if (sidecar) runCatching { inner.close() } else inner.close() }
             } finally {
                 spec = null
                 empty = false
@@ -257,6 +345,8 @@ internal object SidecarLoading {
                 sidecar = false
                 done = 0
                 tries = 0
+                memory = null
+                collected = null
             }
         }
     }

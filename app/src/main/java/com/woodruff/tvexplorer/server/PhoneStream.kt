@@ -93,7 +93,7 @@ internal object PhoneStream {
         } catch (e: IOException) {
             runCatching { source.close() }
             val code = generateSequence<Throwable>(e) { it.cause }.take(10).filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode
-            throw if (code == null) e else IOException(if (code == 416) "Past the end of the video" else "Google Drive answered $code")
+            throw if (code == null) e else answered(code)
         }
         val headers = source.responseHeaders
         val total = documentSize(headers)
@@ -117,6 +117,20 @@ internal object PhoneStream {
         return r
     }
 
+    /**
+     * Google Drive turned the phone's request down with [status]: 403 (one of its limits, its daily one among them, or
+     * the file refused) or 429 (too many requests). The phone hears the same answer ([TransferServer] passes it on), not
+     * 500, "the TV failed", which its player takes as worth asking again, and again, against the same limit.
+     */
+    internal class DriveRefused(val status: Int, message: String) : IOException(message)
+
+    /** What the phone is told when Drive answered [code] instead of the video. Visible for tests. */
+    internal fun answered(code: Int): IOException = when (code) {
+        403, 429 -> DriveRefused(code, "Google Drive answered $code")
+        416 -> IOException("Past the end of the video")
+        else -> IOException("Google Drive answered $code")
+    }
+
     /** The one range in [header] ("bytes=a-b", "bytes=a-": its first byte and its last, null for "to the end"); null for any other. */
     internal fun askedRange(header: String): Pair<Long, Long?>? {
         val m = Regex("""bytes=(\d+)-(\d*)""").matchEntire(header.trim()) ?: return null
@@ -136,7 +150,7 @@ internal object PhoneStream {
         val code = c.responseCode
         if (code != 200 && code != 206) {
             c.disconnect()
-            throw IOException(if (code == 416) "Past the end of the video" else "Google Drive answered $code")
+            throw answered(code)
         }
         val length = c.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L
         val type = c.contentType?.takeUnless { it.startsWith("application/octet-stream") } ?: "video/mp4"

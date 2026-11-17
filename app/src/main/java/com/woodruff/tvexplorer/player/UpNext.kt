@@ -17,6 +17,25 @@ object UpNext {
         queue.indexOf(key).takeIf { it >= 0 && it < queue.lastIndex }?.plus(1)
 
     /**
+     * The picture Up next shows for Drive episode [f]: the one its listing has, TMDB's still or else
+     * Drive's own frame of the video, as its show's page shows it (TitleDetail's EpisodeCard). Never
+     * one read out of the episode itself: that was its header, its index and a frame from Google
+     * Drive, for a picture, while the player loaded that same start. Null when the listing has none.
+     */
+    fun art(f: DriveFile): String? = f.posterUrl ?: f.thumbnailLink?.let(com.woodruff.tvexplorer.cloud.DriveApi::big)
+
+    /**
+     * Where Up next's picture of [key] comes from: a Drive episode's from what its listing says
+     * ([known]: its picture, [art]), or none; a file on this TV, a frame from it (read from the TV, so
+     * it costs nothing); a link from the phone, none.
+     */
+    fun artFor(key: String, known: (String) -> String?): UpNextArt = when (MediaRef.parse(key)) {
+        is MediaRef.Drive -> known(key)?.let { UpNextArt.Picture(it) } ?: UpNextArt.None
+        is MediaRef.Local -> UpNextArt.Frame
+        is MediaRef.Remote -> UpNextArt.None
+    }
+
+    /**
      * The season an episode is from: the number of its folder among the show's [showItems]
      * ("Season 2"), else the one in its own name ("S02E10"); null when neither says.
      */
@@ -41,4 +60,16 @@ object UpNext {
             .minWithOrNull(compareBy<Pair<DriveFile, Pair<Int, Int>>>({ it.second.first }, { it.second.second }))?.first
             ?: videos.firstOrNull { ShowPrefs.isEpisode(it.name) }
     }
+}
+
+/** Where Up next's picture comes from ([UpNext.artFor]). */
+sealed interface UpNextArt {
+    /** A picture at this address (the listing's). */
+    data class Picture(val url: String) : UpNextArt
+
+    /** A frame read from the file itself: one on this TV. */
+    data object Frame : UpNextArt
+
+    /** Its plain stand-in. */
+    data object None : UpNextArt
 }

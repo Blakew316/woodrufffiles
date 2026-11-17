@@ -229,6 +229,15 @@ class FilmStartsTest {
         assertFalse(FilmStarts.readFromCopy(key))
     }
 
+    @Test fun aFinishedFilmsKeptStartIsLetGoInTheBackground() {
+        // Watched to its end: its start makes room for those of films still being watched (a 12-episode
+        // binge pushed out a half-watched film's). Off the main thread, whatever the player does meanwhile.
+        FilmStarts.noteReadFromCopy("drive:finished-film")
+        assertTrue(FilmStarts.readFromCopy("drive:finished-film"))
+        FilmStarts.forgetSoon("drive:finished-film")
+        assertFalse(FilmStarts.readFromCopy("drive:finished-film"))
+    }
+
     @Test fun withNoCacheTheFilmComesStraightFromDrive() {
         val film = film(2 * MB.toInt())
         val drive = FakeDrive(film)

@@ -20,7 +20,8 @@ import kotlin.coroutines.CoroutineContext
  * gone and says how to sign in again.
  *
  * Once per film, until it plays ([played]). Called on the main thread; dropping the token can wait on a
- * renewal already under way, so it never happens there ([io]).
+ * renewal already under way, so it never happens there ([io]). Google's own limits get no try at once
+ * ([way]): the player waits them out.
  */
 internal class RetryAtOnce(
     private val scope: CoroutineScope,
@@ -65,15 +66,21 @@ internal class RetryAtOnce(
         tried = null
     }
 
+    /** Whether [key] has had its try at once (since it last played): the next failure isn't a first one. */
+    fun hadTry(key: String?): Boolean = key != null && key == tried
+
     companion object {
         /**
          * How a stalled film is tried again at once: only a Drive film (a link sent from the phone that
          * fails won't change its mind a moment later), only once ([tried]), and with a new token when
          * Drive refused the one it had: a 401, or a 403 that isn't one of Google's limits ([reason];
-         * [PlaybackErrors.tokenRefused]). Null: not at once; the player waits.
+         * [PlaybackErrors.tokenRefused]). Never for one of Google's limits (its daily limit, a rate
+         * limit, 429 "too many requests"): asked again a moment later it says the same, and the try
+         * only added to what Google counts. Null: not at once; the player waits.
          */
         fun way(http: Int?, drive: Boolean, tried: Boolean, reason: String? = null): Way? = when {
             !drive || tried -> null
+            http == 429 || PlaybackErrors.isDailyLimit(reason) || PlaybackErrors.isRateLimit(reason) -> null
             PlaybackErrors.tokenRefused(http, reason) -> Way.NEW_TOKEN
             else -> Way.AS_IT_WAS
         }

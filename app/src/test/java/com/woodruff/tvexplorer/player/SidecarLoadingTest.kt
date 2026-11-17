@@ -170,6 +170,75 @@ class SidecarLoadingTest {
         source.close()
     }
 
+    @Test fun aSidecarReadInFullIsReadFromMemoryAfterThat() {
+        // Every rewind past what Media3 still holds, and every try again, read each subtitle file again from Drive.
+        val file = Flaky(srt.toByteArray(), failOpens = 0)
+        val factory = SidecarLoading.dataSourceFactory({ file }) { pauses += it; true }
+        val first = factory.createDataSource()
+        first.open(driveSrt)
+        assertEquals(srt, String(readAll(first)))
+        first.close()
+        // A rewind (the same source opened again) and a try again after a stall (a new source): from memory.
+        for (source in listOf(first, factory.createDataSource())) {
+            assertEquals(srt.toByteArray().size.toLong(), source.open(driveSrt))
+            assertEquals(srt, String(readAll(source)))
+            source.close()
+        }
+        assertEquals("asked of Drive once", listOf(0L), file.positions)
+        // Part of it, as asked.
+        val part = factory.createDataSource()
+        assertEquals(5L, part.open(DataSpec.Builder().setUri(driveSrt.uri).setPosition(2).setLength(5).build()))
+        assertEquals(String(srt.toByteArray().copyOfRange(2, 7)), String(readAll(part)))
+        part.close()
+        // A new player starts afresh.
+        val again = SidecarLoading.dataSourceFactory({ file }) { true }.createDataSource()
+        again.open(driveSrt)
+        assertEquals(srt, String(readAll(again)))
+        assertEquals(listOf(0L, 0L), file.positions)
+    }
+
+    @Test fun aSidecarCutShortOrGoneIsNotKept() {
+        // Cut short with no more tries: it ended where it was cut, so it's read again next time.
+        val cutShort = Failing(onOpen = null)
+        val factory = SidecarLoading.dataSourceFactory({ cutShort }) { false }
+        val cut = factory.createDataSource()
+        cut.open(DataSpec(SidecarLoading.mark(Uri.parse("file:///storage/USB/a.srt"))))
+        assertEquals(3, readAll(cut).size)
+        cut.close()
+        val next = factory.createDataSource()
+        next.open(DataSpec(SidecarLoading.mark(Uri.parse("file:///storage/USB/a.srt"))))
+        assertEquals(2, cutShort.opens)
+        next.close()
+        // Gone (404): empty, and asked again the next time (it may have been put back).
+        val gone = Failing(onOpen = refused(404))
+        val goneFactory = SidecarLoading.dataSourceFactory({ gone }) { true }
+        repeat(2) {
+            val s = goneFactory.createDataSource()
+            assertEquals(0L, s.open(driveSrt))
+            assertEquals(C.RESULT_END_OF_INPUT, s.read(ByteArray(4), 0, 4))
+            s.close()
+        }
+        assertEquals(2, gone.opens)
+    }
+
+    @Test fun keptSidecarsStayWithinTheirMemory() {
+        val kept = SidecarLoading.KeptSidecars(maxBytes = 10, maxFileBytes = 6)
+        val a = Uri.parse("file:///a.srt")
+        val b = Uri.parse("file:///b.srt")
+        val c = Uri.parse("file:///c.srt")
+        kept.put(a, ByteArray(4))
+        kept.put(b, ByteArray(4))
+        // Too big to keep at all.
+        kept.put(Uri.parse("file:///big.ass"), ByteArray(7))
+        assertNull(kept.get(Uri.parse("file:///big.ass")))
+        // Room is made by the one read longest ago.
+        kept.get(a)
+        kept.put(c, ByteArray(4))
+        assertNull(kept.get(b))
+        assertEquals(4, kept.get(a)?.size)
+        assertEquals(4, kept.get(c)?.size)
+    }
+
     @Test fun whatsWorthTryingAgain() {
         assertTrue(SidecarLoading.worthTryingAgain(IOException("reset")))
         assertTrue(SidecarLoading.worthTryingAgain(SocketTimeoutException()))

@@ -131,6 +131,20 @@ internal object FilmStarts {
         runCatching { opened.removeResource(key) }
     }
 
+    /**
+     * [forget], on a thread of its own: for the main thread, as a film is finished. A film watched to
+     * its end is the one least likely to be started part-way again, and its start kept here pushed out
+     * those of films still being watched: after a 12-episode binge, a half-watched film asked Drive
+     * for three things again instead of one. Done even if the player closes meanwhile.
+     */
+    fun forgetSoon(key: String) {
+        copyReads.remove(key)
+        if (cache == null) return
+        runCatching { disk.execute { forget(key) } }
+    }
+
+    private val disk by lazy { java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "film-starts").apply { isDaemon = true } } }
+
     /** Whether a playback error was a kept start found out of date ([StaleStartException]). */
     fun isStale(error: Throwable): Boolean = generateSequence(error) { it.cause }.take(10).any { it is StaleStartException }
 
@@ -224,12 +238,22 @@ internal class StaleStartException : IOException("The start of this film kept on
 /**
  * Media3's own retry rules, except that a film whose kept start was out of date
  * ([StaleStartException]) isn't tried again from where it was (its parser has read the old index):
- * it stops at once, for the player to start it again from Drive.
+ * it stops at once, for the player to start it again from Drive. Nor is a load a server refused in a
+ * way a second try can't change ([PlaybackErrors.noRetryFor]: 401, 403, 404, 410, 416, 429): the
+ * error goes straight to the player, which knows what to do about each (Media3 asked three more times,
+ * a second apart, first).
  */
 @OptIn(UnstableApi::class)
 internal class FilmStartsErrorPolicy : DefaultLoadErrorHandlingPolicy() {
-    override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
-        if (FilmStarts.isStale(loadErrorInfo.exception)) C.TIME_UNSET else super.getRetryDelayMsFor(loadErrorInfo)
+    override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long = when {
+        FilmStarts.isStale(loadErrorInfo.exception) -> C.TIME_UNSET
+        PlaybackErrors.noRetryFor(refusal(loadErrorInfo.exception)) -> C.TIME_UNSET
+        else -> super.getRetryDelayMsFor(loadErrorInfo)
+    }
+
+    /** The HTTP answer a load was refused with, anywhere in its causes; null when none came. */
+    private fun refusal(error: Throwable): Int? = generateSequence(error) { it.cause }.take(10)
+        .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode
 }
 
 /**

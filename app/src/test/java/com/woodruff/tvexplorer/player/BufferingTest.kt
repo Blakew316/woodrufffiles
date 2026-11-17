@@ -62,10 +62,22 @@ class BufferingTest {
         assertEquals(card, look(waitingMs = null, stall = Stall.SIGNED_OUT, reduced = true))
     }
 
+    @Test fun keysGoogleRefusesAreACardWithNoRingSayingWhereToFixThem() {
+        // Trying again only asked Google's sign-in server again and again: the player stops, and says so.
+        val card = look(waitingMs = 20_000, stall = Stall.KEYS_REFUSED)
+        assertEquals(
+            BufferingLook(ring = false, caption = "Google Drive keys not accepted", detail = "Check them in Settings → Accounts → Keys & sign-out."),
+            card,
+        )
+        assertEquals(card, look(waitingMs = null, stall = Stall.KEYS_REFUSED, reduced = true))
+        assertNull(Buffering.nextChangeMs(700, Stall.KEYS_REFUSED, 0))
+    }
+
     @Test fun theWordsNeverHaveCodesOrJargon() {
         val words = listOf(
             Buffering.LOADING, Buffering.STILL_LOADING, Buffering.RECONNECTING, Buffering.STILL_RECONNECTING,
             Buffering.CHECK_CONNECTION, Buffering.REFUSED, Buffering.SIGN_IN, Buffering.SIGN_IN_HOW,
+            Buffering.KEYS, Buffering.KEYS_HOW,
         )
         for (w in words) {
             for (banned in listOf("error", "fail", "buffer", "retry", "please", "'", "...")) {
