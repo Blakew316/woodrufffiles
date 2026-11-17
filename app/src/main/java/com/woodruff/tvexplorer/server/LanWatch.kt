@@ -65,6 +65,9 @@ internal class LanWatch(private val context: Context) {
 
     private fun poke() = _changes.update { it + 1 }
 
+    /** Look again now, though the network didn't change: the phone connection's pairing key did (readable again). */
+    fun lookAgain() = poke()
+
     /**
      * Waits until [changes] moves on from [mark] or [timeoutMs] passes. After a change, waits a
      * moment more ([SETTLE_MS]): a network comes with a burst of reports, and its address can land

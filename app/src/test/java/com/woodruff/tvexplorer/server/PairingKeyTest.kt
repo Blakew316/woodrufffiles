@@ -94,7 +94,7 @@ class PairingKeyTest {
         assertEquals(saved, PairingKey.get(next))
     }
 
-    @Test fun aKeyForThisRunNeverReplacesTheSavedOne() {
+    @Test fun aKeyForThisRunGivesWayToTheSavedOneAsSoonAsItReads() {
         val vault = Vault()
         val saved = PairingKey.get(run(vault))
         // A Keystore that keeps failing, long past any hiccup: the phone connection opens with a key
@@ -104,15 +104,38 @@ class PairingKeyTest {
         notReady(next)
         val temporary = PairingKey.forThisRun(next)
         assertNotEquals(saved, temporary)
-        // The rest of this run hands out the same one, so links from the phone app match the server.
+        // While the saved one can't be read, this run hands out the same one, so links from the phone app match the server.
         assertEquals(temporary, PairingKey.get(next))
-        // The Keystore recovers and this run saves what it kept meanwhile, but never over the saved
-        // key: the next run is back to the key every phone was paired with.
+        assertEquals(temporary, PairingKey.forThisRun(next))
+        // The Keystore recovers in this run: the key every phone was paired with is the one again (the phone connection
+        // opens again with it), and it was never saved over.
         vault.failing = false
         now += SecretStore.LOOK_AGAIN_MS
         next.put("tmdb.key", "abc123")
-        assertEquals(temporary, PairingKey.get(next))
+        assertEquals(saved, PairingKey.get(next))
+        assertEquals(saved, PairingKey.forThisRun(next))
         assertEquals(saved, PairingKey.get(run(vault)))
+    }
+
+    @Test fun aKeyForThisRunBecomesTheSavedOneWhenTheOldOneIsGoneForGood() {
+        val vault = Vault()
+        val saved = PairingKey.get(run(vault))
+        // The TV's Keystore was reset: the key never comes back. The phone connection opened with a key for this run.
+        vault.missingFor = Int.MAX_VALUE
+        val next = run(vault)
+        notReady(next)
+        val temporary = PairingKey.forThisRun(next)
+        // Asked about every minute, until the store takes the old key as gone and starts over: the same key all along.
+        for (minute in 0..20) {
+            assertEquals(temporary, PairingKey.get(next))
+            if (next.lostAt() != null) break
+            now += 60_000
+        }
+        assertNotNull("never gave up on a key that's gone", next.lostAt())
+        // Phones that scanned it meanwhile stay paired: it's the saved key from now on.
+        vault.missingFor = 0
+        assertEquals(temporary, PairingKey.get(run(vault)))
+        assertNotEquals(saved, temporary)
     }
 
     @Test fun aKeyGoneForGoodGivesANewPairingKeyOnceTheStoreStartsOver() {
