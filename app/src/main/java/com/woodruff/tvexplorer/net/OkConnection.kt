@@ -30,7 +30,8 @@ import java.util.concurrent.TimeUnit
  * first asked for; GET becomes POST once a body is written; a body with no type is a form;
  * redirects are followed unless turned off, never between http and https, and never taking
  * Authorization to another host; an answer of 400 or more is read from the error stream. The body
- * is kept in memory until it's sent, so this is for small ones.
+ * is kept in memory until it's sent, so this is for small ones. A timeout left unset is the
+ * client's, never none.
  */
 internal class OkConnection(url: URL, private val client: OkHttpClient) : HttpURLConnection(url) {
     private val asked = Headers.Builder()
@@ -123,9 +124,13 @@ internal class OkConnection(url: URL, private val client: OkHttpClient) : HttpUR
             if (sent != null && asked["Content-Type"] == null) asked["Content-Type"] = "application/x-www-form-urlencoded"
             // The type goes as a header the caller set, so the body itself carries none.
             val request = Request.Builder().url(to).headers(asked.build()).method(method, sent?.toRequestBody(null)).build()
+            // The caller's timeouts, or the client's own (15 s to connect, 30 s to read) where it set none: a
+            // connection's are 0 until set, which OkHttp takes as "never", so a stalled network held one for good.
             val one = client.newBuilder()
-                .connectTimeout(connectTimeout.toLong(), TimeUnit.MILLISECONDS)
-                .readTimeout(readTimeout.toLong(), TimeUnit.MILLISECONDS)
+                .apply {
+                    if (connectTimeout > 0) connectTimeout(connectTimeout.toLong(), TimeUnit.MILLISECONDS)
+                    if (readTimeout > 0) readTimeout(readTimeout.toLong(), TimeUnit.MILLISECONDS)
+                }
                 .followRedirects(instanceFollowRedirects)
                 .followSslRedirects(false)
                 .build()

@@ -50,7 +50,11 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
         // The app's one HTTP client, so pictures and the player share its warm connections. Made
         // when the first picture is fetched, off the main thread.
         .okHttpClient { com.woodruff.tvexplorer.net.Http.client }
-        .components { add(VideoFrameDecoder.Factory()) }
+        .components {
+            add(VideoFrameDecoder.Factory())
+            // Drive's own pictures kept by the file version they show, not by the short-lived link Drive gave this time.
+            add(com.woodruff.tvexplorer.cloud.DriveArt.Keys)
+        }
         // At most two decodes at once: a folder of videos otherwise opens a decoder per tile and
         // the TV's few hardware decoders (and the CPU) choke while scrolling.
         .decoderDispatcher(kotlinx.coroutines.Dispatchers.IO.limitedParallelism(2))
@@ -68,8 +72,9 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
             val lowRam = getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true
             coil.memory.MemoryCache.Builder(this).maxSizePercent(if (lowRam) 0.15 else 0.25).build()
         }
-        // Keep them on disk even when Google's servers say "no-cache" (the same poster URL never
-        // changes), so revisits don't refetch every tile.
+        // Keep them on disk even when Google's servers say "no-cache", so revisits don't refetch every tile: TMDB's
+        // addresses never change, and Drive's pictures are kept by the file version they show (DriveArt.Keys), so a
+        // file changed in Drive gets its new picture.
         .respectCacheHeaders(false)
         // Pictures of files (USB and folders on the TV, video frames, the background photo) are
         // remembered by path alone. With the file's date in the key, every one asked for while
@@ -83,7 +88,7 @@ class TvExplorerApp : Application(), ImageLoaderFactory {
     internal companion object {
         /** Every settings file the app keeps (the names it passes to getSharedPreferences). */
         val SETTINGS_FILES = listOf(
-            "settings", "appearance", "notices", "secrets", "secrets_meta", "recent", "episode_shows", "watched",
+            "settings", "appearance", "notices", "secrets", "secrets_meta", "recent", "episode_shows", "episode_unplaced", "watched",
             "player_shows", "player", "updates", "weather", "chime", "board", "doorbell", "family_sync", "mail_poll",
             "startup", "google_oauth", "tvs", "health",
         )

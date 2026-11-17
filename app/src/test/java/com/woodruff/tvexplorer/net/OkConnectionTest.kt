@@ -187,6 +187,26 @@ class OkConnectionTest {
     }
 
     @Test
+    fun aConnectionThatSetsNoTimeoutsTakesTheClientsNotNone() {
+        // A connection's timeouts are 0 until set (signing out's token revoke sets none), which OkHttp takes as
+        // "never": a stalled network held it for good. The client's own apply instead (here 300 ms to read).
+        val client = okhttp3.OkHttpClient.Builder().readTimeout(300, java.util.concurrent.TimeUnit.MILLISECONDS).build()
+        val conn = OkConnection(java.net.URL("$base/slow"), client)
+        val began = System.nanoTime()
+        try {
+            conn.responseCode
+            fail("waited for an answer past the client's read timeout")
+        } catch (expected: IOException) {
+        }
+        assertTrue("gave up after ${(System.nanoTime() - began) / 1_000_000} ms", System.nanoTime() - began < 1_200_000_000L)
+        conn.disconnect()
+        // Its own, when it sets one, as before.
+        val patient = OkConnection(java.net.URL("$base/slow"), client).apply { readTimeout = 5_000 }
+        assertEquals(200, patient.responseCode)
+        patient.disconnect()
+    }
+
+    @Test
     fun nothingListeningIsAnIOException() {
         val free = ServerSocket(0).use { it.localPort }
         val conn = Http.open("http://127.0.0.1:$free/").apply { connectTimeout = 2_000 }

@@ -106,6 +106,51 @@ class LibraryRefreshesTest {
         assertEquals(Fetch.Done, withTimeout(5_000) { next.await() })
     }
 
+    @Test fun signingOutStopsTheListingATmdbPassWaitsOnToo() = runBlocking {
+        val never = CompletableDeferred<Unit>()
+        val listing = refreshes.listing("Movies") { never.await(); Fetch.Done }
+        val pass = refreshes.tmdbPass("Movies") { Fetch.Done }
+        refreshes.cancelAll()
+        withTimeout(5_000) { listing.join(); pass.join() }
+        // The listing no longer goes on asking Drive with the old account's token.
+        assertTrue(listing.isCancelled)
+        assertTrue(pass.isCancelled)
+    }
+
+    @Test fun aListingAskedForWhileATmdbPassWaitsOnOneJoinsIt() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val runs = AtomicInteger()
+        val order = Collections.synchronizedList(ArrayList<String>())
+        val listing = refreshes.listing("Movies") { gate.await(); runs.incrementAndGet(); order += "listing"; Fetch.Done }
+        val pass = refreshes.tmdbPass("Movies") { order += "tmdb"; Fetch.Done }
+        // Home coming back meanwhile: the listing under way, not a second one after the pass.
+        assertSame(listing, refreshes.listing("Movies") { runs.incrementAndGet(); order += "again"; Fetch.Done })
+        gate.complete(Unit)
+        withTimeout(5_000) { pass.await() }
+        assertEquals(1, runs.get())
+        assertEquals(listOf("listing", "tmdb"), order)
+    }
+
+    @Test fun aWalkThatFailedWaitsLongerEachTime() {
+        val retries = Retries(firstMs = 60_000, maxMs = 6 * 60 * 60_000L)
+        val at = 1_800_000_000_000L
+        assertTrue(retries.due("drive:a", at))
+        retries.failed("drive:a", at)
+        assertFalse(retries.due("drive:a", at + 59_999))
+        assertTrue(retries.due("drive:a", at + 60_000))
+        // Failing again: two minutes, then four... at most six hours.
+        retries.failed("drive:a", at + 60_000)
+        assertFalse(retries.due("drive:a", at + 60_000 + 119_999))
+        assertTrue(retries.due("drive:a", at + 60_000 + 120_000))
+        repeat(20) { retries.failed("drive:a", at) }
+        assertFalse(retries.due("drive:a", at + 6 * 60 * 60_000L - 1))
+        assertTrue(retries.due("drive:a", at + 6 * 60 * 60_000L))
+        // Each video its own; a walk that got through forgets it.
+        assertTrue(retries.due("drive:b", at))
+        retries.succeeded("drive:a")
+        assertTrue(retries.due("drive:a", at))
+    }
+
     @Test fun aFreshLibraryIsOnlyListedWhenAskedOrOffline() {
         val listed = 1_000_000_000L
         val soon = listed + 60_000

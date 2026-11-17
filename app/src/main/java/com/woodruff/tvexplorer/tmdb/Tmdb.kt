@@ -49,6 +49,8 @@ object Tmdb {
     private const val STILL = "https://image.tmdb.org/t/p/original"
     private const val BACKDROP = "https://image.tmdb.org/t/p/w1280"
     private val cache = ConcurrentHashMap<String, String>() // query -> Hit JSON ("" = no match)
+    /** Bumped by every answer kept in [cache] (one replaced too): a lookup that kept any saves the cache. */
+    private val edits = java.util.concurrent.atomic.AtomicInteger()
     @Volatile private var loaded = false
     private val gate = Semaphore(6)
 
@@ -170,7 +172,7 @@ object Tmdb {
         val key = key(c) ?: return@withContext files
         load(c)
         if (mode == Mode.EPISODES) return@withContext if (show != null) withEpisodeStills(c, files, show, season) else files
-        val before = cache.size
+        val before = edits.get()
         val out = coroutineScope {
             files.map { f ->
                 async(Dispatchers.IO) {
@@ -198,7 +200,7 @@ object Tmdb {
                 }
             }.awaitAll()
         }
-        if (cache.size != before) save(c)
+        if (edits.get() != before) save(c)
         if (rejected?.first == key) Log.w("Tmdb", "TMDB turned the key down: posters and details wait for one that works")
         when {
             // A show's own folder can hold its episodes too (no season folders): their pictures.
@@ -225,13 +227,13 @@ object Tmdb {
         val (parsed, year) = parse(lookupName(show), stripExtension = false)
         val title = searchTitle(parsed)
         if (title.isBlank()) return@withContext files
-        val before = cache.size
-        val seasons = wanted.map { it.first }.distinct().associateWith { s ->
-            runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
+        val before = edits.get()
+        val seasons = wanted.groupBy({ it.first }, { it.second }).mapValues { (s, eps) ->
+            runCatching { gate.withPermit { episodesOf(key, title, year, s, eps) } }
                 .onFailure { warn("episodes failed: $title season $s", it) }
                 .getOrDefault(emptyMap())
         }
-        if (cache.size != before) save(c)
+        if (edits.get() != before) save(c)
         files.map { f ->
             val (s, e) = numbers[f.id] ?: return@map f
             val ep = seasons[s]?.get(e) ?: return@map f
@@ -252,11 +254,11 @@ object Tmdb {
         val (parsed, year) = parse(lookupName(show), stripExtension = false)
         val title = searchTitle(parsed)
         if (title.isBlank()) return@withContext null
-        val before = cache.size
-        val found = runCatching { gate.withPermit { episodesOf(key, title, year, s) } }
+        val before = edits.get()
+        val found = runCatching { gate.withPermit { episodesOf(key, title, year, s, listOf(e)) } }
             .onFailure { warn("episodes failed: $title season $s", it) }
             .getOrNull()?.get(e)
-        if (cache.size != before) save(c)
+        if (edits.get() != before) save(c)
         found?.meta(s, e)
     }
 
@@ -276,14 +278,52 @@ object Tmdb {
      * Season [season] of the show: episode number → what TMDB lists of it. Kept as "ep2:" (with names
      * and synopses; the older "ep:" entries had only pictures and lengths and are dropped as the cache
      * loads), the picture as its path alone, so a 10-season show adds tens of kilobytes, not hundreds.
+     * A season still airing is asked for again, once a day at most, while one of [wanted] (the family's
+     * episodes) isn't in it or has no picture ([seasonStale]): it used to be asked for once, ever, and
+     * every episode after the first look stayed "Episode 2", with no picture and no length.
      */
-    private fun episodesOf(key: String, title: String, year: String?, season: Int): Map<Int, Episode> {
-        val json = cachedJson("ep2:$title:$year:$season") {
-            val id = showResult(key, title, year)?.optInt("id")?.takeIf { it > 0 } ?: return@cachedJson null
-            episodesJson(seasonEpisodes(get(key, "tv/$id/season/$season")))
-        } ?: return emptyMap()
-        return episodesFrom(json)
+    private fun episodesOf(key: String, title: String, year: String?, season: Int, wanted: Collection<Int>): Map<Int, Episode> {
+        val query = "ep2:$title:$year:$season"
+        val kept = cache[query] ?: return fetchSeason(key, query, title, year, season, null) ?: emptyMap()
+        // Looked up before, and TMDB had no such show.
+        if (kept.isEmpty()) return emptyMap()
+        val json = runCatching { JSONObject(kept) }.getOrNull() ?: return emptyMap()
+        val known = episodesFrom(json)
+        if (!seasonStale(known, wanted, json.optLong(ASKED_AT), System.currentTimeMillis())) return known
+        // Failing this time (offline, TMDB busy), what was kept stays.
+        return runCatching { fetchSeason(key, query, title, year, season, json.optInt(SHOW_ID).takeIf { it > 0 }) }.getOrNull() ?: known
     }
+
+    /**
+     * Season [season] as TMDB lists it now, of the show TMDB knows as [show] (else found by [title] and [year]), kept
+     * under [query] with when it was asked for and the show's id; null when TMDB has no such show (kept as "" unless the
+     * season was kept already).
+     */
+    private fun fetchSeason(key: String, query: String, title: String, year: String?, season: Int, show: Int?): Map<Int, Episode>? {
+        val id = show ?: showResult(key, title, year)?.optInt("id")?.takeIf { it > 0 }
+        if (id == null) {
+            if (cache.putIfAbsent(query, "") == null) edits.incrementAndGet()
+            return null
+        }
+        val episodes = seasonEpisodes(get(key, "tv/$id/season/$season"))
+        cache[query] = episodesJson(episodes).put(ASKED_AT, System.currentTimeMillis()).put(SHOW_ID, id).toString()
+        edits.incrementAndGet()
+        return episodes
+    }
+
+    /** In a kept season: when it was asked for, and the show's TMDB id (neither is an episode number, so [episodesFrom] skips them). */
+    private const val ASKED_AT = "t"
+    private const val SHOW_ID = "show"
+
+    /** How long a season is kept before an episode missing from it is asked for again: a day. */
+    private const val SEASON_RECHECK_MS = 24 * 60 * 60_000L
+
+    /**
+     * Whether a season kept since [askedAt] (0: before seasons kept the time) is asked for again at [now]: one of the
+     * [wanted] episodes isn't in it ([known]) or has no picture, and it was asked for a day ago or more. Visible for tests.
+     */
+    internal fun seasonStale(known: Map<Int, Episode>, wanted: Collection<Int>, askedAt: Long, now: Long): Boolean =
+        now - askedAt !in 0 until SEASON_RECHECK_MS && wanted.any { known[it]?.still == null }
 
     /** A season's episodes as they're cached: number → {s: picture path, r: minutes, n: name, o: synopsis}. Visible for tests. */
     internal fun episodesJson(episodes: Map<Int, Episode>): JSONObject = JSONObject().apply {
@@ -331,6 +371,7 @@ object Tmdb {
         cache[query]?.let { return if (it.isEmpty()) null else runCatching { JSONObject(it) }.getOrNull() }
         val v = lookup()
         cache[query] = v?.toString().orEmpty()
+        edits.incrementAndGet()
         return v
     }
 
@@ -436,7 +477,7 @@ object Tmdb {
     suspend fun details(c: Context, id: Int, tv: Boolean): Details? = withContext(Dispatchers.IO) {
         val key = key(c) ?: return@withContext null
         load(c)
-        val before = cache.size
+        val before = edits.get()
         val json = runCatching {
             gate.withPermit {
                 cachedJson("d:${if (tv) "t" else "m"}:$id") {
@@ -445,7 +486,7 @@ object Tmdb {
                 }
             }
         }.onFailure { warn("details failed: ${if (tv) "tv" else "movie"} $id", it) }.getOrNull()
-        if (cache.size != before) save(c)
+        if (edits.get() != before) save(c)
         json?.let { Details.fromJson(it) }
     }
 
@@ -456,11 +497,11 @@ object Tmdb {
     suspend fun collection(c: Context, id: Int): List<Int> = withContext(Dispatchers.IO) {
         val key = key(c) ?: return@withContext emptyList()
         load(c)
-        val before = cache.size
+        val before = edits.get()
         val json = runCatching {
             gate.withPermit { cachedJson("k:$id") { JSONObject().put("p", JSONArray(collectionParts(get(key, "collection/$id")))) } }
         }.onFailure { warn("collection failed: $id", it) }.getOrNull()
-        if (cache.size != before) save(c)
+        if (edits.get() != before) save(c)
         json?.optJSONArray("p")?.let { a -> (0 until a.length()).map { a.optInt(it) }.filter { it > 0 } }.orEmpty()
     }
 
@@ -558,11 +599,27 @@ object Tmdb {
         val (title, year) = parse(showName, stripExtension = false)
         return cached("s:$title:$year:$number") {
             val id = showResult(key, title, year)?.optInt("id") ?: return@cached null
-            runCatching { get(key, "tv/$id/season/$number").text("poster_path") }.getOrNull()
+            // The show's poster only when TMDB says the season has none of its own. A request that failed (offline,
+            // TMDB busy) throws instead, so nothing is kept and it's asked again next time: it used to be kept as the
+            // season's poster for good.
+            seasonPosterOf { get(key, "tv/$id/season/$number") }
                 ?.let { Hit(IMG + it, null, emptyList(), null) }
-                ?: tv(key, showName) // no season art: use the show's poster
+                ?: tv(key, showName)
         }
     }
+
+    /**
+     * A season's own poster (its path) from [season], TMDB's answer for it: none when it has none, or TMDB has no such
+     * season (404). Any other failure is thrown, so nothing is kept for it. Visible for tests.
+     */
+    internal fun seasonPosterOf(season: () -> JSONObject): String? = try {
+        season().text("poster_path")
+    } catch (e: TmdbHttpException) {
+        if (e.code == 404) null else throw e
+    }
+
+    /** TMDB answered [code] to a request (a turned-down key is [KeyRejected]). */
+    internal class TmdbHttpException(val code: Int) : IllegalStateException("TMDB error $code")
 
     private fun showResult(key: String, title: String, year: String?): JSONObject? {
         val r = get(key, "search/tv?query=${enc(title)}" + (year?.let { "&first_air_date_year=$it" } ?: ""))
@@ -598,6 +655,7 @@ object Tmdb {
         cache[query]?.let { return if (it.isEmpty()) null else Hit.fromJson(it) }
         val hit = lookup()
         cache[query] = hit?.toJson().orEmpty()
+        edits.incrementAndGet()
         return hit
     }
 
@@ -643,7 +701,7 @@ object Tmdb {
                 rejected = key to System.currentTimeMillis()
                 throw KeyRejected()
             }
-            if (code !in 200..299) throw IllegalStateException("TMDB error $code")
+            if (code !in 200..299) throw TmdbHttpException(code)
             return JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
         } finally {
             conn.disconnect()
@@ -653,23 +711,45 @@ object Tmdb {
     // ---- Names → titles -------------------------------------------------------------------
 
     private val YEAR = Regex("(?<![0-9])(19[2-9][0-9]|20[0-9]{2})(?![0-9])")
+    /** A year in brackets, as most names give the release year: "Blade Runner 2049 (2017)". */
+    private val BRACKETED_YEAR = Regex("\\((19[2-9][0-9]|20[0-9]{2})\\)")
     private val JUNK = Regex(
         "(?i)\\b(2160p|1080p|720p|576p|480p|4k|uhd|hdr10?|dv|bluray|blu ray|bdrip|brrip|webrip|web dl|webdl|web|hdtv|dvdrip|" +
             "x264|x265|h 264|h 265|hevc|avc|aac|ac3|dts|atmos|remux|proper|repack|extended|unrated|imax|criterion|" +
             "s\\d{1,2}(e\\d{1,3})?|season \\d+|complete)\\b",
     )
 
-    /** "The.Matrix.1999.1080p.BluRay.mkv" → ("The Matrix", "1999"). Visible for tests. */
-    fun parse(name: String, stripExtension: Boolean): Pair<String, String?> {
+    /** This year, once a run: a "year" past next year is part of a title ("Blade Runner 2049"), never a release year. */
+    private val THIS_YEAR = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+
+    /**
+     * "The.Matrix.1999.1080p.BluRay.mkv" → ("The Matrix", "1999"). The release year is one in brackets ("Blade Runner
+     * 2049 (2017)"), else the last year before the quality tags ("Wonder.Woman.1984.2020.1080p"): the first one after
+     * the start used to be taken, and a year in the title itself (2049, 1984, Death Race 2000) found another film. A
+     * year at the very start belongs to the title ("2001 A Space Odyssey", "1917"), and so does one still to come
+     * after [thisYear]'s next. Visible for tests.
+     */
+    fun parse(name: String, stripExtension: Boolean, thisYear: Int = THIS_YEAR): Pair<String, String?> {
         var s = if (stripExtension) name.substringBeforeLast('.', name) else name
         s = s.replace(BRACKETS, " ") // [release group], {tags}
             .replace('.', ' ').replace('_', ' ')
             .replace(SPACES, " ").trim()
-        val year = YEAR.findAll(s).firstOrNull { it.range.first > 0 }
-        var title = if (year != null) s.substring(0, year.range.first) else s
+        val year = releaseYear(s, thisYear)
+        var title = if (year != null) s.substring(0, year.first) else s
         JUNK.find(title)?.let { if (it.range.first > 0) title = title.substring(0, it.range.first) }
         title = title.replace(TRAILING, "").replace("(", "").replace(")", "").trim()
-        return title to year?.value
+        return title to year?.second
+    }
+
+    /** Where [s]'s release year starts, and the year ([parse]); null when it gives none. */
+    private fun releaseYear(s: String, thisYear: Int): Pair<Int, String>? {
+        fun possible(m: MatchResult, year: String) = m.range.first > 0 && year.toInt() <= thisYear + 1
+        BRACKETED_YEAR.findAll(s).firstOrNull { possible(it, it.groupValues[1]) }?.let { return it.range.first to it.groupValues[1] }
+        // A year after the quality tags ("1080p", "BluRay") is a release group's or a remaster's, not the film's.
+        val tags = JUNK.find(s)?.range?.first?.takeIf { it > 0 } ?: s.length
+        val years = YEAR.findAll(s).filter { possible(it, it.value) }.toList()
+        val year = years.lastOrNull { it.range.first < tags } ?: years.firstOrNull() ?: return null
+        return year.range.first to year.value
     }
 
     // Compiled once: every title in a library is parsed with these.

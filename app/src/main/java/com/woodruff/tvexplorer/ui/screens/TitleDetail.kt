@@ -478,7 +478,8 @@ internal fun TitlePage(
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        val wide = info.backdrop ?: art
+        // A Drive poster image comes at a tile's size: the background asks for it at a wide picture's.
+        val wide = info.backdrop ?: art?.let(DriveApi::wide)
         val samplePainter = LocalPosterPainter.current
         if (wide != null && samplePainter != null) {
             // The gallery: its sample art, drawn at once.
@@ -1050,7 +1051,8 @@ internal fun EpisodeCard(
 ) {
     val context = LocalContext.current
     // Drive's own images need the Google token (and only they ever get it); TMDB's don't.
-    val picture = (ep.posterUrl ?: ep.thumbnailLink?.let(DriveApi::big))?.takeIf { !isGoogle(it) || token != null }
+    // A frame at the card's own size (400 × 225).
+    val picture = (ep.posterUrl ?: ep.thumbnailLink?.let(DriveApi::card))?.takeIf { !isGoogle(it) || token != null }
     // Worked out once per episode (the file-name fallbacks run regexes), not on every redraw.
     val eyebrow = remember(ep.name, ep.episode, measuredMs) { episodeEyebrow(ep.episode, ep.name, measuredMs) }
     val name = remember(ep.name, ep.episode) { episodeName(ep.episode, ep.name) }

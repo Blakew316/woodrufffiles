@@ -386,6 +386,11 @@ class WatchJsonTest {
         assertEquals("https://lh3.googleusercontent.com/abc=w1280", PhonePosters.sized("https://lh3.googleusercontent.com/abc=s720", "w1280"))
         assertEquals("https://lh3.googleusercontent.com/abc=w300", PhonePosters.sized("https://lh3.googleusercontent.com/abc=s220-c", "w300"))
         assertEquals("https://lh3.googleusercontent.com/abc=w342", PhonePosters.sized("https://lh3.googleusercontent.com/abc", "w342"))
+        // The TV's own version tag (DriveArt) stays on the TV.
+        assertEquals(
+            "https://lh3.googleusercontent.com/abc=w342",
+            PhonePosters.sized(com.woodruff.tvexplorer.cloud.DriveArt.tag("https://lh3.googleusercontent.com/abc=s480", "f", 1), "w342"),
+        )
         val f = DriveFile("id1", "n", "video/mp4", 0, 10, null)
         assertEquals(PhonePosters.name("poster", f), PhonePosters.name("poster", f))
         // A new picture (the file changed) or another kind of picture is kept apart.

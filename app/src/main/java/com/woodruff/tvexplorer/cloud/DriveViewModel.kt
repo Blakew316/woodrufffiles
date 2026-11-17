@@ -300,6 +300,13 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     private val cuts = java.util.concurrent.ConcurrentHashMap<DrivePlace, Int>()
 
     /**
+     * The libraries whose listing in memory has newer links from Drive than their saved copy (only the links changed,
+     * so it wasn't saved again): the saved copy isn't marked as listed now ([ListingCache.touch]) while it has older
+     * links, so after a restart it's listed again rather than shown with links that may have run out.
+     */
+    private val linksAhead = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<DrivePlace, Boolean>())
+
+    /**
      * Each library's refresh, shared by the screen, both tabs and the warm-up at launch. Off the main
      * thread (a big library's titles are compared and copied as they arrive), and apart from the
      * screen's own job: switching tabs doesn't cancel a listing halfway. Signing out does.
@@ -343,10 +350,10 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var freshEpisodes: Map<String, List<FreshEpisode>> = emptyMap()
     /** A query got through this run: what's saved from before is older than what it found (even nothing). */
     @Volatile private var scanned = false
-    /** One query and walk at a time; [walked] is only touched under it. */
+    /** One query and walk at a time; [walks] is only touched under it. */
     private val scanLock = Mutex()
-    /** What each folder walked up from a new video turned out to be (null: under no show), kept between refreshes. */
-    private val walked = HashMap<String, Placement?>()
+    /** What the walks up from new videos learned of each folder, kept between refreshes and saved ([FolderWalks]); read at the first walk. */
+    private var walks: FolderWalks? = null
     private var scanJob: Job? = null
     private var newJob: Job? = null
     private var artworkJob: Job? = null
@@ -494,6 +501,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun keepSaved(place: DrivePlace, saved: ListingCache.Saved) {
         if (cache.putIfAbsent(place, saved.files) != null) return
+        linksAhead.remove(place)
         if (saved.listedAt > 0 && place is DrivePlace.Named) listedAt.putIfAbsent(place, saved.listedAt)
         if (saved.cutAt > 0) cuts.putIfAbsent(place, saved.cutAt)
         if (place in LIBRARIES) _listings.update { it + 1 }
@@ -545,9 +553,10 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * What's new inside the TV shows: one query for the videos put in Drive in the last 30 days, each
-     * walked up to its show (a season's episodes share one walk, and the walk is kept for next time),
-     * then saved, so Home has it at once after a restart. Behind the TV Shows listing, in its own job:
-     * offline or with Drive busy, what was found before stays. Signing out since [gen] keeps nothing.
+     * walked up to its show, then saved, so Home has it at once after a restart. What each folder on
+     * the way is, is kept and saved ([FolderWalks]): a season's episodes, and the refreshes after, ask
+     * Drive nothing more about it. Behind the TV Shows listing, in its own job: offline or with Drive
+     * busy, what was found before stays. Signing out since [gen] keeps nothing.
      */
     private fun scanNewEpisodes(gen: Int, token: String, shows: List<DriveFile>) {
         scanJob?.cancel()
@@ -558,13 +567,26 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 if (ids.isEmpty()) return@withLock emptyMap<String, List<FreshEpisode>>()
                 // The libraries' own folders lead to no show: a walk reaching one stops there.
                 val stops = LIBRARIES.mapNotNullTo(HashSet()) { DriveApi.folderIdOf(it) }
+                val folders = walks ?: (ListingCache.readWalks(ctx) ?: FolderWalks()).also { walks = it }
+                // Another set of shows (one added, or one moved into TV Shows): every folder is looked up afresh.
+                folders.forShows(ids)
                 try {
                     val videos = DriveApi.recentVideos(token, System.currentTimeMillis() - NewEpisodes.WINDOW_MS)
-                    NewEpisodes.placeVideos(videos, ids, stops, walked) { DriveApi.folderFacts(token, it) }
+                    // Where each video's folders lead is worked out each time, against the shows as they are now (a
+                    // show moved into TV Shows has its new episodes at its next refresh); only the folders are kept.
+                    NewEpisodes.placeVideos(videos, ids, stops, HashMap()) { id ->
+                        folders.facts(id, System.currentTimeMillis()) { DriveApi.folderFacts(token, it) }
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     return@launch // offline, or Drive busy: what was found before stays, until the next refresh
+                } finally {
+                    // What was learned stays, of a walk cut short too.
+                    if (folders.changed) {
+                        ListingCache.writeWalks(ctx, folders, System.currentTimeMillis(), gen = disk)
+                        folders.saved()
+                    }
                 }
             }
             kept(gen) { freshEpisodes = found; scanned = true }
@@ -577,15 +599,14 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * The new episodes found last time (saved on disk), as what's new until the next query: read with
-     * the saved listings at launch. Their season folders seed the walk, so the next query walks only
-     * folders it hasn't seen. Background thread.
+     * the saved listings at launch. (The next query walks only folders it hasn't seen: what the walks
+     * learned is saved too, [FolderWalks].) Background thread.
      */
     private suspend fun seedFresh() {
         val saved = withContext(Dispatchers.IO) { ListingCache.readFresh(ctx) } ?: return
         scanLock.withLock {
             if (scanned) return@withLock // a query got there first
             freshEpisodes = saved
-            for ((show, eps) in saved) for (e in eps) if (e.seasonId != null) walked.putIfAbsent(e.seasonId, Placement(show, e.seasonId, e.seasonName))
         }
         _newEpisodes.value = withContext(Dispatchers.IO) { computeNew() }
     }
@@ -642,27 +663,37 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
     fun libraries(): Map<DrivePlace, List<DriveFile>> =
         LinkedHashMap<DrivePlace, List<DriveFile>>().apply { for (place in LIBRARIES) cache[place]?.let { put(place, it) } }
 
-    // Videos found not to sit under any Movies / TV Shows entry (asked again next launch).
-    private val unplaced = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    /**
+     * In-progress videos whose walk up their folders failed (offline, Drive busy or refusing): each tried again only
+     * after a pause that doubles, from a minute up to six hours. They used to be walked again at every change to
+     * Continue watching or the posters, after every listing.
+     */
+    private val walkRetries = Retries(firstMs = 60_000L, maxMs = 6 * 60 * 60_000L)
     private var placing: Job? = null
 
     /**
      * Works out, once, which Movies / TV Shows entry each in-progress Drive video sits under (an
      * episode's show, a film's folder) by walking up its folders on Drive, so its poster is the
-     * right one even when the file name doesn't say. Remembered in [EpisodeShows].
+     * right one even when the file name doesn't say. Remembered in [EpisodeShows]; so are the videos
+     * under no entry, and the ones gone from Drive (a 404), which aren't walked again for a week
+     * ([EpisodeShows.UNPLACED_MS]), after a restart too.
      */
     fun resolveShows(keys: List<String>) {
         val tops = listOf(DrivePlace.Movies, DrivePlace.TvShows).flatMap { cache[it].orEmpty() }.mapTo(HashSet()) { it.id }
         if (tops.isEmpty() || placing?.isActive == true) return
         EpisodeShows.load(ctx)
         val known = EpisodeShows.map.value
-        val todo = keys.filter { it.startsWith("drive:") && it !in known && it !in unplaced && it.removePrefix("drive:") !in tops }
+        val now = System.currentTimeMillis()
+        val todo = keys.filter {
+            it.startsWith("drive:") && it !in known && it.removePrefix("drive:") !in tops && !EpisodeShows.unplaced(it, now) && walkRetries.due(it, now)
+        }
         if (todo.isEmpty()) return
         placing = viewModelScope.launch {
             val token = GoogleAuth.token(ctx) ?: return@launch
             // Folder -> the entry it's under (null: none); siblings in one season share the walk.
             val under = HashMap<String, String?>()
             val found = HashMap<String, String>()
+            val nowhere = ArrayList<String>()
             for (key in todo) {
                 var id = key.removePrefix("drive:")
                 val walked = ArrayList<String>()
@@ -670,19 +701,31 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 var failed = false
                 // Episode -> season -> show, or film -> its folder: a few levels at most.
                 for (level in 0 until 4) {
-                    val parent = try { DriveApi.parentOf(token, id) } catch (e: CancellationException) { throw e } catch (e: Exception) { failed = true; break }
+                    val parent = try {
+                        DriveApi.parentOf(token, id)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: DriveHttpException) {
+                        // Not in Drive any more (or a folder of its gone): it sits under nothing.
+                        if (e.code == 404) null else { failed = true; break }
+                    } catch (e: Exception) {
+                        failed = true
+                        break
+                    }
                     if (parent == null) break
                     if (parent in tops) { entry = parent; break }
                     if (under.containsKey(parent)) { entry = under[parent]; break }
                     walked += parent
                     id = parent
                 }
-                if (failed) continue // the network failed: try again another time
+                if (failed) { walkRetries.failed(key, System.currentTimeMillis()); continue }
+                walkRetries.succeeded(key)
                 val result = entry
                 walked.forEach { under[it] = result }
-                if (result != null) found[key] = result else unplaced += key
+                if (result != null) found[key] = result else nowhere += key
             }
             if (found.isNotEmpty()) EpisodeShows.remember(ctx, found)
+            if (nowhere.isNotEmpty()) EpisodeShows.rememberUnplaced(ctx, nowhere, System.currentTimeMillis())
         }
     }
 
@@ -780,6 +823,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             listedAt.clear()
             failedAt.clear()
             cuts.clear()
+            linksAhead.clear()
         }
         _listings.update { it + 1 }
         refreshes.cancelAll()
@@ -792,9 +836,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         freshEpisodes = emptyMap()
         scanned = false
         _newEpisodes.value = emptyMap()
-        viewModelScope.launch { scanLock.withLock { walked.clear() } }
+        viewModelScope.launch { scanLock.withLock { walks = null } }
         placing?.cancel()
-        unplaced.clear()
+        walkRetries.clear()
         EpisodeShows.clear(ctx)
         DriveApi.forgetFolders()
         matchKeys.clear()
@@ -1053,6 +1097,16 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * [files] as [place]'s listing from now on when only Drive's links changed (the same titles, versions, details and
+     * art): in memory and on screen, so a picture not fetched yet asks Google with a link that works, but nothing else
+     * follows (Search isn't told, nothing is saved). Unless signed out since [gen].
+     */
+    private fun relink(gen: Int, place: DrivePlace, files: List<DriveFile>) {
+        kept(gen) { cache[place] = files }
+        _state.update { if (it.place == place) it.copy(files = files) else it }
+    }
+
     /** Whether [token] is offline only because the Drive sign-in can't be read just yet ([GoogleAuth.waitingForKeys]). */
     private suspend fun waitingForKeys(token: GoogleAuth.TokenResult): Boolean =
         token is GoogleAuth.TokenResult.Offline && withContext(Dispatchers.IO) { GoogleAuth.waitingForKeys(ctx, GoogleAuth.Grant.DRIVE) }
@@ -1091,14 +1145,28 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             reached(place)
             val files = parse(DriveApi.withPosters(token, listing.files))
             val interim = carryOver(files, before)
-            if (interim != shown || listing.cutAt != shownCut || _state.value.let { it.place == place && it.status.down }) publish(gen, place, interim, listing.cutAt, token)
+            val sameCut = listing.cutAt == shownCut
+            // Only Drive's links new (it gives new ones every few hours): they're kept, quietly, rather than the
+            // library shown, searched and saved again as if it had changed.
+            if (!sameCut || !DriveArt.sameIgnoringLinks(interim, shown) || _state.value.let { it.place == place && it.status.down }) publish(gen, place, interim, listing.cutAt, token)
+            else if (interim != shown) relink(gen, place, interim)
             val withTmdb = carryOver(tmdb(stack, files), before)
             warm(token, stack, withTmdb)
             if (withTmdb != interim) publish(gen, place, withTmdb, listing.cutAt, token)
-            val unchanged = withTmdb == shown && listing.cutAt == shownCut
+            val changed = !sameCut || !DriveArt.sameIgnoringLinks(withTmdb, shown)
             withContext(Dispatchers.IO) {
-                if (unchanged) ListingCache.touch(ctx, place, gen = disk)
-                else ListingCache.write(ctx, place, withTmdb, cutAt = listing.cutAt, gen = disk)
+                // Saved when it changed, or when there's no saved copy to keep (none yet, or it went).
+                val savedCopyStays = !changed && when {
+                    // The same, links and all, as what's saved: the saved copy counts as listed now.
+                    withTmdb == shown && place !in linksAhead -> ListingCache.touch(ctx, place, gen = disk)
+                    // Only the links: not saved again while the saved copy's own are under an hour old (the phone's
+                    // posters are fetched with them), and it keeps the date they were the latest.
+                    else -> DriveArt.savedLinksLast(ListingCache.savedAt(ctx, place), System.currentTimeMillis()).also { if (it) linksAhead.add(place) }
+                }
+                if (!savedCopyStays) {
+                    ListingCache.write(ctx, place, withTmdb, cutAt = listing.cutAt, gen = disk)
+                    linksAhead.remove(place)
+                }
             }
             kept(gen) { listedAt[place] = System.currentTimeMillis() }
             updateRecentlyAdded()
@@ -1132,6 +1200,7 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
         publish(gen, place, withTmdb, cut, fromDrive = false)
         _state.value.token?.let { warm(it, listOf(place), withTmdb) }
         withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb, cutAt = cut, gen = disk) }
+        linksAhead.remove(place)
         updateRecentlyAdded()
         return Fetch.Done
     }
@@ -1153,7 +1222,9 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
             val files = listing.files.let { if (library) DriveApi.withPosters(token, it) else it }
             // What was on screen already has TMDB's pictures; this fresh listing only gets them when
             // the lookup below finishes. Until then it borrows them, so they don't vanish for a moment.
-            val before = if (library && tmdbMode(stack) != Tmdb.Mode.NONE) cache[place]?.associateBy { it.id } else null
+            val held = cache[place]
+            val heldCut = cuts[place] ?: 0
+            val before = if (library && tmdbMode(stack) != Tmdb.Mode.NONE) held?.associateBy { it.id } else null
             val interim = carryOver(files, before)
             cache[place] = interim
             if (listing.cutAt > 0) cuts[place] = listing.cutAt else cuts.remove(place)
@@ -1162,14 +1233,20 @@ class DriveViewModel(app: Application) : AndroidViewModel(app) {
                 if (it.place == place) it.copy(token = token, files = interim, busy = false, cutAt = listing.cutAt, status = if (it.status.down) DriveStatus.Online else it.status)
                 else it
             }
-            if (library && tmdbMode(stack) == Tmdb.Mode.NONE) withContext(Dispatchers.IO) { ListingCache.write(ctx, place, files, cutAt = listing.cutAt, gen = disk) }
+            // A library folder's listing is saved when it changed, not for Drive's new links alone (then it only
+            // counts as listed now, so it's among the folders kept).
+            suspend fun save(listed: List<DriveFile>) = withContext(Dispatchers.IO) {
+                val same = listing.cutAt == heldCut && DriveArt.sameIgnoringLinks(listed, held)
+                if (!same || !ListingCache.touch(ctx, place, gen = disk)) ListingCache.write(ctx, place, listed, cutAt = listing.cutAt, gen = disk)
+            }
+            if (library && tmdbMode(stack) == Tmdb.Mode.NONE) save(files)
             if (library && tmdbMode(stack) != Tmdb.Mode.NONE) {
                 // A lookup that failed this time (TMDB unreachable) keeps what was found before.
                 val withTmdb = carryOver(tmdb(stack, files), before)
                 warm(token, stack, withTmdb)
                 cache[place] = withTmdb
                 _state.update { if (it.place == place) it.copy(files = withTmdb) else it }
-                withContext(Dispatchers.IO) { ListingCache.write(ctx, place, withTmdb, cutAt = listing.cutAt, gen = disk) }
+                save(withTmdb)
             }
             Fetch.Done
         } catch (e: CancellationException) {
@@ -1277,6 +1354,28 @@ internal fun newestAdded(
  * Visible for tests.
  */
 internal fun lastTried(listedAt: Long?, failedAt: Long?): Long? = listOfNotNull(listedAt, failedAt).maxOrNull()
+
+/**
+ * When each of a set of things that failed (by key) may be tried again: after [firstMs], twice as long after each
+ * failure in a row, at most [maxMs]; a success forgets it. Any thread. Visible for tests.
+ */
+internal class Retries(private val firstMs: Long, private val maxMs: Long) {
+    private class Failing(val times: Int, val next: Long)
+
+    private val failing = java.util.concurrent.ConcurrentHashMap<String, Failing>()
+
+    /** Whether [key] may be tried at [now]: it hasn't failed, or its pause is over. */
+    fun due(key: String, now: Long): Boolean = failing[key]?.let { now >= it.next } ?: true
+
+    /** [key] failed (again) at [now]. */
+    fun failed(key: String, now: Long) {
+        failing.compute(key) { _, was -> val n = was?.times ?: 0; Failing(n + 1, now + com.woodruff.tvexplorer.util.backoffMs(n, firstMs, maxMs)) }
+    }
+
+    fun succeeded(key: String) { failing.remove(key) }
+
+    fun clear() = failing.clear()
+}
 
 /** Entries [DriveViewModel.recentlyAdded] holds: Home shows about half (after what's in progress), the phone up to 20. */
 internal const val RECENT_COUNT = 20

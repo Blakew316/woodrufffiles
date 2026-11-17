@@ -75,7 +75,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   cross-fading. Google Drive and Google Photos settings live in Settings.
 - **Filters**: Movies and TV Shows can be sorted (A–Z, recently added, newest, top rated) and narrowed by decade and
   genre, and their search field opens Search (below). Titles and years come from the file names ("The.Matrix.1999.
-  1080p.mkv" shows as *The Matrix (1999)*); genres and ratings come from TMDB when a key is set. *Show → Unwatched*
+  1080p.mkv" shows as *The Matrix (1999)*; a year in brackets is the release year, so "Blade Runner 2049 (2017).mkv" is
+  *Blade Runner 2049 (2017)*); genres and ratings come from TMDB when a key is set. *Show → Unwatched*
   lists films without a ✓ and shows not started. Photos and Videos
   sort newest or oldest first and filter by year and month, using when each was taken: Google's capture time for
   Google Photos items, otherwise the photo's own data or a date in its name.
@@ -628,7 +629,7 @@ TVs share keys from version 2.0.158 (2.0.157 shared only the TMDB key).
 ## Movie and show posters
 
 Movies and TV Shows use poster tiles. Artwork follows the Plex/Kodi convention, no API key needed:
-- A movie or show **folder**: put `poster.jpg` (or `folder.jpg` / `cover.jpg`) inside it.
+- A movie or show **folder**: put `poster.jpg` (or `folder.jpg` / `cover.jpg`; with several, the poster wins) inside it.
 - A **loose movie file**: put an image with the same name next to it, e.g. `Inception.mp4` + `Inception.jpg`.
 Those images are used as posters and hidden from the grid.
 
@@ -654,7 +655,9 @@ it down then.
 1. In Google Cloud (the Drive project), **APIs & Services → Library**: enable **Google Calendar API**.
 2. On the TV: **Settings → Accounts → Google Calendar**, scan the QR code and sign in.
 Today's events from every calendar that's switched on in Google Calendar show on Home: the next one in *At a glance*,
-and before 10am in the greeting's morning briefing. They're refreshed every 10 minutes and at midnight. Read-only.
+and before 10am in the greeting's morning briefing. They're fetched as Woodruff starts and after signing in, then
+refreshed every 10 minutes and at midnight while Woodruff is on screen, and as Home comes back; behind a film or another
+app they wait. Read-only.
 
 ## Connect Google Photos (slideshow)
 

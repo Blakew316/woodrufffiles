@@ -23,7 +23,8 @@ object ListingCache {
      */
     data class Saved(val files: List<DriveFile>, val listedAt: Long, val cutAt: Int = 0)
 
-    private fun dir(c: Context) = File(c.applicationContext.cacheDir, "listings").apply { mkdirs() }
+    /** Kept with the app's files, where Android never empties it to free storage ([keptDir]). */
+    private fun dir(c: Context) = keptDir(c, "listings").apply { mkdirs() }
 
     /** Bumped by [clear]: a listing begun before a sign-out isn't saved after it. */
     @Volatile private var generation = 0
@@ -73,21 +74,39 @@ object ListingCache {
             val tmp = File(f.parentFile, f.name + ".tmp")
             JsonWriter(tmp.bufferedWriter()).use { writeListing(it, files, cutAt) }
             tmp.renameTo(f)
+            // Now and then only the folders listed most recently are kept (a show's seasons, a season's episodes):
+            // one for every folder ever opened used to pile up.
+            if (place is DrivePlace.Folder && folderWrites++ % 25 == 0) pruneFolders(f.parentFile!!)
         }
     }
 
-    /** Listed again and nothing changed: the saved copy counts as listed now, without writing it all again. */
-    @Synchronized
-    fun touch(c: Context, place: DrivePlace, gen: Int = generation) {
-        if (gen != generation) return
-        runCatching { file(c, place)?.takeIf { it.exists() }?.setLastModified(System.currentTimeMillis()) }
+    private var folderWrites = 0
+
+    /** The folders' copies past the [FOLDERS_KEPT] listed (or found unchanged) most recently go. Visible for tests. */
+    internal fun pruneFolders(d: File) {
+        val saved = d.listFiles { f -> f.name.startsWith("folder-") && f.name.endsWith(".json") } ?: return
+        if (saved.size <= FOLDERS_KEPT) return
+        saved.sortedBy { it.lastModified() }.take(saved.size - FOLDERS_KEPT).forEach { it.delete() }
     }
 
-    /** Signing out: the old account's titles and synopses don't stay on the TV. */
+    /** Folders' listings kept at most ([pruneFolders]). */
+    internal const val FOLDERS_KEPT = 300
+
+    /**
+     * Listed again and nothing changed: the saved copy counts as listed now, without writing it all again. False when
+     * there's no saved copy to touch (none was saved, or it was pruned), so the caller saves it.
+     */
+    @Synchronized
+    fun touch(c: Context, place: DrivePlace, gen: Int = generation): Boolean {
+        if (gen != generation) return true
+        return runCatching { file(c, place)?.takeIf { it.exists() }?.setLastModified(System.currentTimeMillis()) == true }.getOrDefault(false)
+    }
+
+    /** Signing out: the old account's titles and synopses don't stay on the TV (nor what its walks learned). */
     @Synchronized
     fun clear(c: Context) {
         generation++
-        File(c.applicationContext.cacheDir, "listings").deleteRecursively()
+        dir(c).deleteRecursively()
     }
 
     private fun freshFile(c: Context) = File(dir(c), "new-episodes.json")
@@ -115,6 +134,26 @@ object ListingCache {
             val f = freshFile(c)
             val tmp = File(f.parentFile, f.name + ".tmp")
             tmp.writeText(NewEpisodes.toJson(fresh))
+            tmp.renameTo(f)
+        }
+    }
+
+    private fun walksFile(c: Context) = File(dir(c), "walks.json")
+
+    /** What the walks from new videos up to their shows learned of each folder ([FolderWalks]), as last saved; null when none is. */
+    @Synchronized
+    internal fun readWalks(c: Context): FolderWalks? = runCatching {
+        walksFile(c).takeIf { it.exists() }?.readText()?.let(FolderWalks::fromJson)
+    }.getOrNull()
+
+    /** Saves [walks] as it is at [now] ([FolderWalks.toJson]), unless the saved listings were cleared (signed out) since [gen]. */
+    @Synchronized
+    internal fun writeWalks(c: Context, walks: FolderWalks, now: Long, gen: Int = generation) {
+        if (gen != generation) return
+        runCatching {
+            val f = walksFile(c)
+            val tmp = File(f.parentFile, f.name + ".tmp")
+            tmp.writeText(walks.toJson(now))
             tmp.renameTo(f)
         }
     }
@@ -249,4 +288,32 @@ object ListingCache {
             overview.ifBlank { null }, backdrop.ifBlank { null }, tmdbId.takeIf { it > 0 }, tv,
         )
     }
+}
+
+/** Guards [keptDir]'s move of what earlier versions kept in the cache folder. */
+private val keptDirs = Any()
+
+/**
+ * [name], a folder of listings ([ListingCache], [FolderCache]), kept with the app's files: not in its cache folder,
+ * which Android empties when storage runs low (Coil's pictures, up to 250 MB, share it), so a TV started after that
+ * had no posters, Recently added, seasons or NEW badges until it was online again, and nothing to show offline. What
+ * earlier versions kept in the cache folder moves here; a file kept in both, the newer copy.
+ */
+internal fun keptDir(c: Context, name: String): File {
+    val app = c.applicationContext
+    val dir = File(app.filesDir, name)
+    val old = File(app.cacheDir, name)
+    if (old.exists()) synchronized(keptDirs) {
+        runCatching {
+            if (old.exists() && (dir.exists() || !old.renameTo(dir))) {
+                dir.mkdirs()
+                old.listFiles()?.forEach { f ->
+                    val to = File(dir, f.name)
+                    if (f.isFile && (!to.exists() || f.lastModified() > to.lastModified())) { to.delete(); f.renameTo(to) }
+                }
+                old.deleteRecursively()
+            }
+        }
+    }
+    return dir
 }

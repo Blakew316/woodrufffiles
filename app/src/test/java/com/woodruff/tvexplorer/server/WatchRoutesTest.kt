@@ -84,11 +84,11 @@ class WatchRoutesTest {
     }
 
     /** A library's saved listing, as [ListingCache] names its file. */
-    private fun saved(place: DrivePlace.Named) = File(File(c.cacheDir, "listings"), "named-${place.title}".replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json")
+    private fun saved(place: DrivePlace.Named) = File(File(c.filesDir, "listings"), "named-${place.title}".replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json")
 
     /** A folder's listing as the TV saves it after listing it once. */
     private fun folder(id: String, files: List<DriveFile>) {
-        val d = File(c.cacheDir, "folders").apply { mkdirs() }
+        val d = File(c.filesDir, "folders").apply { mkdirs() }
         File(d, FolderCache.fileName(id)).writeText(FolderCache.toJson(files))
     }
 
@@ -290,7 +290,7 @@ class WatchRoutesTest {
         assertEquals(setOf("s2"), read.keys)
         assertTrue("unchanged: not read again", read === WatchLibrary.freshEpisodes(c))
         // Saved again (the TV's next TV Shows listing found more): read again.
-        val file = File(File(c.cacheDir, "listings"), "new-episodes.json")
+        val file = File(File(c.filesDir, "listings"), "new-episodes.json")
         val before = file.lastModified()
         ListingCache.writeFresh(c, mapOf("s1" to listOf(FreshEpisode("e31", "Backyard Science S03E01.mkv", "f3", "Season 3", 5, 3, 1))))
         file.setLastModified(before + 1_000) // a new saved copy, even within the same millisecond

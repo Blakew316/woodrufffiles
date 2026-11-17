@@ -214,3 +214,78 @@ object NewEpisodes {
 
 /** Where a folder sits under TV Shows: in show [show]'s folder, in its season folder [seasonId] ([seasonName]); null season: the show's own folder. */
 data class Placement(val show: String, val seasonId: String?, val seasonName: String?)
+
+/**
+ * What the walks from new videos up to their shows learned of each folder ([FolderFacts]), so a refresh asks Drive only
+ * about folders it hasn't seen: every video of a season, and every clip deep in a folder of the family's own (a phone's
+ * backup four folders down, where a walk stops before it finds anything), shares one lookup, and the refreshes after it
+ * need none, after a restart too (it's saved with the new episodes). Those deep clips used to cost three lookups each on
+ * every refresh. Where each folder leads is worked out again on each refresh, against the shows as they are then; a
+ * folder is looked up again after [keepMs] (one moved meanwhile is found where it is now), and all of them are when the
+ * set of shows changes (one added, or moved into TV Shows). Not thread-safe: one walk at a time.
+ */
+internal class FolderWalks(private val keepMs: Long = KEEP_MS) {
+    private class Learned(val facts: FolderFacts, val at: Long)
+
+    private val learned = HashMap<String, Learned>()
+
+    /** Which set of shows the folders were looked up for ([showsKey]); null before the first walk. */
+    private var shows: Int? = null
+
+    /** Something was learned or forgotten since it was last saved ([saved]). */
+    var changed = false
+        private set
+
+    /** How many folders it knows. */
+    val size: Int get() = learned.size
+
+    /** Before walking for [ids] (the TV Shows folders): another set of shows than the last walk's forgets every folder. */
+    fun forShows(ids: Set<String>) {
+        val key = showsKey(ids)
+        if (shows == key) return
+        if (shows != null && learned.isNotEmpty()) learned.clear()
+        shows = key
+        changed = true
+    }
+
+    /** Folder [id]'s facts at [now]: as learned within [keepMs], else from [lookup] (and kept). Throws what [lookup] throws. */
+    suspend fun facts(id: String, now: Long, lookup: suspend (String) -> FolderFacts): FolderFacts {
+        learned[id]?.let { if (now - it.at in 0 until keepMs) return it.facts }
+        return lookup(id).also {
+            learned[id] = Learned(it, now)
+            changed = true
+        }
+    }
+
+    /** Written to disk: nothing new since. */
+    fun saved() { changed = false }
+
+    /** As it's saved at [now]: the folders learned within [keepMs] (the rest would be looked up again anyway), and for which shows. */
+    fun toJson(now: Long): String {
+        learned.entries.removeAll { now - it.value.at !in 0 until keepMs }
+        val folders = JSONObject()
+        for ((id, l) in learned) folders.put(id, JSONArray().put(l.facts.name).put(l.facts.parent ?: "").put(l.at))
+        return JSONObject().put("shows", shows ?: 0).put("known", shows != null).put("folders", folders).toString()
+    }
+
+    companion object {
+        /** How long a folder's lookup is trusted: a day. */
+        const val KEEP_MS = 24 * 60 * 60_000L
+
+        /** A set of shows as one number, to tell sets apart. */
+        fun showsKey(ids: Set<String>): Int = ids.sorted().hashCode()
+
+        /** Reads what [toJson] saved (nothing known, for anything it can't read). */
+        fun fromJson(s: String, keepMs: Long = KEEP_MS): FolderWalks = FolderWalks(keepMs).apply {
+            runCatching {
+                val o = JSONObject(s)
+                if (o.optBoolean("known")) shows = o.optInt("shows")
+                val folders = o.optJSONObject("folders") ?: JSONObject()
+                for (id in folders.keys()) {
+                    val a = folders.optJSONArray(id) ?: continue
+                    learned[id] = Learned(FolderFacts(a.optString(0), a.optString(1).ifEmpty { null }), a.optLong(2))
+                }
+            }
+        }
+    }
+}
