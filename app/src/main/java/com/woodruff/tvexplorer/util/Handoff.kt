@@ -56,16 +56,23 @@ object Handoff {
         return Intent(Intent.ACTION_VIEW, target).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
-    /** Opens the app, or its Play Store page when it isn't installed yet. */
-    fun launch(c: Context, pkg: String) {
+    /**
+     * Opens the app, or its Play Store page when it isn't installed yet (in the store app, else the web page). On a TV
+     * where none of those opens (no store, no browser) nothing happens: [OpenResult.Failed], never a crash.
+     */
+    fun launch(c: Context, pkg: String): OpenResult {
         val pm = c.packageManager
-        val intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
+        val app = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
             ?: Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        try {
-            c.startActivity(intent)
-        } catch (e: Exception) {
-            c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg"))
+        for (intent in listOf(app, web)) {
+            try {
+                c.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return OpenResult.Opened
+            } catch (e: Exception) {
+                // Nothing to open it with: the next way, else nothing.
+            }
         }
+        return OpenResult.Failed("Couldn’t open that app on this TV")
     }
 }
