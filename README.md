@@ -640,7 +640,9 @@ it down then.
 1. In Google Cloud (the Drive project), **APIs & Services → Library**: enable **Google Calendar API**.
 2. On the TV: **Settings → Accounts → Google Calendar**, scan the QR code and sign in.
 Today's events from every calendar that's switched on in Google Calendar show on Home: the next one in *At a glance*,
-and before 10am in the greeting's morning briefing. They're refreshed every 10 minutes and at midnight. Read-only.
+and before 10am in the greeting's morning briefing. They're fetched as Woodruff starts and after signing in, then
+refreshed every 10 minutes and at midnight while Woodruff is on screen, and as Home comes back; behind a film or another
+app they wait. Read-only.
 
 ## Connect Google Photos (slideshow)
 

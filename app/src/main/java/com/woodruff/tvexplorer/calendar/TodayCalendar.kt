@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.net.Http
+import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.server.CompanionHub
 import com.woodruff.tvexplorer.server.TransferService
 import com.woodruff.tvexplorer.util.NetworkWatch
@@ -72,14 +73,25 @@ internal fun CalendarState.afterNetworkFailure(today: Int, noNetwork: Boolean, w
     if (waitingForKeys) this else offlineOn(today, noNetwork)
 
 /**
+ * This state on day [today], with nothing fetched: as it is, unless its events are another day's (Woodruff wasn't on
+ * screen at midnight, so the new day's weren't fetched): then none of them, and today's not known yet, so nothing is
+ * claimed until Home fetches them.
+ */
+internal fun CalendarState.on(today: Int): CalendarState =
+    if (!loaded || day == today) this else copy(events = emptyList(), loaded = false, offline = false, noNetwork = false)
+
+/**
  * Today's Activities from Google Calendar (read-only). Lists every calendar the owner has turned
- * on in Google Calendar, fetches today's events from all of them in parallel, and refreshes every
- * 10 minutes, at midnight, and whenever the network comes back (a TV woken from standby). Sign-in
- * is the usual phone QR code.
+ * on in Google Calendar (kept for a few hours) and fetches today's events from all of them in
+ * parallel: as Woodruff starts and after a sign-in, then, while Woodruff is on screen, every 10
+ * minutes, at midnight and whenever the network comes back (a TV woken from standby), and as Home
+ * comes back. Sign-in is the usual phone QR code.
  */
 object TodayCalendar {
     private const val API = "https://www.googleapis.com/calendar/v3/"
     private const val REFRESH_MS = 10 * 60_000L
+    /** How long the list of calendars is kept before it's asked for again: the family rarely adds one. */
+    internal const val CALENDARS_MS = 3 * 60 * 60_000L
     /** For a sign-in Google ended (then Home's calendar row says what to do: never shown as an error). */
     private const val ENDED = "Connect Google Calendar again."
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -90,6 +102,18 @@ object TodayCalendar {
     private var loopJob: Job? = null
     @Volatile private var lastRefresh = 0L
 
+    /** A calendar to read: its id and colour. */
+    internal class Cal(val id: String, val color: Long)
+
+    /** The calendars to read, as listed at [at]. */
+    private class Listed(val at: Long, val cals: List<Cal>)
+
+    /** The calendars as last listed ([CALENDARS_MS]); forgotten with the sign-in, and when one of them has gone. */
+    @Volatile private var calendars: Listed? = null
+
+    /** Whether a list of calendars made at [at] is still used at [now] (a clock set back makes it old). Visible for tests. */
+    internal fun calendarsFresh(at: Long, now: Long): Boolean = now - at in 0 until CALENDARS_MS
+
     fun init(c: Context) {
         app = c.applicationContext
         NetworkWatch.start(app)
@@ -98,6 +122,7 @@ object TodayCalendar {
                 if (attempt.grant != GoogleAuth.Grant.CALENDAR) return@collect
                 try {
                     GoogleAuth.exchange(app, code, attempt)
+                    calendars = null
                     _state.update { it.copy(connected = true, ended = false, qrUrl = null, error = null) }
                     startLoop()
                 } catch (e: Exception) {
@@ -108,7 +133,10 @@ object TodayCalendar {
         // Google ended the sign-in (expired or revoked), found out by any renewal: say so at once.
         scope.launch {
             GoogleAuth.expirations.collect { grant ->
-                if (grant == GoogleAuth.Grant.CALENDAR) _state.update { it.copy(connected = false, offline = false, ended = true, error = null) }
+                if (grant == GoogleAuth.Grant.CALENDAR) {
+                    calendars = null
+                    _state.update { it.copy(connected = false, offline = false, ended = true, error = null) }
+                }
             }
         }
         scope.launch {
@@ -124,9 +152,15 @@ object TodayCalendar {
         loopJob?.cancel()
         loopJob = scope.launch {
             var tries = 0
+            var first = true
             while (true) {
                 val mark = NetworkWatch.comebacks.value
-                val reached = refresh()
+                // The first at once (just signed in, or Woodruff starting); after that only while Woodruff is on screen:
+                // nobody sees today's events behind a film, another app or standby, and each refresh is a call to Google
+                // for every calendar. Home coming back fetches them (refreshSoon); meanwhile a day that's over takes its
+                // events with it.
+                val reached = if (first || AppVisibility.foreground) refresh() else { _state.update { it.on(dayKey()) }; true }
+                first = false
                 // Signed out (Google ended it): nothing to refresh until the next sign-in.
                 if (!_state.value.connected) return@launch
                 tries = if (reached) 0 else tries + 1
@@ -207,6 +241,7 @@ object TodayCalendar {
     fun signedIn() {
         scope.launch {
             signInJob?.cancel()
+            calendars = null
             _state.update { it.copy(connected = true, ended = false, qrUrl = null, error = null) }
             startLoop()
         }
@@ -216,6 +251,7 @@ object TodayCalendar {
         scope.launch {
             loopJob?.cancel()
             GoogleAuth.signOut(app, GoogleAuth.Grant.CALENDAR)
+            calendars = null
             _state.value = CalendarState()
             done()
         }
@@ -239,10 +275,27 @@ object TodayCalendar {
     }
 
     /** Google Calendar answered 401: it didn't take the access token. */
-    private class Unauthorized : IOException("Google Calendar didn't take the access token")
+    internal class Unauthorized : IOException("Google Calendar didn't take the access token")
 
-    /** Google Calendar is busy or failing (5xx, 429), or still refuses a fresh token: offline, tried again soon. */
-    private class Unreachable : IOException("Can’t reach Google Calendar right now."), com.woodruff.tvexplorer.util.NetworkFailure
+    /** Google Calendar is busy, failing or over its limits (5xx, 429, a limit's 403), or still refuses a fresh token: offline, tried again soon. */
+    internal class Unreachable : IOException("Can’t reach Google Calendar right now."), com.woodruff.tvexplorer.util.NetworkFailure
+
+    /** Google Calendar refused a request, in Woodruff's words: what it answered ([code]) won't change by asking again. */
+    internal class Refused(val code: Int, message: String) : IOException(message)
+
+    /**
+     * What Google Calendar's error answer [code] means, for Google's [reason] ("rateLimitExceeded", never shown, only
+     * read): the token not taken (401); Google busy, failing or over its limits (408, 429, 5xx, and a 403 for a rate or
+     * daily limit), tried again soon like a network failure; anything else a refusal ([Refused]), in Woodruff's words:
+     * no codes or Google's own messages on screen. Visible for tests.
+     */
+    internal fun failure(code: Int, reason: String?): IOException = when {
+        code == 401 -> Unauthorized()
+        code == 408 || code == 429 || code >= 500 -> Unreachable()
+        code == 403 && reason != null && (reason.contains("LimitExceeded", ignoreCase = true) || reason.contains("quotaExceeded", ignoreCase = true)) -> Unreachable()
+        code == 403 -> Refused(code, "Google didn’t allow Google Calendar. Turn on the Google Calendar API in Google Cloud, then connect again.")
+        else -> Refused(code, "Can’t reach Google Calendar right now.")
+    }
 
     private suspend fun fetchToday(token: String): List<DayEvent> = coroutineScope {
         val dayStart = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
@@ -250,18 +303,21 @@ object TodayCalendar {
         val utc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val timeMin = utc.format(dayStart.time)
         val timeMax = utc.format(dayEnd.time)
-
-        val list = get(token, "users/me/calendarList?minAccessRole=reader&fields=${enc("items(id,backgroundColor,selected,hidden)")}")
-        val cals = list.optJSONArray("items") ?: return@coroutineScope emptyList()
-        val wanted = (0 until cals.length()).map { cals.getJSONObject(it) }
-            .filter { it.optBoolean("selected", false) && !it.optBoolean("hidden", false) }
+        val gone = java.util.concurrent.atomic.AtomicBoolean(false)
         // All calendars at once: one slow calendar doesn't hold the others up.
-        wanted.map { cal ->
+        val events = calendarsFor(token).map { cal ->
             async(Dispatchers.IO) {
-                val color = parseColor(cal.optString("backgroundColor"))
-                val q = "calendars/${enc(cal.getString("id"))}/events?singleEvents=true&orderBy=startTime&maxResults=25" +
+                val q = "calendars/${enc(cal.id)}/events?singleEvents=true&orderBy=startTime&maxResults=25" +
                     "&timeMin=${enc(timeMin)}&timeMax=${enc(timeMax)}&fields=${enc("items(summary,start,end,location,status)")}"
-                val items = runCatching { get(token, q).optJSONArray("items") }.getOrNull() ?: return@async emptyList<DayEvent>()
+                // One that Google doesn't answer (a timeout, busy, the token refused) fails the whole refresh, which
+                // keeps today's events and tries again soon: taken for "nothing today", it emptied the day. Only one
+                // gone or not allowed any more is left out (and the calendars are listed again next time).
+                val items = try {
+                    get(token, q).optJSONArray("items")
+                } catch (e: Refused) {
+                    gone.set(true)
+                    null
+                } ?: return@async emptyList<DayEvent>()
                 (0 until items.length()).mapNotNull { i ->
                     val e = items.getJSONObject(i)
                     if (e.optString("status") == "cancelled") return@mapNotNull null
@@ -272,12 +328,25 @@ object TodayCalendar {
                         start = start?.optString("dateTime")?.let(::parseTime),
                         end = end?.optString("dateTime")?.let(::parseTime),
                         location = e.optString("location").ifBlank { null },
-                        color = color,
+                        color = cal.color,
                     )
                 }
             }
         }.awaitAll().flatten()
-            .sortedWith(compareBy<DayEvent> { it.start != null }.thenBy { it.start ?: 0L })
+        if (gone.get()) calendars = null
+        events.sortedWith(compareBy<DayEvent> { it.start != null }.thenBy { it.start ?: 0L })
+    }
+
+    /** The calendars the owner has turned on: as listed within [CALENDARS_MS], else listed again (and kept). */
+    private fun calendarsFor(token: String): List<Cal> {
+        val now = System.currentTimeMillis()
+        calendars?.takeIf { calendarsFresh(it.at, now) }?.let { return it.cals }
+        val items = get(token, "users/me/calendarList?minAccessRole=reader&fields=${enc("items(id,backgroundColor,selected,hidden)")}").optJSONArray("items")
+        val cals = (0 until (items?.length() ?: 0)).map { items!!.getJSONObject(it) }
+            .filter { it.optBoolean("selected", false) && !it.optBoolean("hidden", false) }
+            .map { Cal(it.getString("id"), parseColor(it.optString("backgroundColor"))) }
+        calendars = Listed(now, cals)
+        return cals
     }
 
     private fun get(token: String, path: String): JSONObject {
@@ -290,19 +359,15 @@ object TodayCalendar {
             val code = conn.responseCode
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code in 200..299) return JSONObject(text)
-            if (code == 401) throw Unauthorized()
-            if (code == 408 || code == 429 || code >= 500) throw Unreachable()
-            // No codes or Google's own messages on screen.
-            throw IOException(
-                when (code) {
-                    403 -> "Google didn’t allow Google Calendar. Turn on the Google Calendar API in Google Cloud, then connect again."
-                    else -> "Can’t reach Google Calendar right now."
-                },
-            )
+            throw failure(code, reasonOf(text))
         } finally {
             conn.disconnect()
         }
     }
+
+    /** Google's reason in an error answer ("rateLimitExceeded"), never shown: only read. */
+    private fun reasonOf(body: String): String? =
+        runCatching { JSONObject(body).getJSONObject("error").getJSONArray("errors").getJSONObject(0).getString("reason") }.getOrNull()
 
     /** "2026-10-14T09:30:00-05:00" or "...Z". The 'X' pattern handles both (Android 7+). */
     private fun parseTime(s: String): Long? = if (s.isBlank()) null else runCatching {
