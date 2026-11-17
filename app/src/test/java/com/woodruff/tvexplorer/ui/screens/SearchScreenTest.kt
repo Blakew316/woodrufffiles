@@ -1,5 +1,6 @@
 package com.woodruff.tvexplorer.ui.screens
 
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -30,7 +31,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /** Search's page (search spec): typing on its keys, a real keyboard and the phone, Back, and its whole-page states. */
@@ -40,7 +43,16 @@ import org.robolectric.annotation.Config
 class SearchScreenTest {
     // The rule's second version: an effect goes on on the main thread after its work elsewhere (the search runs
     // off it), as on a TV. SearchResultsThreadTest keeps the first, to catch work done from that other thread.
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule(order = 1) val compose = createAndroidComposeRule<ComponentActivity>()
+
+    /**
+     * Once the rule has closed the page: what its going queued on Compose's main-thread dispatcher runs now.
+     * Left queued, the test's end dropped it, and that dispatcher, shared by every later test in this JVM,
+     * never ran anything again (see MainWindowOpeningTest).
+     */
+    @get:Rule(order = 0) val afterThePage = object : ExternalResource() {
+        override fun after() = shadowOf(Looper.getMainLooper()).idle()
+    }
 
     private fun film(id: String, title: String, year: Int, rating: Double) =
         DriveFile(id, "$title ($year).mkv", "video/x-matroska", 0, 0, null, info = MediaInfo(title, year, rating = rating))

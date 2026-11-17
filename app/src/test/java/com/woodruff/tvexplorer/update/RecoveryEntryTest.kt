@@ -12,6 +12,7 @@ import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.ui.Screen
+import com.woodruff.tvexplorer.ui.screens.DashboardSamples
 import com.woodruff.tvexplorer.util.EarlyCrashes
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -52,6 +53,10 @@ class RecoveryEntryTest {
         RecoveryView.load = { it.run() }
         // Somewhere for Android to say whether Woodruff may use the TV's storage (it may not, here).
         org.robolectric.shadows.ShadowEnvironment.addExternalDir("storage")
+        // Once Woodruff opens, Home doesn't ask the other TVs or the cameras (see MainWindowReopenTest): that
+        // answer comes back to Compose's main-thread dispatcher after the window has gone.
+        DashboardSamples.tvs = emptyList()
+        DashboardSamples.cameras = emptyList()
     }
 
     @After fun clean() {
@@ -61,6 +66,8 @@ class RecoveryEntryTest {
         RecoveryView.resetForTest()
         Updater.resetForTest()
         AppVisibility.foreground = false
+        DashboardSamples.tvs = null
+        DashboardSamples.cameras = null
     }
 
     private fun content(a: MainActivity): View = a.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
@@ -129,5 +136,8 @@ class RecoveryEntryTest {
         EarlyCrashes.crashed(app, null)
         assertTrue(EarlyCrashes.needsRecovery(app))
         controller.pause().stop().destroy()
+        // The app's window ends with a step queued on Compose's main-thread dispatcher: run it now (see
+        // MainWindowOpeningTest). Left queued, the test's end dropped it and that dispatcher never ran again.
+        shadowOf(Looper.getMainLooper()).idle()
     }
 }
