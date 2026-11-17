@@ -197,9 +197,9 @@ object Updater {
     val current: Int get() = BuildConfig.VERSION_CODE
 
     /**
-     * Test TV: installs each release as soon as it's out. Every other TV only installs a build that
-     * was the newest for a whole day ([SETTLE_MS]), so a bad build is caught (and replaced) on the
-     * test TV before it reaches them. "Check for updates" in Settings skips the wait.
+     * Test TV: only noted (Settings → Updates, the health report). It used to make every other TV wait
+     * until a build was the newest for a whole day ([SETTLE_MS]); every TV now takes each release at
+     * its next check ([checkAndDownload]), so it changes nothing about when a TV updates.
      */
     fun isTestTv(c: Context) = prefs(c).getBoolean("testTv", false)
     fun setTestTv(c: Context, on: Boolean) { prefs(c).edit().putBoolean("testTv", on).apply() }
@@ -253,7 +253,7 @@ object Updater {
         scope.launch {
             val p = prefs(app)
             // After a restart: an update downloaded and checked earlier is ready again at once,
-            // instead of after the next check (up to an hour, or a day's wait on other TVs).
+            // instead of after the next check (up to an hour).
             if (_state.value.step == Step.IDLE) restoreReady(app)
             // Before checking, which can take a while: the offer belongs to the moment Woodruff opens.
             if (offer) offerIfDue(app)
@@ -564,10 +564,9 @@ object Updater {
     }
 
     /**
-     * Checks for an update now. [eager]: Settings → Check for updates on this TV, which takes the newest build at once,
-     * without the test TV's day. A check asked for from elsewhere (the phone's or a hub TV's Check for Updates) passes
-     * false: it looks now, and keeps or fetches again the build this TV would take anyway, but follows the test TV's
-     * day as this TV's own checks do, so a build the test TV hasn't had a day with never reaches a TV from the phone.
+     * Checks for an update now, and downloads the newest build, ready to install. [eager]: Settings → Check for updates
+     * on this TV; a check asked for from elsewhere (the phone's or a hub TV's Check for Updates) passes false. Both take
+     * the newest build, as every check does now (no day's wait after the test TV).
      */
     fun checkNow(c: Context, eager: Boolean = true) { val app = c.applicationContext; scope.launch { checkAndDownload(app, manual = eager) } }
 

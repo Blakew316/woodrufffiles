@@ -435,20 +435,20 @@ before the time it gives, and Settings → Updates says so (*GitHub is busy · c
 - **Fast straight after an update**: each release carries a speed profile (`WoodruffFamily-api28.dm` and
   `WoodruffFamily-api31.dm`) that installs with it on Android 9 and newer, so Android prepares the app's busiest code
   while installing instead of over the following days. Settings → Advanced → *App code* shows how it's prepared.
-- **Test TV** (Settings → Updates): turn it on for one TV. That TV installs each new version as soon as it's out.
-  Every other TV only installs a version that was the newest for a whole day, however often new versions come: a run
-  of releases only makes them wait longer, and a version that had to be replaced within its first day never reaches
-  them. They go by release times, so this works best with the test TV in use. *Check for updates* in a TV's own
-  Settings skips the wait; one asked for from the phone or another TV looks at once but still waits for the day.
+- **Every TV at once**: every TV takes a new version at its next check (within the hour, or when Woodruff opens) and
+  installs it at the next quiet moment. There's no longer a day's wait after the test TV, so the *Test TV* switch
+  (Settings → Updates) doesn't change when a TV updates, and nor does an urgent fix (a commit whose message has
+  `[urgent]`, released as "rollback"). *Check for updates* looks at once, on the TV or asked for from the phone or
+  another TV.
 - **Undo a bad update**: Android won't install an older version over a newer one, so an earlier version is
   re-released with a new, higher number: GitHub → Actions → Build APK → *Run workflow*, with the commit to go
-  back to. It's marked "rollback", so no TV waits a day for it.
+  back to. It's marked "rollback"; every TV takes it like any new version.
 - **A bad update repairs itself**: if a new version closes within 45 seconds of Woodruff opening (on any Android
   version; on Android 11 and newer also a crash in native code or a freeze, when the TV reports it), every start of
   Woodruff looks for a fixed version at once, then every few minutes. A start means the TV turning on, the phone
-  connection coming back, or someone opening it. It takes any newer build without waiting for the test TV's day and
-  installs it as soon as it's there, even while Woodruff is on screen (never over a film that's playing or a copy
-  that's still running). What was on screen comes back afterwards. Publishing a rollback (above) is all it takes.
+  connection coming back, or someone opening it. It takes any newer build and installs it as soon as it's there, even
+  while Woodruff is on screen (never over a film that's playing or a copy that's still running). What was on screen
+  comes back afterwards. Publishing a rollback (above) is all it takes.
   After two such closes in a row, Woodruff opens to a plain recovery screen instead. It says what happened, looks for
   the fix, and offers *Install the fix* once it's ready (Android 12 and newer install it by themselves; Android 11 and
   older show Android's *Update* screen for one press). *Try opening again* opens Woodruff normally, and one more close
@@ -757,13 +757,13 @@ The other `tools/gallery/phone_*_check.mjs` scripts run the same way. `phone.mjs
   (keys only marked saved or not, never their values), see the screen, press remote keys, type into the TV's open text
   box while Woodruff is in front there (the same as pressing its keys; it's how the phone's keyboard reaches a linked
   TV), pass on the phone's playback controls (Play/Pause, −10 s, +30 s, Next: no more than its remote keys could do),
-  start a Google Drive video there and keep Watch together in step, ask it to check for an update (it still waits for
-  the test TV's day), show messages, the family message board, doorbell alerts and camera alerts' pictures, and read
-  or update the shared settings (TMDB, Google's Client ID and secret, the cameras project, the doorbell's Pub/Sub
-  subscription name and the person/motion choice). It can never touch files, mail, sign-ins (it can't start one) or
-  any other setting. The subscription name isn't a credential: using it needs a Google sign-in with Pub/Sub access.
-  **Stop other TVs seeing this one** in Settings revokes every link. Linking codes last 10 minutes, work once, and die
-  after 5 wrong tries.
+  start a Google Drive video there and keep Watch together in step, ask it to check for an update or install the newest
+  at once (as Update in the Woodruff app does), show messages, the family message board, doorbell alerts and camera
+  alerts' pictures, and read or update the shared settings (TMDB, Google's Client ID and secret, the cameras project,
+  the doorbell's Pub/Sub subscription name and the person/motion choice). It can never touch files, mail, sign-ins (it
+  can't start one) or any other setting. The subscription name isn't a credential: using it needs a Google sign-in
+  with Pub/Sub access. **Stop other TVs seeing this one** in Settings revokes every link. Linking codes last 10
+  minutes, work once, and die after 5 wrong tries.
 - A linked TV turns a hub away only when its own saved link key says no: if it can't read its keys for a moment after
   power-on, it never makes a new link key, so hubs don't show *Link again* for a TV that was never reset. A TV's id and
   name are kept in plain app settings (they aren't secrets), so a Keystore that loses its key never makes a TV look

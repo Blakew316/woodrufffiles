@@ -198,7 +198,7 @@ object TvLinks {
      * /api/keys: the keys every TV shares (SharedKeys: TMDB, Google Client ID and secret, cameras
      * project). /api/tmdb: the TMDB key alone, for a hub on 2.0.157, the version before the others.
      * /api/health: this TV's health report (no secrets: keys present or not, never their values).
-     * /api/update/check: check for an update now (harmless; it follows the test TV's day as always).
+     * /api/update/check: check for an update now (harmless; it takes the newest build, as the TV's own checks do).
      * /api/media: ↺10, 30↻, Next and Play/Pause for what this TV plays, from the phone through the hub
      * (no more than its remote keys can already do).
      * /api/type: the phone's keyboard on this TV, through the hub: which text box is open and the text typed
@@ -568,8 +568,8 @@ object TvLinks {
     }
 
     /**
-     * Asks [tv] to check for an update now (it still follows the test TV's day, as its own checks do); [now]: Update
-     * was pressed in the Woodruff app, so it takes the newest build and installs it at once.
+     * Asks [tv] to check for an update now (it takes the newest build, as its own checks do, to install at the next
+     * quiet moment); [now]: Update was pressed in the Woodruff app, so it installs it at once.
      */
     fun checkForUpdates(tv: LinkedTv, now: Boolean = false) {
         request("${tv.base}/api/update/check?k=${enc(tv.key)}", "POST", if (now) "{\"now\":true}" else "{}")
