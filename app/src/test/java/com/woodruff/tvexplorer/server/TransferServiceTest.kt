@@ -10,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.woodruff.tvexplorer.settings.SecretStore
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,6 +42,8 @@ class TransferServiceTest {
     @Volatile private var address: String? = null
     private val defaultForeground = TransferService.foreground
     private val defaultPairingKey = TransferService.pairingKey
+    private val defaultKeyForThisRun = TransferService.keyForThisRun
+    private val defaultKeyPatience = TransferService.keyPatienceMs
     private var controller: ServiceController<TransferService>? = null
 
     @Before fun setUp() {
@@ -53,6 +56,8 @@ class TransferServiceTest {
         controller?.destroy()
         TransferService.addressNow = { TransferService.lanAddress() }
         TransferService.pairingKey = defaultPairingKey
+        TransferService.keyForThisRun = defaultKeyForThisRun
+        TransferService.keyPatienceMs = defaultKeyPatience
         TransferService.foreground = defaultForeground
         AutoStart.setEnabled(context, true)
     }
@@ -147,6 +152,37 @@ class TransferServiceTest {
         readable.set(true)
         waitFor("open") { state.running }
         assertTrue(state.url!!.endsWith("/?k=the-saved-key"))
+    }
+
+    @Test fun aKeyForThisRunGivesWayToTheSavedOneAsSoonAsTheKeystoreFindsIt() {
+        val readable = AtomicBoolean(false)
+        TransferService.pairingKey = { if (readable.get()) "the-saved-key" else throw PairingKey.NotReadyYet() }
+        TransferService.keyForThisRun = { "a-key-for-this-run" }
+        // As if the Keystore had kept failing for longer than any hiccup.
+        TransferService.keyPatienceMs = 0
+        address = "192.0.2.10"
+        service().onStartCommand(start, 0, 1)
+        waitFor("open with a key for this run") { state.running }
+        assertTrue(state.url!!.endsWith("/?k=a-key-for-this-run"))
+        val base = state.base
+        // The Keystore finds its key: open again at once, at the same address and port, with the key every phone,
+        // Shortcut and Apple device was paired with (it used to keep the one for this run until Woodruff restarted).
+        readable.set(true)
+        SecretStore.keyBack(context)
+        waitFor("open again with the saved key") { state.url?.endsWith("/?k=the-saved-key") == true }
+        assertEquals(base, state.base)
+        assertTrue(state.running)
+    }
+
+    @Test fun opensOnThePortPhonesWereGivenLastTime() {
+        // Last time it opened on a port other than 8080 (something else held 8080 then): phones' links carry that one.
+        val port = java.net.ServerSocket(0).use { it.localPort }
+        PhonePort.save(context, port)
+        address = "192.0.2.10"
+        service().onStartCommand(start, 0, 1)
+        waitFor("open") { state.running }
+        assertEquals("http://192.0.2.10:$port", state.base)
+        assertEquals(port, PhonePort.saved(context))
     }
 
     @Test fun startsAgainWhileRunningChangeNothing() {

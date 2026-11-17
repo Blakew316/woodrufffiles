@@ -258,6 +258,11 @@ data class HealthFacts(
     val exits: List<AppExit>?,
     val freeBytes: Long?,
     val keys: KeysFact,
+    /**
+     * Drive is signed in, but Google won't let this TV use the family's shared folder (FamilySync.sharingRefused):
+     * Continue watching and ✓s aren't shared until it signs in again.
+     */
+    val shareNeedsSignIn: Boolean = false,
 )
 
 // ---- The report -----------------------------------------------------------------------------
@@ -435,6 +440,8 @@ internal fun popUpsDetail(tv: String) = "Woodruff needs this to open again where
 /** What to do when Woodruff can't open again after an update, for its attention item (the phone shows it under the item). */
 internal fun popUpsFix(tv: String) = "On $tv, open Settings → Advanced and turn on Pop-ups over other apps."
 internal fun spaceDetail(tv: String) = "Updates and saved posters need room. Free some in Storage & apps on $tv."
+/** The about text of "progress isn't shared with the family": where [tv] signs in to Google Drive again. */
+internal fun shareDetail(tv: String) = "Sign in to Google Drive again and leave every box ticked. On $tv: Settings → Accounts."
 internal fun waitingDetail(tv: String) = "On $tv, press Install when it asks."
 /** The Version row's about for a TV that asks before each update: Settings → Updates' own words on this TV. */
 internal fun asksDetail(tv: String, isThis: Boolean) =
@@ -541,6 +548,10 @@ fun buildHealth(f: HealthFacts, clock: HealthClock): HealthReport {
     }
     if (signIns.values.any { it.state == SignInState.KEYS_REJECTED }) {
         items += HealthItem("signin.keys", "Google doesn’t accept the saved keys", KEYS_DETAIL, "keys")
+    }
+    // Signed in to Drive without the shared folder: nothing else says so, and the sign-in itself reads as fine.
+    if (f.shareNeedsSignIn && !signIns.getValue(HealthGrant.DRIVE).attention) {
+        items += HealthItem("signin.share", "progress isn’t shared with the family", shareDetail(tv), "signin", HealthGrant.DRIVE.json)
     }
 
     // Rule 2: updates.

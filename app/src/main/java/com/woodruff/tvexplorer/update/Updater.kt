@@ -136,6 +136,11 @@ object Updater {
      * limit: no check asks before then, whoever starts it (a restart, Check for updates, Check for a fix).
      */
     private const val K_HELD_UNTIL = "githubHeldUntil"
+    /**
+     * The build Update in the Woodruff app asked for ([updateNowFromPhone]): with automatic updates off it still goes
+     * in, once nothing holds it back (the film that was playing is over). Nothing once that build or a newer one is in.
+     */
+    private const val K_FROM_PHONE = "updateFromPhone"
 
     enum class Step { IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, INSTALLING, ERROR }
 
@@ -229,12 +234,22 @@ object Updater {
      * [opening] the app); then install right away if that needs no press and nobody is using
      * Woodruff. Called by the phone-connection service's loop and when the app opens; with [offer]
      * as Woodruff comes on screen, a downloaded update that needs a press is offered first. Does
-     * nothing when automatic updates are off. After this version closed while starting, it looks
-     * for a fix and puts it in sooner instead ([urgentNow]).
+     * nothing when automatic updates are off, but put in the build the Woodruff app's Update asked
+     * for ([K_FROM_PHONE]). After this version closed while starting, it looks for a fix and puts it
+     * in sooner instead ([urgentNow]).
      */
     fun maybeAuto(c: Context, opening: Boolean = false, offer: Boolean = false) {
         val app = c.applicationContext
-        if (!autoEnabled(app)) return
+        if (!autoEnabled(app)) {
+            // Off: nothing by itself, but the build the Woodruff app's Update asked for goes in once nothing holds it back
+            // (a film that was playing, say).
+            val asked = prefs(app).getInt(K_FROM_PHONE, 0)
+            if (asked > current) scope.launch {
+                if (_state.value.step == Step.IDLE) restoreReady(app)
+                if ((_state.value.latest ?: 0) >= asked) installUrgently(app, asked = true)
+            }
+            return
+        }
         scope.launch {
             val p = prefs(app)
             // After a restart: an update downloaded and checked earlier is ready again at once,
@@ -274,10 +289,11 @@ object Updater {
      * (0: none pending). That's [ERROR_RETRY_MS] after a try GitHub may have counted (sooner than an hour,
      * but not on every pass: GitHub allows 60 an hour for the whole home, shared by every TV), and when
      * GitHub said, after it turned one down (as Settings says). A try further off than GitHub ever asks
-     * for is this TV's clock having gone back: it goes now. Visible for tests.
+     * for, or a last check after [now], is this TV's clock having gone back: it goes now (a last check
+     * dated in the future used to stop the routine checks until that day came). Visible for tests.
      */
     internal fun routineCheckDue(now: Long, lastCheck: Long, nextTryAt: Long, every: Long): Boolean =
-        if (nextTryAt > 0) now >= nextTryAt || nextTryAt - now > MAX_HOLD_MS else now - lastCheck >= every
+        if (nextTryAt > 0) now >= nextTryAt || nextTryAt - now > MAX_HOLD_MS else now - lastCheck !in 0 until every
 
     /**
      * Whether an update may restart Woodruff now, with no one asked: nothing that mustn't be cut short
@@ -376,12 +392,13 @@ object Updater {
      * fix is in. Only a film that's playing or a job that mustn't be cut short holds it back
      * ([mayInstallUrgently]); a no to Android's prompt for it, and the back-off after a try that didn't
      * go through, are respected. Where it needs a press (Android 11 and older, a TV that asked for this
-     * build), it's offered at once if Woodruff's screen is up, else the next time it opens.
+     * build), it's offered at once if Woodruff's screen is up, else the next time it opens. With automatic
+     * updates off, only when someone [asked] for it (Update in the Woodruff app).
      */
-    private suspend fun installUrgently(app: Context) {
+    private suspend fun installUrgently(app: Context, asked: Boolean = false) {
         val s = _state.value
         val build = s.latest ?: return
-        if (s.step != Step.READY || !autoEnabled(app)) return
+        if (s.step != Step.READY || !(asked || autoEnabled(app))) return
         val now = System.currentTimeMillis()
         val p = prefs(app)
         val putOff = p.getInt(K_LATER_FOR, 0) == build && now < p.getLong(K_LATER_UNTIL, 0)
@@ -557,13 +574,16 @@ object Updater {
     /**
      * Update pressed in the Woodruff app on an iPhone or Mac: the newest build now (not the test TV's day), and in
      * at once, as an urgent fix goes in: only a film that's playing, the doorbell's camera or a job that mustn't be
-     * cut short holds it back, and then the usual quiet moment installs it.
+     * cut short holds it back, and then the usual quiet moment installs it. Also with automatic updates off, where
+     * it used to be downloaded and left waiting: someone asked for it, and the routine's next pass after the film
+     * puts it in ([K_FROM_PHONE]).
      */
     fun updateNowFromPhone(c: Context) {
         val app = c.applicationContext
         scope.launch {
             checkAndDownload(app, manual = true)
-            installUrgently(app)
+            _state.value.takeIf { it.step == Step.READY }?.latest?.let { prefs(app).edit().putInt(K_FROM_PHONE, it).apply() }
+            installUrgently(app, asked = true)
         }
     }
 

@@ -17,6 +17,7 @@ import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.data.StorageRepository
 import com.woodruff.tvexplorer.mail.MailPoller
 import com.woodruff.tvexplorer.nest.Doorbell
+import com.woodruff.tvexplorer.settings.SecretStore
 import com.woodruff.tvexplorer.settings.SharedKeys
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.update.Updater
@@ -31,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.io.IOException
 import java.net.Inet4Address
@@ -92,7 +94,7 @@ class TransferService : Service() {
     @Volatile private var shownAt: String? = null
     /** Address and port this TV is announced at, so a new one is announced again (and a flicker isn't). */
     @Volatile private var announced: String? = null
-    /** The port last opened: opened again first, so phones' saved links keep working. */
+    /** The port last opened: opened again first, so phones' saved links keep working (kept across restarts: [PhonePort]). */
     @Volatile private var lastPort: Int? = null
     /** Since when (elapsedRealtime) the pairing key has been unreadable; null while it's fine. */
     @Volatile private var keyUnreadableSince: Long? = null
@@ -158,6 +160,9 @@ class TransferService : Service() {
             watch.start()
             keepOpen()
         }
+        // The Keystore found its key after it was missing: a phone connection opened meanwhile with a key for this run
+        // only looks again at once, and opens again with the saved one, the key every phone was paired with ([step]).
+        scope.launch { SecretStore.keyBacks.drop(1).collect { watch.lookAgain() } }
         // Rings reach every TV through this one only once there's a network to pull and relay over.
         // Only while this instance still runs: stopped meanwhile (onDestroy clears [live] first, then
         // stops the doorbell), a start now would leave the doorbell running with no service.
@@ -192,7 +197,9 @@ class TransferService : Service() {
      */
     private fun step(address: String?): Boolean = try {
         val s = server
-        when (nextStep(open = s != null, alive = s?.isAlive == true, shownAt = shownAt, address = address)) {
+        // Open with a key that's no longer this TV's pairing key: one for this run only, the saved one readable again.
+        val keyChanged = s != null && runCatching { pairingKey(applicationContext) }.getOrNull().let { it != null && it != s.token }
+        when (nextStep(open = s != null, alive = s?.isAlive == true, shownAt = shownAt, address = address, keyChanged = keyChanged)) {
             NextStep.WAIT -> { showWaiting(); true }
             NextStep.OPEN, NextStep.REOPEN -> address != null && open(address)
             NextStep.MOVE -> { if (address != null) showAt(address); true }
@@ -215,7 +222,7 @@ class TransferService : Service() {
         val page = assets.open("web/index.html").bufferedReader().use { it.readText() }
         val storage = StorageRepository(app)
         val routes = CompanionRoutes(app)
-        for (port in portsToTry(lastPort)) {
+        for (port in portsToTry(lastPort ?: PhonePort.saved(app))) {
             val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public, homeName = { PhoneIcon.label(app) },
                 driveToken = { GoogleAuth.blockingToken(app) })
             try {
@@ -229,6 +236,7 @@ class TransferService : Service() {
                 server = s
             }
             lastPort = s.listeningPort
+            PhonePort.save(app, s.listeningPort)
             showAt(address)
             return true
         }
@@ -239,16 +247,17 @@ class TransferService : Service() {
      * The pairing key phones were paired with; [PairingKey.NotReadyYet] while the TV's Keystore can't
      * read it yet, so opening waits. Only if that lasts far longer than any hiccup does it open with a
      * key for this run ([PairingKey.forThisRun]): phones then scan again, but the phone connection
-     * is never off for good because of a Keystore that keeps failing.
+     * is never off for good because of a Keystore that keeps failing. Once the saved key reads again,
+     * it opens again with that one ([step]).
      */
     private fun token(app: Context): String = try {
         pairingKey(app).also { keyUnreadableSince = null }
     } catch (e: PairingKey.NotReadyYet) {
         val now = SystemClock.elapsedRealtime()
         val since = keyUnreadableSince ?: now.also { keyUnreadableSince = it }
-        if (now - since < PAIRING_KEY_PATIENCE_MS) throw e
+        if (now - since < keyPatienceMs) throw e
         Log.w(TAG, "the pairing key stayed unreadable: a key for this run only")
-        PairingKey.forThisRun(app)
+        keyForThisRun(app)
     }
 
     /** Phones reach the server at [address] now: say so, and announce it to the other TVs if it's new. */
@@ -398,6 +407,10 @@ class TransferService : Service() {
         /** The phone pairing key ([PairingKey]; throws [PairingKey.NotReadyYet] while unreadable). Tests use their own, apart from the Keystore. */
         @Volatile internal var pairingKey: (Context) -> String = { PairingKey.get(it) }
 
+        /** The key for this run only ([PairingKey.forThisRun]), and how long the saved one is waited for first. Tests use their own. */
+        @Volatile internal var keyForThisRun: (Context) -> String = { PairingKey.forThisRun(it) }
+        @Volatile internal var keyPatienceMs: Long = PAIRING_KEY_PATIENCE_MS
+
         /** How the service enters the foreground. Tests make Android refuse. */
         @Volatile internal var foreground: (Service, Int, Notification, Int) -> Unit =
             { service, id, notification, type -> ServiceCompat.startForeground(service, id, notification, type) }
@@ -487,7 +500,7 @@ internal enum class NextStep {
     WAIT,
     /** An address, nothing open yet: open. */
     OPEN,
-    /** The server stopped by itself (its socket closed under it): open it again. */
+    /** The server stopped by itself (its socket closed under it), or the pairing key changed under it: open it again. */
     REOPEN,
     /** A new address, or the address back after a while without one: show the server there. */
     MOVE,
@@ -497,18 +510,35 @@ internal enum class NextStep {
 
 /**
  * [open]: a server was opened; [alive]: it still listens; [shownAt]: the address it's shown at (null
- * while waiting); [address]: this TV's home-network address now.
+ * while waiting); [address]: this TV's home-network address now; [keyChanged]: it was opened with a key
+ * that isn't the pairing key now (one for this run only, while the Keystore couldn't read the saved one).
  */
-internal fun nextStep(open: Boolean, alive: Boolean, shownAt: String?, address: String?): NextStep = when {
+internal fun nextStep(open: Boolean, alive: Boolean, shownAt: String?, address: String?, keyChanged: Boolean = false): NextStep = when {
     address == null -> NextStep.WAIT
     !open -> NextStep.OPEN
-    !alive -> NextStep.REOPEN
+    !alive || keyChanged -> NextStep.REOPEN
     address != shownAt -> NextStep.MOVE
     else -> NextStep.STAY
 }
 
 /** The phone connection's usual ports, in order; 0 is any free one. */
 private val PORTS = listOf(8080, 8090, 8888, 9090, 0)
+
+/**
+ * The port the phone connection last opened on, kept across restarts (an update, the TV turning on), so it opens
+ * there again first: phones' links, Shortcuts and Home Screen apps carry it. Another app holding 8080 for a while
+ * (Kodi's web server) used to move it to 8090 and, at a later restart, back.
+ */
+internal object PhonePort {
+    private const val PREFS = "phone_connection"
+    private const val KEY = "port"
+
+    fun saved(c: Context): Int? = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY, 0).takeIf { it in 1..65535 }
+
+    fun save(c: Context, port: Int) {
+        if (port in 1..65535 && saved(c) != port) c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY, port).apply()
+    }
+}
 
 /** The ports to try: the last one first (phones keep links with it), then the usual ones. */
 internal fun portsToTry(last: Int?): List<Int> = (listOfNotNull(last?.takeIf { it > 0 }) + PORTS).distinct()

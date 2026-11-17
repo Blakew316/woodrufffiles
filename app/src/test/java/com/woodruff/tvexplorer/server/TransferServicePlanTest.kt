@@ -37,6 +37,14 @@ class TransferServicePlanTest {
         assertEquals(NextStep.REOPEN, nextStep(open = true, alive = false, shownAt = null, address = moved))
     }
 
+    @Test fun aServerOpenedWithAKeyThatsNoLongerThePairingKeyIsOpenedAgain() {
+        // Opened with a key for this run only, and the saved key reads again: open again with that one.
+        assertEquals(NextStep.REOPEN, nextStep(open = true, alive = true, shownAt = home, address = home, keyChanged = true))
+        assertEquals(NextStep.REOPEN, nextStep(open = true, alive = true, shownAt = null, address = moved, keyChanged = true))
+        // No network: it waits, still listening, and opens again once there is one.
+        assertEquals(NextStep.WAIT, nextStep(open = true, alive = true, shownAt = home, address = null, keyChanged = true))
+    }
+
     @Test fun stopIsStopAndARestartAsksTheSwitch() {
         var asked = 0
         val on = { asked++; true }

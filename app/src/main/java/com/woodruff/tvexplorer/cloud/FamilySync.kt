@@ -7,6 +7,7 @@ import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.ShowPrefs
 import com.woodruff.tvexplorer.player.Watched
+import com.woodruff.tvexplorer.settings.SecretStore
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.util.NetworkWatch
 import kotlinx.coroutines.CancellationException
@@ -215,10 +216,22 @@ object FamilySync {
 
     /**
      * Signed in to Drive, but without the shared folder: from before it was asked for, or its box
-     * was unticked on Google's consent screen. Signing in once more (one QR scan) fixes it.
+     * was unticked on Google's consent screen, or Drive turned the folder down for want of it.
+     * Signing in once more (one QR scan) fixes it: Settings → Accounts and the phone's Connections offer it.
      */
-    fun needsNewSignIn(c: Context): Boolean =
-        enabled(c) && GoogleAuth.isConnected(c) && !GoogleAuth.hasScope(c, GoogleAuth.APPDATA)
+    fun needsNewSignIn(c: Context): Boolean = problem(c) == SIGN_IN_AGAIN
+
+    /**
+     * [needsNewSignIn] as far as Google has said so, for the health report: the scopes it granted the Drive sign-in
+     * are kept and the shared folder isn't one, or Drive turned the folder down. Not while that isn't known (a sign-in
+     * from before the scopes were kept, or scopes the Keystore can't read just now): its next token says.
+     */
+    fun sharingRefused(c: Context): Boolean {
+        if (!needsNewSignIn(c)) return false
+        if (lastProblem == SIGN_IN_AGAIN) return true
+        val granted = SecretStore.get(c).get(GoogleAuth.Grant.DRIVE.scopesKey) ?: return false
+        return GoogleAuth.APPDATA !in granted.split(' ')
+    }
 
     /** Drive was just signed in to: fetch the other TVs' progress now and send this TV's. */
     internal fun signedIn(c: Context) {
@@ -309,8 +322,15 @@ object FamilySync {
                 val seen = readSeen(app)
                 val listed = HashMap<String, String>()
                 val fresh = ArrayList<SyncData>()
-                for (f in files) {
-                    if (f.name == name || !f.name.startsWith(PREFIX) || !f.name.endsWith(".json")) continue
+                val progress = files.filter { it.name.startsWith(PREFIX) && it.name.endsWith(".json") }
+                val times = DriveApi.Rfc3339()
+                // The family's newest file, by Google's clock (this TV's own may be off).
+                val newest = progress.maxOfOrNull { times.parse(it.modified) } ?: 0L
+                for (f in progress) {
+                    if (f.name == name) continue
+                    // A device that stopped writing two months ago is gone (an Apple TV reinstalled with a new id, a reset
+                    // TV): what its file still says would bring back, weeks later, what the family has finished since.
+                    if (!FamilyMerge.current(times.parse(f.modified), newest)) continue
                     listed[f.id] = f.modified
                     // Only what changed since it was last merged is downloaded.
                     if (seen[f.id] == f.modified) continue
@@ -589,7 +609,10 @@ internal object FamilyMerge {
         return SyncData(recent, gone, watched, unwatched, shows(local.shows, others))
     }
 
-    /** Continue watching: the newest entry or removal per key; the [RecentStore.MAX] newest entries, newest first. */
+    /**
+     * Continue watching: the newest entry or removal per key; newest first, the [RecentStore.MAX] newest Drive videos and,
+     * apart, as many of this TV's own ([capped]).
+     */
     fun recent(items: List<RecentItem>, gone: Map<String, Long>, others: List<SyncData>): Pair<List<RecentItem>, Map<String, Long>> {
         val latest = LinkedHashMap<String, RecentItem>()
         val removed = HashMap(gone)
@@ -606,8 +629,37 @@ internal object FamilyMerge {
         // Watched again after a removal: the removal is spent.
         kept.forEach { removed.remove(it.key) }
         // Stable: entries as new as each other keep this TV's order.
-        return kept.sortedByDescending { it.updatedAt }.take(RecentStore.MAX) to newest(removed, RecentStore.MAX_GONE)
+        return capped(kept.sortedByDescending { it.updatedAt }) to newest(removed, RecentStore.MAX_GONE)
     }
+
+    /**
+     * [items] (newest first) down to the [max] first Drive videos and, counted apart, the [max] first of this TV's own
+     * (its USB drives, Family Memories, links): the whole family's progress, which only ever has Drive videos, never
+     * pushes this TV's own half-watched videos out of Continue watching.
+     */
+    fun capped(items: List<RecentItem>, max: Int = RecentStore.MAX): List<RecentItem> {
+        var shared = 0
+        var own = 0
+        return items.filter { if (FamilySync.isShared(it.key)) shared++ < max else own++ < max }
+    }
+
+    /** [newest] for the family's Drive videos and, apart, for this TV's own: the family's ✓s never push this TV's own out. */
+    fun newestEach(times: Map<String, Long>, max: Int): Map<String, Long> {
+        val (shared, own) = times.entries.partition { FamilySync.isShared(it.key) }
+        if (shared.size <= max && own.size <= max) return times
+        fun keep(e: List<Map.Entry<String, Long>>) = e.sortedByDescending { it.value }.take(max)
+        return (keep(shared) + keep(own)).associate { it.key to it.value }
+    }
+
+    /**
+     * Whether another device's file, last changed at [modified], is merged: not when it was left [STALE_MS] or more before
+     * the family's newest file ([newest]). Both are Drive's times, so a TV whose own clock is wrong judges it alike. A
+     * time Drive didn't give (0) counts as current.
+     */
+    fun current(modified: Long, newest: Long): Boolean = modified <= 0 || newest - modified < STALE_MS
+
+    /** A device that hasn't written its file for this long has stopped sharing: 60 days, as on the Apple devices. */
+    const val STALE_MS = 60 * 24 * 3_600_000L
 
     /** ✓s: per key the newest of a mark and an unmark. */
     fun watched(on: Map<String, Long>, off: Map<String, Long>, others: List<SyncData>): Pair<Map<String, Long>, Map<String, Long>> {
@@ -619,7 +671,7 @@ internal object FamilyMerge {
         }
         val kept = marks.filter { (k, at) -> at > (unmarks[k] ?: Long.MIN_VALUE) }
         val taken = unmarks.filterKeys { it !in kept }
-        return newest(kept, Watched.MAX) to newest(taken, Watched.MAX_OFF)
+        return newestEach(kept, Watched.MAX) to newest(taken, Watched.MAX_OFF)
     }
 
     /** Per-show choices: per key the newest (a cleared one included). */
