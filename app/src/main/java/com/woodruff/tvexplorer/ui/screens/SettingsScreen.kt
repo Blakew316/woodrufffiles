@@ -527,8 +527,8 @@ fun SettingsScreen(vm: MainViewModel) {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
             SettingItem(Sym.Autorenew, "Install updates automatically", onOff(facts.autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !facts.autoUpdate); changed() },
-            // One TV gets each update first; the rest only take one it has had for a day, so a bad build never reaches them all.
-            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update first. The others only take one it has had for a whole day, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
+            // Only noted now (Updater.isTestTv): every TV takes each release at its next check, as the README says.
+            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "Marks this TV as the test TV. Every TV takes each update at its next check either way.") { Updater.setTestTv(context, !facts.testTv); changed() },
             // How this copy came to be: a fresh install (after an uninstall) is what erases every sign-in.
             SettingItem(
                 // A few words in the row ("Updated Nov 2"); the whole story in its panel.
