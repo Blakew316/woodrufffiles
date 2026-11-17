@@ -515,8 +515,13 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.FolderOpen, "Browse by type", spaced = roots.isNotEmpty(), about = "Every video, song, photo or document on this TV and attached drives.") { dialog = SettingsDialog.BrowseTypes },
             SettingItem(Sym.Apps, "Apps", about = "Open the apps on this TV.") { vm.openApps(Screen.SETTINGS) },
             SettingItem(Sym.Cloud, "iCloud", about = "How to bring iCloud mail, files and photos to this TV.") { dialog = SettingsDialog.ICloud },
-            SettingItem(Sym.VideoCall, "Google Meet", spaced = true, about = "Video calls on the TV.") { Handoff.launch(context, Handoff.MEET) },
-            SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone’s camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
+            // Opened, or its store page; on a TV with neither, it says so rather than doing nothing.
+            SettingItem(Sym.VideoCall, "Google Meet", spaced = true, about = "Video calls on the TV.") {
+                if (Handoff.launch(context, Handoff.MEET) is OpenResult.Failed) vm.say("Couldn’t open Google Meet on this TV")
+            },
+            SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone’s camera or screen on the TV.") {
+                if (Handoff.launch(context, Handoff.AIRSCREEN) is OpenResult.Failed) vm.say("Couldn’t open AirScreen on this TV")
+            },
         )
         SettingsPage.UPDATES -> listOf(
             SettingItem(
