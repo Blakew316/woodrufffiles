@@ -75,6 +75,8 @@ class SlideshowView(context: Context) : FrameLayout(context) {
     /** Photos in a row that couldn't be read. */
     private var misses = 0
     private var running = false
+    /** Which [start] this is: a folder scan finishing after a later start (or a stop) shows nothing. */
+    private var run = 0
 
     init {
         setBackgroundColor(Color.BLACK)
@@ -111,6 +113,7 @@ class SlideshowView(context: Context) : FrameLayout(context) {
     fun start() {
         if (running) return
         running = true
+        val mine = ++run
         misses = 0
         Appearance.load(context)
         main.post(tick)
@@ -126,7 +129,9 @@ class SlideshowView(context: Context) : FrameLayout(context) {
             val memories = runCatching { com.woodruff.tvexplorer.photos.Memories.forToday(context) { all } }.getOrDefault(emptyList())
             val found = if (memoriesOnly) memories else memories + (all - memories.toSet())
             main.post {
-                if (!running) return@post
+                // Stopped meanwhile, or stopped and started again (the doorbell's camera opening and closing over
+                // "Loading photos…"): only the newest scan moves the slideshow on, or each photo got half its turn.
+                if (!running || mine != run) return@post
                 photos = found
                 if (found.isEmpty()) {
                     message.text = "No photos yet.\n\nSend photos from your phone (Woodruff → Files), then pick their folder in Settings → Screensaver."
