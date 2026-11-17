@@ -19,7 +19,8 @@ import java.time.Duration
 
 /**
  * The doorbell view closes by itself 2 minutes after the last key press over the slideshow, the
- * screensaver or a Woodruff screen, never over a film; and it isn't left behind when it's left.
+ * screensaver or a Woodruff screen, and 10 minutes after it over a film; and it isn't left behind
+ * when it's left (over a film, it waits for Back).
  * (No cameras are connected here, so it shows its words, not a live picture.)
  */
 @RunWith(AndroidJUnit4::class)
@@ -83,12 +84,24 @@ class DoorbellActivityTest {
         assertTrue(c.get().isFinishing)
     }
 
-    @Test fun overAFilmItStaysUntilBack() {
+    @Test fun overAFilmItClosesByItselfAfterTenMinutesBackToTheFilm() {
         val c = open(null)
-        wait(Duration.ofMinutes(10))
+        wait(Duration.ofMinutes(9))
         assertFalse(c.get().isFinishing)
+        // A key: someone's still watching the door, the 10 minutes start again.
+        c.get().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT))
+        c.get().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT))
+        wait(Duration.ofMinutes(9))
+        assertFalse(c.get().isFinishing)
+        wait(Duration.ofSeconds(61))
+        assertTrue(c.get().isFinishing)
+    }
+
+    @Test fun overAFilmItWaitsWhileItsLeftForAMoment() {
+        val c = open(null)
         // Left for a moment (the TV's screensaver over it): the film's camera is still there after.
         c.pause().stop()
+        wait(Duration.ofSeconds(10))
         assertFalse(c.get().isFinishing)
     }
 

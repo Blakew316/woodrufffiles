@@ -31,9 +31,20 @@ class DoorbellRulesTest {
 
     @Test fun eachKindShowsOncePerVisit() {
         val visits = Visits()
+        assertTrue(visits.admit(yard, "visit-7", "motion"))
+        assertFalse(visits.admit(yard, "visit-7", "motion"))
+        // A person seen after motion is news: it says who.
         assertTrue(visits.admit(yard, "visit-7", "person"))
         assertFalse(visits.admit(yard, "visit-7", "person"))
-        assertTrue(visits.admit(yard, "visit-7", "motion"))
+    }
+
+    @Test fun motionAfterAPersonInTheSameVisitIsThatPersonMoving() {
+        // With motion alerts on: "Person seen", and no "Motion seen" card after it for the same visit.
+        val visits = Visits()
+        assertTrue(visits.admit(yard, "visit-8", "person"))
+        assertFalse(visits.admit(yard, "visit-8", "motion"))
+        // Another visit's motion still shows.
+        assertTrue(visits.admit(yard, "visit-9", "motion"))
     }
 
     @Test fun aNewVisitRingsAgain() {
@@ -173,6 +184,47 @@ class DoorbellRulesTest {
         assertEquals(10_000_000L, sinceByGoogle(10_000_000, listenedMs = -50, tvNow = 0))
     }
 
+    @Test fun aMessagesPublishTimeAloneIsntGooglesTime() {
+        // With the answer's time, the later of it and the message's publishTime.
+        assertEquals(2_000L, googleNow(answered = 2_000, published = 1_000))
+        assertEquals(3_000L, googleNow(answered = 2_000, published = 3_000))
+        // Without it, none: the TV's clock stands in (publishTime alone made a backlog look new after waking).
+        assertEquals(0L, googleNow(answered = 0, published = 1_793_043_725_000L))
+        val tvNow = 1_793_043_725_000L + 10 * 60_000
+        val since = sinceByGoogle(googleNow(0, 1_793_043_725_000L), listenedMs = 1_000, tvNow = tvNow)
+        assertEquals(tvNow - 1_000, since)
+        // A ring from ten minutes before the TV woke, published as it happened: a backlog.
+        assertTrue(isStale(1_793_043_725_000L, since))
+    }
+
+    // ---- Listening ------------------------------------------------------------------------------
+
+    @Test fun offlineTheNextTryIsNeverMoreThan15sAway() {
+        assertEquals(listOf(5_000L, 10_000L, 15_000L, 15_000L, 15_000L), (0..4).map(::offlinePauseMs))
+        assertTrue((0..1_000).all { offlinePauseMs(it) <= 15_000 })
+    }
+
+    @Test fun aPullFromBeforeARestartNeverLetsGoOfTheOneWaitingNow() {
+        val pulls = InFlight<String>()
+        pulls.opened("old pull")
+        // Listening started again while the old pull still waited: the new one waits now.
+        pulls.opened("new pull")
+        // The old one ends late: the new one is still the one to cut short as the screen comes on.
+        pulls.closed("old pull")
+        assertEquals("new pull", pulls.now())
+        pulls.closed(null)
+        assertEquals("new pull", pulls.now())
+        pulls.closed("new pull")
+        assertNull(pulls.now())
+    }
+
+    @Test fun savingTheSameSubscriptionAgainDoesntStartListeningAgain() {
+        assertFalse(restartsListening(changed = false, listening = true))
+        assertTrue(restartsListening(changed = true, listening = true))
+        // Nothing listening yet: it starts.
+        assertTrue(restartsListening(changed = false, listening = false))
+    }
+
     // ---- Each TV's own subscription -----------------------------------------------------------------
 
     @Test fun eachTvsSubscriptionIsNamedAfterTheFamilysAndTheTv() {
@@ -298,6 +350,15 @@ class DoorbellRulesTest {
         assertEquals("Google refused", a.value)
         assertEquals("Google’s project doesn’t let this TV listen on its own; it hears the doorbell through Living Room instead.", a.about)
         assertTrue(a.attention)
+    }
+
+    @Test fun aListenerThatIsntRunningSaysSoNotWatching() {
+        val a = alerts(listening = DoorbellListening.Stopped)
+        assertEquals(DoorbellAlerts.State.OFF, a.state)
+        assertEquals("Not listening", a.value)
+        assertFalse(a.attention)
+        // Without cameras here it hears the doorbell through another TV, as before.
+        assertEquals(DoorbellAlerts.State.THROUGH, alerts(cameras = false, from = "Living Room", listening = DoorbellListening.Stopped).state)
     }
 
     @Test fun aProblemAPersonMustFixSaysWhat() {

@@ -136,6 +136,24 @@ class CompanionRoutes(private val ctx: Context) {
 
     private fun phonePage(p: PhonePage): Response = phonePage(p, TvLinks.name(ctx)).let { (title, body) -> page(title, body) }
 
+    /** An Apple TV's word ([b]: on, for, from), here: noted, and a camera alert's or mail's card already up goes if the screen is on it. */
+    private fun appleTvSaid(b: JSONObject) {
+        val on = b.optBoolean("on")
+        com.woodruff.tvexplorer.nowplaying.NowPlaying.appleTvSaid(
+            ctx, on, b.optInt("for", com.woodruff.tvexplorer.nowplaying.AppleTvScreen.DEFAULT_SECONDS), from = b.optString("from"),
+        )
+        if (on) Notices.appleTvOnScreen(ctx)
+    }
+
+    /** What this TV can say of its screen for an Apple TV (GET /api/appletv): never an input under Woodruff's own screens. */
+    private fun appleTvReport(): JSONObject {
+        val (input, appleTv) = if (Notices.ownScreenUp()) false to false else com.woodruff.tvexplorer.nowplaying.NowPlaying.appleTvReport(ctx)
+        return JSONObject().put("input", input ?: JSONObject.NULL).put("appleTv", appleTv ?: JSONObject.NULL)
+    }
+
+    /** A yes or no another TV answered as [key] in [o]; null for anything else (it couldn't tell, or didn't say). */
+    private fun tvFlag(o: JSONObject, key: String): Any = (o.opt(key) as? Boolean) ?: JSONObject.NULL
+
     fun handle(s: IHTTPSession): Response? = when {
         // The phone's Family Memories tab.
         s.uri.startsWith("/api/memories") -> memories.handle(s) { body(s) }
@@ -253,17 +271,52 @@ class CompanionRoutes(private val ctx: Context) {
             com.woodruff.tvexplorer.nest.AlertPictures.receive(ctx, jsonBody(s, MAX_PICTURE_REQUEST), relay = !fromTv)
             ok()
         }
-        // Woodruff on the Apple TV plugged into this TV: {"on": true, "for": 25} every 10 s or so while it's the app on
-        // the Apple TV's screen, {"on": false} when it leaves. Meanwhile this TV draws and chimes nothing of its own
-        // over the Apple TV (NowPlaying.onAppleTv). With the pairing key, as the family's phones and Macs: not in LINK_ROUTES.
+        // Woodruff on an Apple TV plugged into this TV, with the pairing key as the family's phones and Macs, or passed
+        // on by the hub with this TV's link key (LINK_ROUTES): {"on": true, "for": 25, "from": "<its id>", "name": "<its
+        // name>"} every 10 s or so while it's the app on the Apple TV's screen, {"on": false, "from": …} when it leaves.
+        // Meanwhile this TV draws and chimes no camera alert or mail of its own over the Apple TV (NowPlaying.onAppleTv),
+        // and one already up goes. GET: what this TV can say of its screen, for the Apple TV asking which TV it's
+        // plugged into: {"input": true|false|null, "appleTv": true|false|null} (null: it can't tell).
         s.uri == "/api/appletv" && s.method == Method.POST -> {
-            val b = body(s)
-            com.woodruff.tvexplorer.nowplaying.AppleTvScreen.said(
-                b.optBoolean("on"), b.optInt("for", com.woodruff.tvexplorer.nowplaying.AppleTvScreen.DEFAULT_SECONDS),
-            )
+            appleTvSaid(body(s))
             ok()
         }
+        s.uri == "/api/appletv" && s.method == Method.GET -> json(appleTvReport())
         // ---- Several TVs (this one is the hub) ------------------------------------------------
+        // An Apple TV's word for a TV linked to this one ("id"; "this" is this TV), passed on with that TV's link key, and
+        // that TV's report of its screen: about 4 s at most. A TV on an older Woodruff can't say (GET: nulls).
+        s.uri == "/api/tvs/appletv" && s.method == Method.POST -> {
+            val b = body(s)
+            val id = b.optString("id")
+            val word = JSONObject(b.toString()).apply { remove("id") }
+            if (id == "this") appleTvSaid(word)
+            else {
+                val tv = TvLinks.find(id) ?: throw IllegalArgumentException("That TV isn’t linked any more.")
+                try {
+                    TvLinks.appleTvSaid(tv, word)
+                } catch (e: java.io.IOException) {
+                    throw IllegalArgumentException("${tv.name} didn’t respond")
+                }
+            }
+            ok()
+        }
+        s.uri == "/api/tvs/appletv" && s.method == Method.GET -> {
+            val id = s.parameters["id"]?.firstOrNull().orEmpty()
+            if (id == "this") json(appleTvReport())
+            else {
+                val tv = TvLinks.find(id) ?: throw IllegalArgumentException("That TV isn’t linked any more.")
+                val r = try {
+                    TvLinks.appleTvReport(tv)
+                } catch (e: TvLinks.KeyRefused) {
+                    JSONObject() // an older Woodruff there: the link key doesn't open this
+                } catch (e: TvLinks.Refused) {
+                    JSONObject()
+                } catch (e: java.io.IOException) {
+                    if (e.message == "HTTP 404") JSONObject() else throw IllegalArgumentException("${tv.name} didn’t respond")
+                }
+                json(JSONObject().put("input", tvFlag(r, "input")).put("appleTv", tvFlag(r, "appleTv")))
+            }
+        }
         s.uri == "/api/status" && s.method == Method.GET -> json(TvLinks.status(ctx))
         // This TV's health report (also for a linked hub, with its link key): words and facts, no secrets.
         s.uri == "/api/health" && s.method == Method.GET -> json(Health.report(ctx, probe = true).toJson())

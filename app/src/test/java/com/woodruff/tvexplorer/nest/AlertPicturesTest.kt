@@ -41,6 +41,10 @@ class AlertPicturesTest {
     private val routes = CompanionRoutes(app)
     private val at = 1_800_000_000_000L
 
+    // Woodruff's main screen in front: its banner is the card these pictures go to.
+    @org.junit.Before fun woodruffInFront() { com.woodruff.tvexplorer.notify.AppVisibility.foreground = true }
+    @org.junit.After fun asItWas() { com.woodruff.tvexplorer.notify.AppVisibility.foreground = false }
+
     /** A camera no other test has used. */
     private fun camera() = "enterprises/p/devices/${UUID.randomUUID()}"
 

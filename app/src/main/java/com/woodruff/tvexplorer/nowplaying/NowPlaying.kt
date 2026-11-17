@@ -122,12 +122,39 @@ object NowPlaying {
     fun current(c: Context): Playing? = ownPlayer?.let { it.copy(can = ownCan(it, playerListens)) } ?: fromSessions(c)
 
     /**
-     * Whether this TV's screen is on the Apple TV ([showsAppleTv]): on the input it's plugged into, or Woodruff on
-     * the Apple TV says it's on screen ([AppleTvScreen], at [now]) while no app of this TV's own plays. Without
-     * Notification access only the Apple TV's word counts. False while Woodruff's own player is open.
+     * Whether this TV's screen is on the Apple TV ([showsAppleTv]): on the input named for it, or Woodruff on an
+     * Apple TV says it's on screen ([AppleTvScreen], at [now]) and this TV shows the input it showed as the Apple TV
+     * said so, or nothing it can tell by. Without Notification access only the Apple TV's word counts. False while
+     * Woodruff's own player is open.
      */
-    fun onAppleTv(c: Context, now: Long = SystemClock.elapsedRealtime()): Boolean =
-        ownPlayer == null && showsAppleTv(fromSessions(c.applicationContext), AppleTvScreen.onScreen(now))
+    fun onAppleTv(c: Context, now: Long = SystemClock.elapsedRealtime()): Boolean {
+        if (ownPlayer != null) return false
+        val shows = everything(c.applicationContext)
+        shows?.let(AppleTvScreen::noteNamed)
+        return showsAppleTv(shows, AppleTvScreen.words(now), AppleTvScreen.namedInput)
+    }
+
+    /**
+     * Woodruff on an Apple TV ([from]: its id) said it's on its screen ([on]) for the next [forSeconds], or that it
+     * isn't (POST /api/appletv), at [now]. As its word turns on, and for a few seconds after, what this TV shows is
+     * noted with it ([AppleTvScreen.said]).
+     */
+    fun appleTvSaid(c: Context, on: Boolean, forSeconds: Int = AppleTvScreen.DEFAULT_SECONDS, from: String = "", now: Long = SystemClock.elapsedRealtime()) {
+        val app = c.applicationContext
+        AppleTvScreen.said(on, forSeconds, now, from) { everything(app) }
+    }
+
+    /**
+     * For an Apple TV asking which TV it's plugged into (GET /api/appletv): whether this TV's screen is on one of its
+     * inputs right now, and whether that input is named for an Apple TV ([screenReport]). Neither while Woodruff's own
+     * player is open.
+     */
+    fun appleTvReport(c: Context): Pair<Boolean?, Boolean?> {
+        if (ownPlayer != null) return false to false
+        val shows = everything(c.applicationContext)
+        shows?.let(AppleTvScreen::noteNamed)
+        return screenReport(shows)
+    }
 
     fun canSeeOtherApps(c: Context): Boolean = try {
         sessions(c); true
@@ -200,35 +227,48 @@ object NowPlaying {
         else s.position).coerceAtLeast(0)
 
     private fun fromSessions(c: Context): Playing? = try {
-        val all = sessions(c)
-        val ctl = pick(all)
-        ctl?.let { m ->
-            val meta = m.metadata
-            val title = meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
-                ?: meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
-            val subtitle = meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
-                ?: meta?.getString(MediaMetadata.METADATA_KEY_ARTIST)
-            val app = runCatching {
-                c.packageManager.getApplicationLabel(c.packageManager.getApplicationInfo(m.packageName, 0)).toString()
-            }.getOrDefault(m.packageName)
-            val state = m.playbackState
-            val playing = state?.state == PlaybackState.STATE_PLAYING
-            // Sessions report the position at their last update; move it forward to now.
-            val pos = state?.let { positionNow(it, playing) } ?: 0L
-            Playing(
-                title = title?.takeIf { it.isNotBlank() } ?: app,
-                subtitle = subtitle?.takeIf { it.isNotBlank() },
-                app = app,
-                playing = playing,
-                positionMs = pos.coerceAtLeast(0),
-                durationMs = meta?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0) ?: 0,
-                can = sessionCan(state?.actions ?: 0L),
-            )
-        }
+        pick(sessions(c))?.let { playingOf(c, it) }
     } catch (e: SecurityException) {
         null // notification access not granted: only Woodruff's own player is visible
     } catch (e: Exception) {
         null
+    }
+
+    /**
+     * Everything Android's media sessions show on this TV, the most recent first (an app, or the TV's own input app
+     * for the input on screen); null when it can't be seen (no Notification access).
+     */
+    private fun everything(c: Context): List<Playing>? = try {
+        sessions(c).map { playingOf(c, it) }
+    } catch (e: SecurityException) {
+        null
+    } catch (e: Exception) {
+        null
+    }
+
+    /** What the media session [m] shows, as the phone sees it. */
+    private fun playingOf(c: Context, m: MediaController): Playing {
+        val meta = m.metadata
+        val title = meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
+            ?: meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
+        val subtitle = meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
+            ?: meta?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+        val app = runCatching {
+            c.packageManager.getApplicationLabel(c.packageManager.getApplicationInfo(m.packageName, 0)).toString()
+        }.getOrDefault(m.packageName)
+        val state = m.playbackState
+        val playing = state?.state == PlaybackState.STATE_PLAYING
+        // Sessions report the position at their last update; move it forward to now.
+        val pos = state?.let { positionNow(it, playing) } ?: 0L
+        return Playing(
+            title = title?.takeIf { it.isNotBlank() } ?: app,
+            subtitle = subtitle?.takeIf { it.isNotBlank() },
+            app = app,
+            playing = playing,
+            positionMs = pos.coerceAtLeast(0),
+            durationMs = meta?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0) ?: 0,
+            can = sessionCan(state?.actions ?: 0L),
+        )
     }
 }
 
@@ -238,30 +278,72 @@ object NowPlaying {
  * ("Apple TV HDMI 4"), with no length. An app called Apple TV playing a film isn't an input: it has
  * the film's name, and usually a length. Visible for tests.
  */
-internal fun isAppleTvInput(p: Playing?): Boolean {
-    if (p == null || !p.playing || p.key != null || p.durationMs > 0) return false
+internal fun isAppleTvInput(p: Playing?): Boolean = p != null && p.playing && namedForAppleTv(p)
+
+/** Whether [p] is one of the TV's inputs named for an Apple TV, playing or not ([isAppleTvInput]). Visible for tests. */
+internal fun namedForAppleTv(p: Playing): Boolean {
+    if (p.key != null || p.durationMs > 0) return false
     val title = p.title.lowercase()
     return isInput(p) && ("apple tv" in title || "appletv" in title)
 }
 
 /**
- * Whether this TV's screen shows the Apple TV, from [p], what Android says is playing here (null when nothing
- * can be seen: no Notification access, or nothing playing), and whether Woodruff on the Apple TV says it's on
- * the Apple TV's screen ([appleTvSays], [AppleTvScreen]). The input it's plugged into, named so, counts by
- * itself. The Apple TV's word counts unless an app of this TV's own is playing ([otherAppPlaying]): the TV
- * has gone from the Apple TV to that app, which the Apple TV can't see. Visible for tests.
+ * Whether this TV's screen shows the Apple TV, from what Android's media sessions show here ([shows], the most recent
+ * first; null when they can't be seen), what the Apple TVs say ([words], those that hold: [AppleTvScreen]) and the
+ * input this TV has shown named for an Apple TV ([named], if any). The input named for it counts by itself. Otherwise
+ * an Apple TV's word holds while this TV shows the Apple TV's input, or nothing it can tell by:
+ *  - nothing to be seen (no Notification access, or nothing here says anything): the word stands;
+ *  - an input playing: the one this TV showed as the word began ([AppleTvScreen.Word.input]), or any, if it was on an
+ *    app of its own then ([AppleTvScreen.Word.onApp]); never another one than the input named for an Apple TV, nor
+ *    another one than it began on (a games console, Live TV);
+ *  - an app of the TV's own playing (Netflix, YouTube): the TV has gone to it;
+ *  - nothing playing, where the TV showed an input playing as the word began: it has left that input (its home
+ *    screen, its settings);
+ *  - nothing playing, the TV having shown no input: what it shows (an app paused) is from before the word
+ *    ([AppleTvScreen.Word.before]: the same, not played since), which says nothing of where the TV is, or newer
+ *    (an app paused, or an input left, since the Apple TV came on), which is the TV gone there.
+ * An Apple TV's word goes on all through a film, whatever this TV shows: taken alone, it kept the TV's own doorbell
+ * card off a TV switched to its home screen, a paused app or a games console. Visible for tests.
  */
-internal fun showsAppleTv(p: Playing?, appleTvSays: Boolean): Boolean = isAppleTvInput(p) || (appleTvSays && !otherAppPlaying(p))
+internal fun showsAppleTv(shows: List<Playing>?, words: List<AppleTvScreen.Word>, named: Playing? = null): Boolean {
+    val p = shows?.let(::shownOf)
+    if (isAppleTvInput(p)) return true
+    if (words.isEmpty()) return false
+    if (p == null) return true
+    if (p.playing) {
+        if (!isInput(p) || (named != null && !sameShown(p, named))) return false
+        return words.any { w -> w.input?.let { sameShown(p, it) } ?: w.onApp }
+    }
+    return words.any { w -> w.input == null && w.before.any { sameShown(p, it, positionToo = true) } }
+}
 
 /**
- * Whether [p] is an app of this TV's own playing (Netflix, YouTube, Plex…), not one of the TV's inputs
- * ([isInput]): an input plays whatever is plugged in there, the Apple TV perhaps, under whatever name it was
- * given. Nothing seen is no app playing. Visible for tests.
+ * What this TV can say of its own screen ([shows], as for [showsAppleTv]): whether it's on one of its inputs right now
+ * (an input is what plays), and whether that input is named for an Apple TV. Null for each when it can't tell (no
+ * Notification access, or nothing seen). Visible for tests.
  */
-internal fun otherAppPlaying(p: Playing?): Boolean = p != null && p.playing && !isInput(p)
+internal fun screenReport(shows: List<Playing>?): Pair<Boolean?, Boolean?> {
+    val p = shows?.let(::shownOf) ?: return null to null
+    val input = p.playing && isInput(p)
+    return input to (input && namedForAppleTv(p))
+}
+
+/** Of [all] (as Android lists them, the most recent first), the one this TV shows: the one playing, else the latest. */
+internal fun shownOf(all: List<Playing>): Playing? = all.firstOrNull { it.playing } ?: all.firstOrNull()
+
+/** How far a session left paused may have moved and still be the same, not played since (a pause a moment late). */
+private const val SAME_SPOT_MS = 15_000L
+
+/**
+ * Whether [a] and [b] are the same thing shown: the same app's same title (an input's own name, for an input) and,
+ * [positionToo], at the same spot give or take [SAME_SPOT_MS].
+ */
+internal fun sameShown(a: Playing, b: Playing, positionToo: Boolean = false): Boolean =
+    a.app.trim().equals(b.app.trim(), ignoreCase = true) && a.title.trim().equals(b.title.trim(), ignoreCase = true) &&
+        (!positionToo || kotlin.math.abs(a.positionMs - b.positionMs) <= SAME_SPOT_MS)
 
 /** Whether [p] is one of the TV's inputs, as the TV's own input app says it plays one: by the input's name, or its own. */
-private fun isInput(p: Playing): Boolean = "hdmi" in p.title.lowercase() || p.app.trim().lowercase() in INPUT_APPS
+internal fun isInput(p: Playing): Boolean = "hdmi" in p.title.lowercase() || p.app.trim().lowercase() in INPUT_APPS
 
 /** What the TVs' own input apps are called. */
 private val INPUT_APPS = setOf("tv", "live tv", "live channels", "tv input", "input", "inputs", "source", "sources")

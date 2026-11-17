@@ -1307,6 +1307,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         doorbellPictured = picture != null
         ringing = true
         view.hideController()
+        // Any card over other apps goes, and none comes over this one meanwhile (Notices).
+        com.woodruff.tvexplorer.notify.Notices.playerDoorbellCard(true)
         doorbellCard.show()
         player?.let { updateSkip(it) } // Skip intro / Next episode make way
         countdown.removeCallbacks(hideDoorbell)
@@ -1327,6 +1329,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     /** [animate] false: gone at once (the player stopping). */
     private fun dismissDoorbell(animate: Boolean = true) {
         countdown.removeCallbacks(hideDoorbell)
+        if (ringing) com.woodruff.tvexplorer.notify.Notices.playerDoorbellCard(false)
         ringing = false
         ringingCamera = null
         ringingAlert = null

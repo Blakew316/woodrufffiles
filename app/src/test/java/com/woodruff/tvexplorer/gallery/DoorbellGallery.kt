@@ -148,12 +148,14 @@ class DoorbellGallery {
             // A person seen by the backyard camera: what happened, then which camera (once: the
             // second theme shows the same notice again).
             compose.runOnIdle {
+                // Woodruff's main screen in front: its own banner shows only then.
+                com.woodruff.tvexplorer.notify.AppVisibility.foreground = true
                 seen = seen?.also { Notices.popUp(app, it) } ?: Notices.post(app, NoticeSource.SYSTEM, "Person seen", "Backyard")
             }
             compose.mainClock.advanceTimeBy(1_000)
             compose.waitForIdle()
             compose.onRoot().captureRoboImage(File(out, "tv-home-person-notice-${if (light) "light" else "dark"}.png").path)
-            compose.runOnIdle { Notices.dismissLatest() }
+            compose.runOnIdle { Notices.dismissLatest(); com.woodruff.tvexplorer.notify.AppVisibility.foreground = false }
             compose.mainClock.advanceTimeBy(1_000)
         }
         // The same alert with the family's Mac's picture of it beside the words (the sample porch standing in for
@@ -170,12 +172,13 @@ class DoorbellGallery {
             compose.mainClock.advanceTimeBy(1_500)
             compose.waitForIdle()
             compose.runOnIdle {
+                com.woodruff.tvexplorer.notify.AppVisibility.foreground = true
                 pictured = pictured?.also { Notices.popUp(app, it) } ?: Notices.post(app, NoticeSource.SYSTEM, "Person seen", "Backyard", alert = alert)
             }
             compose.mainClock.advanceTimeBy(1_000)
             compose.waitForIdle()
             compose.onRoot().captureRoboImage(File(out, "tv-home-person-notice-picture-${if (light) "light" else "dark"}.png").path)
-            compose.runOnIdle { Notices.dismissLatest() }
+            compose.runOnIdle { Notices.dismissLatest(); com.woodruff.tvexplorer.notify.AppVisibility.foreground = false }
             compose.mainClock.advanceTimeBy(1_000)
         }
         compose.runOnIdle { Palette.light = false }

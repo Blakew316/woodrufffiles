@@ -1,6 +1,7 @@
 package com.woodruff.tvexplorer.nest
 
 import android.content.Context
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
 import android.util.Log
@@ -8,6 +9,8 @@ import androidx.annotation.VisibleForTesting
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.notify.Chime
+import com.woodruff.tvexplorer.notify.Notice
+import com.woodruff.tvexplorer.notify.NoticeOverlay
 import com.woodruff.tvexplorer.notify.NoticeSource
 import com.woodruff.tvexplorer.notify.Notices
 import com.woodruff.tvexplorer.settings.SharedKey
@@ -81,6 +84,13 @@ object Doorbell {
     private const val K_RELAY_FROM = "relayFrom"
     /** The Pub/Sub messages already shown ([SeenMessages.saved]). */
     private const val K_SEEN = "seen"
+    /** The visits already shown ([Visits.saved]). */
+    private const val K_VISITS = "visits"
+    /** The family's subscription's topic, as it was last read, and the subscription it was read from ([familyTopic]). */
+    private const val K_TOPIC = "topic"
+    private const val K_TOPIC_FOR = "topicFor"
+    /** The family's subscription that was set never to expire ([familyTopic]). */
+    private const val K_NEVER_EXPIRES = "neverExpires"
 
     /** Once Google refused this TV a subscription of its own, how long until it asks again (the family may change the project's permissions). */
     private const val REFUSED_RETRY_MS = 6 * 60 * 60_000L
@@ -92,8 +102,8 @@ object Doorbell {
     private const val ASLEEP_CHECK_MS = 60 * 60_000L
     /** How long a ring's camera may take to show before the ring's card pops up instead. */
     private const val SHOW_GRACE_MS = 4_000L
-    /** Waiting for the network: 5 s, 15 s, 30 s, then every minute, or at once when it's back. */
-    private val OFFLINE_PAUSES = longArrayOf(5_000, 15_000, 30_000, 60_000)
+    /** After the screen comes on, a moment for what was on it to come back before a ring heard meanwhile is announced. */
+    private const val WAKE_GRACE_MS = 1_500L
     private const val SIGNED_OUT = "Connect your cameras first"
     private const val SOME_CAMERA = "One of your cameras"
 
@@ -154,7 +164,9 @@ object Doorbell {
      */
     private val seen = SeenMessages()
     @Volatile private var seenRead = false
+    /** The visits shown ([Visits]): kept on disk too, so a battery doorbell's follow-up after a restart doesn't ring again. */
     private val visits = Visits()
+    @Volatile private var visitsRead = false
     /**
      * The time a ring is judged by (pauses, visits, freshness): the TV's clock, which tests move on
      * (a battery doorbell's follow-up 45 s later, past the 30 s pause).
@@ -180,8 +192,11 @@ object Doorbell {
         APP,
     }
 
-    /** A doorbell ring whose camera opens on [host]: [camera] rang at [at] (this TV's clock). */
-    data class Ring(val id: Long, val camera: String, val at: Long, val host: Host)
+    /**
+     * A doorbell ring whose camera opens on [host]: [camera] rang at [at] (this TV's clock), and was sent to the screens
+     * at [sent] (the same, but for one heard while the screen was off: as it came on).
+     */
+    data class Ring(val id: Long, val camera: String, val at: Long, val host: Host, val sent: Long = at)
 
     private val _opens = MutableSharedFlow<Ring>(replay = 1, extraBufferCapacity = 4)
     /**
@@ -202,7 +217,7 @@ object Doorbell {
     /** What's wrong with this TV's doorbell alerts, when something a person can fix is (the phone shows it). */
     val status: StateFlow<String?> = _status.asStateFlow()
 
-    private val _listening = MutableStateFlow<DoorbellListening>(DoorbellListening.Idle)
+    private val _listening = MutableStateFlow<DoorbellListening>(DoorbellListening.Stopped)
     /** What this TV's listener is doing; [alerts] puts it in words. */
     val listening: StateFlow<DoorbellListening> = _listening.asStateFlow()
 
@@ -216,6 +231,8 @@ object Doorbell {
     /** Woodruff is the TV's screensaver now, listening for rings ([Host.SCREENSAVER]): Notices shows everything over it as before. */
     @Volatile internal var dreaming = false
         private set
+    /** Whether a doorbell view is on screen: a ring's card that comes late stays off it ([NoticeOverlay]). */
+    val viewUp: Boolean get() = views.get() > 0
     /** When a doorbell view last came on screen. */
     @Volatile private var viewStartedAt = 0L
     /** When a screen last started a doorbell view that isn't up yet (this TV's clock); 0: none on its way. */
@@ -291,7 +308,11 @@ object Doorbell {
     private fun present(host: Host, on: Boolean) {
         when (host) {
             // Up: it takes rings itself from now on (nothing's on its way any more).
-            Host.VIEW -> if (on) { viewStartedAt = clock(); viewOpeningAt = 0L; views.incrementAndGet() } else views.decrementAndGet()
+            // A ring's card up over other apps goes as its camera comes: it came late, and the camera is the notice.
+            Host.VIEW -> if (on) {
+                viewStartedAt = clock(); viewOpeningAt = 0L; views.incrementAndGet()
+                NoticeOverlay.hide { it.chime == Chime.Sound.DOORBELL }
+            } else views.decrementAndGet()
             Host.SLIDESHOW -> if (on) slideshows.incrementAndGet() else slideshows.decrementAndGet()
             Host.SCREENSAVER -> dreaming = on
             Host.APP -> Unit // MainActivity says so itself (AppVisibility.foreground)
@@ -310,16 +331,22 @@ object Doorbell {
         }
         val app = c.applicationContext
         // Saving the phone's Cameras page sends it again unchanged: that changes nothing (a TV that
-        // was given it by another TV doesn't become the one it was set on).
-        if (clean != subscription(app).orEmpty()) {
+        // was given it by another TV doesn't become the one it was set on), and the listener goes on
+        // as it is, only looking again now. Started again, the pull it had out kept going, and ending
+        // late it let go of the new one's, which then couldn't be cut short as the screen came on.
+        val changed = clean != subscription(app).orEmpty()
+        if (changed) {
             SharedKeys.set(app, SharedKey.DOORBELL) { store(app, clean.ifEmpty { null }, setHere = true) }
             // What was wrong was about the old one: the phone's answer to this doesn't repeat it
             // (the listener, started again just below, says what it finds with the new one).
             _listening.value = DoorbellListening.Idle
             _status.value = null
         }
-        start(app)
+        if (restartsListening(changed, listenerRuns())) start(app) else nudge()
     }
+
+    /** Whether listening runs ([start], until [stop]). */
+    @Synchronized private fun listenerRuns(): Boolean = job != null
 
     /** Another TV passed on the family's subscription ([value]; null: it was removed). */
     internal fun received(c: Context, value: String?) {
@@ -393,7 +420,7 @@ object Doorbell {
             if (relayFrom(app).let { it == null || (sender.isNotEmpty() && it != sender) }) prefs(app).edit().putString(K_RELAY_FROM, sender).apply()
         }
         val now = clock()
-        if (!isNews(camera, session, kind, now)) return
+        if (!isNews(app, camera, session, kind, now)) return
         // The alert as its picture from the family's Mac is matched to it, on each card it shows on.
         val alert = cameraAlert(camera, kind, session, event, at?.takeIf { it > 0 } ?: now)
         // What happened, then which camera: "Person seen" / "Backyard" reads right for every name.
@@ -412,56 +439,126 @@ object Doorbell {
     /**
      * Whether [kind] on [camera] at [now] is news: a new visit, or, without a visit, past the camera's
      * pause. Every alert starts the pause, so the same event passed on by a TV too old to say its visit
-     * still shows once. In one step, as the same event can arrive from two TVs at the same moment.
+     * still shows once, and this TV's own copy of an event such a TV passed on a moment before (the
+     * same event, now with its visit) doesn't show again. In one step, as the same event can arrive from
+     * two TVs at the same moment. A new visit is kept on disk ([Visits]).
      */
-    private fun isNews(camera: String, session: String?, kind: String, now: Long): Boolean = synchronized(lastAlert) {
-        if (!visits.admit(camera, session, kind)) return false
+    private fun isNews(app: Context, camera: String, session: String?, kind: String, now: Long): Boolean = synchronized(lastAlert) {
+        val shown = visitsHere(app)
+        if (!shown.admit(camera, session, kind, now)) return false
+        if (session != null) prefs(app).edit().putString(K_VISITS, shown.saved()).apply()
         val k = "$kind|$camera"
-        if (session == null && now - (lastAlert[k] ?: 0L) < if (kind == "doorbell") 30_000 else 120_000) return false
+        val pause = if (kind == "doorbell") 30_000L else 120_000L
+        if (session == null && now - (lastAlert[k] ?: 0L) < pause) return false
+        // A TV too old to say its visit passed this on a moment ago: this is the same event, once.
+        if (session != null && lastBare.remove(k)?.let { now - it in 0 until pause } == true) { lastAlert[k] = now; return false }
+        if (session == null) lastBare[k] = now
         lastAlert[k] = now
         true
+    }
+
+    /** When each camera and kind last showed an alert that didn't say its visit (passed on by a TV too old to say). */
+    private val lastBare = HashMap<String, Long>()
+
+    /** [visits], as this TV kept them: read from its settings the first time. */
+    private fun visitsHere(app: Context): Visits {
+        if (!visitsRead) synchronized(visits) {
+            if (!visitsRead) {
+                visits.restore(prefs(app).getString(K_VISITS, null), clock())
+                visitsRead = true
+            }
+        }
+        return visits
     }
 
     /** The doorbell [camera] ([name]) rang at [at] (this TV's clock): the chime, and its camera or its card ([alert]'s, for its picture). */
     private fun announce(app: Context, camera: String, name: String, at: Long, alert: CameraAlert) {
         _ringTimes.update { it + (camera to at) }
+        // The screen is off (a hub with linked TVs listens on in standby, and a TV asleep still answers a ring passed
+        // on): kept, unread, with nothing on the dark screen, which used the ring up; announced as the screen comes on,
+        // if that's soon (screenCameOn).
+        if (!Notices.screenOn(app)) {
+            val notice = Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", name, chime = Chime.Sound.DOORBELL, alert = alert)
+            slept = Slept(camera, at, alert, notice, SystemClock.elapsedRealtime())
+            return
+        }
+        // The camera opening is the notice: no card over it (it's kept in Notifications all the same). No camera:
+        // the card, unless it can't be shown now (the TV's screen on the Apple TV, which shows the ring itself:
+        // Notices.post). A camera only ever opens over Woodruff's own screens and its screensaver (pickHost).
+        showRing(app, camera, at, alert) { card ->
+            Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", name, chime = Chime.Sound.DOORBELL, popUp = card, alert = alert)
+        }
+    }
+
+    /**
+     * [camera]'s ring at [at] ([alert]'s) on screen now: its camera, where one opens (pickHost), else its card.
+     * [notice] gives the ring's notice, told whether its card pops up (and doing that).
+     */
+    private fun showRing(app: Context, camera: String, at: Long, alert: CameraAlert, notice: (card: Boolean) -> Notice) {
+        val now = clock()
         val host = pickHost(
             camerasHere = GoogleAuth.isConnected(app, GoogleAuth.Grant.NEST),
             dreaming = dreaming, canOverlay = { Settings.canDrawOverlays(app) },
             views = views.get(), slideshows = slideshows.get(), inApp = AppVisibility.foreground,
-            viewOpening = viewOnItsWay(viewOpeningAt, at),
+            viewOpening = viewOnItsWay(viewOpeningAt, now),
         )
         // A camera is about to open: WebRTC is made ready meanwhile, so its picture comes sooner.
         if (host != null) Rtc.warm(app)
-        // The camera opening is the notice: no card over it (it's kept in Notifications all the same). No camera:
-        // the card, unless the TV's screen is on the Apple TV, which shows the ring itself (Notices.post). A camera
-        // only ever opens over Woodruff's own screens and its screensaver (pickHost), never over the Apple TV.
-        val notice = Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", name, chime = Chime.Sound.DOORBELL, popUp = host == null, alert = alert)
+        val n = notice(host == null)
         if (host != null) {
-            val ring = Ring(ringIds.incrementAndGet(), camera, at, host)
+            val ring = Ring(ringIds.incrementAndGet(), camera, at, host, sent = now)
             _opens.tryEmit(ring)
             // The camera couldn't open after all (that screen went just then, or Android wouldn't let
-            // the screensaver open it): the card, a moment late, rather than nothing. Not if the screen
-            // has gone to the Apple TV meanwhile, as for any card.
+            // the screensaver open it): the card, a moment late, rather than nothing. Not if it can't be
+            // shown now (the screen gone to the Apple TV meanwhile, or off), as for any card.
             scope.launch {
                 delay(SHOW_GRACE_MS)
-                val opened = if (host == Host.SCREENSAVER) viewStartedAt >= at else claims.taken(ring.id)
-                if (!opened && !Notices.onAppleTvNow(app)) Notices.popUp(app, notice)
+                val opened = if (host == Host.SCREENSAVER) viewStartedAt >= now else claims.taken(ring.id)
+                if (!opened && Notices.mayShow(app, n)) Notices.popUp(app, n)
             }
         }
         _rings.tryEmit(alert)
     }
 
+    /** A ring heard while the screen was off ([announce]): its camera, its alert, its notice, and when it was heard (steady clock). */
+    private class Slept(val camera: String, val at: Long, val alert: CameraAlert, val notice: Notice, val heard: Long)
+    /** The last ring heard while the screen was off, until the screen comes on. */
+    @Volatile private var slept: Slept? = null
+
+    /**
+     * The screen came on at [woke] (steady clock): the last ring heard while it was off is announced now, as it would
+     * have been, its chime and its camera or card, if it rang under 90 s before ([announcedOnWaking]): someone turning
+     * the TV on to see who's there. A moment later, for what was on screen to come back first.
+     */
+    @VisibleForTesting internal fun screenCameOn(app: Context, woke: Long = SystemClock.elapsedRealtime()) {
+        val s = slept ?: return
+        slept = null
+        if (!announcedOnWaking(s.heard, woke)) return
+        scope.launch {
+            delay(WAKE_GRACE_MS)
+            // Gone off again, or the screen is on the Apple TV (which shows what it missed itself).
+            if (!Notices.mayShow(app, s.notice)) return@launch
+            Chime.play(app, Chime.Sound.DOORBELL)
+            showRing(app, s.camera, s.at, s.alert) { card -> s.notice.also { if (card) Notices.popUp(app, it) } }
+        }
+    }
+
     // ---- Listening ------------------------------------------------------------------------------
 
-    /** Stops listening (the phone-connection service stopped). */
-    @Synchronized fun stop() { job?.cancel(); job = null }
+    /** Stops listening (the phone-connection service stopped): Settings says it isn't listening, not "Watching". */
+    @Synchronized fun stop() {
+        job?.cancel()
+        job = null
+        _listening.value = DoorbellListening.Stopped
+        _status.value = null
+    }
 
     /** Starts (or restarts) listening for rings; called when the phone-connection service starts. */
     @Synchronized fun start(c: Context) {
         val app = c.applicationContext
         Awake.start(app)
-        if (watching == null) watching = scope.launch { watchWakes() }
+        if (watching == null) watching = scope.launch { watchWakes(app) }
+        if (_listening.value == DoorbellListening.Stopped) _listening.value = DoorbellListening.Idle
         // Not listening until now (Woodruff just started, or its phone connection had stopped): what
         // Google kept meanwhile is a backlog. Started again while listening, it's still listening.
         if (job == null) listeningSince = android.os.SystemClock.elapsedRealtime()
@@ -478,21 +575,24 @@ object Doorbell {
      */
     @Volatile private var listeningSince = 0L
     /** The pull waiting on Google now, to cut short ([cutPullShort]); and whether it was. */
-    @Volatile private var inFlight: java.net.HttpURLConnection? = null
+    private val inFlight = InFlight<java.net.HttpURLConnection>()
     @Volatile private var cutShort = false
     private var watching: Job? = null
 
     /**
      * The screen coming on starts a new [listeningSince]. That, or the network coming back: a pull held
      * open from before (across standby, or on a network that has gone) would wait out its whole 70 s
-     * for nothing, and a ring meanwhile with it, so it's cut short and made again at once.
+     * for nothing, and a ring meanwhile with it, so it's cut short and made again at once. A ring heard
+     * while the screen was off is announced as it comes on ([screenCameOn]); and as it goes off, no
+     * card is left on it ([Notices.screenWentOff]).
      */
-    private suspend fun watchWakes() {
+    private suspend fun watchWakes(app: Context) {
         coroutineScope {
             launch {
                 var on = Awake.on.value
                 Awake.on.collect { now ->
-                    if (now && !on) { listeningSince = android.os.SystemClock.elapsedRealtime(); cutPullShort() }
+                    if (now && !on) { listeningSince = android.os.SystemClock.elapsedRealtime(); cutPullShort(); screenCameOn(app) }
+                    if (!now && on) Notices.screenWentOff()
                     on = now
                 }
             }
@@ -502,7 +602,7 @@ object Doorbell {
 
     /** Cuts the pull waiting on Google now short: [pull] makes it again at once. */
     private fun cutPullShort() {
-        val conn = inFlight ?: return
+        val conn = inFlight.now() ?: return
         cutShort = true
         runCatching { conn.disconnect() }
     }
@@ -533,7 +633,7 @@ object Doorbell {
             when (next) {
                 Next.Now -> yield()
                 is Next.After -> pause(next.ms, null, nudged)
-                Next.Offline -> pause(OFFLINE_PAUSES[offline.coerceAtMost(OFFLINE_PAUSES.size - 1)], mark, nudged)
+                Next.Offline -> pause(offlinePauseMs(offline), mark, nudged)
                 Next.Asleep -> {
                     withTimeoutOrNull(ASLEEP_CHECK_MS) {
                         merge(Awake.on.filter { it }.map { }, nudges.filter { it != nudged }.map { }).first()
@@ -663,8 +763,7 @@ object Doorbell {
 
     /** Makes this TV's own subscription on the topic of the family's [shared] one; returns its name. */
     private fun makeOwn(app: Context, token: String, shared: String): String {
-        val topic = PubSub.subscription(token, shared).optString("topic")
-        if (topic.isBlank() || topic == DELETED_TOPIC) throw PubSub.Answer(404, "TOPIC_DELETED")
+        val topic = familyTopic(app, shared, read = { PubSub.subscription(token, shared) }, neverExpire = { PubSub.update(token, shared, neverExpireBody(shared)) })
         val name = ownSubscription(shared, TvLinks.id(app)) ?: throw PubSub.Answer(400, "BAD_NAME")
         try {
             PubSub.create(token, name, ownSubscriptionBody(topic))
@@ -678,6 +777,36 @@ object Doorbell {
             }
         }
         return name
+    }
+
+    /**
+     * The topic of the family's subscription [shared], as Google describes it ([read]), kept each time it's read. Every
+     * TV pulls its own now, so nothing pulls the family's: Google deletes a subscription unused for 31 days unless it's
+     * set never to expire, and a TV whose own went after a day off then couldn't make it again ("Subscription not
+     * found", for good). So where Google can't find it (404), the topic kept from before stands in; and once read, the
+     * family's is set never to expire ([neverExpire]), once, where the cameras' sign-in may (a refusal changes nothing).
+     */
+    internal fun familyTopic(app: Context, shared: String, read: () -> JSONObject, neverExpire: () -> Unit): String {
+        val p = prefs(app)
+        val about = try {
+            read()
+        } catch (e: PubSub.Answer) {
+            if (e.code != 404) throw e
+            val kept = p.getString(K_TOPIC, null)?.takeIf { it.isNotBlank() && p.getString(K_TOPIC_FOR, null) == shared } ?: throw e
+            Log.i("Doorbell", "the family's subscription is gone: making this TV's own on the topic kept from before")
+            return kept
+        }
+        val topic = about.optString("topic")
+        if (topic.isBlank() || topic == DELETED_TOPIC) throw PubSub.Answer(404, "TOPIC_DELETED")
+        if (p.getString(K_TOPIC, null) != topic || p.getString(K_TOPIC_FOR, null) != shared) {
+            p.edit().putString(K_TOPIC, topic).putString(K_TOPIC_FOR, shared).apply()
+        }
+        if (expiresUnused(about) && p.getString(K_NEVER_EXPIRES, null) != shared) {
+            runCatching(neverExpire)
+                .onSuccess { p.edit().putString(K_NEVER_EXPIRES, shared).apply(); Log.i("Doorbell", "the family's subscription is set never to expire") }
+                .onFailure { Log.i("Doorbell", "couldn't set the family's subscription never to expire: ${it.message}") }
+        }
+        return topic
     }
 
     /** The family's subscription was removed: this TV's own goes too (if it can't now, it goes by itself in a day). */
@@ -696,8 +825,11 @@ object Doorbell {
         cutShort = false
         // Google's time as it answered, which this pull's events are judged by ([sinceByGoogle]).
         var google = 0L
+        // This pull's own connection: let go of only while it's still the one waiting (a pull from before a restart,
+        // ending late, let go of the new one's, which then couldn't be cut short).
+        var mine: java.net.HttpURLConnection? = null
         val messages = try {
-            PubSub.pull(token, target.name, opened = { inFlight = it }, answered = { google = it })
+            PubSub.pull(token, target.name, opened = { mine = it; inFlight.opened(it) }, answered = { google = it })
         } catch (e: PubSub.Answer) {
             if (!target.own || (e.code != 404 && e.code != 403)) throw e
             val p = prefs(app)
@@ -717,7 +849,7 @@ object Doorbell {
             if (cutShort) return Next.Now
             throw e
         } finally {
-            inFlight = null
+            inFlight.closed(mine)
         }
         val got = android.os.SystemClock.elapsedRealtime()
         val tvNow = clock()
@@ -743,9 +875,10 @@ object Doorbell {
                 val m = messages.getJSONObject(i)
                 runCatching {
                     m.optJSONObject("message")?.let {
-                        // When this TV began listening, on Google's clock: its answer's time, or this message's publishTime if later.
+                        // When this TV began listening, on Google's clock: its answer's time, or this message's publishTime if later
+                        // (without the answer's time, none: the TV's clock stands in, as publishTime alone can't tell a backlog).
                         val published = eventTime(it.optString("publishTime")) ?: 0L
-                        handle(app, it, sinceByGoogle(maxOf(google, published), listened, tvNow))
+                        handle(app, it, sinceByGoogle(googleNow(google, published), listened, tvNow))
                     }
                 }.onFailure { Log.w("Doorbell", "message: $it") }
                 acks.put(m.optString("ackId"))

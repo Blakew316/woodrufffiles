@@ -1,7 +1,7 @@
 package com.woodruff.tvexplorer.ui.screens
 
 import com.woodruff.tvexplorer.player.DoorbellActivity
-import com.woodruff.tvexplorer.player.autoCloses
+import com.woodruff.tvexplorer.player.autoCloseMs
 import com.woodruff.tvexplorer.player.backPhrase
 import com.woodruff.tvexplorer.ui.Screen
 import org.junit.Assert.assertEquals
@@ -40,11 +40,11 @@ class CameraCaptionTest {
         assertEquals("Back to Woodruff", backPhrase(DoorbellActivity.Origin.SCREEN, null))
     }
 
-    @Test fun itClosesByItselfAnywhereButOverAFilm() {
-        assertFalse(autoCloses(DoorbellActivity.Origin.FILM))
-        assertTrue(autoCloses(DoorbellActivity.Origin.SLIDESHOW))
-        assertTrue(autoCloses(DoorbellActivity.Origin.SCREENSAVER))
-        assertTrue(autoCloses(DoorbellActivity.Origin.SCREEN))
+    @Test fun itClosesByItselfAfterTwoMinutesAndOverAFilmAfterTen() {
+        assertEquals(10 * 60_000L, autoCloseMs(DoorbellActivity.Origin.FILM))
+        assertEquals(2 * 60_000L, autoCloseMs(DoorbellActivity.Origin.SLIDESHOW))
+        assertEquals(2 * 60_000L, autoCloseMs(DoorbellActivity.Origin.SCREENSAVER))
+        assertEquals(2 * 60_000L, autoCloseMs(DoorbellActivity.Origin.SCREEN))
     }
 
     @Test fun eachScreenIsNamedAsTheMenuAndItsTitleSay() {

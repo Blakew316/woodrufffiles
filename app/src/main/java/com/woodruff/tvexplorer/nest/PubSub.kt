@@ -8,7 +8,8 @@ import java.net.HttpURLConnection
 
 /**
  * Google Cloud Pub/Sub's REST API, as the doorbell uses it: reading a subscription's topic, making
- * and deleting a TV's own subscription, and pulling and acknowledging messages. Blocking: for the
+ * and deleting a TV's own subscription, setting the family's never to expire, and pulling and
+ * acknowledging messages. Blocking: for the
  * doorbell's background thread. [token] is the cameras' sign-in (it asks for Pub/Sub access).
  */
 internal object PubSub {
@@ -41,6 +42,9 @@ internal object PubSub {
     fun delete(token: String, name: String) {
         call(token, "DELETE", name, null)
     }
+
+    /** Changes the subscription [name] as [body] says (its "subscription" fields named in its "updateMask"). */
+    fun update(token: String, name: String, body: JSONObject): JSONObject = call(token, "PATCH", name, body)
 
     private fun call(
         token: String, method: String, path: String, body: JSONObject?, readTimeoutMs: Int = 20_000, opened: (HttpURLConnection) -> Unit = {},

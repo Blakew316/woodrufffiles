@@ -17,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.res.ResourcesCompat
 import com.woodruff.tvexplorer.R
+import com.woodruff.tvexplorer.nest.Doorbell
 import com.woodruff.tvexplorer.nest.Shelved
 import com.woodruff.tvexplorer.nest.pictureFits
 import com.woodruff.tvexplorer.player.GlidingCard
@@ -38,6 +39,10 @@ import com.woodruff.tvexplorer.ui.motion.TvMotion
  *
  * A camera alert's card shows its picture from the family's Mac beside the words ([addNoticePicture]);
  * one that comes while the card is up is added to it there ([picture]), its time on screen as it was.
+ *
+ * A doorbell ring's card keeps its 25 s: nothing but another ring takes its place (what comes meanwhile is kept in
+ * Notifications), and it goes when the ring's camera comes on screen after all, or something else covers it
+ * ([hide]: the player's own doorbell card, the TV switched to the Apple TV, the screen going off).
  */
 object NoticeOverlay {
     private val main = Handler(Looper.getMainLooper())
@@ -45,24 +50,37 @@ object NoticeOverlay {
     /** Takes [current] away once its time is up. */
     private var dismiss: Runnable? = null
 
+    /** The notice whose card is up now, for other threads to ask ([Notices.mayShow]); null while none is. */
+    @Volatile internal var up: Notice? = null
+        private set
+
+    /** Whether a doorbell ring's camera is on screen ([Doorbell.viewUp]); replaced in tests. */
+    internal var cameraUp: () -> Boolean = { Doorbell.viewUp }
+
     /**
      * A notice on screen: its window's view, its card (where a picture that comes later goes), the notice
      * as it shows, and its card's own glide when the window doesn't animate.
      */
-    private class Shown(val root: View, val card: LinearLayout, val notice: Notice, val glide: GlidingCard?) {
+    private class Shown(val wm: WindowManager, val root: View, val card: LinearLayout, val notice: Notice, val glide: GlidingCard?) {
         var pictured = notice.picture != null
     }
 
     fun show(context: Context, notice: Notice) = main.post {
         // Its camera alert's picture, if that came while this waited its turn on the main thread.
         val n = Notices.withPicture(notice)
+        val ring = n.chime == Chime.Sound.DOORBELL
+        // A ring's camera on screen is its notice: a card for it that comes late stays off it.
+        if (ring && cameraUp()) return@post
+        // A ring's card stays its time: only another ring takes its place (anything else is in Notifications).
+        if (!ring && current?.notice?.chime == Chime.Sound.DOORBELL) return@post
         val app = context.applicationContext
         val wm = app.getSystemService(WindowManager::class.java)
         // A newer notice replaces the one up: that one glides away as this one comes in over it.
         dismiss?.let { main.removeCallbacks(it) }
         dismiss = null
-        current?.let { takeAway(wm, it) }
+        current?.let { takeAway(it) }
         current = null
+        up = null
         val density = app.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val font = runCatching { ResourcesCompat.getFont(app, R.font.inter_semibold) }.getOrNull()
@@ -131,12 +149,13 @@ object NoticeOverlay {
             // Already on its way in (from its first frame) when it glides itself.
             glide?.show()
             wm.addView(root, params)
-            val shown = Shown(root, card, n, glide)
+            val shown = Shown(wm, root, card, n, glide)
             current = shown
+            up = n
             // Its time up, it glides away.
             val away = Runnable {
-                if (current === shown) { current = null; dismiss = null }
-                takeAway(wm, shown)
+                if (current === shown) { current = null; up = null; dismiss = null }
+                takeAway(shown)
             }
             dismiss = away
             main.postDelayed(away, n.showMs)
@@ -165,8 +184,26 @@ object NoticeOverlay {
         setLineSpacing(px.coerceAtLeast(0f), 1f)
     }
 
+    /**
+     * The card up now goes at once, gliding away, if [which] says so of its notice (it's kept in Notifications all the
+     * same): the player's own doorbell card coming up under it, the TV switched to the Apple TV, the screen gone off,
+     * the ring's camera come on screen.
+     */
+    internal fun hide(which: (Notice) -> Boolean = { true }) {
+        main.post {
+            val s = current ?: return@post
+            if (!which(s.notice)) return@post
+            dismiss?.let { main.removeCallbacks(it) }
+            dismiss = null
+            current = null
+            up = null
+            takeAway(s)
+        }
+    }
+
     /** Off the screen: its window goes (and its animation glides it away), or its card glides out first. */
-    private fun takeAway(wm: WindowManager, s: Shown) {
+    private fun takeAway(s: Shown) {
+        val wm = s.wm
         val glide = s.glide
         if (glide == null) { runCatching { wm.removeView(s.root) }; return }
         glide.hide { runCatching { wm.removeView(s.root) } }

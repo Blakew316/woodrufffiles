@@ -122,6 +122,8 @@ class DoorbellRingTest {
         // The TV's screen is on the Apple TV (its input, or Woodruff on the Apple TV says so), which shows the ring itself.
         Notices.overAppleTv = { true }
         Notices.ownScreenUp = { false }
+        // (Woodruff's main screen in front, for its banner to show the card when there's one.)
+        com.woodruff.tvexplorer.notify.AppVisibility.foreground = true
         try {
             Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v30")
             val n = Notices.items.value.first()
@@ -135,6 +137,7 @@ class DoorbellRingTest {
         } finally {
             Notices.overAppleTv = over
             Notices.ownScreenUp = own
+            com.woodruff.tvexplorer.notify.AppVisibility.foreground = false
             Notices.dismissLatest()
         }
     }

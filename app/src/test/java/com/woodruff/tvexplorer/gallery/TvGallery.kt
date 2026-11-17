@@ -81,11 +81,16 @@ class TvGallery {
                     compose.onRoot().captureRoboImage(File(out, "tv-home-menu-${if (light) "light" else "dark"}.png").path)
                     compose.runOnIdle { RailPreview.open = false }
                     compose.mainClock.advanceTimeBy(600)
-                    // A notice at the top right (the doorbell's), as it pops up over any screen.
-                    compose.runOnIdle { Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", "Front Door") }
+                    // A notice at the top right (the doorbell's), as it pops up over any screen (Woodruff's main screen
+                    // in front: its own banner shows only then).
+                    compose.runOnIdle {
+                        com.woodruff.tvexplorer.notify.AppVisibility.foreground = true
+                        Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", "Front Door")
+                    }
                     compose.mainClock.advanceTimeBy(1_000)
                     compose.waitForIdle()
                     compose.onRoot().captureRoboImage(File(out, "tv-home-notice-${if (light) "light" else "dark"}.png").path)
+                    compose.runOnIdle { com.woodruff.tvexplorer.notify.AppVisibility.foreground = false }
                     // Back to the sample notices alone: the screens after it, and the light theme's
                     // Home, show the same ones as the dark theme's (not the doorbell's once, then twice).
                     compose.runOnIdle { seedNotices(app) }
