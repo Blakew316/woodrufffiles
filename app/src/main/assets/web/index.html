@@ -962,7 +962,7 @@
     <h1 class="large">Family Memories</h1>
     <div class="mgrid" id="mem-grid"></div>
     <div class="loading" id="mem-wait"><i data-ic="spin"></i></div>
-    <div class="cuv" id="mem-err" hidden><i data-ic="memories"></i><b>Can&rsquo;t Reach the TV</b><span>Family Memories shows here when the TV is on.</span></div>
+    <div class="cuv" id="mem-err" hidden><i data-ic="memories"></i><b id="mem-err-t">Can&rsquo;t Reach the TV</b><span id="mem-err-s">Family Memories shows here when the TV is on.</span><button class="btn" id="mem-retry">Try Again</button></div>
     <div class="cuv" id="mem-empty" hidden><i data-ic="memories"></i><b>No Memories Yet</b><span>Photos and videos you add here show in Family Memories on the TV, and in its slideshow.</span><button class="btn" id="mem-add">Add Photos</button></div>
     <p class="foot center" id="mem-count"></p>
   </div></div>
@@ -1104,7 +1104,7 @@
       <label class="row field"><span class="lbl">Client ID</span><input id="g-id" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="1234…apps.googleusercontent.com"></label>
       <label class="row field"><span class="lbl">Secret</span><input id="g-secret" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="GOCSPX-…"></label>
     </div>
-    <p class="foot">Leave Secret blank to keep the saved one. Saved keys are copied to every linked TV.</p>
+    <p class="foot">To change the keys, enter the secret too. Saved keys are copied to every linked TV.</p>
     <div class="group"><button class="row tap" data-page="set-drive-help"><span class="txt t">How to Set Up</span><i data-ic="chev"></i></button></div>
   </div></div>
 
@@ -1311,10 +1311,13 @@
   if (nativeSwitch) doc.documentElement.classList.add('nsw');
 
   // Keep the pairing key in the address so "Add to Home Screen" saves a link that stays paired
-  // (Home Screen apps on iPhone don't share Safari's cookies).
-  if (TVX_KEY.indexOf('__') !== 0 && !/[?&]k=/.test(location.search)) {
+  // (Home Screen apps on iPhone don't share Safari's cookies). An old key there (the page came by its cookie after
+  // the TV was paired again) is put right too, or the icon saved would open a page the TV turns down.
+  var keyInUrl = /[?&]k=([^&#]*)/.exec(location.search);
+  if (TVX_KEY.indexOf('__') !== 0 && (!keyInUrl || safeDecode(keyInUrl[1]) !== TVX_KEY)) {
     history.replaceState(null, '', '/?k=' + TVX_KEY + location.hash);
   }
+  function safeDecode(s) { try { return decodeURIComponent(s); } catch (e) { return s; } }
   var standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   var iOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
   // In Safari itself, Safari's own edge swipe goes back (through the history entries below);
@@ -1350,8 +1353,26 @@
   function post(url, data) { return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data || {}) }); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function err(e) { toast(e.message || String(e), true); }
+  // Copies [text], inside the tap. The TVs serve this page over plain http, where browsers have no clipboard API: there
+  // it's copied from a hidden text box (execCommand), line breaks and all. Only if even that fails is it shown to copy.
   function copy(text, done) {
-    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { toast(done || 'Copied'); }, function () { window.prompt('Copy this', text); });
+    function ok() { toast(done || 'Copied'); }
+    function byHand() { if (copyText(text)) ok(); else window.prompt('Copy this', text); }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, byHand);
+    else byHand();
+  }
+  function copyText(text) {
+    var t = el('textarea'), sel = window.getSelection(), done = false;
+    t.value = text; t.setAttribute('aria-hidden', 'true'); t.tabIndex = -1;
+    // (16 px, so iOS doesn't zoom in on it; read-only, so no keyboard comes up)
+    t.readOnly = true; t.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;font-size:16px;pointer-events:none';
+    doc.body.appendChild(t);
+    try {
+      t.focus({ preventScroll: true }); t.select(); t.setSelectionRange(0, text.length);
+      done = doc.execCommand('copy');
+    } catch (e) {}
+    t.remove(); if (sel) sel.removeAllRanges();
+    return done;
   }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
@@ -2562,10 +2583,31 @@
         render(p, same);
       });
     }, function (e) {
-      if (seq === p.seq && !p.files.length) { p.list.textContent = ''; p.list.classList.add('is-empty'); p.list.appendChild(el('div', 'empty', "Couldn’t open this folder")); }
+      if (seq === p.seq && !p.files.length) filesDown(p, "Couldn’t open this folder", function () { loadInto(p, path); });
       err(e);
     });
   }
+  // A folder (or the storages) that didn't come: why, and Try Again, in place of its list.
+  function filesDown(p, words, again) {
+    p.list.textContent = ''; p.list.classList.add('is-empty');
+    var box = p.list.appendChild(el('div', 'empty')); box.dataset.k = 'down';
+    box.appendChild(el('div', null, words));
+    var b = box.appendChild(el('button', 'link', 'Try Again')); b.style.marginTop = '8px';
+    b.onclick = function () { p.list.innerHTML = '<div class="loading">' + I.spin + '</div>'; again(); };
+  }
+  // The storages: asked for at start, and again when Photos & Files opens without them (the TV didn't answer then).
+  function loadRoots() {
+    return api('/api/roots').then(function (r) {
+      roots = r;
+      if (filesRoot.path) return;
+      if (roots.length) loadInto(filesRoot, roots[0].path);
+      else filesDown(filesRoot, 'No storage found on ' + hubName(), retryRoots);
+    }, function (e) {
+      if (!filesRoot.path) filesDown(filesRoot, e.message || 'Can’t reach ' + hubName(), retryRoots);
+      err(e);
+    });
+  }
+  function retryRoots() { loadRoots(); }
   function load(path) { var p = topFiles(); if (p) loadInto(p, path); }
   // keep: the same folder listed again; as many rows go in at once as were there, so the page keeps its length and
   // the scroll position stays where it was. (Typing a search filters at once, like iOS.)
@@ -2609,11 +2651,12 @@
       api('/api/delete?path=' + q(f.path), { method: 'POST' }).then(function () { toast('Deleted'); load(cwd()); }, err);
     });
   }
+  // These go to the TV serving this app whichever TV is picked: what they did names it ("Playing on Living Room").
   function fileActions(f) {
     var acts = [];
-    if (f.dir) acts.push({ label: 'Use for Slideshow', icon: 'slides', fn: function () { post('/api/slideshow', { folder: f.path }).then(function () { toast('Slideshow uses ' + f.name); }, err); } });
-    if (!f.dir && MEDIA.test(f.name)) acts.push({ label: 'Play on TV', icon: 'playtv', fn: function () { post('/api/play', { path: f.path }).then(function () { toast('Playing on the TV'); }, err); } });
-    if (!f.dir && IMG.test(f.name)) acts.push({ label: 'Set as TV Background', icon: 'photo', fn: function () { post('/api/background', { path: f.path }).then(function () { toast('Set as the TV background'); }, err); } });
+    if (f.dir) acts.push({ label: 'Use for Slideshow', icon: 'slides', fn: function () { post('/api/slideshow', { folder: f.path }).then(function () { toast('The slideshow on ' + hubName() + ' uses ' + f.name); }, err); } });
+    if (!f.dir && MEDIA.test(f.name)) acts.push({ label: 'Play on TV', icon: 'playtv', fn: function () { post('/api/play', { path: f.path }).then(function () { toast('Playing on ' + hubName()); }, err); } });
+    if (!f.dir && IMG.test(f.name)) acts.push({ label: 'Set as TV Background', icon: 'photo', fn: function () { post('/api/background', { path: f.path }).then(function () { toast('Set as ' + hubName() + '’s background'); }, err); } });
     if (!f.dir) acts.push({ label: 'Save to iPhone', icon: 'save', fn: function () { download(f); } });
     acts.push({ label: 'Delete', icon: 'trash', danger: true, fn: function () { remove(f); } });
     return acts;
@@ -2621,6 +2664,8 @@
   function fileMenu(f) { sheet(f.name, f.dir ? null : fmt(f.size), fileActions(f)); }
   // + : upload or make a folder, in a pull-down menu like iOS 26 bar buttons.
   function addMenu(b) {
+    // (nothing goes up, or is made, before a folder is open: there'd be nowhere for it)
+    if (!cwd()) return toast('Photos & Files is still loading', true);
     menu(b, [
       { label: 'Upload Photos or Files', icon: 'upload', fn: function () { $('file').click(); } },
       { label: 'New Folder', icon: 'newfolder', fn: function () {
@@ -2631,25 +2676,33 @@
   }
   // One at a time, each in its row with its progress. One that won't fit in the room the folder's storage has (the
   // listing says, less what the TV keeps for itself on its own storage) says so in its row and isn't sent (finding 44).
+  // While this phone is locked nothing new starts, and the one the lock cut off goes again once the phone is back.
   function upload(list) {
-    var queue = Array.prototype.slice.call(list), p = topFiles(), target = p.path, box = p.uploads;
-    var left = typeof p.free === 'number' ? p.free : null, root = rootOf(target), where = root && root.removable ? root.name : hubName();
+    var queue = Array.prototype.slice.call(list).map(function (f) { return { f: f }; }), p = topFiles(), target = p && p.path;
+    if (!target) return toast('Photos & Files is still loading', true);
+    var box = p.uploads, left = typeof p.free === 'number' ? p.free : null, root = rootOf(target), where = root && root.removable ? root.name : hubName();
+    awake('files', true);
     (function next() {
-      var f = queue.shift();
-      if (!f) {
+      if (doc.hidden && queue.length) return whenBack(next);
+      var job = queue.shift();
+      if (!job) {
+        awake('files', false);
         stacks.send.forEach(function (x) { if (x.isFiles && x.path === target) loadInto(x, target); });
         // (one that didn't go stays long enough to read why)
         setTimeout(function () { if (!box.querySelector('.busy')) morph(p.scroller, function () { box.hidden = true; box.textContent = ''; }); }, box.querySelector('.s.warn, .s.err') ? 8000 : 2500);
         return;
       }
-      var row = el('div', 'row fi busy'); row.appendChild(icon({ name: f.name, dir: false }));
-      var text = el('span', 'txt'); text.appendChild(el('span', 't', f.name)); var pct = el('span', 's', 'Waiting…'); text.appendChild(pct);
-      var bar = el('div', 'prog'); var fill = el('i'); bar.appendChild(fill); text.appendChild(bar); row.appendChild(text);
-      var full = noRoom(f.name, f.size, left, where);
-      if (full) { row.classList.remove('busy'); pct.textContent = full; pct.className = 's two warn'; bar.hidden = true; }
-      morph(p.scroller, function () { box.hidden = false; box.appendChild(row); });   // it fades in; the list below makes room
-      if (full) return next();
-      var xhr = new XMLHttpRequest();
+      var f = job.f, row = job.row, pct = job.pct, fill = job.fill;
+      if (!row) {
+        row = job.row = el('div', 'row fi busy'); row.appendChild(icon({ name: f.name, dir: false }));
+        var text = el('span', 'txt'); text.appendChild(el('span', 't', f.name)); pct = job.pct = el('span', 's', 'Waiting…'); text.appendChild(pct);
+        var bar = el('div', 'prog'); fill = job.fill = el('i'); bar.appendChild(fill); text.appendChild(bar); row.appendChild(text);
+        var full = noRoom(f.name, f.size, left, where);
+        if (full) { row.classList.remove('busy'); pct.textContent = full; pct.className = 's two warn'; bar.hidden = true; }
+        morph(p.scroller, function () { box.hidden = false; box.appendChild(row); });   // it fades in; the list below makes room
+        if (full) return next();
+      }
+      var xhr = new XMLHttpRequest(), at = Date.now();
       xhr.open('POST', '/api/upload?path=' + q(target) + '&name=' + q(f.name));
       xhr.upload.onprogress = function (e) { if (e.lengthComputable) { fill.style.transform = barTf(e.loaded / e.total); pct.textContent = fmt(e.loaded) + ' of ' + fmt(e.total); } };
       xhr.onload = function () {
@@ -2658,10 +2711,22 @@
         else { pct.textContent = xhr.responseText || 'Couldn’t upload it'; pct.className = 's two ' + (xhr.status === 507 ? 'warn' : 'err'); }   // (the TV's own words)
         next();
       };
-      xhr.onerror = function () { row.classList.remove('busy'); pct.textContent = 'Connection lost'; pct.className = 's err'; next(); };
+      xhr.onerror = function () {
+        // Cut off by the lock (or Woodruff put away): back to the front of the line, to go once the phone is back.
+        if (wentAway(at)) { pct.textContent = 'Waiting…'; fill.style.transform = barTf(0); queue.unshift(job); return whenBack(next); }
+        row.classList.remove('busy'); pct.textContent = 'Connection lost'; pct.className = 's err'; next();
+      };
       xhr.send(f);
     })();
   }
+  // Uploads put off while this phone is locked (or Woodruff is put away) go on as soon as it's back in front.
+  var awayAt = 0, onBack = [];
+  function wentAway(since) { return doc.hidden || awayAt >= since; }
+  function whenBack(fn) { if (!doc.hidden) fn(); else if (onBack.indexOf(fn) < 0) onBack.push(fn); }
+  doc.addEventListener('visibilitychange', function () {
+    if (doc.hidden) { awayAt = Date.now(); return; }
+    var l = onBack; onBack = []; l.forEach(function (fn) { fn(); });
+  });
   // Whether a file of [size] bytes fits in the room [free] [where] has (null: the TV didn't say); the plain words
   // when it doesn't: "This video is 2.1 GB; Living Room has 800 MB free." (or "Living Room is full."), as the TV says it.
   function noRoom(name, size0, free, where) {
@@ -2747,11 +2812,11 @@
   $('o-url').addEventListener('input', canOpen);
   function openUrl() {
     var u = $('o-url').value.trim(); if (!u) { $('o-url').focus(); return; }
-    post('/api/open', { url: u }).then(function () { toast('Opening on the TV'); $('o-url').value = ''; canOpen(); doc.activeElement.blur(); }, err);
+    post('/api/open', { url: u }).then(function () { toast('Opening on ' + hubName()); $('o-url').value = ''; canOpen(); doc.activeElement.blur(); }, err);
   }
   $('o-send').onclick = openUrl;
   $('o-url').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); openUrl(); } };
-  $('slideshow').onclick = function () { post('/api/slideshow', { start: true }).then(function () { toast('Slideshow started'); }, err); };
+  $('slideshow').onclick = function () { post('/api/slideshow', { start: true }).then(function () { toast('Slideshow started on ' + hubName()); }, err); };
 
   // ---- Remote -------------------------------------------------------------------------------------
   var tvId = 'this', tvTimer = null, tvSeq = 0, tvs = [], tvsAt = 0;
@@ -2873,6 +2938,8 @@
     renderReach();
     renderTitle();
     renderTo();
+    // Open a Link goes to the TV serving this app whichever is picked: with two TVs or more its button names it.
+    setText($('o-send'), tvs.length > 1 ? 'Open on ' + hubName() : 'Open on TV');
     renderTvList();
     renderNp();
     if (TS.open) paintTarget();
@@ -2971,7 +3038,7 @@
   // its fix), then sign-ins, updates, stability, space and keys, and what can be done from here. A linked TV's report
   // comes through this TV with its link key; one that's off, turns down its link or doesn't answer shows its last one.
   // Rows are kept by key across reports, so a value that changes cross-dissolves and the rest glides (morph).
-  var tvp = { id: null, data: null, seq: 0, timer: null, frameTimer: null, frameSeq: 0, url: null, checking: 0, linking: false, failed: false };
+  var tvp = { id: null, data: null, seq: 0, timer: null, frameTimer: null, frameSeq: 0, url: null, checking: 0, linking: false, failed: false, why: '' };
   var healthKept = {};   // by TV id: { data, at }: a report under 10 minutes old shows at once while a fresh one comes
   var ANDROID = { 26: '8', 27: '8.1', 28: '9', 29: '10', 30: '11', 31: '12', 32: '12L', 33: '13', 34: '14', 35: '15', 36: '16' };
   function tvPageShowing() { return current === 'settings' && topOf('settings') === PG['set-tv']; }
@@ -2980,6 +3047,10 @@
   var HOME_NAME = (function () { var m = doc.querySelector('meta[name=apple-mobile-web-app-title]'), n = (m && m.content) || ''; return /^__|^Woodruff Family$/.test(n) ? '' : n; })();
   function hubName() { var me = tvOf('this'); return me ? me.name : (W.home && W.home.tv) || HOME_NAME || 'the TV'; }
   function tvName(id) { var t = tvOf(id); return t ? t.name : id === 'this' ? hubName() : 'TV'; }
+  // An LG TV's report (webOS: the family's Mac installs its updates, and webOS lets no app show the screen). It says so;
+  // through a Google TV, which passes on only what its own reports have, it shows as a report with no Android version.
+  function lgReport(r) { return !!r && (r.platform === 'webos' || r.android === 0); }
+  function lgTv(id) { var k = id === tvp.id && tvp.data ? tvp.data : healthKept[id] && healthKept[id].data; return lgReport(k && k.report); }
   // Words as the TV writes them, lower case first unless a name ("signed in", "can’t reach Google").
   function lower(s) { s = s || ''; return /^(Google|Woodruff|Android|TMDB)\b/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1); }
 
@@ -2995,7 +3066,7 @@
     var p = PG['set-tv'], name = tvName(id), kept = healthKept[id];
     if (tvp.id !== id) {
       tvp.seq++; tvp.frameSeq++;
-      tvp.id = id; tvp.data = kept && Date.now() - kept.at < 6e5 ? kept.data : null; tvp.checking = 0; tvp.linking = false; tvp.failed = false;
+      tvp.id = id; tvp.data = kept && Date.now() - kept.at < 6e5 ? kept.data : null; tvp.checking = 0; tvp.linking = false; tvp.failed = false; tvp.why = '';
       $('tvp-img').removeAttribute('src'); $('tvp-img').style.opacity = 0; $('tvp-msg').textContent = '';
     }
     p.title = name; setText(p.tt, name); p.o.hash = 'tvs/' + encodeURIComponent(id);
@@ -3008,21 +3079,22 @@
     var seq = ++tvp.seq, id = tvp.id, asked = Date.now();
     // A linked TV's report takes the hub about 4 s at most; a hub that's gone gives up after 15 (fetchT).
     fetchT('/api/tvs/health?id=' + q(id), null, 15000).then(function (r) {
-      return r.json().then(function (d) { return { r: r, d: d }; }, function () { return { r: r, d: null }; });
+      return r.text().then(function (t) { var d = null; try { d = JSON.parse(t); } catch (e) {} return { r: r, d: d, t: t }; }, function () { return { r: r, d: null, t: '' }; });
     }).then(function (x) {
       if (seq !== tvp.seq) return;
       // The hub doesn't know this TV any more (unlinked, or linked again as a new TV since a banner named it).
       if (x.r.status === 400 && id !== 'this') return tvGone();
       var d = x.d, data = x.r.ok && d ? { kind: d.status, report: d }
         : x.r.status === 409 && d ? { kind: d.status, report: d.last, version: d.version, seen: d.seen } : null;
-      if (!data) throw new Error();
-      tvp.failed = false; tvp.data = data; healthKept[id] = { data: data, at: Date.now() };
+      // An answer that isn't a report: the hub's own words for why, not "Can't reach" (it was reached).
+      if (!data) { var e = new Error((d && d.message) || (x.t && x.t.length < 300 && !/^\s*</.test(x.t) ? x.t.trim() : '') || 'It didn’t send its report.'); e.answered = true; throw e; }
+      tvp.failed = false; tvp.why = ''; tvp.data = data; healthKept[id] = { data: data, at: Date.now() };
       // Check for Updates reads "Checking…" until a report asked for after it.
       if (tvp.checking && asked - tvp.checking > 2500) tvp.checking = 0;
       calm('tvp', renderTvPage);
-    }).catch(function () {
+    }).catch(function (e) {
       if (seq !== tvp.seq) return;
-      tvp.failed = true; calm('tvp', renderTvPage);
+      tvp.failed = true; tvp.why = e && e.answered ? e.message : ''; calm('tvp', renderTvPage);
     }).then(function () { if (seq === tvp.seq) tvp.timer = setTimeout(loadTvHealth, 15000); });
   }
   // A TV page for a TV the hub doesn't link any more: said once, and back to the list, which shows the TVs there are.
@@ -3038,8 +3110,9 @@
   function renderTvPage() { if (tvPageShowing()) glideTop(applyTvPage); else applyTvPage(); }
 
   // Where this TV stands, from its report (or why there's none): "good", "attention", "off", "refused", "noAnswer",
-  // "old", "checking" (asked, nothing yet) or "hub" (this phone can't reach the TV it talks to).
-  function tvKind() { var d = tvp.data; return d ? d.kind : tvp.failed ? 'hub' : 'checking'; }
+  // "old", "checking" (asked, nothing yet), "hub" (this phone can't reach the TV it talks to) or "error" (that TV
+  // answered, but with no report: tvp.why, in its words).
+  function tvKind() { var d = tvp.data; return d ? d.kind : tvp.failed ? (tvp.why ? 'error' : 'hub') : 'checking'; }
 
   function applyTvPage() {
     var id = tvp.id; if (!id) return;
@@ -3055,13 +3128,14 @@
       refused: ['linkWarn', 'warn sm', 'Its Link Stopped Working', 'Link again'],
       noAnswer: ['gTv', 'mute sm', 'Didn’t Answer', name + ' is on the network but didn’t reply.'],
       old: ['gUpdate', 'mute sm', 'Needs a Newer Woodruff', d && d.version || ''],
-      hub: ['gTv', 'mute sm', 'Can’t Reach ' + hubName(), 'Check that it’s on and this phone is on the same Wi-Fi.']
+      hub: ['gTv', 'mute sm', 'Can’t Reach ' + hubName(), 'Check that it’s on and this phone is on the same Wi-Fi.'],
+      error: ['gTv', 'mute sm', 'Couldn’t Check ' + name, tvp.why]
     }[kind] || ['gTv', 'mute sm', name, ''];
     var sum = [{ k: 'verdict', verdict: V, warnSub: kind === 'refused' }];
     att.forEach(function (it) {
       sum.push({ k: 'att-' + it.id, lead: I.warn, cls: 'att', t: it.words, tap: true, chev: true, data: { att: it.id }, fn: function () { attSheet(it); } });
     });
-    if (kind === 'noAnswer' || kind === 'hub') sum.push({ k: 'again', act: true, tap: true, t: 'Try Again', fn: function () { tvp.failed = false; loadTvHealth(); } });
+    if (kind === 'noAnswer' || kind === 'hub' || kind === 'error') sum.push({ k: 'again', act: true, tap: true, t: 'Try Again', fn: function () { tvp.failed = false; loadTvHealth(); } });
     fillRows($('tvp-sum'), sum);
     // Below it.
     var B = [];
@@ -3080,7 +3154,8 @@
     // What can be done from here.
     var acts = [];
     if (live) {
-      acts.push({ k: 'a-check', act: true, tap: !tvp.checking, disabled: !!tvp.checking, t: tvp.checking ? 'Checking…' : 'Check for Updates', fn: checkUpdates });
+      // (an LG TV gets its updates from the family's Mac: nothing to check from here)
+      if (!lgReport(r)) acts.push({ k: 'a-check', act: true, tap: !tvp.checking, disabled: !!tvp.checking, t: tvp.checking ? 'Checking…' : 'Check for Updates', fn: checkUpdates });
       if (id === 'this') acts.push({ k: 'a-smooth', tap: true, chev: true, t: 'Smoothness Report', fn: function () { openPage('set-smooth', this); } });
     }
     if (r && (live || kind === 'off')) acts.push({ k: 'a-copy', act: true, tap: true, t: 'Copy Health Report', fn: copyHealth });
@@ -3196,7 +3271,7 @@
         var set = function () { n._vs.innerHTML = I[v[0]]; setClass(n._vs, 'vs ' + v[1]); n._vk = vk; };
         if (n._vk) dissolve(n._vs, set); else set();
       }
-      swapText(n._t, v[2]); swapText(n._s, v[3] || ''); setClass(n._s, 's' + (o.warnSub ? ' warn' : '')); setHidden(n._s, !v[3]);
+      swapText(n._t, v[2]); swapText(n._s, v[3] || ''); setClass(n._s, 's two' + (o.warnSub ? ' warn' : '')); setHidden(n._s, !v[3]);
     } else if (o.html) {
       if (n._t.innerHTML !== o.html) n._t.innerHTML = o.html;
     } else {
@@ -3237,7 +3312,8 @@
     setText($('tvp-pos'), fmtTime(pos)); setText($('tvp-left'), '−' + fmtTime(p.duration - pos));
   }
   // The TV's picture: one still frame every 3 s while the page is on screen and nothing moves, never while the TV
-  // Screen sheet runs its own; a TV not showing Woodruff says so (409), as the sheet does.
+  // Screen sheet runs its own; a TV not showing Woodruff says so (409), as the sheet does. An LG TV's 409 is for good
+  // (webOS lets no app see the screen): it isn't asked again while its page stays open. Given up on after 10 s.
   function tvpFrame() {
     clearTimeout(tvp.frameTimer);
     if (!tvPageShowing() || document.hidden || !tvp.id) return;
@@ -3246,11 +3322,11 @@
     // moves. Until the TV list is in, a moment; while the sheet has the picture, or the TV is off, a while.
     if ((!first && !settled()) || (!mine && !t)) { tvp.frameTimer = setTimeout(tvpFrame, first ? 100 : 300); return; }
     if (screenOpen || (!mine && (!t.online || refused(t)))) { tvp.frameTimer = setTimeout(tvpFrame, 3000); return; }
-    var seq = ++tvp.frameSeq, id = tvp.id;
-    fetch((id === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(id) + '&t=') + Date.now(), { cache: 'no-store' }).then(function (r) {
+    var seq = ++tvp.frameSeq, id = tvp.id, never = false;
+    fetchT((id === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(id) + '&t=') + Date.now(), null, 10000).then(function (r) {
       if (seq !== tvp.frameSeq) return;
-      if (r.status === 409) return r.json().then(function (d) { if (seq !== tvp.frameSeq) return; setText(msg, d.message); img.style.opacity = .25; });
-      if (!r.ok) throw new Error();
+      if (r.status === 409) return noPicture(r).then(function (m) { if (seq !== tvp.frameSeq) return; setText(msg, m); img.style.opacity = .25; never = lgTv(id); });
+      if (!r.ok) return answerError(r, 'The TV didn’t send a picture.');
       return r.blob().then(function (b) {
         if (seq !== tvp.frameSeq) return;
         // Decoded off the main thread first, so the picture changing never costs a frame of anything moving.
@@ -3262,8 +3338,19 @@
           img.src = url; img.style.opacity = 1; setText(msg, '');
         });
       });
-    }).catch(function () { if (seq === tvp.frameSeq) setText(msg, 'Can’t reach the TV.'); })
-      .then(function () { if (seq === tvp.frameSeq) tvp.frameTimer = setTimeout(tvpFrame, 3000); });
+    }).catch(function (e) { if (seq === tvp.frameSeq) setText(msg, pictureWhy(e)); })
+      .then(function () { if (seq === tvp.frameSeq && !never) tvp.frameTimer = setTimeout(tvpFrame, 3000); });
+  }
+  // A TV's 409 in its words ("Woodruff Family isn’t on the TV screen right now"), for under its picture.
+  function noPicture(r) { return r.json().then(function (d) { return (d && d.message) || 'No picture right now.'; }, function () { return 'No picture right now.'; }); }
+  // Why a picture didn't come: the answer's own words, or "Can't reach" when nothing answered.
+  function pictureWhy(e) { return e && !e.unreachable && e.message ? e.message : 'Can’t reach ' + hubName() + '.'; }
+  // An answer that isn't what was asked for, as an error in its own words (its JSON's message, or short plain text).
+  function answerError(r, fallback) {
+    return r.text().then(function (t) {
+      var m = ''; try { var j = JSON.parse(t); m = (j && j.message) || ''; } catch (e) { m = t.length < 300 && !/^\s*</.test(t) ? t.trim() : ''; }
+      throw new Error(m || fallback);
+    }, function () { throw new Error(fallback); });
   }
   // Once Settings' pages have stopped sliding.
   function placed() { return new Promise(function (done) { (function wait() { if (pushing('settings')) setTimeout(wait, 50); else done(); })(); }); }
@@ -3374,7 +3461,7 @@
     clearTimeout(smooth.timer);
     if (!smoothShowing() || document.hidden) return;
     var seq = ++smooth.seq;
-    fetch('/api/diagnostics', { cache: 'no-store' }).then(function (r) {
+    fetchT('/api/diagnostics', null, 15000).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.statusText); });
       var left = parseInt(r.headers.get('X-Recording-Left'), 10) || 0;   // seconds the recording still runs
       return r.text().then(function (t) {
@@ -3407,6 +3494,8 @@
   }, 1000);
   $('sm-record').onclick = function () {
     post('/api/diagnostics/record', {}).then(function (r) {
+      // An LG TV can't record one (it answers 0 seconds): its report is what it has, as it stands.
+      if (r.seconds === 0) { toast(hubName() + ' can’t record in detail', true); return loadSmooth(); }
       smooth.ends = Date.now() + (r.seconds || 180) * 1000; renderSmooth();
       toast('Recording for 3 minutes');
       loadSmooth();
@@ -3431,17 +3520,18 @@
   // ---- TV Screen ----------------------------------------------------------------------------------
   // A TV's live picture, in a sheet from Settings › TVs: one frame at a time, about once a second, and only
   // while the sheet is open. The next request starts when the last image has loaded, so a slow network
-  // never queues up frames.
+  // never queues up frames; one that gets no answer in 10 s is given up on. A TV not showing Woodruff (409) is asked
+  // again every 3 s, an LG TV not again while the sheet is open (it never can: tvpFrame).
   var screenOpen = false, screenTv = 'this', frameTimer = null, frameSeq = 0, lastUrl = null, shownTv = null;
   function screenUrl() { return (screenTv === 'this' ? '/api/screen?t=' : '/api/tvs/screen?id=' + q(screenTv) + '&t=') + Date.now(); }
   function frame() {
     clearTimeout(frameTimer);
     if (!screenOpen || document.hidden) return;
     var seq = ++frameSeq, id = screenTv, img = $('tv-img'), msg = $('tv-msg');
-    fetch(screenUrl(), { cache: 'no-store' }).then(function (r) {
+    fetchT(screenUrl(), null, 10000).then(function (r) {
       if (seq !== frameSeq) return;
-      if (r.status === 409) return r.json().then(function (d) { if (seq !== frameSeq) return; msg.textContent = d.message; img.style.opacity = .25; frameTimer = setTimeout(frame, 3000); });
-      if (!r.ok) throw new Error();
+      if (r.status === 409) return noPicture(r).then(function (m) { if (seq !== frameSeq) return; msg.textContent = m; img.style.opacity = .25; if (!lgTv(id)) frameTimer = setTimeout(frame, 3000); });
+      if (!r.ok) return answerError(r, 'The TV didn’t send a picture.');
       return r.blob().then(function (b) {
         if (seq !== frameSeq) return;
         var url = URL.createObjectURL(b);
@@ -3452,7 +3542,7 @@
         };
         img.src = url; img.style.opacity = 1; msg.textContent = '';
       });
-    }).catch(function () { if (seq !== frameSeq) return; msg.textContent = "Can’t reach the TV."; frameTimer = setTimeout(frame, 4000); });
+    }).catch(function (e) { if (seq !== frameSeq) return; msg.textContent = pictureWhy(e); frameTimer = setTimeout(frame, 4000); });
   }
   // Under the picture: what that TV is playing.
   function renderScreenNow() {
@@ -3573,7 +3663,8 @@
     }).then(function (x) {
       if (seq !== SI.seq || !SI.open) return;
       var d = x.d || {};
-      if (!x.r.ok || !d.authUrl) return paintSignIn(d.need === 'keys' ? 'keys' : d.need === 'project' ? 'project' : 'nostart');
+      // Turned down: what's missing, or the TV's own reason ("can't read its Google keys just now").
+      if (!x.r.ok || !d.authUrl) { SI.reason = d.message || ''; return paintSignIn(d.need === 'keys' ? 'keys' : d.need === 'project' ? 'project' : 'nostart'); }
       SI.state = d.state; SI.url = d.authUrl; SI.until = Date.now() + 6e5; SI.tv = d.tv || null;
       if (typeof d.again === 'boolean') SI.again = d.again;
       paintSignIn('ready');
@@ -3622,7 +3713,7 @@
       failed: [didnt, (SI.reason ? SI.reason + ' ' : '') + 'Try again.', '', null, 'Try Again', ''],
       replaced: [didnt, 'Someone started signing in again, on another phone or the TV. Try again here if you still need to.', '', null, 'Try Again', ''],
       expired: [didnt, 'Google didn’t send an answer. Check this phone is on the home Wi-Fi, then try again.', '', null, 'Try Again', ''],
-      nostart: [title, 'Couldn’t start signing in. Check that ' + tv + ' is on.', '', null, 'Try Again', ''],
+      nostart: [title, SI.reason || 'Couldn’t start signing in. Check that ' + tv + ' is on.', '', null, 'Try Again', ''],
       keys: ['Set Up Google Keys First', tv + ' needs the Google Client ID and secret before it can sign in. They’re entered once and copied to every TV.', '', null, 'Set Up Google Drive', ''],
       project: ['Add the Cameras Project First', 'Cameras need the Device Access Project ID. Add it once and every TV gets it.', '', null, 'Open Cameras Settings', '', false, false, 'cameras']
     }[view];
@@ -3775,10 +3866,13 @@
     var seq = ++mem.seq;
     return api('/api/memories').then(function (d) { if (seq === mem.seq) gotMemories(d); }, function (e) {
       if (seq !== mem.seq) return;
+      // (an answer that says why is the TV's words; no answer is "Can't reach")
+      mem.why = e.unreachable ? '' : e.message || '';
       if (!mem.loaded && !mem.failed) { mem.failed = true; glideMemories(); }
       err(e);
     });
   }
+  $('mem-retry').onclick = function () { mem.failed = false; glideMemories(); loadMemories(); };
   // A listing in: the grid changes only when something did, and glides (what stayed moves to its new place).
   function gotMemories(d) {
     mem.fit = d.fit || mem.fit; mem.folder = d.folder;
@@ -3814,6 +3908,10 @@
     setHidden($('mem-empty'), !none);
     setHidden($('mem-wait'), mem.loaded || mem.failed || mem.ups.length > 0);
     setHidden($('mem-err'), !mem.failed || mem.loaded);
+    if (mem.failed && !mem.loaded) {
+      setText($('mem-err-t'), mem.why ? 'Couldn’t Load Family Memories' : 'Can’t Reach ' + hubName());
+      setText($('mem-err-s'), mem.why || 'Family Memories shows here when ' + hubName() + ' is on.');
+    }
     memCount();
   }
   function memTile(it) {
@@ -3830,7 +3928,8 @@
   function memCount() {
     var p = 0, v = 0, b = mem.batch;
     mem.items.forEach(function (it) { if (it.video) v++; else p++; });
-    var t = b ? 'Adding ' + Math.min(b.done + b.failed + 1, b.of) + ' of ' + b.of + '…'
+    // (while they go up, unless this phone keeps its screen on by itself: a locked phone stops them until it's back)
+    var t = b ? 'Adding ' + Math.min(b.done + b.failed + 1, b.of) + ' of ' + b.of + '…' + (wakeLock ? '' : ' Keep this screen on.')
       : [p ? plural(p, 'Photo') : '', v ? plural(v, 'Video') : ''].filter(Boolean).join(', ');
     swapText($('mem-count'), t);
   }
@@ -3848,11 +3947,12 @@
     a.push('-', { label: 'Delete', icon: 'trash', danger: true, fn: function () { deleteMemory(it); } });
     return a;
   }
-  function showOnTv(it) { post('/api/memories/show', { path: it.path }).then(function () { toast(it.video ? 'Playing on the TV' : 'Showing on the TV'); }, err); }
-  function tvBackground(it) { post('/api/background', { path: it.path }).then(function () { toast('Set as the TV background'); }, err); }
+  // (on the TV serving this app, whichever TV is picked: named in what they say)
+  function showOnTv(it) { post('/api/memories/show', { path: it.path }).then(function () { toast((it.video ? 'Playing on ' : 'Showing on ') + hubName()); }, err); }
+  function tvBackground(it) { post('/api/background', { path: it.path }).then(function () { toast('Set as ' + hubName() + '’s background'); }, err); }
   function memSlideshow() {
     if (!mem.items.some(function (it) { return !it.video; })) return toast('Add some photos first', true);
-    post('/api/slideshow', { folder: mem.folder, start: true }).then(function () { toast('Slideshow on the TV'); }, err);
+    post('/api/slideshow', { folder: mem.folder, start: true }).then(function () { toast('Slideshow on ' + hubName()); }, err);
   }
   function deleteMemory(it) {
     confirmSheet(null, it.video ? 'This video will be deleted from the TV.' : 'This photo will be deleted from the TV.', it.video ? 'Delete Video' : 'Delete Photo', function () {
@@ -3874,7 +3974,7 @@
     files.forEach(function (f) { mem.ups.push(upTile({ id: ++upN, file: f, video: isVideo(f) })); });
     glideMemories();
     memRoot.scroller.scrollTo({ top: 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
-    awake(true);
+    awake('mem', true);
     nextUpload();
   }
   function upTile(u) {
@@ -3888,7 +3988,10 @@
     if (upBusy) return;
     var u = mem.ups.filter(function (x) { return !x.done && !x.failed; })[0];
     if (!u) return finishUploads();
+    // Locked (or Woodruff put away): the rest wait for the phone to be back, rather than each failing in turn.
+    if (doc.hidden) return whenBack(nextUpload);
     upBusy = true;
+    var at = Date.now();
     prepare(u).then(function (p) {
       if (u.canvas && !u.tile.contains(u.canvas)) { u.tile.insertBefore(u.canvas, u.tile.firstChild); appear(u.canvas); }
       // One that won't fit on the TV says so before it's sent, rather than failing late (finding 44).
@@ -3899,12 +4002,14 @@
       u.done = true; u.tile.classList.add('ok'); setRing(u, 1); mem.batch.done++;
       u.tile.dataset.k = mkey(item);   // so the grid's tile for it, once listed, glides from here
     }, function (e) {
+      // Cut off by the lock: it goes again, from the start, once the phone is back.
+      if (e && e.lost && wentAway(at)) { setRing(u, 0); return; }
       u.failed = true; u.error = (e && e.message) || String(e); mem.batch.failed++; mem.batch.why = u.error; mem.batch.room = !!(e && e.room);
       u.tile.classList.add('fail');
     }).then(function () { upBusy = false; memCount(); nextUpload(); });
   }
   function finishUploads() {
-    awake(false);
+    awake('mem', false);
     var b = mem.batch; if (!b) return;
     mem.batch = null;   // (the ones that failed stay, to try again; the rest until the TV lists them)
     // One alone that didn't fit says so in an alert, as iOS does for storage ("This video is 2.1 GB; Living Room has
@@ -3920,19 +4025,33 @@
       { label: 'Try Again', fn: function () {
         u.failed = false; u.tile.classList.remove('fail'); setRing(u, 0);
         mem.batch = mem.batch || { of: 0, done: 0, failed: 0 }; mem.batch.of++; memCount();
-        awake(true); nextUpload();
+        awake('mem', true); nextUpload();
       } },
       { label: 'Remove', danger: true, fn: function () { mem.ups.splice(mem.ups.indexOf(u), 1); glideMemories(); } }
     ]);
   }
-  // The screen stays on while photos go up (a locked phone stops them).
-  function awake(on) {
+  // The screen stays on while anything goes up (who: 'mem' or 'files'; a locked phone stops them), where the browser
+  // lets a page ask: only over https, so not on the TVs' plain-http page. There Family Memories asks the family to keep
+  // the screen on (memCount), and what the lock cuts off goes again once the phone is back (wentAway).
+  var wakeFor = {};
+  function awake(who, on) {
+    if (on) wakeFor[who] = 1; else delete wakeFor[who];
+    var want = Object.keys(wakeFor).length > 0;
     try {
-      if (on && !wakeLock && navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; l.addEventListener('release', function () { wakeLock = null; }); }, function () {});
-      if (!on && wakeLock) { wakeLock.release(); wakeLock = null; }
-    } catch (e) {}
+      if (want && !wakeLock && !awake.asking && navigator.wakeLock) {
+        awake.asking = true;
+        navigator.wakeLock.request('screen').then(function (l) {
+          awake.asking = false; wakeLock = l;
+          l.addEventListener('release', function () { if (wakeLock === l) { wakeLock = null; memCount(); } });
+          if (!Object.keys(wakeFor).length) { wakeLock = null; l.release(); }
+          memCount();
+        }, function () { awake.asking = false; });
+      }
+      if (!want && wakeLock) { var l = wakeLock; wakeLock = null; l.release(); }
+    } catch (e) { awake.asking = false; }
   }
-  doc.addEventListener('visibilitychange', function () { if (!doc.hidden && mem.batch) awake(true); });
+  // (a lock is let go while the page is hidden: asked for again on coming back)
+  doc.addEventListener('visibilitychange', function () { if (!doc.hidden) Object.keys(wakeFor).forEach(function (w) { awake(w, true); }); });
   // A photo as the TV keeps it: no larger than the TV draws (a portrait photo as tall as the screen is wide), upright,
   // as a JPEG; a JPEG already that small goes as it is. A photo the phone can't open goes as it is too (the TV may).
   // One at a time: a full-size photo takes a lot of memory to open.
@@ -4031,7 +4150,7 @@
         if (x.status !== 200) { var e = new Error(x.responseText || "The TV didn’t take it"); e.room = x.status === 507; return no(e); }
         try { ok(JSON.parse(x.responseText).item); } catch (e) { no(e); }
       };
-      x.onerror = function () { no(new Error('The connection to the TV was lost')); };
+      x.onerror = function () { var e = new Error('The connection to the TV was lost'); e.lost = true; no(e); };
       x.send(p.blob);
     });
   }
@@ -4144,12 +4263,13 @@
     settledSoon();
   }, { passive: true });
   function settledSoon() { clearTimeout(mv.st); mv.st = setTimeout(onPhoto, 160); }
-  // On a photo for a moment: the TV follows (Show on TV), its tile is the one lifted, and it's fetched for Share.
+  // On a photo for a moment: the TV follows (Show on TV), its tile is the one lifted, and it's fetched for Share where
+  // there is Share (not over the TVs' plain http: there the button saves it, and nothing is fetched for it).
   function onPhoto() {
     var it = mv.open && mv.list[mv.i]; if (!it) return;
     lift(tileOf(it));
     if (mv.tv && !it.video && mv.onTv !== it.path) { mv.onTv = it.path; post('/api/memories/show', { path: it.path }).catch(tvLost); }
-    if (!it.video && !(mv.blob && mv.blob.path === it.path)) {
+    if (canShare && !it.video && !(mv.blob && mv.blob.path === it.path)) {
       var want = it.path;
       fetch(photoUrl(it)).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) {
         var now = mv.open && mv.list[mv.i];
@@ -4177,6 +4297,10 @@
   };
   $('mv-close').onclick = function () { closeViewer(); };
   $('mv-del').onclick = function () { var it = mv.list[mv.i]; if (it) deleteMemory(it); };
+  // Share hands the photo to another app. Browsers share only from https pages, and the TVs serve this one over http:
+  // there the button is Save to iPhone, which it was doing anyway.
+  var canShare = !!(navigator.share && navigator.canShare);
+  if (!canShare) { $('mv-share').innerHTML = I.save; $('mv-share').setAttribute('aria-label', 'Save to iPhone'); }
   $('mv-share').onclick = function () {
     var it = mv.list[mv.i]; if (!it) return;
     var f = mv.blob && mv.blob.path === it.path && mv.blob.file;
@@ -4187,7 +4311,7 @@
     var it = mv.list[mv.i]; if (!it) return;
     var items = [];
     if (!it.video) items.push({ label: 'Set as TV Background', icon: 'photo', fn: function () { tvBackground(it); } });
-    items.push({ label: 'Save to iPhone', icon: 'save', fn: function () { download(it); } });
+    if (canShare) items.push({ label: 'Save to iPhone', icon: 'save', fn: function () { download(it); } });
     items.push({ label: 'Slideshow on TV', icon: 'slides', fn: memSlideshow });
     menu($('mv-more'), items);
   };
@@ -4637,7 +4761,7 @@
     else a.push({ label: t.kind === 'show' ? 'Episodes' : 'Play', icon: t.kind === 'show' ? 'info' : 'playBig', fn: function () { openTitle(t, { episodes: t.kind === 'show' }); } });
     if (p && t.kind !== 'show' && /^Resume/.test(p.label)) a.push({ label: 'Start Over', icon: 'replay', fn: function () { startItem(fromStart(p), anchor); } });
     if (p && tvs.length > 1) a.push({ label: 'Play On…', icon: 'playtv', fn: function () { playOnMenu(anchor, p, 'ask'); } });
-    if (p && /^drive:/.test(p.key) && linkedTvs().length) a.push({ label: 'Watch Together on All TVs', icon: 'tvs', fn: function () { startItem(p, anchor, 'all'); } });
+    if (p && /^drive:/.test(p.key) && linkedTvs().length) a.push(togetherItem(function () { startItem(p, anchor, 'all'); }));
     if (p && t.kind !== 'show') a.push(t.watched ? { label: 'Mark as Unwatched', icon: 'circle', fn: function () { markWatched([p.key], false); } }
       : { label: 'Mark as Watched', icon: 'ckCircle', fn: function () { markWatched([p.key], true); } });
     return a;
@@ -4648,7 +4772,7 @@
     if (c.restart) a.push({ label: c.restart.label, icon: 'replay', fn: function () { startItem(c.restart, anchor); } });
     if (tvs.length > 1) a.push({ label: 'Play On…', icon: 'playtv', fn: function () { playOnMenu(anchor, c.play, 'ask'); } });
     if (c.titleId) a.push({ label: c.kind === 'show' ? 'Episodes' : 'Details', icon: 'info', fn: function () { openTitleId(c.titleId, { episodes: c.kind === 'show' }); } });
-    if (c.drive && linkedTvs().length) a.push({ label: 'Watch Together on All TVs', icon: 'tvs', fn: function () { startItem(c.play, anchor, 'all'); } });
+    if (c.drive && linkedTvs().length) a.push(togetherItem(function () { startItem(c.play, anchor, 'all'); }));
     a.push('-', { label: 'Mark as Watched', icon: 'ckCircle', fn: function () { markWatched([c.key], true, c); } },
       { label: 'Remove from Continue Watching', icon: 'trash', danger: true, fn: function () { removeContinue(c); } });
     return a;
@@ -4689,6 +4813,20 @@
   // ---- Playing: the Play rule ---------------------------------------------------------------------
   function linkedTvs() { return tvs.filter(function (t) { return t.id !== 'this'; }); }
   function usable(t) { return !!t && (t.id === 'this' || (t.online && !refused(t))); }
+  // Watch together: a Google Drive film on every TV showing Woodruff, from the same spot, kept in step by the TV serving
+  // this app (it leads, so it's one of them). Only those: a TV showing something else, or asleep, isn't pulled into the
+  // film, nor made to stream all of it from Google Drive, whose daily allowance the family shares. {ids, words}, or
+  // {why} when it can't start now.
+  function together() {
+    var me = tvOf('this'), on = linkedTvs().filter(function (t) { return usable(t) && t.onScreen; });
+    if (!me || !me.onScreen) return { why: 'Open Woodruff on ' + hubName() + ' first' };
+    if (!on.length) return { why: 'Open Woodruff on another TV first' };
+    return { ids: on.map(function (t) { return t.id; }), words: 'On ' + names([me].concat(on).map(function (t) { return t.name; })) };
+  }
+  // "Den", "Den and Kitchen", "Den, Kitchen and Living Room"
+  function names(list) { return list.length < 3 ? list.join(' and ') : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1]; }
+  // Watch Together in a menu: which TVs it plays on, or why it can't yet.
+  function togetherItem(fn) { var w = together(); return { label: 'Watch Together', icon: 'tvs', sub: w.words || w.why, disabled: !w.ids, fn: fn }; }
   // p plays on target (the picked TV unless given). With two TVs or more, a TV that's off or refuses its link, or a file
   // kept on another TV's storage, asks instead (the Play On menu, at the control). With one TV it never asks.
   function startItem(p, anchor, target, done) {
@@ -4706,6 +4844,9 @@
   function startOn(p, target, done) {
     var sk = target + '|' + p.key;
     if (starting[sk]) return;
+    // Watch together goes to the TVs showing Woodruff as the list says now (the TV list is asked every 5 s here).
+    var wt = target === 'all' ? together() : null;
+    if (wt && !wt.ids) { toast(wt.why, true); if (done) done(false); return; }
     starting[sk] = true;
     haptic();
     var name = target === 'all' ? '' : tvName(target), body = { key: p.key, title: p.title, position: Math.max(0, p.position || 0) };
@@ -4713,7 +4854,7 @@
     // (shown minutes ago, maybe); a show's "go on" plays its newest episode there. Start Over keeps its 0.
     if (p.resume) body.resume = true;
     if (p.latest) body.latest = true;
-    var req = target === 'all' ? postJ('/api/tvs/watch', Object.assign({ id: 'all' }, body))
+    var req = target === 'all' ? postJ('/api/tvs/watch', Object.assign({ id: 'all', tvs: wt.ids }, body))
       : target === 'this' ? postJ(/^drive:/.test(p.key) ? '/api/watch' : '/api/play', body)
       : postJ('/api/tvs/watch', Object.assign({ id: target }, body));
     req.then(function (r) {
@@ -4729,19 +4870,18 @@
     }).then(function () { delete starting[sk]; }, function () { delete starting[sk]; });
   }
   // The Play On menu: every TV (this one first) with what it plays, the one in use checked, those that can't take it
-  // dimmed with why; then All TVs (Watch together). 'ask': the choice plays at once and becomes the picked TV (All TVs
-  // leaves the pick alone). 'target': it sets the title sheet's TV (onPick).
+  // dimmed with why; then Watch Together (the TVs showing Woodruff: together()). 'ask': the choice plays at once and
+  // becomes the picked TV (Watch Together leaves the pick alone). 'target': it sets the title sheet's TV (onPick).
   function playOnMenu(anchor, p, mode, onPick, done) {
     var drive = !p || /^drive:/.test(p.key), here = hubName(), cur = mode === 'target' ? TS.target : tvId;
     var items = tvs.map(function (t) {
       var other = !drive && t.id !== 'this', off = !usable(t);
       return { label: t.name, sub: other ? 'Only plays on ' + here : tvStatus(t), checked: t.id === cur, disabled: off || other, fn: function () { pick(t.id); } };
     });
-    var linked = linkedTvs();
-    if (linked.length) {
-      var anyOn = linked.some(usable);
-      items.push('-', { label: 'All TVs', icon: 'tvs', checked: cur === 'all', sub: !drive ? 'Only Google Drive videos' : !anyOn ? 'No other TVs are on' : 'Watch together',
-        disabled: !drive || !anyOn, fn: function () { pick('all'); } });
+    if (linkedTvs().length) {
+      var wt = together();
+      items.push('-', { label: 'Watch Together', icon: 'tvs', checked: cur === 'all', sub: !drive ? 'Only Google Drive videos' : wt.words || wt.why,
+        disabled: !drive || !wt.ids, fn: function () { pick('all'); } });
     }
     function pick(id) {
       if (mode === 'target') return onPick(id);
@@ -4909,13 +5049,13 @@
     }
   }
   // "On Living Room ⌄" (2+ TVs): the sheet's TV, which a Play On menu here changes (and makes the picked TV);
-  // "On All TVs" for Watch together; "On Kitchen · Off" when it's off.
+  // "Watch Together" for the TVs showing Woodruff; "On Kitchen · Off" when it's off.
   function paintTarget() {
     var tb = $('ts-target'), show = tvs.length > 1;
     setHidden(tb, !show); if (!show) return;
     var t = TS.target === 'all' ? null : tvOf(TS.target) || tvOf('this'), w = $('ts-target-t');
     if (t && t.id !== TS.target) TS.target = t.id;
-    var html = TS.target === 'all' ? 'On All TVs' : esc('On ' + t.name) + (usable(t) ? '' : '<span class="off"> · ' + (refused(t) ? 'Link again' : 'Off') + '</span>');
+    var html = TS.target === 'all' ? 'Watch Together' : esc('On ' + t.name) + (usable(t) ? '' : '<span class="off"> · ' + (refused(t) ? 'Link again' : 'Off') + '</span>');
     if (w._h !== html) { w._h = html; w.innerHTML = html; }
   }
   $('ts-target').onclick = function () {
@@ -5379,7 +5519,8 @@
     if (soon !== true && current === 'settings' && topOf('settings') === PG['set-phone']) glideTop(fill); else fill();
   }
   setInterval(checkInbox, 5000);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); loadSmooth(); loadTvHealth(); tvpFrame(); pollSignIn(); if (current === 'watch') loadHome(); } });
+  // Back in front: what's on screen asks afresh (Family Memories too: photos may have come from another phone since).
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkInbox(); pollField(); loadTvs(); frame(); loadSmooth(); loadTvHealth(); tvpFrame(); pollSignIn(); if (current === 'watch') loadHome(); if (current === 'memories') loadMemories(); } });
 
   // ---- Settings -----------------------------------------------------------------------------------
   var settings = null, PG = {};
@@ -5521,7 +5662,12 @@
   adopt('send', 'send-to', {});
   adopt('send', 'send-link', { focus: 'o-url' });
   filesRoot = PG['files-root'] = filesPage($('files-root').dataset.title, $('files-root'));
-  filesRoot.o.onOpen = function () { var at = filesRoot.path || (roots[0] && roots[0].path); if (at) loadInto(filesRoot, at); };
+  filesRoot.o.onOpen = function () {
+    var at = filesRoot.path || (roots[0] && roots[0].path);
+    if (at) return loadInto(filesRoot, at);
+    if (!filesRoot.files.length) { filesRoot.list.innerHTML = '<div class="loading">' + I.spin + '</div>'; filesRoot.list.classList.add('is-empty'); }
+    loadRoots();
+  };
   // Settings pages: [page, bar buttons, the page it opens from when that isn't Settings itself]
   var SAVE = function (id) { return [{ text: 'Save', prom: true, id: id }]; };
   adopt('settings', 'set-tvs', { onShow: function () { loadTvs(); } });   // polls while it's showing
@@ -5544,7 +5690,12 @@
     openPage('set-crash', this);
   };
 
+  // Saved only once Settings has come from the TV: until then these fields are empty, and saving them empty would turn
+  // the weather off, or take the cameras and doorbell alerts off every linked TV.
+  function settingsIn() { if (settings) return true; loadSettings(); toast('Still loading. Try again in a moment.', true); return false; }
+  PG['set-cams'].o.onShow = PG['set-weather'].o.onShow = function () { if (!settings) loadSettings(); };
   $('w-save').onclick = function () {
+    if (!settingsIn()) return;
     post('/api/settings/weather', { place: $('w-place').value.trim() }).then(function (s) { renderSettings(s); toast(s.weather ? 'Weather for ' + s.weather : 'Weather off'); }, err);
   };
   $('w-place').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); this.blur(); $('w-save').onclick(); } };
@@ -5563,7 +5714,14 @@
   $('c-person').onchange = function () { post('/api/settings/nest', { person: $('c-person').checked }).then(renderSettings, err); };
   $('c-motion').onchange = function () { post('/api/settings/nest', { motion: $('c-motion').checked }).then(renderSettings, err); };
   $('c-save').onclick = function () {
-    post('/api/settings/nest', { project: $('c-project').value.trim(), doorbell: $('c-doorbell').value.trim() }).then(function (s) {
+    if (!settingsIn()) return;
+    // Only what changed goes (a field emptied by hand takes that away): what's unchanged here may have changed on another
+    // phone since, and isn't put back.
+    var n = settings.nest || {}, b = {}, project = $('c-project').value.trim(), bell = $('c-doorbell').value.trim();
+    if (project !== (n.project || '')) b.project = project;
+    if (bell !== (n.doorbell || '')) b.doorbell = bell;
+    if (!Object.keys(b).length) return toast('Nothing changed');
+    post('/api/settings/nest', b).then(function (s) {
       renderSettings(s);
       toast(s.nest && s.nest.state === 'notSignedIn' ? 'Saved. Now connect your cameras' : 'Saved');
     }, err);
@@ -5588,7 +5746,7 @@
   route(location.hash || '#remote');
   requestAnimationFrame(function () { setTimeout(function () {
     hello(null).catch(function () {});
-    api('/api/roots').then(function (r) { roots = r; if (roots.length && !filesRoot.path) loadInto(filesRoot, roots[0].path); }, err);
+    loadRoots();
   }, 0); });
 })();
 </script>

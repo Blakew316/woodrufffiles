@@ -90,15 +90,17 @@ check((await text(page, '#toast-t')) === 'Playing on Living Room', 'toast: Playi
 check(!(await sheetOpen(page)), 'the sheet closes after a start');
 await settle(page, 1800);
 
-// Play On from the sheet: every TV, the ones that can't take it dimmed with why, All TVs; choosing Den makes it the pick.
+// Play On from the sheet: every TV, the ones that can't take it dimmed with why, Watch Together; choosing Den makes it the pick.
 await page.tap('#w-hero-info');
 await settle(page, 1300);
 await page.tap('#ts-target');
 await settle(page);
 let items = await menuItems(page);
-check(JSON.stringify(items.map((i) => i.label)) === '["Living Room","Den","Kitchen","Bedroom","All TVs"]', 'Play On: four TVs and All TVs');
+check(JSON.stringify(items.map((i) => i.label)) === '["Living Room","Den","Kitchen","Bedroom","Watch Together"]', 'Play On: four TVs and Watch Together');
 check(items[2].disabled && items[2].sub === 'Off' && items[3].disabled && items[3].sub === 'Link again', 'Kitchen (Off) and Bedroom (Link again) dimmed, saying why');
-check(!items[0].disabled && !items[1].disabled && items[4].sub === 'Watch together', 'Living Room, Den and All TVs can be chosen');
+check(!items[0].disabled && !items[1].disabled, 'Living Room and Den can be chosen');
+// Watch Together only for the TVs showing Woodruff: Den plays YouTube, so not yet.
+check(items[4].disabled && items[4].sub === 'Open Woodruff on another TV first', 'Watch Together waits for another TV showing Woodruff');
 await choose(page, 'Den');
 check((await text(page, '#ts-target-t')) === 'On Den', 'the sheet now plays on Den');
 check((await text(page, '#w-tv-name')) === 'Den', 'and Den is the picked TV');
@@ -138,16 +140,26 @@ check(sent('/api/watch').some((r) => r.body.key === 'drive:m-harbor'), 'choosing
 check((await text(page, '#w-tv-name')) === 'Living Room', 'and makes it the picked TV');
 await settle(page, 1800);
 
-// Hold a tile: the TV's title menu plus Play On, Watch together, marks; All TVs starts Watch together.
+// Hold a tile: the TV's title menu plus Play On, Watch together, marks. Watch Together is for the TVs showing Woodruff
+// (no other is pulled into the film, nor streams it from Drive): not yet while Den plays YouTube; then Den shows it.
 await page.click('#w-cw .cwi:nth-child(1)', { button: 'right' });
 await settle(page);
 items = await menuItems(page);
-check(JSON.stringify(items.map((i) => i.label)) === '["Resume from 45m","Start Over","Play On…","Details","Watch Together on All TVs","Mark as Watched","Remove from Continue Watching"]', 'the held tile’s menu: ' + items.map((i) => i.label).join(' | '));
+check(JSON.stringify(items.map((i) => i.label)) === '["Resume from 45m","Start Over","Play On…","Details","Watch Together","Mark as Watched","Remove from Continue Watching"]', 'the held tile’s menu: ' + items.map((i) => i.label).join(' | '));
+check(items[4].disabled && items[4].sub === 'Open Woodruff on another TV first', 'Watch Together: not while only Living Room shows Woodruff');
+await page.keyboard.press('Escape');
+await mock('set', { denOnScreen: true });
+await settle(page, 5600);   // (the TV list is asked every 5 s)
+await page.click('#w-cw .cwi:nth-child(1)', { button: 'right' });
+await settle(page);
+items = await menuItems(page);
+check(!items[4].disabled && items[4].sub === 'On Living Room and Den', 'Watch Together: on Living Room and Den, once Den shows Woodruff');
 clear();
-await choose(page, 'Watch Together on All TVs');
+await choose(page, 'Watch Together');
 await settle(page, 300);
-check(sent('/api/tvs/watch').some((r) => r.body.id === 'all' && r.body.key === 'drive:m-harbor'), 'Watch together on all TVs');
-check((await text(page, '#toast-t')) === 'Watching together on 3 of 4 TVs', 'toast: Watching together on 3 of 4 TVs');
+check(sent('/api/tvs/watch').some((r) => r.body.id === 'all' && r.body.key === 'drive:m-harbor' && JSON.stringify(r.body.tvs) === '["b"]'), 'Watch together on the TVs showing Woodruff (Den named, no other)');
+check((await text(page, '#toast-t')) === 'Watching together on 2 TVs', 'toast: Watching together on 2 TVs');
+await mock('set', { denOnScreen: false });
 await settle(page, 1800);
 
 // Accepted but waiting on the TV: the "Ready on…" alert.

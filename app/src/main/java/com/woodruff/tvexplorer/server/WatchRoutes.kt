@@ -387,8 +387,9 @@ class WatchRoutes(
         val position = b.optLong("position").coerceAtLeast(0)
         require(MediaRef.parse(key) is MediaRef.Drive) { "Only Google Drive videos can be watched together" }
         WatchLibrary.changed()
-        // Every TV from the same spot, worked out here once the family's latest is in.
-        if (id == "all") return json(WatchStart.spotted(ctx, b, title).let { watchTogether(it.key, it.title, it.positionMs ?: 0L) })
+        // Every TV from the same spot, worked out here once the family's latest is in. With "tvs" (the phone names the
+        // linked TVs showing Woodruff), only those: no other TV is pulled into the film, nor streams it from Drive.
+        if (id == "all") return json(WatchStart.spotted(ctx, b, title).let { watchTogether(it.key, it.title, it.positionMs ?: 0L, togetherOnly(b)) })
         if (id == "this") {
             val s = WatchStart.of(ctx, b, title)
             return json(JSONObject().put("ok", true).put("started", start(PlayerActivity.intent(ctx, listOf(s.key), listOf(s.title), s.key, s.positionMs))).put("tv", TvLinks.name(ctx)))
@@ -409,10 +410,11 @@ class WatchRoutes(
     /**
      * Watch together, as Home's tile menu starts it: every linked TV first (each answers within its
      * usual few seconds), then this TV, which leads (its pauses and seeks keep the others in step).
+     * [only]: just these linked TVs (by id), as the phone asks.
      */
-    private fun watchTogether(key: String, title: String, position: Long): JSONObject {
+    private fun watchTogether(key: String, title: String, position: Long, only: Set<String>? = null): JSONObject {
         TvLinks.load(ctx)
-        val linked = TvLinks.linked.value
+        val linked = togetherOn(TvLinks.linked.value, only)
         val results = runBlocking {
             linked.map { tv ->
                 scope.async {
@@ -452,6 +454,14 @@ class WatchRoutes(
         private const val PREPARE_GRACE_MS = 3_000L
     }
 }
+
+/** The linked TVs a phone's watch-together names in its "tvs" (their ids), or null when it names none (every TV). */
+internal fun togetherOnly(b: JSONObject): Set<String>? =
+    b.optJSONArray("tvs")?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).ifBlank { null } }.toSet() }
+
+/** The linked TVs a watch-together starts on: all of them, or with [only], just those. Visible for tests. */
+internal fun togetherOn(linked: List<com.woodruff.tvexplorer.tvs.LinkedTv>, only: Set<String>?): List<com.woodruff.tvexplorer.tvs.LinkedTv> =
+    if (only == null) linked else linked.filter { it.id in only }
 
 /**
  * Where the phone's Watch tab stands: "ready"; "loading" (nothing saved yet, being listed);

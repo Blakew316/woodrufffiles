@@ -447,6 +447,23 @@ class WatchRoutesTest {
         assertEquals(2_710_000, started.single().getLongExtra("position", -1))
     }
 
+    @Test fun watchingTogetherGoesOnlyToTheTvsThePhoneNames() {
+        // The phone names the linked TVs showing Woodruff: no other is pulled into the film (nor streams it from Drive).
+        val den = com.woodruff.tvexplorer.tvs.LinkedTv("den-1", "Den", "http://den.local:8080", "k1")
+        val kitchen = com.woodruff.tvexplorer.tvs.LinkedTv("kitchen-1", "Kitchen", "http://kitchen.local:8080", "k2")
+        val named = togetherOnly(JSONObject().put("tvs", org.json.JSONArray().put("den-1")))
+        assertEquals(setOf("den-1"), named)
+        assertEquals(listOf(den), togetherOn(listOf(den, kitchen), named))
+        assertEquals(emptyList<com.woodruff.tvexplorer.tvs.LinkedTv>(), togetherOn(listOf(den, kitchen), togetherOnly(JSONObject().put("tvs", org.json.JSONArray()))))
+        // A phone from before names none: every linked TV, as before.
+        assertEquals(null, togetherOnly(JSONObject()))
+        assertEquals(listOf(den, kitchen), togetherOn(listOf(den, kitchen), null))
+        // This TV leads all the same.
+        val all = json(serve("/api/tvs/watch", body = JSONObject().put("id", "all").put("tvs", org.json.JSONArray().put("den-1")).put("key", "drive:m1").put("title", "Midnight Harbor (2024).mkv").put("position", 0)))
+        assertEquals(1, all.getInt("started"))
+        assertTrue(started.single().getBooleanExtra("together", false))
+    }
+
     // ---- A request, as NanoHTTPD hands it over ------------------------------------------------------
 
     private fun titles(o: JSONObject, list: String = "items") = o.getJSONArray(list).let { a -> (0 until a.length()).map { a.getJSONObject(it).getString("title") } }

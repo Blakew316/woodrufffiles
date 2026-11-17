@@ -24,7 +24,8 @@ picture drawn here in SVG and served from /api/poster (so the gallery never need
 starting something on a TV or on every TV, the controls, Mark as watched and Remove from Continue watching).
 POST /__mock/set {library: "ready" | "offline" | "unreachable" | "expired" | "expiredEmpty" | "notSignedIn" | "notSetUp" |
 "empty" | "loading" | "keysRejected" | "down"} picks the library's state ("down": the TV doesn't answer), and
-{watch: {"started": false}} makes starts wait on the TV (the "Ready on…" alert); /__mock/reset puts them back.
+{watch: {"started": false}} makes starts wait on the TV (the "Ready on…" alert), and {denOnScreen: true} has Den show
+Woodruff (it plays YouTube otherwise), so Watch Together can start there too; /__mock/reset puts them back.
 Sign In from the phone: settings.google.state and settings.nest.state ("signedIn", "expired", "keysRejected",
 "notSignedIn", "notSetUp") give Connections their words; /__mock/set merges settings one level deep, so
 {settings: {google: {state: "expired"}}} is enough. POST /api/signin answers with a sample attempt whose authUrl is
@@ -216,7 +217,7 @@ TYPED = []
 INBOX = []
 INBOX_STATE = {'next': 0, 'acked': 0, 'epoch': 'mock1'}
 MIN, HOUR = 60_000, 3_600_000
-TV_STATE = {'relinked': False, 'playing': {'this': True, 'b': True}}
+TV_STATE = {'relinked': False, 'playing': {'this': True, 'b': True}, 'denOnScreen': False}
 # /__mock/set {down: true}: the TV stops answering (every /api/ request's connection is dropped, as when it's asleep or
 # the Wi-Fi is gone), until /__mock/set {down: false} or /__mock/reset.
 DOWN = {'on': False, 'hang': False, 'typeDelay': 0}   # hang: every /api/ request waits 30 s unanswered (a TV asleep on Tailscale);
@@ -244,7 +245,7 @@ def tvs_json():
          'health': _health('attention', len(ended), 'Google Drive’s sign-in ended' if 'drive' in ended else 'A sign-in ended') if ended else _health('good'),
          'playing': {'title': 'Midnight Harbor', 'app': 'Woodruff Family', 'playing': p['this'], 'position': 2710000, 'duration': 6840000,
                      'can': ['playpause', 'back10', 'fwd30', 'next'], 'key': 'drive:m-harbor'}},
-        {'id': 'b', 'name': 'Den', 'online': True, 'onScreen': False, 'version': '2.0.171', 'seen': now, 'link': 'ok',
+        {'id': 'b', 'name': 'Den', 'online': True, 'onScreen': TV_STATE['denOnScreen'], 'version': '2.0.171', 'seen': now, 'link': 'ok',
          'health': _health('attention', 2, 'Google Drive’s sign-in ended'),
          'playing': {'title': 'Backyard Science · S2 E4', 'app': 'YouTube', 'playing': p['b'], 'position': 410000, 'duration': 1320000, 'can': ['playpause']}},
         {'id': 'c', 'name': 'Kitchen', 'online': False, 'onScreen': False, 'version': '2.0.171', 'seen': now - 2 * HOUR, 'link': 'ok',
@@ -1086,6 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
             TVS_SET['tvs'] = None
             TV_STATE['relinked'] = False
             TV_STATE['playing'] = {'this': True, 'b': True}
+            TV_STATE['denOnScreen'] = False
             del INBOX[:]   # (the numbers go on: a phone never sees one twice)
             DOWN.update({'on': False, 'hang': False, 'typeDelay': 0})
             FREE['tv'] = 13314398618
@@ -1112,6 +1114,8 @@ class Handler(BaseHTTPRequestHandler):
                 THIS_SIGNINS.clear(); THIS_SIGNINS.update(body['thisSignIns'])
             if 'tvs' in body:
                 TVS_SET['tvs'] = body['tvs']
+            if 'denOnScreen' in body:
+                TV_STATE['denOnScreen'] = bool(body['denOnScreen'])
             if 'phones' in body:
                 PHONES[:] = body['phones']
             if 'down' in body:
@@ -1173,6 +1177,9 @@ class Handler(BaseHTTPRequestHandler):
             if not str(body.get('key', '')).startswith('drive:'):
                 return self.send('Only Google Drive videos can be watched together', 'text/plain', 400)
             if body.get('id') == 'all':
+                # The phone names the linked TVs showing Woodruff (a phone from before named none: every TV).
+                if isinstance(body.get('tvs'), list):
+                    return self.send({'ok': True, 'started': 1 + len(body['tvs']), 'of': 1 + len(body['tvs']), 'failed': []})
                 return self.send({'ok': True, 'started': 3, 'of': 4, 'failed': ['Kitchen']})
             name = {'b': 'Den', 'c': 'Kitchen', 'd': 'Bedroom'}.get(body.get('id'))
             if name is None:
