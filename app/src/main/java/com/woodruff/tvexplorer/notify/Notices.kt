@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.woodruff.tvexplorer.R
@@ -65,19 +66,29 @@ object Notices {
     val latest: StateFlow<Notice?> = _latest.asStateFlow()
 
     @Volatile private var loaded = false
+    /** Held while the kept notices are read in, and while they're written out. */
+    private val disk = Any()
 
+    /**
+     * The kept notices, read in once. A notice posted meanwhile on another thread waits for them (it was lost when
+     * they were read in over it), and one posted before stays ahead of them.
+     */
     fun load(context: Context) {
         if (loaded) return
-        loaded = true
-        val arr = runCatching { JSONArray(prefs(context).getString("items", "[]")) }.getOrDefault(JSONArray())
-        _items.value = (0 until arr.length()).mapNotNull { i ->
-            arr.optJSONObject(i)?.let {
-                Notice(
-                    it.optLong("id"), runCatching { NoticeSource.valueOf(it.optString("src")) }.getOrDefault(NoticeSource.SYSTEM),
-                    it.optString("title"), it.optString("body"), it.optLong("at"),
-                    it.optString("link").ifEmpty { null }, it.optBoolean("read"),
-                )
+        synchronized(disk) {
+            if (loaded) return
+            val arr = runCatching { JSONArray(prefs(context).getString("items", "[]")) }.getOrDefault(JSONArray())
+            val kept = (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let {
+                    Notice(
+                        it.optLong("id"), runCatching { NoticeSource.valueOf(it.optString("src")) }.getOrDefault(NoticeSource.SYSTEM),
+                        it.optString("title"), it.optString("body"), it.optLong("at"),
+                        it.optString("link").ifEmpty { null }, it.optBoolean("read"),
+                    )
+                }
             }
+            _items.update { now -> (now + kept.filter { k -> now.none { it.id == k.id } }).take(MAX) }
+            loaded = true
         }
     }
 
@@ -89,6 +100,7 @@ object Notices {
      * with a sound. [popUp] false: kept and chimed, but no card anywhere (a doorbell ring whose camera
      * opens instead: the camera is the notice). [alert]: the camera alert it tells of, whose card shows
      * the family's Mac's picture of it ([AlertPictures]). Returns the notice, for [popUp] later.
+     * Whatever can't be shown now ([mayShow]) is kept, unread, with nothing drawn or chimed.
      */
     fun post(
         context: Context, source: NoticeSource, title: String, body: String, link: String? = null, chime: Chime.Sound? = null,
@@ -99,11 +111,8 @@ object Notices {
         val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link, chime = sound, alert = alert)
         _items.update { (listOf(n) + it).take(MAX) }
         save(context)
-        // The TV's screen is on the Apple TV (its input, or Woodruff on the Apple TV says so): Woodruff on
-        // the Apple TV shows what happens there itself, so this TV draws and chimes nothing over it. Kept,
-        // unread, like quiet news. What someone sends this TV from a phone still shows.
-        val elsewhere = source != NoticeSource.PHONE && onAppleTvNow(context)
-        if (quiet || elsewhere) {
+        if (!mayShow(context, n)) return n
+        if (quiet) {
             // Woodruff's own banner while its main screen is in front; otherwise stored, unread, for
             // when someone next looks: nothing pops up now.
             if (popUp && AppVisibility.foreground) _latest.value = n
@@ -116,19 +125,77 @@ object Notices {
     }
 
     /**
+     * Whether [n] may be drawn and chimed now; if not, it's only kept, unread, for when someone next looks:
+     *  - not while the TV's screen is off: nobody would see it, and a card left on a dark screen used the news up
+     *    (a doorbell ring is announced when the screen comes on, if that's soon: [Doorbell]);
+     *  - not a camera alert or mail while the TV's screen is on the Apple TV (its input, or Woodruff on the Apple TV
+     *    says so): Woodruff on the Apple TV shows those itself ([heldForAppleTv]). Announcements and what someone
+     *    sends still show;
+     *  - nothing but another ring over a doorbell's card that's still up (Woodruff's own, the one over other apps, or
+     *    the player's over a film), which it would cover or cut short.
+     * A doorbell ring's card that comes late asks again.
+     */
+    internal fun mayShow(context: Context, n: Notice): Boolean {
+        if (!screenOn(context)) return false
+        if (heldForAppleTv(n) && onAppleTvNow(context)) return false
+        if (n.chime != Chime.Sound.DOORBELL && doorbellCardUp()) return false
+        return true
+    }
+
+    /** What Woodruff on the Apple TV shows itself, so this TV doesn't over it ([mayShow]): the cameras' alerts and the doorbell (as the README lists them), and mail. */
+    internal fun heldForAppleTv(n: Notice): Boolean = n.alert != null || n.source == NoticeSource.MAIL
+
+    /** Whether a doorbell's card is up now: Woodruff's own banner, the card over other apps, or the player's over a film. */
+    private fun doorbellCardUp(): Boolean =
+        _latest.value?.chime == Chime.Sound.DOORBELL || NoticeOverlay.up?.chime == Chime.Sound.DOORBELL || playerDoorbell
+
+    /** Woodruff's player shows its own doorbell card over the film ([playerDoorbellCard]). */
+    @Volatile private var playerDoorbell = false
+
+    /**
+     * Woodruff's player put its own doorbell card up over the film ([up]), or took it away. A card over other apps goes
+     * as it comes (it sat over the player's card, which glided in underneath), and while it's up no other card covers it.
+     */
+    fun playerDoorbellCard(up: Boolean) {
+        playerDoorbell = up
+        if (up) NoticeOverlay.hide()
+    }
+
+    /**
+     * Woodruff on the Apple TV says it's on screen: a card of the kinds it shows itself ([heldForAppleTv]) that's up over
+     * another app goes, if the TV's screen is on the Apple TV now (it was switched there with the card up).
+     */
+    fun appleTvOnScreen(context: Context) {
+        val up = NoticeOverlay.up ?: return
+        if (heldForAppleTv(up) && onAppleTvNow(context)) NoticeOverlay.hide { heldForAppleTv(it) }
+    }
+
+    /** The TV's screen went off: no card is left on it (its time runs on a clock standby stops, so it was still up after). */
+    fun screenWentOff() {
+        NoticeOverlay.hide()
+        _latest.value = null
+    }
+
+    /** Whether the TV's screen is on (it isn't in standby); replaced in tests. */
+    internal var screenOn: (Context) -> Boolean = { c -> c.applicationContext.getSystemService(PowerManager::class.java)?.isInteractive != false }
+
+    /**
      * [n]'s card, where the viewer is: Woodruff's own banner, or over other apps (else an Android
      * notification). Also a doorbell ring's card when its camera couldn't open after all. A camera
      * alert's card shows its picture when that came first; one that comes later is added to it
      * ([pictureCame]).
      */
     fun popUp(context: Context, n: Notice) {
+        // Woodruff's own banner only while its main screen is in front. One set while it wasn't (over the player,
+        // another app or a dark screen) waited there, and came up again when that screen next did, beside or long after
+        // the card over other apps.
+        val inApp = AppVisibility.foreground
         // (With the picture's arrival on another thread, in one step: either the card finds it here, or it finds the card.)
-        val card = synchronized(cards) { withPicture(n).also { _latest.value = it } }
+        val card = synchronized(cards) { withPicture(n).also { if (inApp) _latest.value = it } }
+        if (inApp) return
         // Woodruff's own player shows the doorbell in its own card (with OK to look): not twice.
-        val playerCard = card.chime == Chime.Sound.DOORBELL && NowPlaying.ownPlayer != null
-        if (!AppVisibility.foreground && !playerCard) {
-            if (Settings.canDrawOverlays(context)) NoticeOverlay.show(context, card) else systemNotification(context, card)
-        }
+        if (card.chime == Chime.Sound.DOORBELL && NowPlaying.ownPlayer != null) return
+        if (Settings.canDrawOverlays(context)) NoticeOverlay.show(context, card) else systemNotification(context, card)
     }
 
     /** Held while a card takes its picture, or a picture its card ([popUp], [systemNotification], [pictureCame]). */
@@ -155,7 +222,8 @@ object Notices {
     internal fun pictureCame(context: Context, p: Shelved<Bitmap>) {
         val app = context.applicationContext
         synchronized(cards) {
-            _latest.value?.let { n -> if (takes(n, p)) _latest.value = n.copy(picture = p.picture) }
+            // In one step: a card dismissed at that very moment stays dismissed (read, then set, brought it back).
+            _latest.update { n -> if (n != null && takes(n, p)) n.copy(picture = p.picture) else n }
             trayCards.firstOrNull { takes(it, p) }?.let { n ->
                 trayCards.remove(n)
                 notify(app, n.copy(picture = p.picture), again = true)
@@ -249,7 +317,8 @@ object Notices {
     /** The notices' own settings file (also where [SignInNotice] remembers which endings it told of). */
     internal fun prefs(c: Context) = c.applicationContext.getSharedPreferences("notices", Context.MODE_PRIVATE)
 
-    private fun save(context: Context) {
+    /** Writes the notices out as they are now: one at a time, so a slower write of fewer can't land after this one. */
+    private fun save(context: Context) = synchronized(disk) {
         val arr = JSONArray()
         _items.value.forEach {
             arr.put(JSONObject().put("id", it.id).put("src", it.source.name).put("title", it.title).put("body", it.body)

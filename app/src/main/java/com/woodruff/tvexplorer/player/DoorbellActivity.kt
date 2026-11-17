@@ -61,9 +61,10 @@ import java.text.DateFormat
  * ([Origin]): the film (OK on the player's "Someone's at the door" card: the player keeps its place
  * underneath), Woodruff's slideshow, Woodruff as the TV's screensaver, or one of Woodruff's screens
  * (which stays exactly as it was underneath). Back returns there; Left / Right go through the other
- * cameras. A ring while it's up shows that camera, with the time it rang. Over anything but a film
- * it closes by itself 2 minutes after the last key press, and when it's left (Home, standby), so a
- * camera nobody is watching doesn't stream on with the doorbell's sound. While it's up, no update
+ * cameras. A ring while it's up shows that camera, with the time it rang. It closes by itself 2
+ * minutes after the last key press (over a film, 10 minutes, back to the film paused where it was),
+ * and when it's left (Home, standby; not over a film, which waits for Back), so a camera nobody is
+ * watching doesn't stream on with the doorbell's sound. While it's up, no update
  * restarts Woodruff under it ([com.woodruff.tvexplorer.update.OnScreen.Live]); one waiting goes in
  * once it has closed, and puts back what was under it.
  */
@@ -167,7 +168,7 @@ class DoorbellActivity : ComponentActivity(), com.woodruff.tvexplorer.update.OnS
 
     private fun armAutoClose() {
         main.removeCallbacks(autoClose)
-        if (autoCloses(origin)) main.postDelayed(autoClose, AUTO_CLOSE_MS)
+        main.postDelayed(autoClose, autoCloseMs(origin))
     }
 
     /** Away as Back does it: the pop-up's window animation, or the cover fading to black first. */
@@ -261,8 +262,10 @@ class DoorbellActivity : ComponentActivity(), com.woodruff.tvexplorer.update.OnS
         private const val EXTRA_AT = "at"
         private const val EXTRA_BACK_TO = "backTo"
 
-        /** Without a key press for this long it closes by itself (not over a film). */
+        /** Without a key press for this long it closes by itself; over a film, [FILM_AUTO_CLOSE_MS]. */
         internal const val AUTO_CLOSE_MS = 2 * 60_000L
+        /** Over a film, it closes by itself back to the film after this long without a key press. */
+        internal const val FILM_AUTO_CLOSE_MS = 10 * 60_000L
         /** Stopped for this long (not over a film): it was left, and goes. */
         internal const val LEAVE_GRACE_MS = 3_000L
 
@@ -285,8 +288,13 @@ internal fun backPhrase(origin: DoorbellActivity.Origin, backTo: String?): Strin
     DoorbellActivity.Origin.SCREEN -> "Back to ${backTo ?: "Woodruff"}"
 }
 
-/** Whether the camera closes by itself after 2 minutes without a key press: anywhere but over a film. */
-internal fun autoCloses(origin: DoorbellActivity.Origin): Boolean = origin != DoorbellActivity.Origin.FILM
+/**
+ * How long the camera stays without a key press before it closes by itself: 2 minutes, and over a film 10 (someone
+ * may stay to watch the door a while; the film waits paused underneath). Over a film it never closed, and the
+ * doorbell's camera streamed on with its sound until Back or the TV slept.
+ */
+internal fun autoCloseMs(origin: DoorbellActivity.Origin): Long =
+    if (origin == DoorbellActivity.Origin.FILM) DoorbellActivity.FILM_AUTO_CLOSE_MS else DoorbellActivity.AUTO_CLOSE_MS
 
 /**
  * The doorbell view's page: the [picture] (it says what it shows, through its argument: live frames,

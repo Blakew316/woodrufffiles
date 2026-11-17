@@ -286,10 +286,15 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   full screen with its sound and says when it rang (*RANG AT 7:42 PM*). Back returns to what was showing, exactly as
   it was; with no key pressed for 2 minutes the camera closes by itself. During a film in Woodruff's player a card at
   the top right says *Someone's at the door*, with the camera's name and *OK to look* under it, for 20 s: OK shows
-  the camera live with sound (Left/Right for the others), and Back returns to the film. Over other apps it's a card
-  for 25 s. One visitor rings once: a battery doorbell's follow-up message about the same visit doesn't ring again,
-  and two doorbells ringing at once open one camera view (the second switches it), so one press of Back closes it.
-  Each TV asks Google again as soon as a check comes back empty, so a ring shows within seconds.
+  the camera live with sound (Left/Right for the others), and Back returns to the film; with no key pressed for 10
+  minutes the camera closes by itself, back to the film paused. Over other apps it's a card for 25 s. While a ring's
+  card is up (in Woodruff, over other apps or over a film) nothing but another ring takes its place: a person seen,
+  mail or a message meanwhile is kept in Notifications. One visitor rings once: a battery doorbell's follow-up
+  message about the same visit doesn't ring again, even after Woodruff restarted, and two doorbells ringing at once
+  open one camera view (the second switches it), so one press of Back closes it. Each TV asks Google again as soon
+  as a check comes back empty, so a ring shows within seconds, and every 15 s at most while Google can't be reached.
+  Nothing is drawn on a TV whose screen is off: a ring heard then (a TV that passes alerts on listens in standby) is
+  kept, and shown with its chime when the screen comes on within 90 s of it.
 - **Camera alert pictures**: the family's Mac sends every TV its close-up of who or what each camera alert is about
   (`POST /api/camera-picture`). A doorbell, person or motion card then shows it as a rounded picture beside its words,
   in Woodruff, over other apps and on the player's card over a film. A picture that comes after its card is added to
@@ -304,22 +309,32 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   on each TV that has them, so its sign-in includes Pub/Sub. Each TV with its cameras connected makes a subscription
   of its own on the same topic and listens on it, so the doorbell rings there even when the other TVs are off. That
   subscription is named after the family's, ending in "-tv-" and part of the TV's id; it keeps messages 10 minutes
-  and deletes itself after a day unused. TVs without the cameras connected hear the doorbell through the TV linked to
-  them, while that TV is on. If Google won't let a TV make its own subscription (the project doesn't allow it), the
-  TV the subscription was entered on listens on the family's one and passes rings on. Settings → Advanced →
-  *Doorbell alerts* says how this TV hears it: *Watching*, *Through Living Room*, *Off*, or what Google refused. A TV
-  that passes alerts to no other TV stops asking Google while it's in standby.
+  and deletes itself after a day unused. Nothing pulls the family's subscription itself any more, and Google deletes a
+  subscription unused for 31 days unless it's set never to expire: so pick *Never expire* when you make it (each TV
+  also sets it so, where its sign-in may), and each TV keeps its topic in case it's gone anyway. TVs without the
+  cameras connected hear the doorbell through the TV linked to them, while that TV is on. If Google won't let a TV
+  make its own subscription (the project doesn't allow it), the TV the subscription was entered on listens on the
+  family's one and passes rings on. Settings → Advanced → *Doorbell alerts* says how this TV hears it: *Watching*,
+  *Through Living Room*, *Off*, *Not listening* (Woodruff not running yet, or waiting for the network), or what Google
+  refused. A TV that passes alerts to no other TV stops asking Google while it's in standby.
 - **Notifications**: messages from the phone and new mail appear as a compact pop-up at the top right (who it's from,
   the title and the message), even over other apps once
   "Pop-ups over other apps" is allowed in Settings (also on Android 7 TVs, such as older Fire TV sticks). They're also
   kept in the Notifications screen. Announcements and the doorbell play a soft chime (Settings → Advanced → *Chime for
   announcements*; never for mail, never while the TV is asleep). While the TV's screen is on the Apple TV, the TV
-  draws and chimes nothing of its own over it (camera and doorbell alerts, mail): Woodruff on the Apple TV shows those
-  itself. The TV knows from its input's name ("Apple TV"), or from Woodruff on the Apple TV, which tells the TV it's
-  plugged into that it's on screen (`POST /api/appletv` with the pairing key, `{"on": true, "for": 25}` every 10 s or
-  so, `{"on": false}` when it leaves; each word lasts 5 to 60 s), unless an app on the TV itself is playing then
-  (Netflix, YouTube: the TV has gone to it). Over Woodruff's own screens and its screensaver everything shows as
-  before. They're still kept in Notifications, and a message someone sends the TV from a phone still shows.
+  draws and chimes no camera or doorbell alert and no mail of its own over it, and takes one already up away:
+  Woodruff on the Apple TV shows those itself. Announcements and messages from a phone still show. The TV knows from
+  its input's name ("Apple TV"), or from Woodruff on an Apple TV, which tells the TV it's plugged into that it's on
+  screen (`POST /api/appletv` with the pairing key, `{"on": true, "for": 25, "from": "<its id>", "name": "<its
+  name>"}` every 10 s or so, `{"on": false, "from": …}` when it leaves; each word lasts 5 to 60 s, each Apple TV's its
+  own; a hub passes it on to a TV linked to it, `POST /api/tvs/appletv {"id": …}`, with that TV's link key). An
+  Apple TV's word holds only while the TV shows the input it showed as the word began, or nothing it can tell by
+  (no Notification access, or only what was there before): never over its home screen, its settings, an app of its
+  own (playing, or paused since) or another input, such as a games console or Live TV. `GET /api/appletv` (and
+  `GET /api/tvs/appletv?id=…` through the hub) says whether the TV's screen is on one of its inputs, and whether
+  that input is named for an Apple TV: `{"input": true|false|null, "appleTv": true|false|null}`, null when it can't
+  tell. Over Woodruff's own screens and its screensaver everything shows as before, and everything is still kept in
+  Notifications.
 - **Typeface**: Inter, the closest open-license match to Apple's San Francisco font, with Apple-style tracking.
 
 - **Google Drive**: stream videos and music (with seeking), view photos, or download files to the TV. Read-only access.

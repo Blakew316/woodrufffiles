@@ -210,7 +210,7 @@ object TvLinks {
      */
     val LINK_ROUTES = setOf(
         "/api/status", "/api/screen", "/api/key", "/api/watch", "/api/doorbell", "/api/sync", "/api/board", "/api/notice", "/api/keys", "/api/tmdb",
-        "/api/health", "/api/update/check", "/api/media", "/api/type", "/api/grant", "/api/camera-picture",
+        "/api/health", "/api/update/check", "/api/media", "/api/type", "/api/grant", "/api/camera-picture", "/api/appletv",
     )
 
     /**
@@ -505,6 +505,20 @@ object TvLinks {
      * phone can say "Den didn't respond".
      */
     private fun answerOf(text: String): JSONObject = runCatching { JSONObject(text) }.getOrDefault(JSONObject())
+
+    /**
+     * An Apple TV's word ([word]: on, for, from, name) for [tv], the TV it's plugged into, passed on with [tv]'s link
+     * key: about 4 s at most. Not looked for when it doesn't answer: an older Woodruff there turns the key down for this,
+     * which mustn't read as a link that stopped working.
+     */
+    fun appleTvSaid(tv: LinkedTv, word: JSONObject) {
+        request("${tv.base}/api/appletv?k=${enc(tv.key)}", "POST", word.toString(), timeoutMs = 2_000)
+        answered(tv)
+    }
+
+    /** What [tv] says of its own screen for an Apple TV ({"input", "appleTv"}), asked with its link key: about 4 s at most. */
+    fun appleTvReport(tv: LinkedTv): JSONObject =
+        answerOf(request("${tv.base}/api/appletv?k=${enc(tv.key)}", "GET", null, timeoutMs = 2_000)).also { answered(tv) }
 
     /** Pin a family message on [tv]'s Home; [at]: when it was pinned here, so [tv] shows it once ([com.woodruff.tvexplorer.notify.Board.receive]). */
     fun board(tv: LinkedTv, title: String, body: String, from: String?, at: Long) {

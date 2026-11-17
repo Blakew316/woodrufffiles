@@ -95,6 +95,14 @@ internal fun isStale(at: Long?, since: Long): Boolean = at != null && since - at
 internal fun sinceByGoogle(google: Long, listenedMs: Long, tvNow: Long): Long = (if (google > 0) google else tvNow) - listenedMs.coerceAtLeast(0)
 
 /**
+ * Google's time for a message in a pull Google answered at [answered] (its Date; 0 when it didn't say), the message
+ * published at [published] (0 when it doesn't say): the later of the two, for [sinceByGoogle]. Without the answer's
+ * time, none (0), so the TV's clock stands in: publishTime alone can't tell a backlog (Google publishes at once, and a
+ * backlog is messages that waited), and taken alone it made every backlog look new after waking.
+ */
+internal fun googleNow(answered: Long, published: Long): Long = if (answered > 0) maxOf(answered, published) else 0L
+
+/**
  * Pub/Sub messages already shown, by id: the last [max], each for [keepMs] (a day). Pub/Sub delivers at
  * least once: a message comes again when its acknowledgement was lost, or when Woodruff stopped between
  * showing it and acknowledging it (a crash, an update); and a message keeps its id in every subscription,
@@ -141,26 +149,92 @@ internal class SeenMessages(private val max: Int = 300, private val keepMs: Long
  * One visit, one ring. Google sends several messages about one visit (Nest's eventSessionId): a
  * battery doorbell's press, and about 45 s later the same press again with its clip. A visit rings
  * at most once, and once it has rung, no person or motion card follows it; a person seen before the
- * press still shows, and the press still rings. Each kind shows once per visit. It's the same on
- * every TV, whether the event came from its own subscription or from the TV that passed it on, so
- * hearing a visit both ways rings once. Events without a visit (older devices) are always new here:
- * the per-camera pause in [Doorbell.ring] covers them, and only them. The last [max] visits are remembered.
+ * press still shows, and the press still rings. Each kind shows once per visit, and motion after a
+ * person in the same visit is that person moving: no card of its own. It's the same on every TV,
+ * whether the event came from its own subscription or from the TV that passed it on, so hearing a
+ * visit both ways rings once. Events without a visit (older devices) are always new here: the
+ * per-camera pause in [Doorbell.ring] covers them, and only them. The last [max] visits are
+ * remembered, each for [keepMs] (a day), and kept in the TV's settings too ([saved], [restore]): a
+ * battery doorbell's follow-up arriving after Woodruff restarted (an update) doesn't ring again.
  */
-internal class Visits(private val max: Int = 200) {
-    private val seen = object : LinkedHashMap<String, MutableSet<String>>() {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MutableSet<String>>?) = size > max
+internal class Visits(private val max: Int = 200, private val keepMs: Long = 24 * 60 * 60_000L) {
+    /** A visit: when it was first seen (this TV's clock) and the kinds shown in it. */
+    private class Visit(val at: Long, val kinds: MutableSet<String>)
+
+    private val seen = object : LinkedHashMap<String, Visit>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Visit>?) = size > max
     }
 
-    /** Whether [kind] seen by [camera] in the visit [session] is news; if it is, it's noted. */
+    /** Whether [kind] seen by [camera] in the visit [session] at [now] is news; if it is, it's noted. */
     @Synchronized
-    fun admit(camera: String, session: String?, kind: String): Boolean {
+    fun admit(camera: String, session: String?, kind: String, now: Long = System.currentTimeMillis()): Boolean {
         if (session.isNullOrBlank()) return true
-        val kinds = seen.getOrPut("$camera|$session") { HashSet() }
-        if ("doorbell" in kinds || kind in kinds) return false
+        val kinds = seen.getOrPut("$camera|$session") { Visit(now, HashSet()) }.kinds
+        if ("doorbell" in kinds || kind in kinds || (kind == "motion" && "person" in kinds)) return false
         kinds += kind
         return true
     }
+
+    /** As the settings keep them: JSON, oldest first. */
+    @Synchronized
+    fun saved(): String = JSONArray().apply {
+        seen.forEach { (visit, v) -> put(JSONObject().put("visit", visit).put("at", v.at).put("kinds", JSONArray(v.kinds.sorted()))) }
+    }.toString()
+
+    /** Back from what [saved] gave ([text]; null: nothing kept yet), at [now]: any from over [keepMs] before are gone. */
+    @Synchronized
+    fun restore(text: String?, now: Long) {
+        seen.clear()
+        val arr = runCatching { JSONArray(text ?: return) }.getOrNull() ?: return
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val visit = o.optString("visit").takeIf { it.isNotBlank() } ?: continue
+            val at = o.optLong("at")
+            if (now - at > keepMs) continue
+            val list = o.optJSONArray("kinds") ?: continue
+            val kinds = (0 until list.length()).map { list.optString(it) }.filterTo(HashSet()) { it in Doorbell.KINDS }
+            if (kinds.isNotEmpty()) seen[visit] = Visit(at, kinds)
+        }
+    }
 }
+
+/**
+ * The pull waiting on Google now, to cut short from another thread: each pull holds it while it waits ([opened]) and
+ * lets go of it ([closed]) only while it's still its own, so a pull from before listening restarted, ending late,
+ * never lets go of the one waiting now.
+ */
+internal class InFlight<T : Any> {
+    private val ref = java.util.concurrent.atomic.AtomicReference<T?>(null)
+    fun opened(conn: T) = ref.set(conn)
+    fun closed(conn: T?) {
+        if (conn != null) ref.compareAndSet(conn, null)
+    }
+    fun now(): T? = ref.get()
+}
+
+/**
+ * Whether saving the family's subscription starts listening again: only when it [changed], or when nothing listens
+ * yet ([listening] false). Unchanged (the phone's Cameras page saved again), the listener goes on, only looking again.
+ */
+internal fun restartsListening(changed: Boolean, listening: Boolean): Boolean = changed || !listening
+
+/**
+ * How long to wait after [tries] pulls in a row that couldn't reach Google (0 for the first): 5 s, 10 s, then every 15 s,
+ * or at once when the network comes back. It grew to a minute, and with the Wi-Fi up through an internet outage (no
+ * network change to end the wait), the first ring after it came up to a minute late.
+ */
+internal fun offlinePauseMs(tries: Int): Long = when (tries) {
+    0 -> 5_000L
+    1 -> 10_000L
+    else -> 15_000L
+}
+
+/**
+ * Whether a ring heard at [heardAt] while the screen was off is announced as it comes on at [wokeAt] (steady clock):
+ * within 90 s, as a backlog from while a TV was asleep is ([isStale]). Someone turning the TV on to see who's there
+ * gets its chime and its camera or card; a ring from longer ago is only kept in Notifications.
+ */
+internal fun announcedOnWaking(heardAt: Long, wokeAt: Long): Boolean = wokeAt - heardAt in 0..90_000L
 
 // ---- This TV's own subscription -----------------------------------------------------------------
 
@@ -189,6 +263,20 @@ internal fun ownSubscription(shared: String, tvId: String): String? {
  * reset leaves nothing behind (a TV that comes back after that makes it again). Both are Pub/Sub's
  * minimums. The label tells the family, in Google Cloud, where it came from.
  */
+/**
+ * Whether Google describes the subscription [about] as one that deletes itself when unused: an expiration policy with
+ * a time to live (31 days unless chosen otherwise). One with a policy without a time never expires.
+ */
+internal fun expiresUnused(about: JSONObject): Boolean {
+    val policy = about.optJSONObject("expirationPolicy") ?: return !about.has("expirationPolicy")
+    return policy.optString("ttl").isNotBlank()
+}
+
+/** What sets the subscription [name] never to expire (PATCH on it): an expiration policy without a time to live. */
+internal fun neverExpireBody(name: String): JSONObject = JSONObject()
+    .put("subscription", JSONObject().put("name", name).put("expirationPolicy", JSONObject()))
+    .put("updateMask", "expirationPolicy")
+
 internal fun ownSubscriptionBody(topic: String): JSONObject = JSONObject()
     .put("topic", topic)
     .put("ackDeadlineSeconds", 10)
@@ -256,8 +344,10 @@ internal fun cleanSession(session: String?): String? = session?.trim()?.take(200
 
 /** What this TV's doorbell listener is doing. */
 sealed interface DoorbellListening {
-    /** Not pulling: nothing set up, the cameras aren't connected here, the TV is asleep, or not started yet. */
+    /** Not pulling: nothing set up, the cameras aren't connected here, the TV is asleep, or not pulled yet. */
     data object Idle : DoorbellListening
+    /** Not listening at all: not started (Woodruff waiting for the network, or without its phone connection), or stopped. */
+    data object Stopped : DoorbellListening
     /** On this TV's own subscription. */
     data object Own : DoorbellListening
     /** On the family's subscription itself: Google wouldn't make this TV one of its own, and it was set here. */
@@ -298,6 +388,9 @@ internal fun doorbellAlerts(
             DoorbellListening.Refused -> DoorbellAlerts(
                 DoorbellAlerts.State.FAILING, "Google refused",
                 "Google’s project doesn’t let this TV listen on its own; it hears the doorbell through $from instead.",
+            )
+            DoorbellListening.Stopped -> DoorbellAlerts(
+                DoorbellAlerts.State.OFF, "Not listening", "This TV listens for the doorbell once Woodruff is running and on the network.",
             )
             else -> DoorbellAlerts(DoorbellAlerts.State.WATCHING, "Watching", "Doorbell presses pop up on this TV, even when the other TVs are off.")
         }
@@ -375,10 +468,10 @@ internal fun viewOnItsWay(startedAt: Long, now: Long): Boolean = startedAt > 0 &
 internal class RingClaims(private val max: Int = 32, private val freshMs: Long = 10_000) {
     private val taken = LinkedHashSet<Long>()
 
-    /** True once for [ring], for [host] (the screen it's meant for) at [now], while it's fresh. */
+    /** True once for [ring], for [host] (the screen it's meant for) at [now], while it's fresh (since it was sent: [Doorbell.Ring.sent]). */
     @Synchronized
     fun claim(ring: Doorbell.Ring, host: Doorbell.Host, now: Long): Boolean {
-        if (ring.host != host || now - ring.at > freshMs || !taken.add(ring.id)) return false
+        if (ring.host != host || now - ring.sent > freshMs || !taken.add(ring.id)) return false
         if (taken.size > max) taken.remove(taken.first())
         return true
     }
