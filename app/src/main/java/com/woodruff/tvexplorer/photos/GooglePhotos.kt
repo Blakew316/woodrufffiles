@@ -263,6 +263,7 @@ object GooglePhotos {
                 n
             }
             if (items.any { !it.video } && _onTv.value.photos > 0) Appearance.setSlideshowFolder(app, folder.path)
+            Memories.changed()
             _state.value = State(
                 Step.DONE, done = todo.size, total = todo.size, added = added.get(), videos = videos.get(),
                 kept = kept, removed = removed, failed = failed.get(),
@@ -293,6 +294,7 @@ object GooglePhotos {
             if (Appearance.slideshowFolder == folder.path && withContext(Dispatchers.IO) { !hasPhotos(folder) }) {
                 Appearance.setSlideshowFolder(app, null)
             }
+            Memories.changed()
         }
     }
 
