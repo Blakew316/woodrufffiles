@@ -252,6 +252,12 @@ class FocusPlatter internal constructor() {
 
     private fun moving(): Boolean = !glide.atRest || !shown.atRest || !grow.atRest || !ghost.atRest
 
+    /** Whether it's still on its way somewhere (for tests). */
+    internal val isMoving: Boolean get() = moving()
+
+    /** Where it was last drawn, in its list's space; null before it was (for tests). */
+    internal val drawnAt: Rect? get() = lastRect
+
     private fun step(seconds: Float) {
         glide.step(seconds); shown.step(seconds); grow.step(seconds); ghost.step(seconds)
         if (ghost.atRest) { ghostRow = null; ghostRect = null }
@@ -264,10 +270,21 @@ class FocusPlatter internal constructor() {
         step(0f)
     }
 
-    /** Moves it now, and on every frame while it moves (on the frame clock, while the list is attached). */
+    /**
+     * Moves it now, and on every frame while it moves (on the frame clock, while the list is attached). With Reduce
+     * motion on, it's where it's heading at once, as the rows' own colours are: its springs are its own, not Compose's,
+     * so they don't hear that setting, and it glided on behind the rows (the new row's dark words on no highlight,
+     * the old row's white ones on it).
+     */
     private fun animate() {
         val h = host
         if (h == null || !h.isAttached) { settle(); return }
+        if (AppMotion.reduced) {
+            frames?.cancel(); frames = null
+            settle()
+            h.refresh()
+            return
+        }
         h.refresh()
         if (!moving() || frames?.isActive == true) return
         frames = h.coroutineScope.launch {
