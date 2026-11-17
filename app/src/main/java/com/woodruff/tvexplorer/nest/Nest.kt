@@ -177,10 +177,48 @@ object Nest {
         if (s == NestStep.CONNECTED) { CameraGl.warm(); Rtc.warm(app) }
         when (s) {
             NestStep.CONNECTED -> if (_state.value.cameras.isEmpty()) refresh()
-            NestStep.SIGN_IN -> startSignIn()
+            NestStep.SIGN_IN -> signInUnlessWaiting()
             else -> Unit
         }
     }
+
+    /**
+     * A QR code for the cameras' sign-in as the Command Center opens, unless one is already waiting for Google's
+     * answer: only the newest attempt counts ([CompanionHub.expect]), so making another refused the one someone was
+     * finishing on Google's page. This TV's code on show stays as it is; one the phone started is left to finish, and
+     * this TV makes its own once that one's over (signed in, cancelled or out of time). "New QR code" still makes one.
+     */
+    private fun signInUnlessWaiting() {
+        val here = TransferService.state.value.base
+        val waiting = cameraSignInWaiting(
+            CompanionHub.googleAttempts.values.filter { it.grant == GoogleAuth.Grant.NEST }, _state.value.qrUrl,
+            answeredHere = { here != null && answeredAt(it) == here }, phoneWaiting = ::phoneWaiting,
+        ) ?: return startSignIn()
+        if (!waiting.fromPhone) return
+        signInJob?.cancel()
+        // A code of this TV's from before the phone's would only say "expired" now.
+        _state.update { it.copy(qrUrl = null) }
+        signInJob = scope.launch {
+            while (phoneWaiting(waiting) || phoneFinishing(waiting)) kotlinx.coroutines.delay(3_000)
+            if (_state.value.step == NestStep.SIGN_IN) startSignIn()
+        }
+    }
+
+    private fun phoneProgress(a: GoogleAuth.Attempt): String =
+        com.woodruff.tvexplorer.server.PhoneSignIn.status(app, a.state, a.grant).optString("status")
+
+    /** Whether the phone is still waiting on [a], its sign-in, for Google's answer. */
+    private fun phoneWaiting(a: GoogleAuth.Attempt): Boolean =
+        CompanionHub.googleAttempts[a.state] === a && phoneProgress(a) == com.woodruff.tvexplorer.server.SignInProgress.PENDING.json
+
+    /** Whether Google's answer to [a] came and this TV is still swapping it for its sign-in. */
+    private fun phoneFinishing(a: GoogleAuth.Attempt): Boolean = phoneProgress(a) == com.woodruff.tvexplorer.server.SignInProgress.FINISHING.json
+
+    /** The address Google's answer to [a] goes to: this TV's phone connection as it was when [a] was made. */
+    private fun answeredAt(a: GoogleAuth.Attempt): String? = runCatching {
+        val flags = android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+        org.json.JSONObject(String(android.util.Base64.decode(a.state, flags))).optString("r").ifEmpty { null }
+    }.getOrNull()
 
     /**
      * For the Home dashboard and the doorbell view: load cameras when already connected, without
@@ -295,6 +333,18 @@ object Nest {
 
     fun dismissError() = _state.update { it.copy(error = null) }
 }
+
+/**
+ * Of the cameras' sign-in [attempts] still waiting for Google's answer, the one opening the Command Center leaves
+ * as it is: this TV's code on show ([shown], its answer still coming to this TV's address: [answeredHere]), else one
+ * started from the phone that the phone still waits on ([phoneWaiting]). Null when there's none: a new code then.
+ */
+internal fun cameraSignInWaiting(
+    attempts: Collection<GoogleAuth.Attempt>, shown: String?,
+    answeredHere: (GoogleAuth.Attempt) -> Boolean, phoneWaiting: (GoogleAuth.Attempt) -> Boolean,
+): GoogleAuth.Attempt? =
+    attempts.firstOrNull { !it.fromPhone && shown != null && it.authUrl == shown && answeredHere(it) }
+        ?: attempts.firstOrNull { it.fromPhone && phoneWaiting(it) }
 
 /**
  * What shows at start-up once the cameras saved at the last listing ([known]) have been read, over
