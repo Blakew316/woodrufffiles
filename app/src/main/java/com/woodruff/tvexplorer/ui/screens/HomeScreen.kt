@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -163,14 +164,15 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     // The list as last read, at once (read here only the first time in a run of the app), then read
     // again in the background: the saved list is JSON, and telling episodes apart runs regexes.
     var recent by remember { mutableStateOf(RecentCache.last ?: readRecent(store)) }
-    // Each ask reads it again off the main thread; asks that come during a read make one more after it.
+    // Continue watching taken off from a tile's menu: gone at once (the focus moving to its neighbour), until the
+    // list is read again without it. The panel also moves the focus off a tile a fresh read is about to take away.
+    val removing = remember { RemovedTiles() }
+    // Each ask reads it again off the main thread (below); asks that come during a read make one more after it.
     val reloads = remember { Channel<Unit>(Channel.CONFLATED) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            reloads.receive()
-            recent = withContext(Dispatchers.Default) { readRecent(store) }
-        }
-    }
+    // Whenever Continue watching changes on this TV, read again at once: the player saving where it stopped (which
+    // it does as it closes, a moment after Home is back on screen, so the read on coming back is too early for it),
+    // a ✓ marked on a title's page, the phone's Watch tab, the other TVs' progress merged in.
+    LaunchedEffect(Unit) { RecentChanges.of(context).collect { reloads.trySend(Unit) } }
     val scope = rememberCoroutineScope()
     // Coming back from the player: pick up the position it just saved (and a fresh token for the
     // Google-hosted posters: the one from start-up lasts an hour), and what the other TVs watched.
@@ -186,6 +188,8 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         val checking = scope.launch { while (true) { delay(com.woodruff.tvexplorer.cloud.HOME_RECHECK_MS); drive.homeShown() } }
         onStopOrDispose { checking.cancel() }
     }
+    // What the other TVs watch shows here while Home stays up, not only when it opens.
+    PullWhileShown()
     // Another TV's progress merged in while Home is up: show it.
     val syncSeen = remember { FamilySync.updates.value }
     LaunchedEffect(Unit) { FamilySync.updates.collect { if (it != syncSeen) reloads.trySend(Unit) } }
@@ -209,12 +213,33 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Read from disk once per run of the app, off the main thread (the posters follow when it's in).
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { com.woodruff.tvexplorer.cloud.EpisodeShows.load(context) } }
     val shows by com.woodruff.tvexplorer.cloud.EpisodeShows.map.collectAsStateWithLifecycle()
-    val arts = remember(recent, artwork, shows) { recent.associate { it.key to com.woodruff.tvexplorer.cloud.artworkFor(artwork, it.key, it.title, shows) } }
+    // What the row would show of a fresh read is worked out with the latest of these (the loop stays the same coroutine).
+    val latestAdded by rememberUpdatedState(added)
+    val latestShows by rememberUpdatedState(shows)
+    LaunchedEffect(Unit) {
+        while (true) {
+            reloads.receive()
+            // On the next frame: what's being written now is all in first (the player takes a finished episode off
+            // and puts the next one up next, one write after the other), and nothing's read while Home is off screen
+            // (behind the player it's read as Home comes back).
+            withFrameNanos {}
+            val next = withContext(Dispatchers.Default) { readRecent(store) }
+            // On the main thread, where the focus moves (whatever the read came back on).
+            withContext(Dispatchers.Main.immediate) {
+                // A tile about to go from under the focus (a film finished, a show taken off on another TV or the
+                // phone, an added title now in progress): the focus moves on to the nearest tile that stays first,
+                // before the row changes, so it's never left on nothing.
+                removing.goingTo(rowKeys(next, removing.hidden, latestAdded, latestShows))
+                recent = next
+            }
+        }
+    }
+    val arts = remember(recent, artwork, shows) { recent.items.associate { it.key to com.woodruff.tvexplorer.cloud.artworkFor(artwork, it.key, it.title, shows) } }
     // Which show (or film folder) each one sits under, looked up once on Drive.
-    LaunchedEffect(recent, artwork) { if (artwork.isNotEmpty()) drive.resolveShows(recent.map { it.key }) }
+    LaunchedEffect(recent, artwork) { if (artwork.isNotEmpty()) drive.resolveShows(recent.items.map { it.key }) }
     val driveToken by remember(drive) { drive.state.map { it.token }.distinctUntilChanged() }.collectAsStateWithLifecycle(drive.state.value.token)
     // What's added, less what already has a resume tile here (its tile leads to the same title): ten at most.
-    val addedShown = remember(recent, added, shows) { notResuming(added, recent.take(RESUME_TILES), shows).take(10) }
+    val addedShown = remember(recent, added, shows) { addedBesides(recent, added, shows) }
     // A title's page, over Home (Back comes back to its poster); a show with new episodes opens at the first of them.
     val latestNews by rememberUpdatedState(newShows)
     val openAdded = { (place, f): Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile> ->
@@ -223,16 +248,13 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
     // Hold OK (or Menu) on a tile or a poster: the title menu, as anywhere else (a resume tile's offers its page,
     // Episodes / Details, since OK there plays). Play/Pause plays the title.
     var titleMenu by remember { mutableStateOf<MenuFor?>(null) }
-    // Continue watching taken off from a tile's menu: gone at once (the focus moving to its neighbour), until the
-    // list is read again without it.
-    val removing = remember { RemovedTiles() }
     val run = rememberTitleRun(
         drive, changed = { reloads.trySend(Unit) }, removing = { tile, _ -> removing.start(tile) },
         playTile = { play(it) },
     )
-    val shownRecent = remember(recent, removing.hidden.toList()) { recent.filter { RecentStore.showOf(it) !in removing.hidden } }
+    val shownRecent = remember(recent, removing.hidden.toList()) { recent.items.filter { RecentStore.showOf(it) !in removing.hidden } }
     // What was taken off is hidden only until a fresh read leaves it out (then it may come back, watched again).
-    LaunchedEffect(recent) { removing.hidden.retainAll { show -> recent.any { RecentStore.showOf(it) == show } } }
+    LaunchedEffect(recent) { removing.hidden.retainAll { show -> recent.items.any { RecentStore.showOf(it) == show } } }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 28.dp, end = 28.dp, top = 14.dp, bottom = 14.dp),
@@ -242,7 +264,7 @@ fun HomeScreen(vm: MainViewModel, drive: DriveViewModel) {
         PinnedMessage()
         Row(Modifier.fillMaxWidth().height(196.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ContinuePanel(
-                shownRecent, arts, play, onMenu = { titleMenu = MenuFor(null, null, MenuPlace.HOME_RESUME, it) },
+                shownRecent, recent::tileOf, arts, play, onMenu = { titleMenu = MenuFor(null, null, MenuPlace.HOME_RESUME, it) },
                 added = addedShown, newShows = newShows, token = driveToken, openAdded = openAdded,
                 onAddedMenu = { (place, f) -> titleMenu = MenuFor(place, f, MenuPlace.HOME_ADDED) },
                 onAddedPlay = { (place, f) -> run.playNow(MenuFor(place, f, MenuPlace.HOME_ADDED)) },
@@ -286,18 +308,104 @@ internal fun notResuming(
  * once while it's read again in the background.
  */
 internal object RecentCache {
-    @Volatile var last: List<RecentItem>? = null
+    @Volatile var last: HomeRecent? = null
+}
+
+/**
+ * Home's Continue watching as read: its [items], newest first, and each one's tile ([tileOf]): its show, so a
+ * show's tile stays the same tile, with the focus on it, as the show moves on to its next episode (finished here
+ * and rolled on into it, or gone on with on another TV). Two reads of the same list are equal: nothing on screen
+ * changes for a read that found nothing new.
+ */
+@androidx.compose.runtime.Immutable
+internal data class HomeRecent(val items: List<RecentItem>, private val tiles: Map<String, String> = emptyMap()) {
+    /** [item]'s tile key in Continue watching's row. */
+    fun tileOf(item: RecentItem): String = tiles[item.key] ?: item.key
 }
 
 /**
  * Continue watching as saved now, kept for the next visit ([RecentCache]). The titles' show names
  * are worked out here too, so matching them to posters on screen is only a lookup.
  */
-private fun readRecent(store: RecentStore): List<RecentItem> =
-    store.continueWatching().also { list ->
-        list.forEach { matchKeyOf(it.title) }
-        RecentCache.last = list
+private fun readRecent(store: RecentStore): HomeRecent {
+    val all = store.all()
+    val list = store.continueWatching()
+    list.forEach { matchKeyOf(it.title) }
+    return HomeRecent(list, tileKeys(list, all)).also { RecentCache.last = it }
+}
+
+/**
+ * Each of [watching]'s tile keys, by media key: its show as Continue watching groups the whole saved list ([all],
+ * [RecentStore.showsOf]: an episode not known to sit under its show's entry yet still goes with one that is), so
+ * it's the same whichever of the show's episodes the tile stands for. Never the same for two tiles.
+ */
+internal fun tileKeys(watching: List<RecentItem>, all: List<RecentItem>): Map<String, String> {
+    val groups = RecentStore.showsOf(all)
+    val showOf = HashMap<String, String>()
+    all.forEachIndexed { i, r -> showOf.putIfAbsent(r.key, groups[i]) }
+    val used = HashSet<String>()
+    val out = HashMap<String, String>()
+    for (r in watching) {
+        var key = showOf[r.key] ?: RecentStore.showOf(r)
+        // Two of one show (saved between the two reads): the second keeps its own key.
+        if (!used.add(key)) { key = r.key; while (!used.add(key)) key += "'" }
+        out[r.key] = key
     }
+    return out
+}
+
+/** What's added, less what already has a resume tile in [recent] (its tile leads to the same title): ten at most. */
+private fun addedBesides(
+    recent: HomeRecent, added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>, shows: Map<String, String>,
+): List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>> = notResuming(added, recent.items.take(RESUME_TILES), shows).take(10)
+
+/** Continue watching's row as it shows [recent] (less the shows [hidden] as taken off) and [added]: its tiles' keys, in order. */
+private fun rowKeys(
+    recent: HomeRecent, hidden: List<String>, added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>, shows: Map<String, String>,
+): List<String> =
+    recent.items.filter { RecentStore.showOf(it) !in hidden }.take(RESUME_TILES).map(recent::tileOf) + addedBesides(recent, added, shows).map(::addedKey)
+
+/**
+ * Every change to this TV's Continue watching, counted while the app runs: the player saving where it stopped or
+ * finishing something, a ✓ marked anywhere, the phone's Watch tab, the other TVs' progress merged in. The screens
+ * that show it read it again when the count moves, whatever changed it. One listener on the store for the run.
+ */
+internal object RecentChanges {
+    private val count = kotlinx.coroutines.flow.MutableStateFlow(0)
+    /** The store listened to, and the listening (held here: the store holds its listeners only weakly). */
+    private var listening: Pair<android.content.Context, AutoCloseable>? = null
+
+    /** The count, listened for from now on (once per run of the app). */
+    @Synchronized
+    fun of(context: android.content.Context): kotlinx.coroutines.flow.StateFlow<Int> {
+        val app = context.applicationContext
+        if (listening?.first !== app) {
+            listening?.second?.close()
+            // Called on the main thread, after the write.
+            listening = app to RecentStore(app).onChange { count.value = count.value + 1 }
+        }
+        return count
+    }
+}
+
+/**
+ * While the screen is on show (Home, Streaming): the other TVs' progress fetched as often as [FamilySync.pullSoon]
+ * lets it (every couple of minutes), so Continue watching follows what's watched on the family's other TVs and
+ * devices with the screen left up, not only as it opens. Asked every half minute; only a pull that's due goes to
+ * Google, and none without the network.
+ */
+@Composable
+internal fun PullWhileShown() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    LifecycleStartEffect(Unit) {
+        val pulling = scope.launch { while (true) { delay(PULL_LOOK_MS); FamilySync.pullSoon(context) } }
+        onStopOrDispose { pulling.cancel() }
+    }
+}
+
+/** How often a screen on show asks for the other TVs' progress (see [PullWhileShown]). */
+private const val PULL_LOOK_MS = 30_000L
 
 // ---- Family message board ------------------------------------------------------------------
 
@@ -494,7 +602,8 @@ private fun PanelButton(label: String, icon: ImageVector, modifier: Modifier = M
 
 @Composable
 private fun ContinuePanel(
-    recent: List<RecentItem>, arts: Map<String, com.woodruff.tvexplorer.cloud.DriveFile?>, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit,
+    recent: List<RecentItem>, tileOf: (RecentItem) -> String,
+    arts: Map<String, com.woodruff.tvexplorer.cloud.DriveFile?>, play: (RecentItem) -> Unit, onMenu: (RecentItem) -> Unit,
     added: List<Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>>,
     newShows: Map<String, com.woodruff.tvexplorer.cloud.NewShow>, token: String?,
     openAdded: (Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>) -> Unit,
@@ -505,62 +614,55 @@ private fun ContinuePanel(
 ) {
     // Whether the focus is on an added poster (the eyebrow says RECENTLY ADDED): written by the tiles, read by the eyebrow alone.
     val onAdded = remember { mutableStateOf(false) }
-    // Each tile's handle, by key, and the one with the focus: a tile taken off Continue watching hands the focus
-    // to its neighbour on the right, else on the left, else the panel's first button (title-access §4.2).
+    // Each tile's handle, by key, and the one with the focus: a tile about to go hands the focus to the nearest that
+    // stays, on its right first, else on its left, else the panel's first button (title-access §4.2).
     val requesters = remember { HashMap<String, FocusRequester>() }
     val requester = { key: String -> requesters.getOrPut(key) { FocusRequester() } }
     val focusedKey = remember { arrayOfNulls<String>(1) }
     val firstButton = remember { FocusRequester() }
     val latestRecent by rememberUpdatedState(recent)
     val latestAdded by rememberUpdatedState(added)
+    val latestTileOf by rememberUpdatedState(tileOf)
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-    // Where the focus still has to go once a tile is gone: the panel's first button when it was the last thing in it.
+    // Where the focus still has to go once the row has changed: its first tile, else the panel's first button, when
+    // nothing it was on stays.
     var emptied by remember { mutableIntStateOf(0) }
-    // A tile chosen to come off Continue watching: the focus moves to its neighbour at once, in this same press
-    // (before the tile goes, so it's never left on nothing), then the tile goes.
+    // Tiles about to go (taken off from their menu, in this same press; or left out of a fresh read): the focus moves
+    // on first, before they go, so it's never left on nothing; then they go.
     DisposableEffect(removing) {
-        removing.handOff = { tile ->
-            val keys = latestRecent.take(RESUME_TILES).map { it.key } + latestAdded.map { addedKey(it) }
-            val at = keys.indexOf(tile.key)
-            if (focusedKey[0] == tile.key) {
-                val right = keys.getOrNull(at + 1)
-                val left = keys.getOrNull(at - 1)
-                when {
-                    // A neighbour scrolled out of the row isn't composed: the row's own move brings it in.
-                    right != null -> if (!requester(right).tryFocus()) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right)
-                    left != null -> if (!requester(left).tryFocus()) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
-                    else -> emptied++
-                }
+        removing.keyOf = { tile ->
+            // The tile on screen for it: the same item, else its show's (the menu's may be a later episode).
+            val show = RecentStore.showOf(tile)
+            val shown = latestRecent.firstOrNull { it.key == tile.key } ?: latestRecent.firstOrNull { RecentStore.showOf(it) == show }
+            latestTileOf(shown ?: tile)
+        }
+        removing.handOff = handOff@{ stays ->
+            val focused = focusedKey[0] ?: return@handOff
+            if (stays(focused)) return@handOff
+            val keys = latestRecent.take(RESUME_TILES).map(latestTileOf) + latestAdded.map { addedKey(it) }
+            val to = nearestThatStays(keys, focused, stays)
+            when {
+                to == null -> emptied++
+                // A neighbour scrolled out of the row isn't composed: the row's own move brings it in.
+                !requester(to).tryFocus() -> focusManager.moveFocus(
+                    if (keys.indexOf(to) > keys.indexOf(focused)) androidx.compose.ui.focus.FocusDirection.Right else androidx.compose.ui.focus.FocusDirection.Left,
+                )
             }
         }
-        onDispose { removing.handOff = null }
+        onDispose { removing.handOff = null; removing.keyOf = { it.key } }
     }
-    // The panel emptied under the focus: its first button, once it's there.
+    // Nothing the focus was on stays: the row's first tile once it's there, or the panel's first button.
     LaunchedEffect(emptied) {
         if (emptied == 0) return@LaunchedEffect
-        repeat(10) { withFrameNanos {}; if (firstButton.tryFocus()) return@LaunchedEffect }
+        repeat(10) {
+            withFrameNanos {}
+            val first = latestRecent.firstOrNull()?.let(latestTileOf) ?: latestAdded.firstOrNull()?.let { addedKey(it) }
+            if ((first != null && requester(first).tryFocus()) || firstButton.tryFocus()) return@LaunchedEffect
+        }
     }
     val title = if (recent.isEmpty() && added.isNotEmpty()) "Recently added" else "Continue watching"
     Panel(title, modifier.onFocusChanged { if (!it.hasFocus) onAdded.value = false }, eyebrow = { ContinueEyebrow(onAdded, onlyAdded = recent.isEmpty() && added.isNotEmpty()) }) {
-        val r = recent.firstOrNull()
-        if (r == null && added.isNotEmpty()) {
-            // The whole row is composed ahead while the TV is idle, not each poster as it slides in.
-            // The focused poster rests at the row's leading edge and the row glides along to it, as
-            // in the Apple TV app.
-            val row = remember { posterRowState() }
-            PivotScroll(row, Pivot(offset = 14.dp), TvMotion.PosterRowGlide) {
-                LazyRow(
-                    Modifier.fillMaxWidth().weight(1f), state = row,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                ) {
-                    items(added, key = { addedKey(it) }) { a ->
-                        AddedPoster(a, newShows, token, openAdded, onAddedMenu, onAddedPlay, requester(addedKey(a)), onAdded, focusedKey)
-                    }
-                }
-            }
-            return@Panel
-        }
-        if (r == null) {
+        if (recent.isEmpty() && added.isEmpty()) {
             Text("Nothing in progress.", style = MaterialTheme.typography.titleMedium)
             Text("Pick something to start; it shows up here to resume.", color = Palette.muted, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(14.dp))
@@ -570,29 +672,32 @@ private fun ContinuePanel(
             }
             return@Panel
         }
-        // Posters, like the libraries, newest first; a bar shows how far through. A row clips at its
-        // ends, so it leaves room there for a focused tile's grown edge and outline. The whole row is
-        // composed ahead while the TV is idle, not each poster as it slides in. The focused poster
-        // rests at the row's leading edge and the row glides along to it, as in the Apple TV app.
+        // Posters, like the libraries, newest first; a bar shows how far through. Then what's new in Movies and TV
+        // Shows. One row whether or not anything's in progress: an added poster keeps the focus as the last resume
+        // tile goes, or the first one comes. A row clips at its ends, so it leaves room there for a focused tile's
+        // grown edge and outline. The whole row is composed ahead while the TV is idle, not each poster as it
+        // slides in. The focused poster rests at the row's leading edge and the row glides along to it, as in the
+        // Apple TV app.
         val row = remember { posterRowState() }
         PivotScroll(row, Pivot(offset = 14.dp), TvMotion.PosterRowGlide) {
             LazyRow(
                 Modifier.fillMaxWidth().weight(1f), state = row, horizontalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
             ) {
-                items(recent.take(RESUME_TILES), key = { it.key }) { m ->
+                items(recent.take(RESUME_TILES), key = tileOf) { m ->
+                    val key = tileOf(m)
                     ResumeTile(
                         m, arts[m.key], token, play, onMenu,
-                        // Taken off Continue watching from its menu: it glides out, the rest gliding along (no fades).
+                        // Taken off Continue watching: it glides out, the rest gliding along (no fades).
                         Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null).fillMaxHeight().aspectRatio(2f / 3f)
-                            .focusRequester(requester(m.key))
+                            .focusRequester(requester(key))
                             .onFocusChanged {
-                                if (it.isFocused) { onAdded.value = false; focusedKey[0] = m.key } else if (focusedKey[0] == m.key) focusedKey[0] = null
+                                if (it.isFocused) { onAdded.value = false; focusedKey[0] = key } else if (focusedKey[0] == key) focusedKey[0] = null
                             },
                     )
                 }
                 // A pause between the two groups (24 dp, against 12 between tiles): whitespace, no line.
-                if (added.isNotEmpty()) item(key = "pause", contentType = "pause") { Spacer(Modifier.width(12.dp)) }
+                if (recent.isNotEmpty() && added.isNotEmpty()) item(key = "pause", contentType = "pause") { Spacer(Modifier.width(12.dp)) }
                 // Then what's new in Movies and TV Shows.
                 items(added, key = { addedKey(it) }) { a ->
                     AddedPoster(a, newShows, token, openAdded, onAddedMenu, onAddedPlay, requester(addedKey(a)), onAdded, focusedKey)
@@ -602,7 +707,19 @@ private fun ContinuePanel(
     }
 }
 
-/** A Recently added poster's key in Continue watching's row (apart from the resume tiles' media keys). */
+/**
+ * Where the focus goes from [focused], a tile of [keys] (the row's keys, in order) that won't stay: the nearest
+ * that does ([stays]), on its right first, then on its left; null when none does.
+ */
+internal fun nearestThatStays(keys: List<String>, focused: String, stays: (String) -> Boolean): String? {
+    val at = keys.indexOf(focused)
+    if (at < 0) return keys.firstOrNull(stays)
+    for (i in at + 1 until keys.size) if (stays(keys[i])) return keys[i]
+    for (i in at - 1 downTo 0) if (stays(keys[i])) return keys[i]
+    return null
+}
+
+/** A Recently added poster's key in Continue watching's row (apart from the resume tiles' keys, their shows'). */
 private fun addedKey(a: Pair<DrivePlace, com.woodruff.tvexplorer.cloud.DriveFile>): String = "new-" + a.second.id
 
 /**
@@ -636,19 +753,33 @@ private fun LazyItemScope.AddedPoster(
 /**
  * Continue watching tiles being taken off from their menu (title-access §4.2): the focus moves to the tile's
  * neighbour first ([handOff], set by the panel while it's on screen), then its show is [hidden] until a fresh
- * read of Continue watching leaves it out.
+ * read of Continue watching leaves it out. A fresh read about to take tiles away ([goingTo]) moves the focus
+ * off them the same way first.
  */
 @androidx.compose.runtime.Stable
 internal class RemovedTiles {
     val hidden = androidx.compose.runtime.mutableStateListOf<String>()
 
-    /** Moves the focus off a tile that's about to go, to its neighbour; main thread. */
-    internal var handOff: ((RecentItem) -> Unit)? = null
+    /**
+     * Moves the focus off a tile that's about to go (one [stays] says won't stay) to the nearest that stays; set
+     * by the panel while it's on screen. Main thread.
+     */
+    internal var handOff: ((stays: (String) -> Boolean) -> Unit)? = null
+
+    /** The key of the tile on screen for a Continue watching item; set by the panel while it's on screen. */
+    internal var keyOf: (RecentItem) -> String = { it.key }
 
     /** [tile] was chosen to come off: in the same press, before anything is written. Main thread. */
     fun start(tile: RecentItem) {
-        handOff?.invoke(tile)
+        val key = keyOf(tile)
+        handOff?.invoke { it != key }
         hidden += RecentStore.showOf(tile)
+    }
+
+    /** The row is about to show [keys] (its tiles', in order): the focus moves off any tile not among them first. Main thread. */
+    fun goingTo(keys: List<String>) {
+        val staying = keys.toHashSet()
+        handOff?.invoke { it in staying }
     }
 }
 
@@ -1006,9 +1137,23 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
     val notes by Notes.items.collectAsStateWithLifecycle()
     val liveCal by TodayCalendar.state.collectAsStateWithLifecycle()
     val cal = DashboardSamples.calendar ?: liveCal
-    val now = System.currentTimeMillis()
     // Offline words for the calendar only after the grace (a TV waking reconnects within it).
     val calOffline = rememberOfflineShown(cal.offline) || (DashboardSamples.calendar?.offline == true)
+    // The time, moved on as each minute turns while Home is on screen: an event that's over gives way to the next
+    // one on the TV left on Home (the calendar row read it only when something else redrew the panel). Only the
+    // row's words changing redraws the panel.
+    val clock = remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val ticks = rememberCoroutineScope()
+    LifecycleStartEffect(Unit) {
+        val ticking = ticks.launch {
+            while (true) {
+                clock.longValue = System.currentTimeMillis()
+                delay(untilMinuteTurns(clock.longValue))
+            }
+        }
+        onStopOrDispose { ticking.cancel() }
+    }
+    val calRow by remember(cal, calOffline) { derivedStateOf { calendarGlance(cal, clock.longValue, calOffline) } }
     val memories by produceState(0) {
         value = withContext(Dispatchers.IO) { runCatching { Memories.forToday(context) { Appearance.photos(context) }.size }.getOrDefault(0) }
     }
@@ -1016,7 +1161,7 @@ private fun GlancePanel(vm: MainViewModel, modifier: Modifier) {
         if (memories > 0) add(GlanceItem(Sym.PhotoLibrary, "On this day", "$memories photo${if (memories == 1) "" else "s"} from earlier years", false) {
             com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(context, memories = true)
         })
-        calendarGlance(cal, now, calOffline)?.let { row ->
+        calRow?.let { row ->
             add(GlanceItem(Sym.Event, row.title, row.sub, false, if (row.opensSettings) ({ openSettingsAt(vm, SettingsAt.ACCOUNTS) }) else null))
         }
         notices.take(2).forEach { n ->

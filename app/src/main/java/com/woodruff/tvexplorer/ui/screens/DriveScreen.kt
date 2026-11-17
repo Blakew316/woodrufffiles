@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -73,7 +74,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BrushPainter
 import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.MaterialTheme
@@ -95,7 +95,6 @@ import com.woodruff.tvexplorer.cloud.NewEpisodes
 import com.woodruff.tvexplorer.cloud.matchKeyOf
 import com.woodruff.tvexplorer.ui.components.TextInputDialog
 import com.woodruff.tvexplorer.cloud.SignInStep
-import com.woodruff.tvexplorer.util.Qr
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.player.ImageViewerActivity
 import com.woodruff.tvexplorer.player.MediaRef
@@ -161,9 +160,11 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
             }
         }
     }
+    // What the other TVs watch shows here while the screen stays up, not only when it opens.
+    PullWhileShown()
 
     if (!state.connected) {
-        ConnectPanel(state, onReset = drive::resetSetup)
+        ConnectPanel(state, onReset = drive::resetSetup, onKeys = { openSettingsAt(vm, SettingsAt.KEYS) })
         return
     }
 
@@ -193,7 +194,10 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
     val synced = FamilySync.updates.collectAsStateWithLifecycle()
     // A title page closing: ✓s may have been marked on it, or a film found in its folder there.
     val pagesClosed = TitlePages.closed.collectAsStateWithLifecycle()
-    val marked = remember { derivedStateOf { marks.intValue + synced.value + pagesClosed.value } }
+    // Continue watching changing on this TV: above all the player saving where it stopped, or finishing a film (its
+    // ✓), which it does as it closes, a moment after this screen is back on show; and the phone's Watch tab.
+    val recentChanged = RecentChanges.of(context).collectAsStateWithLifecycle()
+    val marked = remember { derivedStateOf { marks.intValue + synced.value + pagesClosed.value + recentChanged.value } }
     // The TV shows with new episodes: their posters say so ("New · S3 E2"), Recently added puts them
     // first, and OK opens their page at the first new one.
     val newShows by drive.newEpisodes.collectAsStateWithLifecycle()
@@ -287,10 +291,16 @@ fun DriveScreen(vm: MainViewModel, drive: DriveViewModel) {
         }
     }
     // Mark as watched (as finishing it does: the ✓, and off Continue watching), or unwatched again.
-    // Both reach the family's other TVs too.
+    // Both reach the family's other TVs too. Written off the main thread (a few thousand ✓s and Continue watching
+    // are rewritten as JSON), done even if the screen closes meanwhile; then the tiles read them again.
+    val marking = androidx.compose.runtime.rememberCoroutineScope()
     val markWatched: (String, Boolean) -> Unit = { key, watched ->
-        if (watched) { RecentStore(context).remove(key); Watched.mark(context, key) } else Watched.unmark(context, key)
-        marks.intValue++
+        marking.launch {
+            withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+                if (watched) { RecentStore(context).remove(key); Watched.mark(context, key) } else Watched.unmark(context, key)
+            }
+            marks.intValue++
+        }
     }
     // A page in place of the posters sits on the calm backdrop: no poster behind its words.
     LaunchedEffect(page != null) { if (page != null) focusedArt.value = null }
@@ -609,10 +619,11 @@ internal fun posterWatched(context: Context, f: DriveFile, films: Boolean): Bool
 
 /**
  * How far through each title is (see [progressByKey]), read on a background thread: on opening, on
- * coming back from the player, when [marks] changes (a ✓, another TV's progress) and when [key]
- * does (a new place). Until it's read, the last read (null the very first time), so a screen coming
- * back shows its bars at once. Hand the State itself to the tiles and read it there: a change then
- * redraws the tiles, not the grid or the rows around them.
+ * coming back from the player, when [marks] changes (a ✓, another TV's progress), whenever Continue
+ * watching changes on this TV ([RecentChanges]: the player saves where it stopped as it closes, after
+ * the screen is back on show) and when [key] does (a new place). Until it's read, the last read (null
+ * the very first time), so a screen coming back shows its bars at once. Hand the State itself to the
+ * tiles and read it there: a change then redraws the tiles, not the grid or the rows around them.
  */
 @Composable
 internal fun rememberProgress(marks: androidx.compose.runtime.State<Int>, key: Any? = Unit): androidx.compose.runtime.State<Map<String, Float>?> {
@@ -624,8 +635,9 @@ internal fun rememberProgress(marks: androidx.compose.runtime.State<Int>, key: A
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
         if (resumedOnce[0]) resumes.intValue++ else resumedOnce[0] = true
     }
+    val changes = remember(context) { RecentChanges.of(context) }
     return produceState(remember { lastProgress }, key) {
-        androidx.compose.runtime.snapshotFlow { resumes.intValue to marks.value }.collectLatest {
+        kotlinx.coroutines.flow.combine(androidx.compose.runtime.snapshotFlow { resumes.intValue to marks.value }, changes) { a, b -> a to b }.collectLatest {
             value = withContext(Dispatchers.Default) { progressByKey(RecentStore(context).all()).also { lastProgress = it } }
         }
     }
@@ -996,7 +1008,7 @@ private fun DriveTile(f: DriveFile, token: String?, onClick: () -> Unit, onLongC
  * sign in again, and says the library and progress are kept; never for a network failure.
  */
 @Composable
-internal fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
+internal fun ConnectPanel(state: DriveState, onReset: () -> Unit, onKeys: (() -> Unit)? = null) {
     val setup = state.step == SignInStep.SETUP
     val again = !setup && state.ended
     Row(
@@ -1010,8 +1022,8 @@ internal fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
         ) {
             val url = state.qrUrl
             if (url != null) {
-                val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
-                Image(qr, contentDescription = "QR code", modifier = Modifier.fillMaxSize())
+                // Made off the main thread; the white card shows for the moment it takes.
+                com.woodruff.tvexplorer.util.rememberQrBitmap(url, 640)?.let { Image(it, contentDescription = "QR code", modifier = Modifier.fillMaxSize()) }
             } else {
                 Text(if (state.error != null) "No code yet" else "Preparing…", color = Color.Black)
             }
@@ -1054,6 +1066,13 @@ internal fun ConnectPanel(state: DriveState, onReset: () -> Unit) {
                 modifier = Modifier.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.1f),
                 scale = androidx.tv.material3.OutlinedButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.1f),
             ) { Text("Use a different Google Cloud client") }
+            // Step 1: the keys typed on the TV instead. Also something to press on the page: with only the code and
+            // its words, the arrows did nothing.
+            else if (onKeys != null) OutlinedButton(
+                onClick = onKeys,
+                modifier = Modifier.tvFocusMotion(rememberFocusMotionState(), focusedScale = 1.1f),
+                scale = androidx.tv.material3.OutlinedButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f / 1.1f),
+            ) { Text("Open Settings") }
         }
     }
 }

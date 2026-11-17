@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
  * A film reaches the player under its title ("Midnight Harbor"), the words the controls, Continue
  * watching and the phone's now playing then show, never its Drive file name
  * ("Midnight.Harbor.2024.2160p.WEB-DL"): from its page or its menu, Play/Pause on its poster, a film kept
- * in its own folder, and Watch together.
+ * in its own folder, and Watch together (which says so, and starts nothing, when no other TV shows Woodruff).
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -61,6 +61,21 @@ class FilmTitlesTest {
         assertEquals("Midnight Harbor", filmPlayTitle(DriveFile("v1", "movie.mkv", "video/x-matroska", 0, 0, null), folder = box))
         // Nothing to call it by: its file's name, as before.
         assertEquals("x.mkv", filmPlayTitle(DriveFile("v2", "x.mkv", "video/x-matroska", 0, 0, null, info = MediaInfo(" ", null))))
+    }
+
+    @Test fun watchTogetherWithNoOtherTvShowingWoodruffSaysSoAndStartsNothing() {
+        com.woodruff.tvexplorer.cloud.FamilySync.setEnabled(activity, false)
+        val said = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val together = TitleRun(
+            activity, CoroutineScope(Dispatchers.Unconfined), resume = { it() }, drive = null,
+            openPage = { _, _, _ -> }, beforePlay = {}, changed = {}, removing = { _, _ -> }, playTile = null, say = { said += it },
+        )
+        together.together(TitleAction.Together("drive:m9", "Midnight Harbor", 0))
+        // It waits for the family's latest spot and asks the linked TVs (none here) what they show.
+        val until = System.currentTimeMillis() + 5_000
+        while (said.isEmpty() && System.currentTimeMillis() < until) { shadowOf(android.os.Looper.getMainLooper()).idle(); Thread.sleep(20) }
+        assertEquals(listOf(NONE_TOGETHER), said.toList())
+        assertEquals(null, shadowOf(activity).nextStartedActivity)
     }
 
     @Test fun watchTogetherSendsTheFilmsTitle() {

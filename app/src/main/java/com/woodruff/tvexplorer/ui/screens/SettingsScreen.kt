@@ -114,14 +114,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import com.woodruff.tvexplorer.cloud.FamilySync
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.cloud.needsAttention
 import com.woodruff.tvexplorer.cloud.signInWords
 import com.woodruff.tvexplorer.notify.Chime
 import com.woodruff.tvexplorer.player.FrameRateMatch
-import com.woodruff.tvexplorer.util.Qr
 import kotlinx.coroutines.withTimeoutOrNull
 import com.woodruff.tvexplorer.mail.MailAccount
 import com.woodruff.tvexplorer.mail.MailAccounts
@@ -487,7 +485,7 @@ fun SettingsScreen(vm: MainViewModel) {
         )
         SettingsPage.DEVICES -> listOf(
             SettingItem(Sym.Tv, "This TV’s name", facts.tvName, about = "Shown to your other TVs and on your phone.") { dialog = SettingsDialog.TvName },
-            SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone’s camera.") { vm.show(Screen.TRANSFER) },
+            SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone’s camera.") { openPhoneScreen(vm, SettingsAt.DEVICES) },
             opener(SettingsPage.PHONES, count(phones.size, "phone", "None yet")),
             opener(SettingsPage.TVS, if (linkedTvs.isEmpty()) "None linked" else "${linkedTvs.size} linked"),
             // What TransferService runs: started at boot (BootReceiver) and brought back by Android after a kill.
@@ -497,7 +495,7 @@ fun SettingsScreen(vm: MainViewModel) {
             ) { AutoStart.setEnabled(context, !facts.autoStart); changed() },
         )
         SettingsPage.PHONES ->
-            if (phones.isEmpty()) listOf(SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone’s camera.") { vm.show(Screen.TRANSFER) })
+            if (phones.isEmpty()) listOf(SettingItem(Sym.PhoneIphone, "Connect a phone", about = "Shows a QR code to scan with your phone’s camera.") { openPhoneScreen(vm, SettingsAt.PHONES) })
             else phones.map { p -> SettingItem(Sym.Smartphone, p.name, Format.date(p.lastSeen), about = "Last seen ${Format.date(p.lastSeen)}. OK forgets this phone.") { dialog = SettingsDialog.RemovePhone(p) } }
         SettingsPage.TVS -> buildList {
             add(SettingItem(Sym.Add, "Add another TV", about = "Enter the code the other TV shows in its Settings.") { dialog = SettingsDialog.AddTv })
@@ -625,8 +623,10 @@ fun SettingsScreen(vm: MainViewModel) {
 
     // Each page's rows, built once and kept. Everything they show is Compose state (the facts above,
     // the theme, an update's progress…), so a page's rows are rebuilt only when one of those changes;
-    // otherwise the list gets the very same rows back and neither it nor its rows recompose.
-    val rowsCache = remember(vm, context) { HashMap<SettingsPage, State<List<SettingItem>>>() }
+    // otherwise the list gets the very same rows back and neither it nor its rows recompose. The linked
+    // TVs aren't state the rows read but a list they're built with: built again when it changes (a TV
+    // linked, unlinked or linked again under a new key), or they'd go on showing, and acting on, the old one.
+    val rowsCache = remember(vm, context, linkedTvs) { HashMap<SettingsPage, State<List<SettingItem>>>() }
     val rowsOf = { p: SettingsPage -> rowsCache.getOrPut(p) { derivedStateOf { rows(p) } }.value }
 
     // The row the focus is on (and its page), for the panel on the right. Only the panel reads it,
@@ -784,7 +784,7 @@ fun SettingsScreen(vm: MainViewModel) {
             },
             onDismiss = { dialog = null },
         )
-        SettingsDialog.ICloud -> ICloudDialog(onDismiss = { dialog = null }, onStart = { dialog = null; vm.show(Screen.TRANSFER) })
+        SettingsDialog.ICloud -> ICloudDialog(onDismiss = { dialog = null }, onStart = { dialog = null; openPhoneScreen(vm, SettingsAt.STORAGE) })
         SettingsDialog.BrowseTypes -> ActionMenu(
             title = "Browse by type", subtitle = "Everything of that kind on this TV and attached drives",
             onDismiss = { dialog = null },
@@ -889,8 +889,8 @@ private fun DriveAgainDialog(onDone: () -> Unit, onDismiss: () -> Unit) {
             Box(Modifier.size(220.dp).clip(RoundedCornerShape(16.dp)).background(Color.White), contentAlignment = Alignment.Center) {
                 val target = url
                 if (target != null) {
-                    val qr = remember(target) { Qr.bitmap(target, 600).asImageBitmap() }
-                    Image(qr, contentDescription = "QR code", modifier = Modifier.size(220.dp))
+                    // Made off the main thread; the white card shows for the moment it takes.
+                    com.woodruff.tvexplorer.util.rememberQrBitmap(target, 600)?.let { Image(it, contentDescription = "QR code", modifier = Modifier.size(220.dp)) }
                 } else {
                     Text(if (finishing) "Signing in…" else "Preparing…", color = Color.Black)
                 }
@@ -953,7 +953,7 @@ internal object SettingsSamples {
 }
 
 /** Pages Settings can be opened at from elsewhere ([openSettingsAt]). */
-internal enum class SettingsAt { ACCOUNTS, KEYS }
+internal enum class SettingsAt { ACCOUNTS, KEYS, DEVICES, PHONES, STORAGE }
 
 /**
  * A page asked for from elsewhere: taken by Settings as it comes on screen, or at once when it's on
@@ -978,6 +978,23 @@ internal fun openSettingsAt(vm: MainViewModel, page: SettingsAt) {
 private fun pathTo(page: SettingsAt): List<SettingsPage> = when (page) {
     SettingsAt.ACCOUNTS -> listOf(SettingsPage.ACCOUNTS)
     SettingsAt.KEYS -> listOf(SettingsPage.ACCOUNTS, SettingsPage.KEYS)
+    SettingsAt.DEVICES -> listOf(SettingsPage.DEVICES)
+    SettingsAt.PHONES -> listOf(SettingsPage.DEVICES, SettingsPage.PHONES)
+    SettingsAt.STORAGE -> listOf(SettingsPage.STORAGE)
+}
+
+/**
+ * The phone screen (Connect your phone), opened from Settings at [from]: Back and Done there come back to that page
+ * ([PhoneScreen]), not to the side menu (and Settings then at its first page).
+ */
+internal fun openPhoneScreen(vm: MainViewModel, from: SettingsAt) {
+    PhoneScreen.from = from
+    vm.show(Screen.TRANSFER)
+}
+
+/** Where the phone screen was last opened from in Settings: where its Back and Done go. */
+internal object PhoneScreen {
+    @Volatile var from: SettingsAt = SettingsAt.DEVICES
 }
 
 /** The pages of Settings: the first, and the ones opened from it. */

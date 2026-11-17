@@ -373,7 +373,7 @@ class TitleGallery {
 
     /**
      * The title menu (hold OK on a poster) for a film in progress, over Streaming's Movies: its title on one line,
-     * "45% watched", and Resume from 1h 05m / Start over / Watch together on all TVs / Mark as watched / Download
+     * "45% watched", and Resume from 1h 05m / Start over / Watch together / Mark as watched / Download
      * to this TV. The menu is its own window, so the whole screen is captured, with the dim the TV draws
      * behind a dialog's window.
      */

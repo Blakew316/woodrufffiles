@@ -367,7 +367,11 @@ private fun SearchPage(r: SearchRequest, vm: MainViewModel, drive: DriveViewMode
     // Decided as it opens: the keyboard never changes shape while it's on screen.
     val voice = remember { SearchVoice.available == true }
     val pageClosed by TitlePages.closed.collectAsStateWithLifecycle()
-    LaunchedEffect(pageClosed) { marks.intValue++ }
+    // And while Search is up: another TV's ✓s and progress merged in, and Continue watching changing on this TV (the
+    // phone's Watch tab, say): the results' ✓s and bars are read again.
+    val synced by com.woodruff.tvexplorer.cloud.FamilySync.updates.collectAsStateWithLifecycle()
+    val recentChanged by RecentChanges.of(context).collectAsStateWithLifecycle()
+    LaunchedEffect(pageClosed, synced, recentChanged) { marks.intValue++ }
     Dialog(onDismissRequest = SearchPages::close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         // The page grows in as the system moves its window; nothing of its own animates in on top. Settings →
         // Smoothness counts its frames as "Search", the screen under it keeping its own.

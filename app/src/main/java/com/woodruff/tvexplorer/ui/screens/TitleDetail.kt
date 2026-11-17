@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BrushPainter
@@ -468,16 +469,22 @@ internal fun TitlePage(
         isShow -> resumeEpisode != null || playsNew || firstEps != null || seasons?.isEmpty() == true
         else -> inside != null
     }
+    // The last key press as the page opens, and whether the focus is anywhere on the page: a key pressed since,
+    // with the focus put somewhere on the page (Down to More like this while the seasons load), is someone choosing
+    // where it goes, and the main button arriving after that doesn't take it back.
+    val keyAtOpen = remember { com.woodruff.tvexplorer.notify.AppVisibility.lastInput }
+    val onPage = remember { BooleanArray(1) }
     LaunchedEffect(ready) {
         if (focused || !ready) return@LaunchedEffect
         repeat(10) {
             withFrameNanos {}
+            if (onPage[0] && com.woodruff.tvexplorer.notify.AppVisibility.lastInput != keyAtOpen) { focused = true; return@LaunchedEffect }
             // tryFocus: a request with nothing attached yet no longer throws, it does nothing (and the
             // next frames would never have tried again).
             if (primary.tryFocus()) { focused = true; return@LaunchedEffect }
         }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(Color.Black).onFocusChanged { onPage[0] = it.hasFocus }) {
         // A Drive poster image comes at a tile's size: the background asks for it at a wide picture's.
         val wide = info.backdrop ?: art?.let(DriveApi::wide)
         val samplePainter = LocalPosterPainter.current
@@ -734,7 +741,7 @@ internal fun TitlePage(
             actions = buildList {
                 add(MenuAction(if (at > RESUME_FROM_MS) "Resume from ${Format.duration(at)}" else "Play", Sym.PlayArrow) { resume { onPlayEpisode(ep, season, false) } })
                 if (at > RESUME_FROM_MS) add(MenuAction("Play from the start", Sym.Replay) { onPlayEpisode(ep, season, true) })
-                if (linked.isNotEmpty()) add(MenuAction("Watch together on all TVs", Sym.Groups) {
+                if (linked.isNotEmpty()) add(MenuAction("Watch together", Sym.Groups) {
                     run.together(TitleAction.Together(key, episodePlayTitle(info.title, ep), at))
                 })
                 add(

@@ -171,7 +171,10 @@ internal sealed interface TitleAction {
     /** Row 1 when nothing playable is known without listing, or row 3 on Home's tiles: the title's page ("Episodes" / "Details"). */
     data class Page(val show: Boolean) : TitleAction
 
-    /** Row 4: [key] (a Google Drive video) on every linked TV too, from where it is ([positionMs]; a tile's latest spot for [tile]). */
+    /**
+     * Row 4: [key] (a Google Drive video) on the linked TVs showing Woodruff too, from where it is ([positionMs]; a
+     * tile's latest spot for [tile]).
+     */
     data class Together(val key: String, val title: String, val positionMs: Long, val tile: RecentItem? = null) : TitleAction
 
     /** Row 5: [key]'s ✓ ([watched]: it has one now, so the row takes it off). */
@@ -194,7 +197,7 @@ internal fun TitleAction.label(): String = when (this) {
         else -> mainPlayLabel(MainPlay.Film(DriveFile(tile.key, tile.title, "", 0, 0, null), tile.positionMs))
     }
     is TitleAction.Page -> if (show) "Episodes" else "Details"
-    is TitleAction.Together -> "Watch together on all TVs"
+    is TitleAction.Together -> "Watch together"
     is TitleAction.Mark -> if (watched) "Mark as unwatched" else "Mark as watched"
     is TitleAction.Download -> "Download to this TV"
     is TitleAction.Remove -> "Remove from Continue watching"
@@ -440,14 +443,18 @@ internal fun quickTitleMenu(target: MenuFor, news: NewShow?): TitleMenuModel {
  * memory (a film's own folder from disk too), the ✓s and the linked TVs. Never the network. Background thread.
  */
 internal fun readTitleFacts(c: Context, target: MenuFor, libraries: Map<DrivePlace, List<DriveFile>>, news: Map<String, NewShow>): TitleFacts {
-    val recent = RecentStore(c).all()
+    val store = RecentStore(c)
+    val recent = store.all()
     EpisodeShows.load(c)
     val shows = EpisodeShows.map.value
     TvLinks.load(c)
+    // A Continue watching tile as its show is now, not as it was drawn: its rows (Mark as watched above all) are for
+    // the episode it stands for now.
+    val now = withLatestTile(target, store.continueWatching())
     // A Home tile whose entry wasn't known: the library entry it's found under, as Continue watching finds it.
     val found = when {
-        target.file != null -> target.place to target.file
-        target.tile != null -> entryOf(target.tile, libraries, shows) ?: (null to null)
+        now.file != null -> now.place to now.file
+        now.tile != null -> entryOf(now.tile, libraries, shows) ?: (null to null)
         else -> null to null
     }
     val (place, entry) = found
@@ -455,10 +462,19 @@ internal fun readTitleFacts(c: Context, target: MenuFor, libraries: Map<DrivePla
         FolderCache.inMemory(e.id) ?: if (place != DrivePlace.TvShows) FolderCache.peek(c, e.id) else null
     }
     return TitleFacts(
-        target, entry, place, recent, shows, inside, FolderCache::inMemory, { Watched.isWatched(c, it) },
+        now, entry, place, recent, shows, inside, FolderCache::inMemory, { Watched.isWatched(c, it) },
         entry?.let { news[it.id] }, System.currentTimeMillis(), TvLinks.linked.value.isNotEmpty(),
     )
 }
+
+/**
+ * [target] with its Continue watching tile as the tile's show is now in [watching] (Continue watching as saved,
+ * the other TVs' merged in): the show may have moved on since the tile was drawn (an episode finished here and the
+ * player rolled on into the next, or another TV went on), and the menu's rows and words are for that episode.
+ * A tile whose show has left Continue watching stays as it was.
+ */
+internal fun withLatestTile(target: MenuFor, watching: List<RecentItem>): MenuFor =
+    target.tile?.let { tile -> latestOf(tile, watching).takeIf { it != tile }?.let { target.copy(tile = it) } } ?: target
 
 /** The library entry (and its library) a Continue watching [tile] stands for: an episode's show, a film. */
 internal fun entryOf(tile: RecentItem, libraries: Map<DrivePlace, List<DriveFile>>, shows: Map<String, String>): Pair<DrivePlace, DriveFile>? {
@@ -492,9 +508,14 @@ internal class TitleRun(
     private val removing: (RecentItem, DriveFile?) -> Unit,
     /** Home's Continue watching: a tile played as OK plays it. */
     private val playTile: ((RecentItem) -> Unit)?,
+    /** A few words for the family about something that can't be done now ("Open Woodruff on another TV first"). */
+    private val say: (String) -> Unit = {},
 ) {
     /** A show being resumed, waiting for the other TVs' latest: a second press meanwhile doesn't start it twice. */
     private var goingOn: Job? = null
+
+    /** A Watch together waiting for the other TVs' latest spot and for the linked TVs: a second press meanwhile doesn't start it twice. */
+    private var joining: Job? = null
 
     /** [target]'s menu, read off the main thread. */
     suspend fun build(target: MenuFor): TitleMenuModel = withContext(Dispatchers.IO) {
@@ -600,11 +621,22 @@ internal class TitleRun(
         context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(title), key, positionMs))
     }
 
-    /** The same video on every linked TV and this one, from the same spot; this TV leads (pause and seek keep them in step). */
+    /**
+     * The same video on the linked TVs showing Woodruff and this one, from the same spot; this TV leads (pause and seek
+     * keep them in step). Only those TVs, as they say now: a TV showing something else, or asleep, isn't pulled into
+     * the film, nor made to stream all of it from Google Drive, whose daily allowance the family shares. With none of
+     * them showing Woodruff it says so and starts nothing. Not started if Woodruff left the screen meanwhile (Home on
+     * the remote while a linked TV that's off was being asked): nothing opens over another app.
+     */
     fun together(a: TitleAction.Together) {
-        scope.launch {
+        if (joining?.isActive == true) return
+        joining = scope.launch {
             // From where anyone last stopped, as Play does.
             FamilySync.awaitFresh(context)
+            if (!context.inFront()) return@launch
+            val statuses = try { TvLinks.statuses(context) } catch (e: CancellationException) { throw e } catch (e: Exception) { emptyList() }
+            val on = togetherTvs(statuses, TvLinks.linked.value.mapTo(HashSet()) { it.id })
+            if (on.isEmpty()) { say(NONE_TOGETHER); return@launch }
             val (key, title, at) = withContext(Dispatchers.IO) {
                 val store = RecentStore(context)
                 when {
@@ -613,17 +645,29 @@ internal class TitleRun(
                     else -> Triple(a.key, a.title, 0L)
                 }
             }
-            withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, key, title, at) } }
+            withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { tv -> if (tv.id in on) TvLinks.watch(tv, key, title, at) } }
+            // Each linked TV gets a few seconds to answer (one that's off, longer): left meanwhile, it doesn't open here.
+            if (!context.inFront()) return@launch
             beforePlay()
             context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(title), key, at, together = true))
         }
     }
 }
 
+/** What Watch together says when no linked TV shows Woodruff (the phone's words for it). */
+internal const val NONE_TOGETHER = "Open Woodruff on another TV first"
+
+/**
+ * The linked TVs of [statuses] that Watch together starts on: those showing Woodruff now (on, answering this TV's
+ * link, Woodruff on their screen), by id; [linked]: the linked TVs' ids (this TV isn't one).
+ */
+internal fun togetherTvs(statuses: List<com.woodruff.tvexplorer.tvs.TvStatus>, linked: Set<String>): Set<String> =
+    statuses.filter { it.id in linked && it.online && !it.refused && it.onScreen }.mapTo(LinkedHashSet()) { it.id }
+
 /**
  * A [TitleRun] for this screen. [openPage]: where it opens title pages; [beforePlay]: what closes as something
  * starts (a title page); [changed]: ✓s or Continue watching changed; [removing]: a Continue watching tile is
- * being taken off; [playTile]: Home's way of playing a tile.
+ * being taken off; [playTile]: Home's way of playing a tile. What can't be done now is said in the window's message.
  */
 @Composable
 internal fun rememberTitleRun(
@@ -649,6 +693,7 @@ internal fun rememberTitleRun(
             context, scope, resume, drive,
             openPage = { p, f, e -> open(p, f, e) }, beforePlay = { before() }, changed = { change() }, removing = { r, f -> remove(r, f) },
             playTile = if (hasTile) { r -> tile?.invoke(r) } else null,
+            say = { words -> drive?.say(words) },
         )
     }
 }

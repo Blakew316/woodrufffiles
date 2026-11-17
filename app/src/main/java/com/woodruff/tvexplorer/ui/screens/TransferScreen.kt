@@ -58,7 +58,8 @@ import com.woodruff.tvexplorer.util.rememberQrBitmap
 
 /**
  * Pair a phone: the QR code opens the companion web app (files, send-to-TV, settings). The
- * pairing key is persistent, so a phone that scanned once stays connected.
+ * pairing key is persistent, so a phone that scanned once stays connected. It's opened from Settings:
+ * Back and Done go back to the page it was opened from ([PhoneScreen]).
  */
 @Composable
 fun TransferScreen(vm: MainViewModel) {
@@ -73,8 +74,10 @@ fun TransferScreen(vm: MainViewModel) {
         else TransferService.start(context)
     }
     LaunchedEffect(Unit) { if (!state.running) TransferService.start(context) }
-    val openSidebar = com.woodruff.tvexplorer.ui.LocalOpenSidebar.current
-    BackHandler { openSidebar() }
+    // Back where it was opened from, as Done: Settings at that page (the side menu, then Settings at its first page,
+    // was a long way back).
+    val done = remember(vm) { { openSettingsAt(vm, PhoneScreen.from) } }
+    BackHandler { done() }
     // Waiting for the home network: said only after the grace every offline state shares
     // (offline-states.md §3.0), since most wake-ups find the Wi-Fi again within a few seconds.
     val offline = rememberOfflineShown(state.waiting)
@@ -132,8 +135,27 @@ fun TransferScreen(vm: MainViewModel) {
                 state.error?.let { Text(it, color = Palette.danger) }
                 ToolButton(Sym.PlayArrow, "Turn on phone connection", start)
             }
-            // (Starting: the card says so, and there's nothing to press.)
+            // (Starting: the card says so.) Whatever it shows, something to press: with only the code up, the arrows
+            // did nothing.
+            DoneButton(Modifier.padding(top = 14.dp), done)
         }
+    }
+}
+
+/** Done: back to Settings, where the phone screen was opened from. Plain words, the app's glass pill. */
+@Composable
+private fun DoneButton(modifier: Modifier, onClick: () -> Unit) {
+    FocusButton(
+        onClick = onClick,
+        shape = Shapes.pill,
+        color = Palette.surfaceHigh, focusedColor = Palette.text,
+        content = Palette.text, focusedContent = Palette.background,
+        modifier = modifier,
+        focusedScale = 1.08f,
+    ) { tint ->
+        RowText("Done", tint.color, Modifier.padding(horizontal = 24.dp, vertical = 11.dp), style = MaterialTheme.typography.titleSmall, maxLines = 1)
+        // The lit rim, focused or not.
+        Spacer(Modifier.matchParentSize().border(1.dp, Palette.rim, Shapes.pill))
     }
 }
 

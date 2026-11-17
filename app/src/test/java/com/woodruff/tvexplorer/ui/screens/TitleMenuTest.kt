@@ -61,7 +61,7 @@ class TitleMenuTest {
         val recent = listOf(played("drive:m1", "Midnight Harbor (2024).mkv", 3_900_000, 8_640_000))
         val m = titleMenu(facts(MenuFor(DrivePlace.Movies, harbor, MenuPlace.LIBRARY), recent = recent, linked = true))
         assertEquals("45% watched", m.subtitle)
-        assertEquals(listOf("Resume from 1h 05m", "Start over", "Watch together on all TVs", "Mark as watched", "Download to this TV"), labels(m))
+        assertEquals(listOf("Resume from 1h 05m", "Start over", "Watch together", "Mark as watched", "Download to this TV"), labels(m))
         val together = m.rows[2] as TitleAction.Together
         assertEquals("drive:m1", together.key)
         assertEquals(3_900_000L, together.positionMs)
@@ -130,7 +130,7 @@ class TitleMenuTest {
         assertEquals("Midnight Harbor (2024)", m.title)
         assertEquals("45% watched", m.subtitle)
         assertEquals(
-            listOf("Resume from 1h 05m", "Start over", "Details", "Watch together on all TVs", "Mark as watched", "Remove from Continue watching"),
+            listOf("Resume from 1h 05m", "Start over", "Details", "Watch together", "Mark as watched", "Remove from Continue watching"),
             labels(m),
         )
         assertTrue(m.rows.size <= 6)
@@ -155,10 +155,45 @@ class TitleMenuTest {
         val tile = played("drive:m1", "Midnight Harbor (2024).mkv", 3_900_000, 8_640_000)
         val m = titleMenu(facts(MenuFor(DrivePlace.Movies, harbor, MenuPlace.CONTINUE_ROW, tile), recent = listOf(tile), linked = true))
         assertEquals(
-            listOf("Resume from 1h 05m", "Start over", "Watch together on all TVs", "Mark as watched", "Download to this TV", "Remove from Continue watching"),
+            listOf("Resume from 1h 05m", "Start over", "Watch together", "Mark as watched", "Download to this TV", "Remove from Continue watching"),
             labels(m),
         )
         assertEquals(6, m.rows.size)
+    }
+
+    @Test fun aContinueWatchingTileIsForItsShowsEpisodeNow() {
+        // Drawn at S2 E4; since then S2 E4 was finished here and the player rolled on into S2 E5, stopped halfway.
+        val drawn = played("drive:e24", "Backyard.Science.S02E04.mkv", 600_000, 2_400_000)
+        val now = played("drive:e25", "Backyard.Science.S02E05.mkv", 1_200_000, 2_400_000)
+        val target = MenuFor(DrivePlace.TvShows, show, MenuPlace.CONTINUE_ROW, drawn)
+        val fresh = withLatestTile(target, listOf(now))
+        assertEquals("drive:e25", fresh.tile?.key)
+        // Its Mark row is S2 E5's, not the finished S2 E4's ✓ to take off; its line says S2 E5.
+        val m = titleMenu(facts(fresh, recent = listOf(now, drawn.copy(positionMs = 2_400_000)), watched = setOf("drive:e24")))
+        assertTrue(m.rows.any { it is TitleAction.Mark && it.key == "drive:e25" && !it.watched })
+        assertTrue(m.rows.none { it is TitleAction.Mark && it.key == "drive:e24" })
+        assertEquals("S2 E5 · 50% watched", m.subtitle)
+        // Gone from Continue watching altogether: as it was drawn.
+        assertEquals(target, withLatestTile(target, emptyList()))
+        // Not a tile: nothing to bring up to date.
+        val poster = MenuFor(DrivePlace.TvShows, show, MenuPlace.LIBRARY)
+        assertEquals(poster, withLatestTile(poster, listOf(now)))
+    }
+
+    @Test fun watchTogetherStartsOnlyOnTheLinkedTvsShowingWoodruff() {
+        fun tv(id: String, online: Boolean = true, onScreen: Boolean = true, refused: Boolean = false) =
+            com.woodruff.tvexplorer.tvs.TvStatus(id, id, online = online, onScreen = onScreen, playing = null, refused = refused)
+        val linked = setOf("den", "kitchen", "bedroom", "garage")
+        val statuses = listOf(
+            tv("this"), // this TV: it leads, and isn't one of the linked TVs
+            tv("den"),
+            tv("kitchen", onScreen = false), // another app on its screen
+            tv("bedroom", online = false), // asleep
+            tv("garage", refused = true), // turning this TV's link down
+        )
+        assertEquals(setOf("den"), togetherTvs(statuses, linked))
+        // None showing Woodruff: none (the menu says so instead of starting).
+        assertTrue(togetherTvs(listOf(tv("this"), tv("kitchen", onScreen = false)), linked).isEmpty())
     }
 
     @Test fun nothingIsDownloadedFromHome() {

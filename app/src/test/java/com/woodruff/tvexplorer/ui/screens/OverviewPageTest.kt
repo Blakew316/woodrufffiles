@@ -34,6 +34,21 @@ class OverviewPageTest {
         assertEquals(setOf("m29", "m3"), page.playing.keys)
     }
 
+    @Test fun continueWatchingFollowsWhatsWatchedTheOtherRowsKeepTheirTitles() {
+        val atOpen = overviewPage(films, listOf(playing("drive:m29", "Film 29.mp4")), emptyMap(), { Library.showMatchKey(it) }, day = 2026_300).rows
+        // Since then Film 29 was finished and Film 3 started (on another TV, say).
+        val now = continueRow(films, listOf(playing("drive:m3", "Film 3.mp4", upNext = false)), emptyMap())
+        assertEquals(listOf(films[3]), now.titles)
+        assertEquals("drive:m3", now.playing["m3"]?.key)
+        val shown = withContinuing(atOpen, now.titles)
+        assertEquals("Continue watching" to listOf(films[3]), shown.first())
+        assertEquals(atOpen.drop(1), shown.drop(1))
+        // Nothing in progress any more: no row. None at first, something now: at the top.
+        assertEquals(atOpen.drop(1), withContinuing(atOpen, emptyList()))
+        val none = overviewPage(films, emptyList(), emptyMap(), { Library.showMatchKey(it) }, day = 2026_300).rows
+        assertEquals(listOf("Continue watching" to listOf(films[3])) + none, withContinuing(none, now.titles))
+    }
+
     @Test fun theFeaturedTitlesAreTheDays() {
         val page = overviewPage(films, emptyList(), emptyMap(), { it }, day = 2026_300)
         assertEquals(Library.featured(films, 2026_300), page.featured)
