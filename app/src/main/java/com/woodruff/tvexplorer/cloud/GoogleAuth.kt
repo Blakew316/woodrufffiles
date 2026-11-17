@@ -666,16 +666,18 @@ object GoogleAuth {
         return TokenResult.Ok(access)
     }
 
-    /** Forgets tokens on this TV and asks Google to revoke them. Keeps the client ID/secret. */
+    /**
+     * Signs [grant] out on this TV: its tokens, and what was kept about them, are forgotten here, never revoked at
+     * Google (as on the LG). Keeps the client ID/secret. A Photos or Calendar sign-in received from the Woodruff app
+     * ([receive]) is the very token every phone, Mac and TV holds, and every device signs in with the family's one
+     * client: revoking one ended it everywhere, and Google may end every sign-in that account made with that client
+     * with it, so not even one made on this TV can be told to be this TV's alone. New keys ([saveClient]) and a reset
+     * ([resetClient]) forget the same way. An approval is taken away for good on Google's site
+     * (myaccount.google.com/permissions).
+     */
     suspend fun signOut(c: Context, grant: Grant = Grant.DRIVE) = withContext(Dispatchers.IO) {
-        val refresh = s(c).get(grant.refreshKey)
         s(c).remove(*grant.stored, *grant.marks)
         if (grant == Grant.DRIVE) _driveSignOuts.tryEmit(Unit)
-        if (refresh != null) runCatching {
-            Http.open("https://oauth2.googleapis.com/revoke?token=${enc(refresh)}").apply {
-                requestMethod = "POST"; doOutput = true; outputStream.close(); responseCode; disconnect()
-            }
-        }
     }
 
     fun resetClient(c: Context) {

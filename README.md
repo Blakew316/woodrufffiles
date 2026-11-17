@@ -617,7 +617,8 @@ Notes:
   the keys in the phone app (Settings → Connections → Google Drive) or on the TV, then sign in again. If the Google
   Drive API isn't turned on for the keys, Streaming says so and where to turn it on.
 - **Where things are stored:** the client secret and sign-in tokens live only in the app's private storage on the TV.
-  The sign-out button on the Drive screen revokes access, or you can revoke it at https://myaccount.google.com/permissions.
+  Signing out on a TV only forgets its sign-in there: the other phones, Macs and TVs keep theirs. To take the app's
+  access away everywhere, revoke it at https://myaccount.google.com/permissions.
 - **Fire TV works:** Google Play services is no longer needed, so Google Drive also works on Fire TV and other boxes.
 - **Sharing Continue watching between TVs:** add `.../auth/drive.appdata` under **Data access**
   (Google Auth Platform → Data access → Add or remove scopes), then on each TV that signed in before, open
