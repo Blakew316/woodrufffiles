@@ -54,6 +54,7 @@ import com.woodruff.tvexplorer.ui.theme.ThemeSetting
 import com.woodruff.tvexplorer.ui.theme.TvExplorerTheme
 import com.woodruff.tvexplorer.util.NetworkWatch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import java.text.DateFormat
 
 /**
@@ -195,6 +196,13 @@ class DoorbellActivity : ComponentActivity(), com.woodruff.tvexplorer.update.OnS
             if (i >= 0) index = i else if (index !in cams.indices) index = if (cams.isEmpty()) -1 else 0
         }
         val cam = cams.getOrNull(index)
+        // The camera whose picture shows: the one chosen, once Left / Right have stopped for a moment
+        // ([CAMERA_SETTLE_MS]); its name changes at once. Each camera passed used to start a stream of
+        // its own from Google, one every 2 s, so the one stopped on waited for those, and a few flicks
+        // could reach Google's limit on camera streams ("Reconnecting…" for a minute or more). Opening,
+        // or another doorbell ringing, shows its camera at once.
+        var flicked by remember { mutableStateOf(false) }
+        val live = settledWhileFlicked(cam, flicked, onSettled = { flicked = false })
         // Offline words only after the grace every offline state waits (a TV just woken is usually
         // back on its Wi-Fi by then), and gone the moment it's back.
         val offline = rememberOfflineShown(!networkUp)
@@ -221,8 +229,8 @@ class DoorbellActivity : ComponentActivity(), com.woodruff.tvexplorer.update.OnS
                 .onKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown || cams.size < 2 || index < 0) return@onKeyEvent false
                     when (e.key) {
-                        Key.DirectionRight -> { index = (index + 1) % cams.size; wanted = null; true }
-                        Key.DirectionLeft -> { index = (index - 1 + cams.size) % cams.size; wanted = null; true }
+                        Key.DirectionRight -> { index = (index + 1) % cams.size; wanted = null; flicked = true; true }
+                        Key.DirectionLeft -> { index = (index - 1 + cams.size) % cams.size; wanted = null; flicked = true; true }
                         else -> false
                     }
                 }
@@ -244,7 +252,7 @@ class DoorbellActivity : ComponentActivity(), com.woodruff.tvexplorer.update.OnS
                 // One video view for the whole visit, as full screen in the Command Center has: Left /
                 // Right (or another doorbell ringing) moves it to that camera's stream. A view per
                 // camera set its GL up on the main thread at every switch, holding up the next press.
-                if (cam != null) LiveVideo(cam, audio = true, onPicture = onPicture)
+                live?.let { LiveVideo(it, audio = true, onPicture = onPicture) }
             }
             // Over everything, a layer of its own that fades: nothing is drawn again for it.
             if (cover != null) Box(
@@ -262,6 +270,8 @@ class DoorbellActivity : ComponentActivity(), com.woodruff.tvexplorer.update.OnS
         private const val EXTRA_AT = "at"
         private const val EXTRA_BACK_TO = "backTo"
 
+        /** Left / Right through the cameras: the picture follows once the presses have stopped this long. */
+        internal const val CAMERA_SETTLE_MS = 400L
         /** Without a key press for this long it closes by itself; over a film, [FILM_AUTO_CLOSE_MS]. */
         internal const val AUTO_CLOSE_MS = 2 * 60_000L
         /** Over a film, it closes by itself back to the film after this long without a key press. */
@@ -286,6 +296,23 @@ internal fun backPhrase(origin: DoorbellActivity.Origin, backTo: String?): Strin
     DoorbellActivity.Origin.SLIDESHOW -> "Back to the slideshow"
     DoorbellActivity.Origin.SCREENSAVER -> "Back to close"
     DoorbellActivity.Origin.SCREEN -> "Back to ${backTo ?: "Woodruff"}"
+}
+
+/**
+ * [chosen] as what shows: at once, except while Left / Right are going through the choices ([flicked]: the
+ * last change was theirs), when it follows only once they've stopped for [settleMs]; [onSettled] then. What
+ * shows first (null before) comes at once. The doorbell view's camera: each one passed started a stream of
+ * its own from Google.
+ */
+@Composable
+internal fun <T> settledWhileFlicked(chosen: T, flicked: Boolean, onSettled: () -> Unit, settleMs: Long = DoorbellActivity.CAMERA_SETTLE_MS): T {
+    var shown by remember { mutableStateOf(chosen) }
+    LaunchedEffect(chosen) {
+        if (flicked && shown != null && shown != chosen) delay(settleMs)
+        shown = chosen
+        onSettled()
+    }
+    return shown
 }
 
 /**

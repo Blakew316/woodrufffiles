@@ -141,11 +141,13 @@ internal class TvMenu(private val context: Context, private val root: FrameLayou
     }
 
     /** The keys it acts on while it's up; other keys (play, pause) go on to the player. */
-    fun handleKey(keyCode: Int): Boolean {
+    fun handleKey(keyCode: Int, repeatCount: Int = 0): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_UP -> move(-1)
             KeyEvent.KEYCODE_DPAD_DOWN -> move(1)
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+            // OK held down: only its first press chooses. Its repeats used to carry on into the menu that
+            // choice opened ("Size: Standard", "Speed: Normal"), which flashed and closed again.
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (repeatCount == 0) {
                 val row = items.getOrNull(at)
                 // A row that can't be chosen says why, and the menu stays for another choice.
                 if (row != null && !row.enabled) { row.action(); return true }

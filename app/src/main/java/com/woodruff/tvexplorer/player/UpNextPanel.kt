@@ -20,8 +20,10 @@ import android.widget.TextView
 
 /**
  * What comes up when an episode ends and another is queued, as on Apple TV: the last frame
- * darkens, and at the bottom left a picture from the next episode, "UP NEXT", its show and name,
+ * darkens, and at the bottom left a picture of the next episode, "UP NEXT", its show and name,
  * and two buttons: Play Now (a ring around its count runs down to it playing by itself) and Done.
+ * After a long while with nobody at the remote or the phone it asks "STILL WATCHING?" instead, with
+ * no count.
  * Left / Right choose between them; the activity does what they say (OK, Back, the countdown).
  */
 internal class UpNextPanel(private val context: Context, root: FrameLayout) {
@@ -45,7 +47,7 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
         addView(art, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
     private val eyebrow = TextView(context).apply {
-        text = "UP NEXT"
+        text = UP_NEXT
         setTextColor(0x99FFFFFF.toInt())
         textSize = 12f
         typeface = PlayerStyle.bold(context)
@@ -129,17 +131,31 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
         choose(done = false, animate = false)
     }
 
-    /** Up, for the episode [next], counting down [seconds] (Play Now chosen). Its picture comes later ([setArt]). */
-    fun show(next: EpisodeLabel, seconds: Int) {
+    /**
+     * Up, for the episode [next], counting down [seconds] (Play Now chosen). Its picture comes later
+     * ([setArt]). [asking]: nobody has used the remote or the phone for a long while, so it asks
+     * "STILL WATCHING?" instead, with no count: Play Now plays it, Done (or no answer) leaves.
+     */
+    fun show(next: EpisodeLabel, seconds: Int, asking: Boolean = false) {
+        eyebrow.text = if (asking) STILL_WATCHING else UP_NEXT
         show.text = next.eyebrow.orEmpty()
         show.visibility = if (next.eyebrow.isNullOrEmpty()) View.GONE else View.VISIBLE
         title.text = next.title
         art.setImageDrawable(null)
         choose(done = false, animate = false)
-        ring.start(seconds * 1_000L)
+        // No count while it asks: the pill is its words alone, as wide on either side.
+        ring.visibility = if (asking) View.GONE else View.VISIBLE
+        play.setPadding(dp(if (asking) 22f else 10f).toInt(), dp(8f).toInt(), dp(22f).toInt(), dp(8f).toInt())
+        if (asking) ring.stop() else ring.start(seconds * 1_000L)
         scrimCard.show()
         contentCard.show()
     }
+
+    /** What it says above the episode's name now ("UP NEXT", or "STILL WATCHING?"). */
+    val heading: CharSequence get() = eyebrow.text
+
+    /** The count around Play Now is showing (not while it asks). */
+    val counting: Boolean get() = ring.visibility == View.VISIBLE
 
     fun setArt(frame: Bitmap?) {
         if (frame == null) return
@@ -184,6 +200,11 @@ internal class UpNextPanel(private val context: Context, root: FrameLayout) {
     }
 
     private fun dp(v: Float) = PlayerStyle.dp(context, v)
+
+    companion object {
+        const val UP_NEXT = "UP NEXT"
+        const val STILL_WATCHING = "STILL WATCHING?"
+    }
 }
 
 /**

@@ -149,6 +149,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // The film, under Woodruff's own tvOS-style controls (layout/tv_player_controls): what's
         // playing at the bottom left, round buttons at the bottom right, the scrub bar under them.
         view = layoutInflater.inflate(com.woodruff.tvexplorer.R.layout.tv_player_view, root, false) as PlayerView
+        // The controls come and go in one step. Media3's own fade hides them in two: everything here is
+        // in the part it fades first (the scrub bar too), and the controls only went 2 s after that. In
+        // those 2 s nothing was on screen but the player still had its controls up: a press brought them
+        // back with focus off the scrub bar (Left / Right walked the round buttons, OK opened Subtitles),
+        // the subtitles stayed raised over nothing, and Skip intro / Next episode flickered.
+        view.setControllerAnimationEnabled(false)
         timeBar = view.findViewById(androidx.media3.ui.R.id.exo_progress)
         titleView = view.findViewById(com.woodruff.tvexplorer.R.id.player_title)
         eyebrowView = view.findViewById(com.woodruff.tvexplorer.R.id.player_eyebrow)
@@ -439,6 +445,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private fun fromPhone(cmd: com.woodruff.tvexplorer.nowplaying.PlayerCommand) {
         val p = player ?: return
         if (!inFront || isFinishing) return
+        // Someone's there, with the phone.
+        usedAt = android.os.SystemClock.elapsedRealtime()
         val seekable = p.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
         when (val step = phoneStep(cmd, p.currentPosition, p.duration, seekable, p.hasNextMediaItem(), upNextPanel.shown)) {
             PhoneStep.Next -> {
@@ -672,6 +680,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     }
     private var sleepAtEnd = false
     private val sleep = Runnable { sleepNow() }
+    /**
+     * When "Sleep in N minutes" runs out (elapsedRealtime); null with no such timer. Kept while the
+     * player is covered or left (a look at the doorbell, Home and back): its timer went with it, without
+     * a word, and the TV played on all night ([resumeSleepTimer]).
+     */
+    private var sleepAt: Long? = null
 
     /** The current episode's show and its intro end, worked out when the episode starts (not every second). */
     private var showCache: Pair<String?, String> = null to ""
@@ -699,6 +713,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     /** Stop for the night: pause, leave the player, and let the slideshow take over the screen. */
     private fun sleepNow() {
+        sleepAt = null
         player?.pause()
         runCatching { com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(this, asleep = true) }
         finish()
@@ -718,26 +733,47 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             TvMenu.Row("Speed: $speed") { showSpeed(at) },
             if (p.hasNextMediaItem()) TvMenu.Row("Play next") { playNextFromMenu() } else null,
         )
-        val choices = listOfNotNull<Pair<String, () -> Unit>>(
+        val sleeps = listOf<Pair<String, () -> Unit>>(
             "Sleep in 30 minutes" to { sleepIn(30) },
             "Sleep in 60 minutes" to { sleepIn(60) },
             "Sleep in 90 minutes" to { sleepIn(90) },
             "Sleep at the end of this episode" to { sleepAtEnd = true; say("Sleeping after this episode") },
             "Sleep timer off" to { say("Sleep timer off") },
-            "Intro ends here (${com.woodruff.tvexplorer.util.Format.duration(here)}): use for this show" to {
+        )
+        // The intro's rows don't touch the sleep timer either: they used to stop it without a word.
+        val intros = listOfNotNull(
+            TvMenu.Row("Intro ends here (${com.woodruff.tvexplorer.util.Format.duration(here)}): use for this show") {
                 ShowPrefs.setIntroEnd(this, show(), here); introEnd = here; say("Skip intro will jump here")
             },
-            if (intro > 0) ("Forget this show’s intro" to { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 }) else null,
+            if (intro > 0) TvMenu.Row("Forget this show’s intro") { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 } else null,
         )
-        // Any choice starts the sleep timer afresh, as it always has.
-        menu.show("Options", first + choices.map { (label, action) ->
-            TvMenu.Row(label) { countdown.removeCallbacks(sleep); sleepAtEnd = false; action() }
-        }, at)
+        // A sleep choice starts the sleep timer afresh, as it always has.
+        menu.show("Options", first + sleeps.map { (label, action) ->
+            TvMenu.Row(label) { countdown.removeCallbacks(sleep); sleepAt = null; sleepAtEnd = false; action() }
+        } + intros, at)
     }
 
     private fun sleepIn(minutes: Long) {
+        sleepAt = android.os.SystemClock.elapsedRealtime() + minutes * 60_000L
         countdown.postDelayed(sleep, minutes * 60_000L)
         say("Sleeping in $minutes minutes")
+    }
+
+    /**
+     * Back on screen with "Sleep in N minutes" set ([sleepAt]): what's left of it. One that ran out
+     * while the player was covered (someone looking at the door) sleeps a minute after it's back,
+     * saying so, rather than at once or never.
+     */
+    private fun resumeSleepTimer() {
+        val at = sleepAt ?: return
+        countdown.removeCallbacks(sleep)
+        val left = at - android.os.SystemClock.elapsedRealtime()
+        if (left > SLEEP_GRACE_MS) countdown.postDelayed(sleep, left)
+        else {
+            sleepAt = android.os.SystemClock.elapsedRealtime() + SLEEP_GRACE_MS
+            countdown.postDelayed(sleep, SLEEP_GRACE_MS)
+            say("Sleeping in a minute")
+        }
     }
 
     /** The tracks of one type the player can play, each with whether it's the one playing. */
@@ -761,7 +797,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private fun showSubtitles(anchor: android.view.View) {
         val p = player ?: return
         // Still opening: its tracks aren't known yet, so "No subtitles" wouldn't be true (as with Audio).
-        if (p.currentTracks.isEmpty) return
+        // Said, rather than the button doing nothing (a film that can't play has said why already).
+        if (p.currentTracks.isEmpty) { if (p.playerError == null) say(STILL_OPENING); return }
         val choices = SubtitleTracks.of(p.currentTracks)
         if (choices.isEmpty()) { say(SubtitleTracks.NONE); return }
         val rows = SubtitleTracks.menuRows(
@@ -951,8 +988,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
      */
     private fun showAudio(anchor: android.view.View) {
         val p = player ?: return
-        // Still opening: its tracks aren't known yet, so there's nothing true to say.
-        if (p.currentTracks.isEmpty) return
+        // Still opening: its tracks aren't known yet, so there's nothing true to say but that.
+        if (p.currentTracks.isEmpty) { if (p.playerError == null) say(STILL_OPENING); return }
         val sound = SoundTracks.of(p.currentTracks)
         if (sound.isEmpty()) { say(SoundTracks.NO_SOUND); return }
         val rows = SoundTracks.menuRows(
@@ -1160,6 +1197,14 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         }
     }
 
+    /**
+     * When the remote or the phone was last used with this player (elapsedRealtime; its start counts):
+     * Up next asks "Still watching?" after [UpNext.STILL_WATCHING_MS] without ([UpNext.stillWatching]).
+     */
+    private var usedAt = 0L
+    /** "Still watching?" unanswered: the player leaves, as Done does. */
+    private val leaveUnanswered = Runnable { stopWatching() }
+
     private fun startUpNext() {
         val p = player ?: return
         secondsLeft = UP_NEXT_SECONDS
@@ -1171,10 +1216,13 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         view.hideController()
         view.useController = false
         val next = p.getMediaItemAt(p.nextMediaItemIndex)
-        upNextPanel.show(EpisodeLabel.of(next.mediaMetadata.title?.toString() ?: "Next"), UP_NEXT_SECONDS)
+        // Nobody has touched the remote or the phone for an hour and a half: it asks rather than playing on
+        // all night, each episode fetched from Google Drive for nobody; unanswered, the player leaves.
+        val asking = UpNext.stillWatching(android.os.SystemClock.elapsedRealtime() - usedAt)
+        upNextPanel.show(EpisodeLabel.of(next.mediaMetadata.title?.toString() ?: "Next"), UP_NEXT_SECONDS, asking)
         upNextKey = next.mediaId
         showUpNextArt(next.mediaId)
-        countdown.postDelayed(tick, 1_000)
+        if (asking) countdown.postDelayed(leaveUnanswered, UpNext.ASK_FOR_MS) else countdown.postDelayed(tick, 1_000)
         updateLoading() // the ring makes way too
         subtitlesMakeWay() // and the subtitles fade away
     }
@@ -1229,8 +1277,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     /** [animate] false: gone at once (the player stopping). */
     private fun cancelUpNext(animate: Boolean = true) {
         countdown.removeCallbacks(tick)
+        countdown.removeCallbacks(leaveUnanswered)
         upNextKey = null
         val wasUp = ::upNextPanel.isInitialized && upNextPanel.shown
+        // Its picture, if one was still being read from a file on the TV, isn't wanted any more.
+        if (wasUp) preview?.cancel()
         if (::upNextPanel.isInitialized) upNextPanel.hide(animate)
         view.useController = true
         if (wasUp) { updateLoading(); subtitlesMakeWay() }
@@ -1412,6 +1463,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         picture?.let { com.woodruff.tvexplorer.notify.addNoticePicture(doorbellBox, it) }
         doorbellPictured = picture != null
         ringing = true
+        // Its OK is the card's ("OK to look"): a menu open as it rang would have taken it (Audio's
+        // row chosen, the sound loaded again from Drive) and the camera opened only on a later OK.
+        menu.hide()
         view.hideController()
         // Any card over other apps goes, and none comes over this one meanwhile (Notices).
         com.woodruff.tvexplorer.notify.Notices.playerDoorbellCard(true)
@@ -1544,6 +1598,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         stallTries = 0
         refusedInARow = 0
         playingSeconds = 0
+        // Started (or come back to) by someone: the time Up next counts "Still watching?" from.
+        usedAt = android.os.SystemClock.elapsedRealtime()
         view.controllerAutoShow = true
         waitClock.reset()
         startedAgainFromDrive.clear()
@@ -1723,7 +1779,10 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     // The one playing now: it may load (PlayerLoads), and what comes after it waits.
+                    val was = loads.playing
                     loads.playing = mediaItem?.mediaId
+                    // A menu open over the episode left was about it (its tracks, its intro): it goes too.
+                    if (mediaItem?.mediaId != was) menu.hide()
                     // A spot being scrubbed to was chosen in the item that just ended: it would land
                     // somewhere arbitrary in this one.
                     timeBar.cancelScrub()
@@ -1781,6 +1840,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             if (com.woodruff.tvexplorer.cloud.FamilySync.isShared(keys[start])) com.woodruff.tvexplorer.cloud.FamilySync.pullFresh(this)
         }
         reporter.post(report)
+        // "Sleep in N minutes" set before the player was covered or left: what's left of it.
+        resumeSleepTimer()
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
         doorbellJob = lifecycleScope.launch {
             // A ring's picture from the family's Mac, for its card if it comes after the ring.
@@ -2030,6 +2091,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // pop the controls up over what just happened (after Next episode or Skip intro).
         if (event.action == KeyEvent.ACTION_UP && event.keyCode == swallowUp) { swallowUp = null; return true }
         if (event.action == KeyEvent.ACTION_DOWN) {
+            // Someone's there (Up next asks "Still watching?" after a long while without).
+            usedAt = android.os.SystemClock.elapsedRealtime()
             val handled = handleKey(event)
             if (handled) { swallowUp = event.keyCode; return true }
             aimSkip(event.keyCode) // ⏪ / ⏩: PlayerView jumps next
@@ -2042,9 +2105,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val ok = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER
         // A menu, while it's up: Up / Down choose, OK does it, Back (or the menu button) closes it.
         // Other keys (play, pause) go on to the player as before.
-        if (menu.shown) return menu.handleKey(event.keyCode)
+        // OK held down repeats: only its first press chooses (a submenu it opens isn't chosen from too).
+        if (menu.shown) return menu.handleKey(event.keyCode, event.repeatCount)
         if (event.keyCode == KeyEvent.KEYCODE_MENU || event.keyCode == KeyEvent.KEYCODE_INFO) {
-            showOptions(); return true
+            // Not over the doorbell's card or Up next: OK is theirs, and the options are about the episode ending.
+            if (!doorbellCard.shown && !upNextPanel.shown) showOptions()
+            return true
         }
         // The doorbell's card first: OK looks at the door, Back closes the card. (A card gliding out
         // is gone already, as far as the keys go.)
@@ -2116,6 +2182,10 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         private const val NOTICE_MESSAGE_MS = 6_000L
         /** Why a subtitle size didn't change, or isn't Woodruff's to choose (specs/player-feedback.md §3.6). */
         private const val SIZE_MESSAGE_MS = 3_500L
+        /** A sleep timer that ran out while the player was covered sleeps this long after it's back ([resumeSleepTimer]). */
+        private const val SLEEP_GRACE_MS = 60_000L
+        /** What the Subtitles and Audio buttons say while the film is still opening (its tracks aren't known yet). */
+        private const val STILL_OPENING = "Still opening…"
         /** How often a video's place is saved as it plays, in seconds of play ([savePlace]). */
         private const val SAVE_PLACE_S = 30
         /** How long a film waits to start for the subtitle files beside it to be found (a USB drive waking up). */

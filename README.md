@@ -155,7 +155,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   Back leaves.
 - **Player options**: the **…** button in the player's controls (or the remote's Menu/Info button) sets a sleep
   timer (30/60/90 minutes or end of episode; then the slideshow takes over, without keeping the screen on, so the TV
-  goes to sleep by its own timers) and marks where a show's intro ends.
+  goes to sleep by its own timers; the timer keeps running while the doorbell's camera is up or after Home and back)
+  and marks where a show's intro ends.
   After that, *Skip intro* appears during the intro of every episode of that show; OK skips it. *Play next* moves on
   to the next episode: in an episode's last 40 seconds (or 5 %) it counts as watched, like *Next episode*; before
   that it keeps the place, like the remote's Next.
@@ -230,8 +231,10 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   *See what other apps are playing* on).
 - **Up next**: when an episode (or any queued video) ends, the last frame darkens and a picture of the next one (the
   one its show's page shows) comes up with its show, episode and name; a ring on **Play Now** counts down 10 seconds
-  to it. OK plays it now, Right then OK (**Done**) or Back stops. Finishing an episode puts the next one in Continue
-  watching (*Next · S2 E5*) and on the show's page; near a season's end the next season's first episode is queued.
+  to it. OK plays it now, Right then OK (**Done**) or Back stops. After an hour and a half with no key on the remote
+  or the phone it asks *STILL WATCHING?* instead, with no countdown, and leaves after 5 minutes with no answer, so
+  nothing is fetched from Google Drive for nobody. Finishing an episode puts the next one in Continue watching
+  (*Next · S2 E5*) and on the show's page; near a season's end the next season's first episode is queued.
 - **Recently added**: Home's first panel shows the newest Movies and TV Shows (posters) after what's in progress,
   or on their own when nothing is; a show already in Continue watching isn't repeated there. A poster opens the
   title's page, and Back returns to the poster. Posters, Recently added and Search are ready right after start, from

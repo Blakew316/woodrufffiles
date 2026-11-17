@@ -47,6 +47,20 @@ object UpNext {
     const val NEXT_EPISODE_LEAD_MS = 40_000L
 
     /**
+     * Whether Up next asks "Still watching?" instead of counting down to the next episode: nobody has
+     * pressed a key on the remote or the phone for [STILL_WATCHING_MS] ([idleMs] since the last one).
+     * It played on all night, each episode fetched from Google Drive for nobody. Unanswered for
+     * [ASK_FOR_MS], the player leaves as Done does. (The LG asks the same, at the same times.)
+     */
+    fun stillWatching(idleMs: Long): Boolean = idleMs >= STILL_WATCHING_MS
+
+    /** No key on the remote or the phone for this long: Up next asks before it plays on. */
+    const val STILL_WATCHING_MS = 90 * 60_000L
+
+    /** Asked, and no answer in this long: the player leaves, as Done does. */
+    const val ASK_FOR_MS = 5 * 60_000L
+
+    /**
      * The season an episode is from: the number of its folder among the show's [showItems]
      * ("Season 2"), else the one in its own name ("S02E10"); null when neither says.
      */

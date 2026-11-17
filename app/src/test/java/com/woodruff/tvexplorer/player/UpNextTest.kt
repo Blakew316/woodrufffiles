@@ -71,6 +71,15 @@ class UpNextTest {
         assertEquals(UpNextArt.None, UpNext.artFor("https://example.com/clip.mp4", known::get))
     }
 
+    @Test fun upNextAsksStillWatchingAfterAnHourAndAHalfWithoutAKey() {
+        // As the LG asks: 90 minutes without a key on the remote or the phone, and 5 minutes to answer.
+        assertFalse(UpNext.stillWatching(0))
+        assertFalse(UpNext.stillWatching(90 * 60_000L - 1))
+        assertTrue(UpNext.stillWatching(90 * 60_000L))
+        assertTrue(UpNext.stillWatching(10 * 3_600_000L))
+        assertEquals(5 * 60_000L, UpNext.ASK_FOR_MS)
+    }
+
     @Test fun playNextInTheMenuCountsAsWatchedOnlyInTheCredits() {
         val hour = 3_600_000L
         // In its last 40 s or 5 %: as the TV's own Next Episode, watched.
