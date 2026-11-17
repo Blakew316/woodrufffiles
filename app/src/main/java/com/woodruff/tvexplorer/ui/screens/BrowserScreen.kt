@@ -71,8 +71,10 @@ fun BrowserScreen(vm: MainViewModel) {
     // Photos and videos a phone added or deleted: the folder is listed again where it is.
     val memoriesChanged by FamilyMemories.changes.collectAsStateWithLifecycle()
     LaunchedEffect(memoriesChanged) { if (memoriesChanged > 0 && photosFolder) vm.refresh() }
-    // Photos / Videos: filter and sort by when each was taken (read in the background, then cached).
-    val dateFilterable = photosFolder && location is Location.Folder && !state.selecting
+    // Photos / Videos: filter and sort by when each was taken (read in the background, then cached). Selecting
+    // keeps it all (the order, the year or month, the place on screen): only the Filter button gives way to the
+    // selection's tools. Dropping them reshuffled the photos into name order and moved the focus to another.
+    val dateFilterable = photosFolder && location is Location.Folder
     var photoFilter by remember(location.key) { mutableStateOf(photoFilterMemory[location.key] ?: PhotoFilter()) }
     // Each folder's own: with the last folder's dates (or the empty list's while it loads), a new
     // folder showed in the wrong order for a moment, then reshuffled.
@@ -175,7 +177,8 @@ fun BrowserScreen(vm: MainViewModel) {
                 ToolButton(Sym.ContentCut, "Move", { vm.copyToClipboard(targets(), move = true) })
                 ToolButton(Sym.Delete, "Delete", { dialog = BrowserDialog.ConfirmDelete(targets()) })
                 ToolButton(Sym.FolderZip, "Zip", { dialog = BrowserDialog.Zip(targets()) })
-                ToolButton(Sym.SelectAll, null, vm::selectAll)
+                // What's on screen: with Family Memories filtered or searched, not the photos it hides.
+                ToolButton(Sym.SelectAll, null, { vm.selectAll(shown) })
                 ToolButton(Sym.Close, null, vm::clearSelection)
             } else if (photosFolder) {
                 // Family Memories: a search field and Filter, nothing else.

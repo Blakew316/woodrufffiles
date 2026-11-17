@@ -191,7 +191,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         it.copy(selected = if (item.path in it.selected) it.selected - item.path else it.selected + item.path)
     }
 
-    fun selectAll() = _browser.update { it.copy(selected = it.items.map { i -> i.path }.toSet()) }
+    /**
+     * Selects [shown]: what's on screen, never more (Family Memories filtered to a year, or searched, shows only some
+     * of the folder: Delete must not take photos nobody could see were selected). Only items in the folder count.
+     */
+    fun selectAll(shown: List<FileItem>) = _browser.update { b ->
+        val here = b.items.mapTo(HashSet()) { it.path }
+        b.copy(selected = shown.mapNotNullTo(HashSet()) { i -> i.path.takeIf { it in here } })
+    }
     fun clearSelection() = _browser.update { it.copy(selected = emptySet()) }
 
     /** The files an action applies to: the selection if there is one, otherwise [fallback]. */
