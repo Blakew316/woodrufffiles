@@ -146,6 +146,8 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
         // over it as over another app (Android's install prompt still opens over it: RecoveryView.inFront).
         if (recovering) { RecoveryView.inFront = true; return }
         AppVisibility.foreground = true
+        // Its pop-ups (a title page, Search, the filters) cover its notice card: a notice shows over them then.
+        com.woodruff.tvexplorer.ui.motion.DialogWindows.mainWindow(this)
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
         // An update that needs a press is offered now, as Woodruff comes on screen, unless it was
@@ -162,6 +164,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
     override fun onStop() {
         TvScreen.detach(this)
         AppVisibility.foreground = false
+        com.woodruff.tvexplorer.ui.motion.DialogWindows.mainWindowGone(this)
         RecoveryView.inFront = false
         idle.removeCallbacks(startSlideshow)
         super.onStop()
