@@ -54,7 +54,9 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
     val replace by GooglePhotos.replace.collectAsStateWithLifecycle()
     var confirmRemove by remember { mutableStateOf(false) }
     val close = {
-        if (state.step != GooglePhotos.Step.DOWNLOADING && state.step != GooglePhotos.Step.DONE) GooglePhotos.cancel()
+        // It stops a pick still waiting for the phone, and lets photos already downloading finish (it asks the pick
+        // itself: the step drawn here can be a frame old).
+        GooglePhotos.cancel()
         onDismiss()
     }
     val focus = remember { FocusRequester() }

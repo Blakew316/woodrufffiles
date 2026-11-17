@@ -104,6 +104,14 @@ class GooglePhotosRemoveTest {
         assertNull(Appearance.background)
     }
 
+    @Test fun aDownloadNeverWritesOverAFileThatsThere() {
+        val mine = file(GooglePhotos.folder, "IMG_0001.jpg", 50)
+        val taken = GooglePhotos.reserve(GooglePhotos.folder, "IMG_0001.jpg")
+        assertEquals("IMG_0001 (1).jpg", taken.name)
+        assertEquals(0L, taken.length())
+        assertEquals(50L, mine.length())
+    }
+
     @Test fun aBackgroundFromAPhoneStays() {
         picksAndPhones()
         val mine = File(GooglePhotos.folder, "IMG_0001.jpg").path
