@@ -515,8 +515,13 @@ fun SettingsScreen(vm: MainViewModel) {
             SettingItem(Sym.FolderOpen, "Browse by type", spaced = roots.isNotEmpty(), about = "Every video, song, photo or document on this TV and attached drives.") { dialog = SettingsDialog.BrowseTypes },
             SettingItem(Sym.Apps, "Apps", about = "Open the apps on this TV.") { vm.openApps(Screen.SETTINGS) },
             SettingItem(Sym.Cloud, "iCloud", about = "How to bring iCloud mail, files and photos to this TV.") { dialog = SettingsDialog.ICloud },
-            SettingItem(Sym.VideoCall, "Google Meet", spaced = true, about = "Video calls on the TV.") { Handoff.launch(context, Handoff.MEET) },
-            SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone’s camera or screen on the TV.") { Handoff.launch(context, Handoff.AIRSCREEN) },
+            // Opened, or its store page; on a TV with neither, it says so rather than doing nothing.
+            SettingItem(Sym.VideoCall, "Google Meet", spaced = true, about = "Video calls on the TV.") {
+                if (Handoff.launch(context, Handoff.MEET) is OpenResult.Failed) vm.say("Couldn’t open Google Meet on this TV")
+            },
+            SettingItem(Sym.Cast, "AirScreen", about = "Show an iPhone’s camera or screen on the TV.") {
+                if (Handoff.launch(context, Handoff.AIRSCREEN) is OpenResult.Failed) vm.say("Couldn’t open AirScreen on this TV")
+            },
         )
         SettingsPage.UPDATES -> listOf(
             SettingItem(
@@ -527,8 +532,8 @@ fun SettingsScreen(vm: MainViewModel) {
                 if (update.step == Updater.Step.READY) startUpdate(context, vm) else Updater.checkNow(context)
             },
             SettingItem(Sym.Autorenew, "Install updates automatically", onOff(facts.autoUpdate), about = "New versions install by themselves. OK turns it on or off.") { Updater.setAuto(context, !facts.autoUpdate); changed() },
-            // One TV gets each update first; the rest only take one it has had for a day, so a bad build never reaches them all.
-            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "The test TV gets each update first. The others only take one it has had for a whole day, so a bad one never reaches them all.") { Updater.setTestTv(context, !facts.testTv); changed() },
+            // Only noted now (Updater.isTestTv): every TV takes each release at its next check, as the README says.
+            SettingItem(Sym.Science, "Test TV", onOff(facts.testTv), about = "Marks this TV as the test TV. Every TV takes each update at its next check either way.") { Updater.setTestTv(context, !facts.testTv); changed() },
             // How this copy came to be: a fresh install (after an uninstall) is what erases every sign-in.
             SettingItem(
                 // A few words in the row ("Updated Nov 2"); the whole story in its panel.

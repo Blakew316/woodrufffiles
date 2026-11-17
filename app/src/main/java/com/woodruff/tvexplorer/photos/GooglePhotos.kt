@@ -314,16 +314,51 @@ object GooglePhotos {
         _onTv.value = OnTv()
     }
 
-    /** [file] is no longer a pick's: deleted, or something else took its name (IO thread). */
-    fun forget(file: File) {
+    /**
+     * [file] is no longer a pick's: deleted, or something else took its name. A folder: no file in it is (IO thread).
+     */
+    fun forget(file: File) = moved(emptyList(), arrived = listOf(file))
+
+    /**
+     * Each of [changes] is a file or folder renamed or moved on the TV (from, to), or deleted (to null), in the order they
+     * happened; [arrived], files or folders put somewhere new. A pick follows its file while it stays in its own folder,
+     * and is forgotten once it leaves it or is gone; only for what's no longer where it was (a delete or move that
+     * stopped part-way leaves some files there, and those stay picks). Whatever had a name before something new took it
+     * is no pick's any more ([forget]). Saved and counted once for them all (IO thread).
+     */
+    fun moved(changes: List<Pair<File, File?>>, arrived: List<File> = emptyList()) {
         loadPicked()
-        val dir = file.canonicalFile.parentFile
-        val inPhotos = dir == folder.canonicalFile
-        val inVideos = dir == videoFolder.canonicalFile
-        val gone = synchronized(picked) { picked.entries.removeAll { (_, k) -> k.name == file.name && (if (k.video) inVideos else inPhotos) } }
-        if (gone) savePicked()
+        val homes = homes()
+        val changed = synchronized(picked) {
+            var changed = false
+            /** Claims on [at], or on anything in it, go: something new is there. */
+            fun drop(at: File) {
+                if (picked.entries.removeAll { (_, k) -> FileOperations.within(File(homes.getValue(k.video), k.name), at) != null }) changed = true
+            }
+            for (f in arrived) drop(f.canonicalFile)
+            for ((from, to) in changes) {
+                val dest = to?.canonicalFile
+                dest?.let(::drop)
+                val src = from.canonicalFile
+                val touched = picked.entries.mapNotNull { (id, k) ->
+                    val home = homes.getValue(k.video)
+                    val was = File(home, k.name)
+                    val rest = FileOperations.within(was, src) ?: return@mapNotNull null
+                    if (was.exists()) return@mapNotNull null
+                    val now = dest?.let { File(it.path + rest) }?.takeIf { it.parentFile == home }
+                    id to now?.let { Kept(it.name, k.video) }
+                }
+                for ((id, k) in touched) if (k != null) picked[id] = k else picked.remove(id)
+                if (touched.isNotEmpty()) changed = true
+            }
+            changed
+        }
+        if (changed) savePicked()
         countOnTv()
     }
+
+    /** The two folders picks download to, by whether they hold videos (canonical: as the files the TV is told of). */
+    private fun homes() = mapOf(false to folder.canonicalFile, true to videoFolder.canonicalFile)
 
     private fun fileOf(k: Kept) = File(if (k.video) videoFolder else folder, k.name)
 

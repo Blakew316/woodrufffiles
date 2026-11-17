@@ -40,6 +40,36 @@ object MediaDates {
     }
 
     /**
+     * [from] (a file or a folder) was renamed or moved to [to], or deleted ([to] null): the times kept for what's no
+     * longer there go with it, or are forgotten (a Google Photos copy has its time only here). Whatever was kept for
+     * [to] before was an older file's, gone since: forgotten first. (Reads files: IO thread.)
+     */
+    @Synchronized
+    fun moved(c: Context, from: File, to: File?) {
+        load(c)
+        if (to != null) forgetAll(c, to)
+        for ((key, rest) in under(from)) {
+            if (File(key).exists()) continue
+            val ms = index.remove(key) ?: continue
+            dirty = true
+            if (to != null) index[to.absolutePath + rest] = ms
+        }
+    }
+
+    /** Forgets the times kept for [f] and for everything in it: something new is there now. */
+    @Synchronized
+    fun forgetAll(c: Context, f: File) {
+        load(c)
+        for ((key, _) in under(f)) if (index.remove(key) != null) dirty = true
+    }
+
+    /** The paths kept that are [f] or inside it, as given or canonical, each with where it is within [f]. */
+    private fun under(f: File): List<Pair<String, String>> {
+        val roots = listOf(f.absolutePath, runCatching { f.canonicalPath }.getOrDefault(f.absolutePath)).distinct()
+        return index.keys.mapNotNull { key -> roots.firstNotNullOfOrNull { com.woodruff.tvexplorer.data.FileOperations.within(key, it) }?.let { key to it } }
+    }
+
+    /**
      * Capture time for each file (path → ms). Reads files, so call off the main thread.
      * Cheap checks first: the index, then the name (camera names carry the time). Only the rest
      * are opened for EXIF / video metadata, four at a time, and everything found is indexed.

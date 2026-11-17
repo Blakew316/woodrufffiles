@@ -13,9 +13,11 @@ import com.woodruff.tvexplorer.data.SortField
 import com.woodruff.tvexplorer.data.SortOrder
 import com.woodruff.tvexplorer.data.StorageRepository
 import com.woodruff.tvexplorer.data.StorageRoot
+import com.woodruff.tvexplorer.photos.FamilyMemories
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +32,7 @@ import java.io.File
  * call the action methods.
  */
 class MainViewModel(app: Application) : AndroidViewModel(app) {
+    private val ctx: Context = app
     private val files = FileRepository(app)
     private val storage = StorageRepository(app)
     private val prefs = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -235,6 +238,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     // ---- File operations -------------------------------------------------------------------
+    // Each one tells Family Memories what it did (FamilyMemories.moved / arrived): a Google Photos pick deleted,
+    // renamed or moved here is let go of or followed, as are when it was taken and the TV's background.
 
     fun copyToClipboard(targets: List<File>, move: Boolean) {
         if (targets.isEmpty()) return
@@ -249,16 +254,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val clip = _clipboard.value ?: return
         val dest = _browser.value.folder ?: return say("Open a folder to paste into")
         runOp(if (clip.move) "Moving" else "Copying", "Pasted ${clip.files.size} item(s)") { p ->
-            FileOperations.copy(clip.files, dest, clip.move, p)
+            val moved = mutableListOf<Pair<File, File?>>()
+            val arrived = mutableListOf<File>()
+            try {
+                FileOperations.copy(clip.files, dest, clip.move, onPlaced = { from, to -> if (clip.move) moved += from to to else arrived += to }, onProgress = p)
+            } finally {
+                // What did move or arrive, even when the rest didn't.
+                withContext(NonCancellable + Dispatchers.IO) { FamilyMemories.arrived(ctx, arrived); FamilyMemories.moved(ctx, moved) }
+            }
             if (clip.move) _clipboard.value = null
         }
     }
 
     fun delete(targets: List<File>) = runOp("Deleting", "Deleted ${targets.size} item(s)") { p ->
-        FileOperations.delete(targets, p)
+        val gone = mutableListOf<Pair<File, File?>>()
+        try {
+            FileOperations.delete(targets, onGone = { gone += it to null }, onProgress = p)
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { FamilyMemories.moved(ctx, gone) }
+        }
     }
 
-    fun rename(file: File, name: String) = runOp("Renaming", "Renamed to $name") { FileOperations.rename(file, name) }
+    fun rename(file: File, name: String) = runOp("Renaming", "Renamed to $name") {
+        val renamed = FileOperations.rename(file, name)
+        withContext(NonCancellable + Dispatchers.IO) { FamilyMemories.moved(ctx, file, renamed) }
+    }
 
     fun createFolder(name: String) {
         val dir = _browser.value.folder ?: return
@@ -277,7 +297,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun extract(zip: File) {
         val dir = zip.parentFile ?: return
         val dest = FileOperations.uniqueTarget(dir, zip.nameWithoutExtension)
-        runOp("Extracting", "Extracted to ${dest.name}") { p -> FileOperations.unzip(zip, dest, p) }
+        runOp("Extracting", "Extracted to ${dest.name}") { p ->
+            try {
+                FileOperations.unzip(zip, dest, p)
+            } finally {
+                withContext(NonCancellable + Dispatchers.IO) { FamilyMemories.arrived(ctx, dest) }
+            }
+        }
     }
 
     fun cancelOperation() { opJob?.cancel() }

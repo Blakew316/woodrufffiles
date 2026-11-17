@@ -43,6 +43,12 @@ class TransferServer(
     private val homeName: () -> String = { PhoneIcon.APP_NAME },
     /** This TV's Google Drive token, for a Drive video played on a phone (null: none to be had). Blocking. */
     private val driveToken: () -> String? = { null },
+    /**
+     * Something the phone's Files deleted ([onDeleted]) or sent ([onReceived]), for Family Memories to let go of
+     * what it kept about it or about the name ([com.woodruff.tvexplorer.photos.FamilyMemories.moved], `arrived`).
+     */
+    private val onDeleted: (File) -> Unit = {},
+    private val onReceived: (File) -> Unit = {},
 ) : NanoHTTPD(port) {
 
     /** The page as last filled in, and its ETag, for the Home Screen label it was filled in with. */
@@ -119,7 +125,10 @@ class TransferServer(
             s.uri == "/api/delete" && s.method == Method.POST -> {
                 val f = resolve(param(s, "path"))
                 if (roots().any { it.dir.canonicalFile == f }) throw SecurityException("Refusing to delete a storage root")
-                if (!f.deleteRecursively()) throw IOException("Couldn’t delete ${f.name}")
+                val deleted = f.deleteRecursively()
+                // Told even when only part of a folder went: what's no longer there is let go of.
+                onDeleted(f)
+                if (!deleted) throw IOException("Couldn’t delete ${f.name}")
                 onActivity("Deleted ${f.name}")
                 json(JSONObject().put("ok", true))
             }
@@ -172,6 +181,7 @@ class TransferServer(
         UploadRoom.check(name, s.headers["content-length"]?.toLongOrNull(), UploadRoom.of(dir, onTv = root?.removable != true), where)
         val target = FileOperations.uniqueTarget(dir, name)
         receiveFile(s, target)
+        onReceived(target)
         onActivity("Received ${target.name}")
         return json(JSONObject().put("ok", true).put("name", target.name))
     }
