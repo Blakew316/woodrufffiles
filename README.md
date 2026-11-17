@@ -41,7 +41,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
     titles, Continue Watching with progress (tap to resume on the TV), Recently Added, Movies and TV Shows rows with
     See All grids (filters and search), and a Search page across both libraries. Tap a title for its details and, for
     a show, its seasons and episodes. Everything plays on the TV named at the top of the screen; change it there, or
-    with *On … ⌄* on a title's page. With more than one TV you can also start *Watch Together on All TVs*. Hold a
+    with *On … ⌄* on a title's page. *Watch Together* starts a Google Drive video on every TV showing Woodruff, kept
+    in step by the TV the app comes from (so it must be one of them); a TV showing something else isn't pulled in. Hold a
     tile for *Start Over*, *Play On…*, *Mark as Watched* and *Remove from Continue Watching*; marks and removals are
     the same ones the TV's own menus make. While the chosen TV plays, a bar above the tabs shows what's on, with
     −10 s, Play/Pause and +30 s; tap it for the TV's screen and *Next Episode*. The skips and *Next Episode* show only

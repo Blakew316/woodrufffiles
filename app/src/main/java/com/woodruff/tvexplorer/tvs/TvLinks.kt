@@ -673,20 +673,24 @@ object TvLinks {
     // ---- The phone's keyboard on a linked TV (through this TV, the hub; finding 42) --------------------
 
     /**
-     * The text box open on [tv] for the phone's keyboard (its "id", "label", "secret", "multiline" and "text", empty
-     * when hidden), or null when none is. [TypingRefused] when [tv] turns typing down with its link key.
+     * What [tv] says of its text box for the phone's keyboard: "field", the box open there (its "id", "label",
+     * "secret", "multiline" and "text", empty when hidden) or null when none is, and with none perhaps "note", [tv]'s
+     * own words why ("Woodruff Family isn’t on the TV screen…"). [TypingRefused] when [tv] turns typing down with its
+     * link key.
      */
-    fun field(tv: LinkedTv): JSONObject? = typing(tv) { t ->
+    fun field(tv: LinkedTv): JSONObject = typing(tv) { t ->
         val answer = request("${t.base}/api/type?k=${enc(t.key)}", "GET", null)
-        runCatching { JSONObject(answer) }.getOrNull()?.optJSONObject("field")
+        val o = runCatching { JSONObject(answer) }.getOrNull()
+        JSONObject().put("field", o?.optJSONObject("field") ?: JSONObject.NULL)
+            .apply { o?.optString("note")?.takeIf { it.isNotBlank() }?.let { put("note", it) } }
     }
 
     /**
-     * Types [text] into [tv]'s text box [field] (its id, from [field]; null: whichever is open), pressing Done
-     * with [submit]. [Refused] carries [tv]'s own words ("No text box is open on Den"). Never sent again: text
-     * arriving seconds late could land in a box opened since.
+     * Types [text] into [tv]'s text box [field] (its id as [tv] gave it, from [field]: a number on a Google TV, "f3" on
+     * an LG; null: whichever is open), pressing Done with [submit]. [Refused] carries [tv]'s own words ("No text box is
+     * open on Den"). Never sent again: text arriving seconds late could land in a box opened since.
      */
-    fun type(tv: LinkedTv, field: Long?, text: String, submit: Boolean) {
+    fun type(tv: LinkedTv, field: Any?, text: String, submit: Boolean) {
         val json = JSONObject().put("text", text).put("submit", submit).apply { if (field != null) put("id", field) }.toString()
         typing(tv) { t -> request("${t.base}/api/type?k=${enc(t.key)}", "POST", json) }
     }
