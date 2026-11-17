@@ -161,6 +161,18 @@ class FamilySyncTest {
         assertTrue("/storage/usb/Film.mkv" in on)
     }
 
+    @Test fun aDeviceSilentForTwoMonthsIsLeftOut() {
+        val day = 24 * 3_600_000L
+        val newest = 1_800_000_000_000L
+        assertTrue(FamilyMerge.current(newest, newest))
+        assertTrue(FamilyMerge.current(newest - 59 * day, newest))
+        assertFalse(FamilyMerge.current(newest - 60 * day, newest))
+        assertFalse(FamilyMerge.current(newest - 400 * day, newest))
+        // A time Drive didn't give, or a file newer than the newest seen (never, but harmless): merged.
+        assertTrue(FamilyMerge.current(0, newest))
+        assertTrue(FamilyMerge.current(newest + day, newest))
+    }
+
     @Test fun removalsAreCapped() {
         val gone = (1..250).associate { "drive:$it" to it.toLong() }
         val (_, kept) = FamilyMerge.recent(emptyList(), gone, emptyList())
