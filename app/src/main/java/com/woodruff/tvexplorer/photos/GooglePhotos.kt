@@ -270,27 +270,46 @@ object GooglePhotos {
         }
     }
 
-    /** Takes every downloaded photo and video off the TV (Google Photos itself isn't touched). */
-    fun removeAll() {
-        scope.launch {
-            files.withLock {
-                withContext(Dispatchers.IO) {
-                    loadPicked()
-                    for (dir in listOf(folder, videoFolder)) dir.listFiles()?.forEach { if (it.isFile) it.delete() }
-                    synchronized(picked) { picked.clear() }
-                    savePicked()
-                    countOnTv()
-                }
-                // Nothing left to show there: the slideshow goes back to the usual photo folders.
-                if (Appearance.slideshowFolder == folder.path) Appearance.setSlideshowFolder(app, null)
+    /**
+     * Takes the photos and videos picks downloaded off the TV (Google Photos itself isn't touched). Only those: the two
+     * folders are Family Memories, and what the phones added there stays.
+     */
+    fun removeAll(): Job = scope.launch {
+        files.withLock {
+            val gone = withContext(Dispatchers.IO) {
+                loadPicked()
+                val gone = synchronized(picked) { picked.values.mapTo(HashSet()) { fileOf(it) }.also { picked.clear() } }
+                for (f in gone) if (f.delete()) MediaDates.forget(app, f)
+                savePicked()
+                MediaDates.save(app)
+                countOnTv()
+                gone
+            }
+            // The TV's background was one of them: it goes, rather than staying blank (as for a photo the phone deletes).
+            val background = Appearance.background
+            if (background != null && File(background) in gone) runCatching { Appearance.setBackground(app, null) }
+            // Nothing left to show there: the slideshow goes back to the usual photo folders. Photos the phones added
+            // keep it there.
+            if (Appearance.slideshowFolder == folder.path && withContext(Dispatchers.IO) { !hasPhotos(folder) }) {
+                Appearance.setSlideshowFolder(app, null)
             }
         }
     }
+
+    /** Whether [dir] holds a photo the slideshow can show (IO thread). */
+    private fun hasPhotos(dir: File) = dir.listFiles()?.any { it.isFile && !it.name.startsWith(".") && it.length() > 0 && Appearance.isImage(it) } == true
 
     fun setReplace(on: Boolean) { _replace.value = on }
 
     /** Reads which files came from picks, before anything else is saved in their folders (IO thread). */
     fun ready() = loadPicked()
+
+    /** Back to a fresh start, the pick list read from disk again: for tests. */
+    internal fun resetForTest() = synchronized(picked) {
+        picked.clear()
+        pickedLoaded = false
+        _onTv.value = OnTv()
+    }
 
     /** [file] is no longer a pick's: deleted, or something else took its name (IO thread). */
     fun forget(file: File) {
@@ -342,16 +361,19 @@ object GooglePhotos {
         }
     }
 
-    /** Counts what's in the two folders, for the storage line (IO thread). */
+    /**
+     * Counts what picks left on the TV, for the window's storage line and what a pick replaces or Remove all deletes:
+     * not what the phones added to the same folders (IO thread, the pick list read).
+     */
     private fun countOnTv() {
         var photos = 0
         var videos = 0
         var bytes = 0L
-        for ((dir, video) in listOf(folder to false, videoFolder to true)) dir.listFiles()?.forEach {
-            if (it.isFile && !it.name.startsWith(".")) {
-                if (video) videos++ else photos++
-                bytes += it.length()
-            }
+        val kept = synchronized(picked) { picked.values.associateBy { fileOf(it) } }
+        for ((f, k) in kept) {
+            if (!f.isFile) continue
+            if (k.video) videos++ else photos++
+            bytes += f.length()
         }
         _onTv.value = OnTv(photos, videos, bytes)
     }

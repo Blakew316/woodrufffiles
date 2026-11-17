@@ -659,8 +659,9 @@ code, type the album's name in the picker's search bar, select its photos and ta
   pick) keeps what's there and adds to it. If any photo fails to download, nothing is removed; pick again.
 - Photos are saved at the size the TV shows them: 1920×1080 (about a quarter of a 4K copy), 3840×2160 only on the
   few boxes that draw their screen in 4K. Videos are saved as they are.
-- The window shows how many photos and videos are on the TV and how much space they take, with **Remove all** to
-  delete them from the TV (your Google Photos library isn't touched).
+- The window shows how many photos and videos picks left on the TV and how much space they take, with **Remove all**
+  to delete them from the TV. What the phones added to Family Memories stays, and your Google Photos library isn't
+  touched.
 
 Google only lets apps see the photos you pick each time (no browsing the whole library or its albums since 2025),
 which is why it's a pick-and-download flow.

@@ -43,7 +43,8 @@ import com.woodruff.tvexplorer.util.rememberQrBitmap
  * Pick photos from Google Photos for the slideshow. QR first at a fixed size (TVs are only
  * ~960dp wide), text beside it. Closing while photos download lets the download finish.
  * Google's picker doesn't list albums, so the window says how to reach one (search its name), and what the
- * pick will do to the photos already on the TV (replace them, or be added), with their size.
+ * pick will do to the photos earlier picks left on the TV (replace them, or be added), with their size. Those are
+ * all it counts and all Remove all deletes: what the phones added to Family Memories stays.
  */
 @Composable
 fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
@@ -79,7 +80,7 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
                         Note("Made an album for the TV? Type its name in the picker’s search bar, then select its photos.")
                         if (onTv.items > 0) Note(
                             (if (replace) "They’ll replace the " else "They’ll be added to the ") +
-                                "${onTv.label()} on this TV (${Format.bytes(onTv.bytes)}).",
+                                "${onTv.label()} from Google Photos on this TV (${Format.bytes(onTv.bytes)}).",
                         )
                     }
                     GooglePhotos.Step.DOWNLOADING -> {
@@ -89,7 +90,7 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
                     }
                     GooglePhotos.Step.DONE -> {
                         Text(
-                            if (onTv.items > 0) "${onTv.label()} on this TV (${Format.bytes(onTv.bytes)})."
+                            if (onTv.items > 0) "${onTv.label()} from Google Photos on this TV (${Format.bytes(onTv.bytes)})."
                             else "Nothing was added.",
                         )
                         listOfNotNull(
@@ -128,7 +129,7 @@ fun GooglePhotosDialog(onDismiss: () -> Unit, onSetUpGoogle: () -> Unit) {
     if (confirmRemove) ConfirmDialog(
         title = "Remove from this TV?",
         body = "Deletes the ${onTv.label()} (${Format.bytes(onTv.bytes)}) this TV saved from Google Photos. " +
-            "Your Google Photos library isn’t touched.",
+            "Photos from phones and your Google Photos library aren’t touched.",
         confirmLabel = "Remove",
         onConfirm = { GooglePhotos.removeAll() },
         onDismiss = { confirmRemove = false },
