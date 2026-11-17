@@ -228,10 +228,9 @@ object GooglePhotos {
                                 if (!tmp.renameTo(target)) throw IOException("Couldn’t save ${target.name}")
                                 item.taken?.let { MediaDates.record(app, target, it) }
                                 if (item.video) videos.incrementAndGet() else added.incrementAndGet()
-                                // Written down as it arrives (and saved now and then), so even an interrupted
-                                // download is replaced by the next pick instead of staying on the TV for good.
-                                val n = synchronized(picked) { picked[item.id] = Kept(target.name, item.video); picked.size }
-                                if (n % 25 == 0) savePicked()
+                                // Written down and saved as each one arrives, so a pick that's cut short (Woodruff
+                                // stopped, the power cut) leaves nothing the next pick would download a second time.
+                                synchronized(picked) { picked[item.id] = Kept(target.name, item.video); savePicked() }
                             } catch (e: CancellationException) {
                                 target.delete()
                                 throw e
