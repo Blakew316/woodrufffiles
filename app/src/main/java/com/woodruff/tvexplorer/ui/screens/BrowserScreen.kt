@@ -53,6 +53,11 @@ import com.woodruff.tvexplorer.photos.FamilyMemories
 import com.woodruff.tvexplorer.photos.MediaDates
 import com.woodruff.tvexplorer.photos.PhotoFilter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -67,7 +72,6 @@ fun BrowserScreen(vm: MainViewModel) {
     val photosFolder = state.folder?.path?.let { p ->
         p.startsWith(GooglePhotos.folder.path) || p.startsWith(GooglePhotos.videoFolder.path)
     } == true
-    val photos by GooglePhotos.state.collectAsStateWithLifecycle()
     // Photos and videos a phone added or deleted: the folder is listed again where it is.
     val memoriesChanged by FamilyMemories.changes.collectAsStateWithLifecycle()
     LaunchedEffect(memoriesChanged) { if (memoriesChanged > 0 && photosFolder) vm.refresh() }
@@ -100,7 +104,10 @@ fun BrowserScreen(vm: MainViewModel) {
         if (query.isBlank()) dated else dated.filter { it.name.contains(query, ignoreCase = true) }
     }
     val listKey = if (dateFilterable) "${location.key}|$photoFilter|$query" else location.key
-    LaunchedEffect(photos.step) { if (photos.step == GooglePhotos.Step.DONE) vm.reload() }
+    // Photos picked in Google Photos finished saving while this is up: listed again. Only the step is watched (the
+    // rest changes with every photo saved, and redrew this screen each time), and only its change to done: the done
+    // an earlier pick left behind listed every folder again on every visit, cancelling the listing just started.
+    LaunchedEffect(vm) { GooglePhotos.state.map { it.step }.picksDone().collect { vm.reload() } }
 
     // Back goes up a folder; at the top of Family Memories it brings up the sidebar, as on Apple TV
     // (from far down its photos, it goes to their top first: memoriesTop).
@@ -242,6 +249,10 @@ fun BrowserScreen(vm: MainViewModel) {
 
 /** Photos / Videos filter per folder, kept while the app runs. */
 private val photoFilterMemory = HashMap<String, PhotoFilter>()
+
+/** Each time these steps of Google Photos' turn to done from now on: never for the done they already are. */
+internal fun Flow<GooglePhotos.Step>.picksDone(): Flow<Unit> =
+    distinctUntilChanged().drop(1).filter { it == GooglePhotos.Step.DONE }.map { }
 
 /**
  * Returns to the item you were on when you come back to a folder: the list or grid is created there
