@@ -2,7 +2,9 @@ package com.woodruff.tvexplorer.player
 
 import com.woodruff.tvexplorer.cloud.DriveFile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** What's offered after an episode: the next one queued, or the next season's first. */
@@ -67,5 +69,22 @@ class UpNextTest {
         // A file on this TV costs nothing to read: a frame from it, as before.
         assertEquals(UpNextArt.Frame, UpNext.artFor("/storage/USB/Shows/Show S01E02.mkv", known::get))
         assertEquals(UpNextArt.None, UpNext.artFor("https://example.com/clip.mp4", known::get))
+    }
+
+    @Test fun playNextInTheMenuCountsAsWatchedOnlyInTheCredits() {
+        val hour = 3_600_000L
+        // In its last 40 s or 5 %: as the TV's own Next Episode, watched.
+        assertTrue(UpNext.nextCountsAsWatched(hour - 40_000, hour))
+        assertTrue(UpNext.nextCountsAsWatched(hour - 1_000, hour))
+        assertTrue(UpNext.nextCountsAsWatched((hour * 0.95).toLong(), hour))
+        // Before that: the remote's Next, which keeps the place (at minute 5 it was marked watched on every TV).
+        assertFalse(UpNext.nextCountsAsWatched(5 * 60_000, hour))
+        assertFalse(UpNext.nextCountsAsWatched((hour * 0.94).toLong(), hour))
+        // A short one: its last 40 s are more than its last 5 %.
+        assertTrue(UpNext.nextCountsAsWatched(80_000, 120_000))
+        assertFalse(UpNext.nextCountsAsWatched(79_000, 120_000))
+        // Its length not known yet: never watched.
+        assertFalse(UpNext.nextCountsAsWatched(10_000, androidx.media3.common.C.TIME_UNSET))
+        assertFalse(UpNext.nextCountsAsWatched(0, 0))
     }
 }

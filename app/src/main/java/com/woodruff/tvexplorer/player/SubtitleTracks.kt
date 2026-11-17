@@ -52,6 +52,23 @@ internal object SubtitleTracks {
     /** A track whose language nothing says. */
     private const val NO_LANGUAGE = "Subtitles"
 
+    /**
+     * [params] with the Subtitles menu's Off: no subtitles, though signs-only ("forced") ones still
+     * show, as Media3's own Off. The language chosen before for the show is let go of too, and the
+     * kinds of subtitles preferred (the TV's caption settings can ask for captions): each episode starts
+     * with the show's language preferred, and Media3 keeps any track in a preferred language, or of a
+     * preferred kind, selectable whatever else says, so Off left English subtitles on, still ticked,
+     * until the next episode.
+     */
+    @OptIn(UnstableApi::class)
+    fun off(params: androidx.media3.common.TrackSelectionParameters): androidx.media3.common.TrackSelectionParameters =
+        params.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_FORCED.inv())
+            .setPreferredTextLanguage(null)
+            .setPreferredTextRoleFlags(0)
+            .build()
+
     /** Every subtitle track in [tracks] this TV can show, in Media3's order (the film's own first), each with whether it's showing. */
     @OptIn(UnstableApi::class)
     fun of(tracks: Tracks): List<SubtitleChoice> =

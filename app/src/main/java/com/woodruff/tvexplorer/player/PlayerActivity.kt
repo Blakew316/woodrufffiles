@@ -113,6 +113,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 p.currentMediaItem?.let { item ->
                     lastSeen = RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0)
                 }
+                if (p.isPlaying && ++playingSeconds >= SAVE_PLACE_S) { playingSeconds = 0; savePlace(p) }
             }
             updateScreenOn()
             if (leader && ++syncTicks % 10 == 0) sendSync()
@@ -715,7 +716,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // Speed and the next episode don't touch the sleep timer.
         val first = listOfNotNull(
             TvMenu.Row("Speed: $speed") { showSpeed(at) },
-            if (p.hasNextMediaItem()) TvMenu.Row("Play next") { playNext() } else null,
+            if (p.hasNextMediaItem()) TvMenu.Row("Play next") { playNextFromMenu() } else null,
         )
         val choices = listOfNotNull<Pair<String, () -> Unit>>(
             "Sleep in 30 minutes" to { sleepIn(30) },
@@ -766,11 +767,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val rows = SubtitleTracks.menuRows(
             choices.map { it.track }, java.util.Locale.getDefault(), SubtitleLook.size(this), tvCaptions,
             off = {
-                // Media3's own "Off": no subtitles, but signs-only ("forced") ones still show.
-                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                    .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_FORCED.inv())
-                    .build()
+                // Media3's own "Off": no subtitles, but signs-only ("forced") ones still show; and not the
+                // show's language chosen before either, which Media3 would otherwise keep showing.
+                p.trackSelectionParameters = SubtitleTracks.off(p.trackSelectionParameters)
             },
             choose = { i -> choose(p, choices[i].group, choices[i].index) },
             openSize = { showSubtitleSize(anchor) },
@@ -1020,7 +1019,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             when (text) {
                 null -> setIgnoredTextSelectionFlags(0).setPreferredTextLanguage(null)
                 // Like the menu's own "Off": no subtitles, but signs-only ("forced") ones still show.
-                ShowPrefs.OFF -> setIgnoredTextSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_FORCED.inv()).setPreferredTextLanguage(null)
+                ShowPrefs.OFF -> setIgnoredTextSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_FORCED.inv()).setPreferredTextLanguage(null).setPreferredTextRoleFlags(0)
                 else -> setIgnoredTextSelectionFlags(0).setPreferredTextLanguage(text)
             }
         }.build())
@@ -1249,6 +1248,24 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // Next episode can be pressed with the credits still running.)
         p.currentMediaItem?.mediaId?.let(::finished)
         lastSeen = null
+        if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.play() }
+    }
+
+    /**
+     * "Play next" in the options: in the episode's last 5 % or 40 s, the player's own Next Episode
+     * (this one counts as watched); before that, the remote's Next key, which keeps where this one was
+     * (onMediaItemTransition, [keepPlace]). It counted as watched wherever it was chosen: at minute 5,
+     * a ✓ on every TV and gone from Continue watching. (The phone's Next is Next Episode, as the README
+     * says: [fromPhone].)
+     */
+    private fun playNextFromMenu() {
+        val p = player ?: return
+        if (UpNext.nextCountsAsWatched(p.currentPosition, p.duration)) { playNext(); return }
+        cancelUpNext()
+        // Where it is now, kept as the move to the next one happens (as the report keeps it each second).
+        p.currentMediaItem?.let { item ->
+            lastSeen = RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0)
+        }
         if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.play() }
     }
 
@@ -1526,6 +1543,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         stalledSince = null
         stallTries = 0
         refusedInARow = 0
+        playingSeconds = 0
         view.controllerAutoShow = true
         waitClock.reset()
         startedAgainFromDrive.clear()
@@ -1860,6 +1878,26 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         else if (pos > 0) recent.save(item.key, item.title, pos, dur)
     }
 
+    /** Seconds played since the place was last saved as it plays ([savePlace]). */
+    private var playingSeconds = 0
+
+    /**
+     * Where the video playing has got to, saved every [SAVE_PLACE_S] seconds of play, on this TV only:
+     * the family's other TVs hear when it stops, as before ([keepPlace]), so nothing more goes to
+     * them. It was saved only as the player stopped or moved on, so Woodruff closing by itself (a crash,
+     * Android ending it) an hour into a film left every TV at the old spot. Not in its first seconds,
+     * nor in its credits: finishing it is for when it stops or moves on.
+     */
+    private fun savePlace(p: ExoPlayer) {
+        val item = p.currentMediaItem ?: return
+        val pos = p.currentPosition
+        val dur = p.duration
+        if (!PlayerKeep.worthSavingAsItPlays(p.pauseAtEndOfMediaItems, pos, dur)) return
+        if (!PlayerKeep.touched(playedSinceStart, startSpot, item.mediaId, pos)) return
+        stopCatchingUp()
+        recent.save(item.mediaId, item.mediaMetadata.title?.toString() ?: "", pos, dur, share = false)
+    }
+
     /**
      * Started on its own (Continue watching, Recently added, search): queue the other episodes in
      * its Google Drive folder around it, so Next / Previous and "Up next" work. Playback carries on
@@ -2078,6 +2116,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         private const val NOTICE_MESSAGE_MS = 6_000L
         /** Why a subtitle size didn't change, or isn't Woodruff's to choose (specs/player-feedback.md §3.6). */
         private const val SIZE_MESSAGE_MS = 3_500L
+        /** How often a video's place is saved as it plays, in seconds of play ([savePlace]). */
+        private const val SAVE_PLACE_S = 30
         /** How long a film waits to start for the subtitle files beside it to be found (a USB drive waking up). */
         private const val SIDECAR_WAIT_MS = 1_000L
         /** USB folders looked in for the rest of a queue's subtitle files, at most (a queue is usually one folder). */

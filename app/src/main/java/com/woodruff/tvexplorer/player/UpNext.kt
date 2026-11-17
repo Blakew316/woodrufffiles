@@ -36,6 +36,17 @@ object UpNext {
     }
 
     /**
+     * Whether "Play next" in the player's menu counts the episode as watched: in its last 5 % or 40 s
+     * (the credits, roughly, where Next Episode shows), as the TV's own Next Episode does. Before that
+     * it's the remote's Next: the place is kept, and it stays in Continue watching.
+     */
+    fun nextCountsAsWatched(positionMs: Long, durationMs: Long): Boolean =
+        durationMs > 0 && (durationMs - positionMs <= NEXT_EPISODE_LEAD_MS || positionMs >= durationMs * 0.95)
+
+    /** The end of an episode where Next Episode shows: its credits, roughly. */
+    const val NEXT_EPISODE_LEAD_MS = 40_000L
+
+    /**
      * The season an episode is from: the number of its folder among the show's [showItems]
      * ("Season 2"), else the one in its own name ("S02E10"); null when neither says.
      */

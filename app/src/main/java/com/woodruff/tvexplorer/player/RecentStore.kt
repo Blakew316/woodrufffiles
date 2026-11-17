@@ -52,7 +52,11 @@ class RecentStore(context: Context) {
     fun resumePosition(key: String): Long =
         all().firstOrNull { it.key == key }?.takeIf { it.progress < FINISHED }?.positionMs ?: 0L
 
-    fun save(key: String, title: String, positionMs: Long, durationMs: Long) {
+    /**
+     * Where [key] got to. [share] false: on this TV only for now (the player saving its place as it
+     * plays, in case it closes by itself); the family's other TVs hear of it when it stops, as before.
+     */
+    fun save(key: String, title: String, positionMs: Long, durationMs: Long, share: Boolean = true) {
         synchronized(LOCK) {
             val before = all()
             // Stopped in the first seconds of an up-next episode: it's still up next.
@@ -62,7 +66,7 @@ class RecentStore(context: Context) {
             // Playing it again outdates its removal.
             write(FamilyMerge.capped(items), removals() - key)
         }
-        if (FamilySync.isShared(key)) FamilySync.changed(app)
+        if (share && FamilySync.isShared(key)) FamilySync.changed(app)
     }
 
     /** [key] comes after an episode that was just finished: offer it on Home and its show's page. */

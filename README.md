@@ -156,7 +156,9 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Player options**: the **…** button in the player's controls (or the remote's Menu/Info button) sets a sleep
   timer (30/60/90 minutes or end of episode; then the slideshow takes over, without keeping the screen on, so the TV
   goes to sleep by its own timers) and marks where a show's intro ends.
-  After that, *Skip intro* appears during the intro of every episode of that show; OK skips it.
+  After that, *Skip intro* appears during the intro of every episode of that show; OK skips it. *Play next* moves on
+  to the next episode: in an episode's last 40 seconds (or 5 %) it counts as watched, like *Next episode*; before
+  that it keeps the place, like the remote's Next.
 - **Subtitles, audio and speed**: Subtitles and Audio open a menu above their button (✓ marks what's on), speed is
   under **…**; the subtitle and audio choices are remembered per show. Audio lists every sound track in the film, as
   *English · 5.1 · Commentary*; a track this TV can't play is dimmed and marked *Can't play* (OK on it says why).
@@ -357,10 +359,11 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   where a download stopped (a Wi-Fi drop, Google's daily limit) the next time it's chosen. You sign in on your phone,
   by scanning a QR code or from the phone app the TV serves; it needs a one-time setup, described
   [below](#connect-google-drive-one-time-setup).
-- **Continue watching**: playback resumes where you stopped, and Home shows what you're partway through, one tile per
-  show. It follows the family to every TV signed in to the same Google account: what's in progress (Drive videos), the
-  ✓s and each show's Skip intro and languages, through one small hidden file per TV in Drive (Settings → Accounts →
-  *Share progress with other TVs*, on by default; it needs the `drive.appdata` permission, see the Drive setup below).
+- **Continue watching**: playback resumes where you stopped (kept every 30 seconds as a film plays, so Woodruff
+  closing by itself doesn't lose it), and Home shows what you're partway through, one tile per show. It follows the
+  family to every TV signed in to the same Google account: what's in progress (Drive videos), the ✓s and each show's
+  Skip intro and languages, through one small hidden file per TV in Drive (Settings → Accounts → *Share progress with
+  other TVs*, on by default; it needs the `drive.appdata` permission, see the Drive setup below).
   Moving to another TV, Resume starts where you stopped: Home, Movies, TV Shows and a title's page fetch the other TVs'
   progress as they open, and again when the network comes back. Starting something waits at most half a second for
   it, and a show another TV went on with plays its next episode.
