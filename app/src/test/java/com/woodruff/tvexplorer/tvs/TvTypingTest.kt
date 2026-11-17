@@ -5,7 +5,6 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -62,7 +61,7 @@ class TvTypingTest {
 
     @Test fun theHubAsksTheTvForItsTextBox() {
         val den = tv("200 OK", """{"field":{"id":7,"label":"Search","secret":false,"multiline":false,"text":"har"}}""")
-        val f = TvLinks.field(den)!!
+        val f = TvLinks.field(den).getJSONObject("field")
         assertEquals(7L, f.getLong("id"))
         assertEquals("Search", f.getString("label"))
         assertEquals("har", f.getString("text"))
@@ -70,7 +69,25 @@ class TvTypingTest {
     }
 
     @Test fun noTextBoxOpenIsNull() {
-        assertNull(TvLinks.field(tv("200 OK", """{"field":null}""")))
+        val answer = TvLinks.field(tv("200 OK", """{"field":null}"""))
+        assertTrue(answer.isNull("field"))
+        assertFalse(answer.has("note"))
+    }
+
+    @Test fun theTvsOwnWordsForNoTextBoxComeAlong() {
+        // An LG (or a Google TV) with another app in front says why nothing can be typed: the phone shows it.
+        val answer = TvLinks.field(tv("200 OK", """{"field":null,"note":"Woodruff Family isn’t on the TV screen. Press Home first."}"""))
+        assertTrue(answer.isNull("field"))
+        assertEquals("Woodruff Family isn’t on the TV screen. Press Home first.", answer.getString("note"))
+    }
+
+    @Test fun anLgsTextBoxGoesByItsOwnId() {
+        // An LG names its boxes "f3": that id goes on untouched (read as a number it was 0, a box that isn't open).
+        val lg = tv("200 OK", """{"field":{"id":"f3","label":"Search","secret":false,"multiline":false,"text":""}}""")
+        assertEquals("f3", TvLinks.field(lg).getJSONObject("field").getString("id"))
+        val again = tv("200 OK", """{"ok":true}""")
+        TvLinks.type(again, "f3", "har", submit = false)
+        assertEquals("f3", JSONObject(asked!!.substringAfter('\n')).getString("id"))
     }
 
     @Test fun whatIsTypedGoesWithTheBoxItWasTypedFor() {

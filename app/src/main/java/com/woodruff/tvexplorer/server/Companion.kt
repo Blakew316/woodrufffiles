@@ -422,7 +422,7 @@ class CompanionRoutes(private val ctx: Context) {
         s.uri == "/api/tvs/type" && s.method == Method.GET -> {
             val tv = TvLinks.find(s.parameters["id"]?.firstOrNull().orEmpty()) ?: throw IllegalArgumentException("That TV isn’t linked any more.")
             try {
-                json(JSONObject().put("field", TvLinks.field(tv) ?: JSONObject.NULL))
+                json(TvLinks.field(tv))
             } catch (e: TvLinks.TypingRefused) {
                 json(JSONObject().put("field", JSONObject.NULL).put("note", cantType(tv)))
             } catch (e: java.io.IOException) {
@@ -433,7 +433,8 @@ class CompanionRoutes(private val ctx: Context) {
             val b = body(s)
             val tv = TvLinks.find(b.optString("id")) ?: throw IllegalArgumentException("That TV isn’t linked any more.")
             try {
-                TvLinks.type(tv, if (b.has("field")) b.optLong("field") else null, b.optString("text").take(MAX_TYPED), b.optBoolean("submit"))
+                // The box's id as that TV gave it (an LG's is "f3"): passed on untouched.
+                TvLinks.type(tv, b.opt("field")?.takeIf { it != JSONObject.NULL }, b.optString("text").take(MAX_TYPED), b.optBoolean("submit"))
             } catch (e: TvLinks.TypingRefused) {
                 throw IllegalArgumentException(cantType(tv))
             } catch (e: TvLinks.Refused) {
