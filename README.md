@@ -777,13 +777,13 @@ The other `tools/gallery/phone_*_check.mjs` scripts run the same way. `phone.mjs
   (keys only marked saved or not, never their values), see the screen, press remote keys, type into the TV's open text
   box while Woodruff is in front there (the same as pressing its keys; it's how the phone's keyboard reaches a linked
   TV), pass on the phone's playback controls (Play/Pause, −10 s, +30 s, Next: no more than its remote keys could do),
-  start a Google Drive video there and keep Watch together in step, ask it to check for an update (it still waits for
-  the test TV's day), show messages, the family message board, doorbell alerts and camera alerts' pictures, and read
-  or update the shared settings (TMDB, Google's Client ID and secret, the cameras project, the doorbell's Pub/Sub
-  subscription name and the person/motion choice). It can never touch files, mail, sign-ins (it can't start one) or
-  any other setting. The subscription name isn't a credential: using it needs a Google sign-in with Pub/Sub access.
-  **Stop other TVs seeing this one** in Settings revokes every link. Linking codes last 10 minutes, work once, and die
-  after 5 wrong tries.
+  start a Google Drive video there and keep Watch together in step, ask it to check for an update or install the newest
+  at once (as Update in the Woodruff app does), show messages, the family message board, doorbell alerts and camera
+  alerts' pictures, and read or update the shared settings (TMDB, Google's Client ID and secret, the cameras project,
+  the doorbell's Pub/Sub subscription name and the person/motion choice). It can never touch files, mail, sign-ins (it
+  can't start one) or any other setting. The subscription name isn't a credential: using it needs a Google sign-in
+  with Pub/Sub access. **Stop other TVs seeing this one** in Settings revokes every link. Linking codes last 10
+  minutes, work once, and die after 5 wrong tries.
 - A linked TV turns a hub away only when its own saved link key says no: if it can't read its keys for a moment after
   power-on, it never makes a new link key, so hubs don't show *Link again* for a TV that was never reset. A TV's id and
   name are kept in plain app settings (they aren't secrets), so a Keystore that loses its key never makes a TV look

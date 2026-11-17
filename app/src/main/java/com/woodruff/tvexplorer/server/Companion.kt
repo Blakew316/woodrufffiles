@@ -320,8 +320,8 @@ class CompanionRoutes(private val ctx: Context) {
         s.uri == "/api/status" && s.method == Method.GET -> json(TvLinks.status(ctx))
         // This TV's health report (also for a linked hub, with its link key): words and facts, no secrets.
         s.uri == "/api/health" && s.method == Method.GET -> json(Health.report(ctx, probe = true).toJson())
-        // Check for an update now, for the phone or a linked hub: it follows the test TV's day, as this TV's own checks
-        // do (only Settings → Updates → Check for updates, on the TV itself, skips that).
+        // Check for an update now, for the phone or a linked hub: it takes the newest build, as every check does now (no
+        // day's wait after the test TV, so the Test TV switch changes nothing), to install at the next quiet moment.
         s.uri == "/api/update/check" && s.method == Method.POST -> {
             // "now": Update pressed in the Woodruff app: download and install at once.
             if (body(s).optBoolean("now")) com.woodruff.tvexplorer.update.Updater.updateNowFromPhone(ctx)
@@ -469,6 +469,16 @@ class CompanionRoutes(private val ctx: Context) {
             if (volume != null) {
                 ctx.getSystemService(android.media.AudioManager::class.java)
                     ?.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, volume, android.media.AudioManager.FLAG_SHOW_UI)
+            } else if (key == "muteon") {
+                // Mute All on the iPhone and Mac: muted, never flipped ("mute" flips, and unmuted a TV that was muted).
+                // One muted already is left alone: Android passes a mute on over HDMI as the TV's one mute key, which flips.
+                // (Builds before this turn the key down, unchanged: "isn't on the TV screen".)
+                ctx.getSystemService(android.media.AudioManager::class.java)?.let { audio ->
+                    if (!audio.isStreamMute(android.media.AudioManager.STREAM_MUSIC)) {
+                        audio.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE,
+                            android.media.AudioManager.FLAG_SHOW_UI)
+                    }
+                }
             } else if (key == "home") {
                 // Brings Woodruff Family up on its Home screen (from another app too, if allowed): the
                 // open main window, whatever was over it closing, never a second one.
