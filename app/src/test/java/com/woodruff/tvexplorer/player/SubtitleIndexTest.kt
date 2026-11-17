@@ -138,8 +138,8 @@ class SubtitleIndexTest {
         )
         val shown = DriveApi.withPosters("token", listing)
         assertEquals(listOf("heat", "song"), shown.map { it.id })
-        // The film's own picture is its poster.
-        assertEquals("https://lh3.googleusercontent.com/heat=s720", shown.first().posterUrl)
+        // The film's own picture is its poster, at a poster tile's size.
+        assertEquals("https://lh3.googleusercontent.com/heat=s480", shown.first().posterUrl)
         // And its subtitle file is known for the player.
         assertEquals(listOf(DriveApi.mediaUrl("heat-en")), SubtitleIndex.known("drive:heat")?.map { it.uri })
     }

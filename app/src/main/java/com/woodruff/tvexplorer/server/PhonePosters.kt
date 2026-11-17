@@ -92,9 +92,9 @@ internal object PhonePosters {
 
     /**
      * A Drive thumbnail address asked for at [size] ("w342"): its own size ("=s220", or "=s720" as
-     * DriveApi.big asks for TV posters) replaced. Visible for tests.
+     * DriveApi.big asks for TV posters) replaced, and the TV's own version tag (DriveArt) left off. Visible for tests.
      */
-    fun sized(url: String, size: String): String = url.replace(SIZE, "") + "=" + size
+    fun sized(url: String, size: String): String = com.woodruff.tvexplorer.cloud.DriveArt.link(url).replace(SIZE, "") + "=" + size
 
     /** Kept under the file, the kind, and when the file last changed: a new poster gets a new picture. Visible for tests. */
     fun name(kind: String, f: DriveFile): String {

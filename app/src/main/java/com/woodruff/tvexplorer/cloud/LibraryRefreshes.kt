@@ -40,10 +40,15 @@ internal fun needsListing(force: Boolean, status: DriveStatus, listedAt: Long?, 
  * asked going away (switching tabs, opening a show) doesn't cancel it halfway and lose its work.
  *
  * A TMDB-only pass (a new TMDB key) waits for a listing under way and then runs, so it looks up
- * the fresh copy; a listing asked for during a TMDB-only pass runs after it. [K] is the library.
+ * the fresh copy; a listing asked for during a TMDB-only pass runs after it, and one asked for
+ * while a pass waits on a listing joins that listing. [K] is the library.
  */
 internal class LibraryRefreshes<K>(private val scope: CoroutineScope) {
-    private class Running(val tmdbOnly: Boolean, val job: Deferred<Fetch>)
+    /** One refresh, and the one it waits for ([after], when that was still under way as this began). */
+    private class Running(val tmdbOnly: Boolean, val job: Deferred<Fetch>, val after: Running?) {
+        /** This and each one it waits for, newest first. */
+        fun chain(): Sequence<Running> = generateSequence(this) { it.after }
+    }
 
     // Guarded by itself.
     private val running = HashMap<K, Running>()
@@ -56,19 +61,23 @@ internal class LibraryRefreshes<K>(private val scope: CoroutineScope) {
 
     private fun start(key: K, tmdbOnly: Boolean, block: suspend () -> Fetch): Deferred<Fetch> = synchronized(running) {
         val before = running[key]?.takeIf { it.job.isActive }
-        if (before != null && !tmdbOnly && !before.tmdbOnly) return before.job
+        // A listing under way is joined, even one a TMDB pass waits on: it would only have listed it all again after.
+        if (!tmdbOnly) before?.chain()?.firstOrNull { !it.tmdbOnly && it.job.isActive }?.let { return it.job }
         val job = scope.async {
             // Cancelled or not, it's over before this starts: the two never write the listing at once.
             before?.job?.join()
             block()
         }
-        running[key] = Running(tmdbOnly, job)
+        running[key] = Running(tmdbOnly, job, before)
         job
     }
 
-    /** Signing out: every refresh stops, and none is handed out again. */
+    /**
+     * Signing out: every refresh stops, the ones a TMDB pass waits on too (a listing left going asked Drive for the old
+     * account's library until it was done), and none is handed out again.
+     */
     fun cancelAll() = synchronized(running) {
-        running.values.forEach { it.job.cancel() }
+        running.values.forEach { r -> r.chain().forEach { it.job.cancel() } }
         running.clear()
     }
 }

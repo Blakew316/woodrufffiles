@@ -17,8 +17,12 @@ import java.io.File
 object FolderCache {
     /** The most recently used listings; the oldest drop out past [MEMORY]. Guarded by itself. */
     private val memory = object : LinkedHashMap<String, List<DriveFile>>(32, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<DriveFile>>?): Boolean = size > MEMORY
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<DriveFile>>?): Boolean =
+            (size > MEMORY).also { if (it && eldest != null) listedAt.remove(eldest.key) }
     }
+
+    /** When each listing in [memory] was last listed from Drive (ms). Guarded by [memory]. */
+    private val listedAt = HashMap<String, Long>()
 
     /** Bumped by [clear]: a listing still loading as the account signs out isn't kept. */
     @Volatile private var generation = 0
@@ -57,22 +61,56 @@ object FolderCache {
 
     /**
      * Lists [folder] from Drive with a current token and keeps it, saying how it went: a title page
-     * then tells "the season will show when the TV is back online" from "nothing here".
+     * then tells "the season will show when the TV is back online" from "nothing here". One listed
+     * less than [FRESH_MS] ago is given as it is, and nothing is asked of Google: a title page opened
+     * again, its other season tab, or a folder Streaming listed while the focus rested on it.
      */
-    suspend fun fetch(c: Context, token: String?, folder: DriveFile): Listing = if (galleryOffline) Listing.Offline else try {
+    suspend fun fetch(c: Context, token: String?, folder: DriveFile): Listing = fetchWith(
+        c, token, folder,
+        tokenFor = { GoogleAuth.tokenResult(c) },
+        forget = { withContext(Dispatchers.IO) { GoogleAuth.forgetAccess(c) } },
+    ) { t -> DriveApi.list(t, DrivePlace.Folder(folder.id, folder.name)) }
+
+    /**
+     * [fetch], with where its token comes from ([tokenFor]), how a token Drive won't take is forgotten ([forget]) and
+     * how the folder is listed with one ([list]). A token Drive won't take (401: access revoked on Google's site, or
+     * the TV's clock off when it was saved) is renewed once and the folder listed again, as the libraries are; it used
+     * to read as Google not answering, tried again and again with the same token. Visible for tests.
+     */
+    internal suspend fun fetchWith(
+        c: Context, token: String?, folder: DriveFile,
+        tokenFor: suspend () -> GoogleAuth.TokenResult, forget: suspend () -> Unit, list: suspend (String) -> List<DriveFile>,
+    ): Listing {
+        if (galleryOffline) return Listing.Offline
+        fresh(folder.id)?.let { return Listing.Listed(it) }
         val gen = generation
-        val result = GoogleAuth.tokenResult(c)
-        val t = listingToken(result, token)
-        when {
-            t != null -> Listing.Listed(DriveApi.list(t, DrivePlace.Folder(folder.id, folder.name)).also { keep(c, folder.id, it, gen) })
-            result is GoogleAuth.TokenResult.Offline -> Listing.Offline
-            else -> Listing.Failed
+        suspend fun attempt(): Listing {
+            val result = tokenFor()
+            val t = listingToken(result, token) ?: return if (result is GoogleAuth.TokenResult.Offline) Listing.Offline else Listing.Failed
+            return Listing.Listed(list(t).also { keep(c, folder.id, it, gen) })
         }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        listingFailure(e)
+        return try {
+            try {
+                attempt()
+            } catch (e: DriveHttpException) {
+                if (e.code != 401) throw e
+                forget()
+                attempt()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            listingFailure(e)
+        }
     }
+
+    /** [folderId]'s listing if it was listed from Drive less than [FRESH_MS] ago; null otherwise. */
+    private fun fresh(folderId: String): List<DriveFile>? = synchronized(memory) {
+        memory[folderId]?.takeIf { isFresh(listedAt[folderId], clock()) }
+    }
+
+    /** Test hook: the time listings are kept by. Never changed in the app. */
+    @Volatile internal var clock: () -> Long = System::currentTimeMillis
 
     /**
      * The token to list a folder with, after asking for a fresh one came to [result]: that one; else,
@@ -106,6 +144,7 @@ object FolderCache {
         synchronized(memory) {
             generation++
             memory.clear()
+            listedAt.clear()
         }
         synchronized(disk) { runCatching { dir(c).deleteRecursively() } }
     }
@@ -113,18 +152,27 @@ object FolderCache {
     private suspend fun keep(c: Context, folderId: String, files: List<DriveFile>, gen: Int) {
         val changed = synchronized(memory) {
             if (gen != generation) return
-            (memory.put(folderId, files) != files)
+            listedAt[folderId] = clock()
+            // Only Drive's links new (it gives new ones every few hours): the fresh ones are kept in memory, for
+            // pictures not fetched yet, but the listing isn't saved again for them.
+            !DriveArt.sameIgnoringLinks(memory.put(folderId, files), files)
         }
         // A season's or a film's folder: the subtitle files beside its videos ("Pilot.en.srt"), which
         // the player attaches as one starts. Learned in the background.
         com.woodruff.tvexplorer.player.SubtitleIndex.learn(files, c)
-        // Unchanged since it was last saved: no need to write it again.
-        if (changed) withContext(Dispatchers.IO) {
-            synchronized(disk) { if (gen == generation) write(c, folderId, files) }
+        // Unchanged since it was last saved: no need to write it again, unless its links are an hour old (the
+        // phone's episode pictures are fetched with the saved ones).
+        withContext(Dispatchers.IO) {
+            synchronized(disk) {
+                if (gen != generation) return@synchronized
+                val savedAt = File(dir(c), fileName(folderId)).lastModified()
+                if (changed || !DriveArt.savedLinksLast(savedAt, System.currentTimeMillis())) write(c, folderId, files)
+            }
         }
     }
 
-    private fun dir(c: Context) = File(c.applicationContext.cacheDir, "folders")
+    /** Kept with the app's files, where Android never empties it to free storage ([keptDir]). */
+    private fun dir(c: Context) = keptDir(c, "folders")
 
     private fun read(c: Context, folderId: String): List<DriveFile>? = runCatching {
         val f = File(dir(c), fileName(folderId)).takeIf { it.exists() } ?: return null

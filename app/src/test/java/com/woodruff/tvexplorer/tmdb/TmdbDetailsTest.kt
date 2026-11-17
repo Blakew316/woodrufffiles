@@ -182,4 +182,40 @@ class TmdbDetailsTest {
         // As an earlier version saved them.
         assertNull(Tmdb.Hit.fromJson("""{"p": "https://image.tmdb.org/t/p/w342null", "b": "https://image.tmdb.org/t/p/w1280null", "y": 1999}""")?.poster)
     }
+
+    @Test fun aSeasonStillAiringIsAskedForAgainAtMostOnceADay() {
+        val day = 24 * 60 * 60_000L
+        val asked = 1_800_000_000_000L
+        // Asked for when only two episodes had aired: the third (the family's newest) wasn't described yet.
+        val known = mapOf(
+            1 to Tmdb.Episode("https://image.tmdb.org/t/p/original/1.jpg", 42, "Pilot"),
+            2 to Tmdb.Episode(null, 44, "The Second"), // described, but no picture yet
+        )
+        assertFalse(Tmdb.seasonStale(known, listOf(1), asked, asked + 30 * day))
+        assertFalse("within the day", Tmdb.seasonStale(known, listOf(1, 3), asked, asked + day - 1))
+        assertTrue(Tmdb.seasonStale(known, listOf(1, 3), asked, asked + day))
+        assertTrue("a picture missing counts", Tmdb.seasonStale(known, listOf(2), asked, asked + day))
+        // Kept before seasons kept the time: asked again once wanted.
+        assertTrue(Tmdb.seasonStale(known, listOf(3), 0, asked))
+        // The TV's clock set back: not "fresh for ever".
+        assertTrue(Tmdb.seasonStale(known, listOf(3), asked, asked - day))
+        assertFalse(Tmdb.seasonStale(known, emptyList(), 0, asked))
+    }
+
+    @Test fun aSeasonsPosterThatFailedToLoadIsNotTakenForNone() {
+        assertEquals("/s2.jpg", Tmdb.seasonPosterOf { JSONObject("""{"poster_path": "/s2.jpg"}""") })
+        // TMDB answered: the season has no picture of its own, or there's no such season. The show's poster then.
+        assertNull(Tmdb.seasonPosterOf { JSONObject("""{"poster_path": null}""") })
+        assertNull(Tmdb.seasonPosterOf { throw Tmdb.TmdbHttpException(404) })
+        // Offline, or TMDB busy: thrown, so nothing is kept and it's asked again next time.
+        for (failure in listOf(java.net.SocketTimeoutException(), Tmdb.TmdbHttpException(503), Tmdb.TmdbHttpException(429))) {
+            try {
+                Tmdb.seasonPosterOf { throw failure }
+                throw AssertionError("$failure was taken for a season without a poster")
+            } catch (e: Exception) {
+                assertTrue(e === failure)
+            }
+        }
+    }
 }
+

@@ -59,7 +59,7 @@ class PhonePostersTest {
 
     /** A folder's listing as the TV saves it after listing it once. */
     private fun saved(id: String, files: List<DriveFile>) {
-        val d = File(c.cacheDir, "folders").apply { mkdirs() }
+        val d = File(c.filesDir, "folders").apply { mkdirs() }
         File(d, FolderCache.fileName(id)).writeText(FolderCache.toJson(files))
     }
 

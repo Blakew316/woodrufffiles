@@ -166,4 +166,111 @@ class NewEpisodesTest {
         assertEquals(Placement("show", "season2", "Season 2"), known["season2"])
         assertFalse(known.containsKey("unknown"))
     }
+
+    // ---- What the walks learn of each folder (FolderWalks) ----
+
+    /** A Drive whose folders can move; every lookup counted. */
+    private class MovingDrive(val folders: MutableMap<String, FolderFacts>) {
+        val asked = ArrayList<String>()
+        suspend fun facts(id: String): FolderFacts {
+            asked += id
+            return folders[id] ?: throw IOException("no such folder: $id")
+        }
+    }
+
+    /** One refresh's walk, as DriveViewModel makes it: where each folder leads worked out afresh, the folders' facts from [walks]. */
+    private fun refresh(videos: List<RecentVideo>, shows: Set<String>, walks: FolderWalks, drive: MovingDrive, at: Long = now) = runBlocking {
+        walks.forShows(shows)
+        NewEpisodes.placeVideos(videos, shows, emptySet(), HashMap()) { id -> walks.facts(id, at) { drive.facts(it) } }
+    }
+
+    private fun family() = MovingDrive(
+        mutableMapOf(
+            // A phone's backup, four folders down: deeper than a walk goes.
+            "november" to FolderFacts("November", "y2026"), "y2026" to FolderFacts("2026", "videos"),
+            "videos" to FolderFacts("Videos", "family"), "family" to FolderFacts("Family", "root"),
+            "root" to FolderFacts("My Drive", null),
+            "season2" to FolderFacts("Season 2", "show"),
+        ),
+    )
+
+    @Test fun deepClipsCostTheirFoldersOnceAndLaterRefreshesNothing() {
+        val drive = family()
+        val walks = FolderWalks()
+        val clips = (1..100).map { video("clip$it", "clip$it.mp4", "november") }
+        val episodes = (1..8).map { video("e$it", "Show S02E0$it.mkv", "season2") }
+        val first = refresh(clips + episodes, setOf("show"), walks, drive)
+        assertEquals((1..8).map { "e$it" }, first.getValue("show").map { it.id })
+        // Three folders for a hundred clips (three each, three hundred, before), one for a season's eight episodes.
+        assertEquals(listOf("november", "y2026", "videos", "season2"), drive.asked)
+        // The next refresh, and the one after: nothing asked of Drive at all.
+        drive.asked.clear()
+        assertEquals(first, refresh(clips + episodes, setOf("show"), walks, drive, at = now + 60 * 60_000L))
+        assertEquals(first, refresh(clips + episodes, setOf("show"), walks, drive, at = now + 2 * 60 * 60_000L))
+        assertTrue(drive.asked.isEmpty())
+    }
+
+    @Test fun aFolderIsLookedUpAgainADayOn() {
+        val drive = family()
+        val walks = FolderWalks()
+        refresh(listOf(video("e1", "Show S02E01.mkv", "season2")), setOf("show"), walks, drive)
+        drive.asked.clear()
+        refresh(listOf(video("e1", "Show S02E01.mkv", "season2")), setOf("show"), walks, drive, at = now + FolderWalks.KEEP_MS - 1)
+        assertTrue(drive.asked.isEmpty())
+        // A day on (a folder moved meanwhile is found where it is now), or the TV's clock set back.
+        refresh(listOf(video("e1", "Show S02E01.mkv", "season2")), setOf("show"), walks, drive, at = now + FolderWalks.KEEP_MS)
+        assertEquals(listOf("season2"), drive.asked)
+        drive.asked.clear()
+        refresh(listOf(video("e1", "Show S02E01.mkv", "season2")), setOf("show"), walks, drive, at = now - 60_000L)
+        assertEquals(listOf("season2"), drive.asked)
+    }
+
+    @Test fun aShowMovedIntoTvShowsHasItsNewEpisodesAtTheNextRefresh() {
+        // Uploaded to My Drive first, and a refresh happens: under no show.
+        val drive = MovingDrive(
+            mutableMapOf("x-season1" to FolderFacts("Season 1", "show-x"), "show-x" to FolderFacts("Show X", "root"), "root" to FolderFacts("My Drive", null)),
+        )
+        val walks = FolderWalks()
+        val ep = video("x1", "Show X S01E01.mkv", "x-season1")
+        assertTrue(refresh(listOf(ep), setOf("show"), walks, drive).isEmpty())
+        // Then moved into TV Shows: it's one of the shows from the next listing on, and its episode is new there
+        // (it used to stay "under no show" until the TV restarted).
+        drive.folders["show-x"] = FolderFacts("Show X", "tv-shows")
+        val after = refresh(listOf(ep), setOf("show", "show-x"), walks, drive)
+        assertEquals(FreshEpisode("x1", "Show X S01E01.mkv", "x-season1", "Season 1", now - day, 1, 1), after.getValue("show-x").single())
+    }
+
+    @Test fun aFolderMovedIntoANewShowIsLookedUpAgain() {
+        // A show's folder kept inside another folder of My Drive, then that folder moved into a new show's folder.
+        val drive = MovingDrive(
+            mutableMapOf("s1" to FolderFacts("Season 1", "box"), "box" to FolderFacts("Box", "root"), "root" to FolderFacts("My Drive", null)),
+        )
+        val walks = FolderWalks()
+        val ep = video("b1", "Show S01E01.mkv", "s1")
+        assertTrue(refresh(listOf(ep), setOf("show"), walks, drive).isEmpty())
+        drive.folders["box"] = FolderFacts("Box", "new-show")
+        drive.asked.clear()
+        // A new set of shows: every folder is looked up afresh, so the move is seen.
+        val after = refresh(listOf(ep), setOf("show", "new-show"), walks, drive)
+        assertEquals(listOf("b1"), after.getValue("new-show").map { it.id })
+        assertTrue("box" in drive.asked)
+    }
+
+    @Test fun offlineWhatTheWalkLearnedIsKept() {
+        val drive = MovingDrive(mutableMapOf("season2" to FolderFacts("Season 2", "show")))
+        val walks = FolderWalks()
+        var threw = false
+        try {
+            refresh(listOf(video("e1", "Show S02E01.mkv", "season2"), video("e2", "x.mkv", "unknown")), setOf("show"), walks, drive)
+        } catch (e: IOException) {
+            threw = true
+        }
+        assertTrue(threw)
+        assertTrue(walks.changed)
+        assertEquals(1, walks.size)
+        drive.asked.clear()
+        refresh(listOf(video("e1", "Show S02E01.mkv", "season2")), setOf("show"), walks, drive)
+        assertTrue(drive.asked.isEmpty())
+    }
 }
+

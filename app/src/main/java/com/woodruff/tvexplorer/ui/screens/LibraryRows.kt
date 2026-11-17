@@ -436,7 +436,8 @@ private suspend fun filmIn(context: Context, token: String?, folder: DriveFile):
  * null when there's none it may show (Drive-hosted art needs the token, which only Google gets).
  */
 private fun heroRequest(context: Context, f: DriveFile, token: String?): ImageRequest? {
-    val art = Library.info(f).backdrop ?: posterArt(f) ?: return null
+    // A Drive poster image comes at a tile's size: the banner asks for it at a wide picture's.
+    val art = Library.info(f).backdrop ?: posterArt(f)?.let(com.woodruff.tvexplorer.cloud.DriveApi::wide) ?: return null
     if (token == null && isGoogle(art)) return null
     return ImageRequest.Builder(context).data(art)
         .apply { if (isGoogle(art) && token != null) addHeader("Authorization", "Bearer $token") }

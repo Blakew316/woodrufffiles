@@ -8,6 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,6 +45,65 @@ class ListingCacheTest {
         val out = StringWriter()
         JsonWriter(out).use { ListingCache.writeListing(it, list, cutAt) }
         return JsonReader(StringReader(out.toString())).use(ListingCache::readListing)
+    }
+
+    @Test fun listingsAreKeptWithTheAppsFilesNotInItsCacheFolder() {
+        ListingCache.write(context, DrivePlace.Movies, files)
+        // Android empties the cache folder when storage runs low; it never empties this.
+        assertTrue(File(context.filesDir, "listings/named-Movies.json").exists())
+        assertFalse(File(context.cacheDir, "listings").exists())
+    }
+
+    @Test fun aCopyAnEarlierVersionKeptInTheCacheFolderMovesOnce() {
+        ListingCache.clear(context)
+        val old = File(context.cacheDir, "listings").apply { mkdirs() }
+        File(old, "named-TV_Shows.json").writeText(JSONArray().put(JSONObject().put("id", "s").put("n", "Show").put("m", DriveFile.FOLDER_MIME)).toString())
+        assertEquals(listOf("s"), ListingCache.read(context, DrivePlace.TvShows)!!.files.map { it.id })
+        assertFalse(old.exists())
+        assertTrue(File(context.filesDir, "listings/named-TV_Shows.json").exists())
+    }
+
+    @Test fun onlyTheFoldersListedMostRecentlyAreKept() {
+        val d = File(context.filesDir, "prune-test").apply { deleteRecursively(); mkdirs() }
+        val total = ListingCache.FOLDERS_KEPT + 5
+        for (i in 0 until total) File(d, "folder-f$i.json").apply { writeText("[]"); setLastModified(1_000_000_000_000L + i * 1000L) }
+        File(d, "named-Movies.json").apply { writeText("[]"); setLastModified(1L) }
+        ListingCache.pruneFolders(d)
+        val left = d.list()!!.toSet()
+        assertEquals(ListingCache.FOLDERS_KEPT + 1, left.size)
+        // The oldest folders went; the newest and the libraries' own stay.
+        assertFalse("folder-f0.json" in left)
+        assertTrue("folder-f${total - 1}.json" in left)
+        assertTrue("named-Movies.json" in left)
+        d.deleteRecursively()
+    }
+
+    @Test fun nothingSavedToTouchSaysSo() {
+        assertFalse(ListingCache.touch(context, DrivePlace.Folder("never", "Never")))
+        ListingCache.write(context, DrivePlace.Folder("once", "Once"), files)
+        assertTrue(ListingCache.touch(context, DrivePlace.Folder("once", "Once")))
+    }
+
+    @Test fun whatTheWalksLearnedIsSavedAndReadBack() = kotlinx.coroutines.runBlocking {
+        val now = 1_800_000_000_000L
+        val walks = FolderWalks()
+        walks.forShows(setOf("show"))
+        walks.facts("season2", now) { FolderFacts("Season 2", "show") }
+        walks.facts("phone", now - FolderWalks.KEEP_MS) { FolderFacts("Phone", null) } // a day old: not worth saving
+        ListingCache.writeWalks(context, walks, now)
+        val read = ListingCache.readWalks(context)!!
+        assertEquals(1, read.size)
+        var asked = 0
+        assertEquals(FolderFacts("Season 2", "show"), read.facts("season2", now + 60_000) { asked++; FolderFacts("?", null) })
+        assertEquals(0, asked)
+        // For the same shows it's kept; for another set, every folder is looked up afresh.
+        read.forShows(setOf("show"))
+        assertEquals(1, read.size)
+        read.forShows(setOf("show", "another"))
+        assertEquals(0, read.size)
+        // Signing out forgets it with the listings.
+        ListingCache.clear(context)
+        assertNull(ListingCache.readWalks(context))
     }
 
     @Test fun aListingReadsBackAsItWasSaved() {
@@ -95,7 +155,7 @@ class ListingCacheTest {
 
     @Test fun touchingAnUnchangedCopyMarksItListedNow() {
         ListingCache.write(context, DrivePlace.TvShows, files)
-        val dir = File(context.cacheDir, "listings")
+        val dir = File(context.filesDir, "listings")
         dir.listFiles()!!.forEach { it.setLastModified(1_000_000_000_000) }
         assertEquals(1_000_000_000_000, ListingCache.read(context, DrivePlace.TvShows)!!.listedAt)
         val before = System.currentTimeMillis()
@@ -121,7 +181,7 @@ class ListingCacheTest {
 
     @Test fun aDamagedCopyIsNoCopy() {
         ListingCache.write(context, DrivePlace.Movies, files)
-        File(context.cacheDir, "listings").listFiles()!!.single { it.name.endsWith(".json") }.writeText("[{\"id\": \"1\", \"n\": ")
+        File(context.filesDir, "listings").listFiles()!!.single { it.name.endsWith(".json") }.writeText("[{\"id\": \"1\", \"n\": ")
         assertNull(ListingCache.read(context, DrivePlace.Movies))
     }
 
@@ -182,7 +242,7 @@ class ListingCacheTest {
             .put(entry("e1", "Show.S01E01.mkv", "video/x-matroska"))
             .put(entry("e2", "Show.S01E01.en.srt", "text/plain"))
             .put(entry("e3", "Show.S01E02.mkv", "video/x-matroska"))
-        val dir = File(context.cacheDir, "listings").apply { mkdirs() }
+        val dir = File(context.filesDir, "listings").apply { mkdirs() }
         File(dir, "named-Movies.json").writeText(movies.toString())
         File(dir, "folder-s1.json").writeText(season.toString())
         // Home's rows, Recently added and search start from these at the first launch: no blank films among them.

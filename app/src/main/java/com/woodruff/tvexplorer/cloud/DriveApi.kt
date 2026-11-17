@@ -182,13 +182,16 @@ object DriveApi {
             val page = ArrayList<DriveFile>(files?.length() ?: 0)
             for (i in 0 until (files?.length() ?: 0)) {
                 val f = files!!.getJSONObject(i)
+                val id = f.getString("id")
+                val modified = times.parse(f.optString("modifiedTime"))
                 page += DriveFile(
-                    id = f.getString("id"),
+                    id = id,
                     name = f.optString("name"),
                     mimeType = f.optString("mimeType"),
                     size = f.optString("size").toLongOrNull() ?: 0L,
-                    modified = times.parse(f.optString("modifiedTime")),
-                    thumbnailLink = f.optString("thumbnailLink").ifEmpty { null },
+                    modified = modified,
+                    // Tagged with the file's version: its picture is kept by that, not by this short-lived link (DriveArt).
+                    thumbnailLink = f.optString("thumbnailLink").ifEmpty { null }?.let { DriveArt.tag(it, id, modified) },
                     created = times.parse(f.optString("createdTime")),
                 )
             }
@@ -248,60 +251,120 @@ object DriveApi {
         list(token, DrivePlace.Folder(parent, ""))
     }
 
-    private val POSTER_NAMES = setOf("poster", "folder", "cover")
-    /** Poster lookups at once: a big library's folders are found three times as fast, and Drive isn't flooded. */
+    /** A folder's poster image's names, the one preferred first: "poster.jpg" over "folder.jpg" over "cover.jpg". */
+    private val POSTER_NAMES = listOf("poster", "folder", "cover")
+    /** Poster lookups at once, for folders asked about 25 at a time: three times as fast, and Drive isn't flooded. */
     private const val POSTER_LANES = 3
+    private const val POSTER_CHUNK = 25
+    /** Pages of the one query for a library's posters, at most (1,000 pictures each): past that, the folders are asked about 25 at a time. */
+    private const val POSTER_PAGES = 10
+    private const val POSTER_QUERY = "mimeType contains 'image/' and trashed = false and (name contains 'poster' or name contains 'folder' or name contains 'cover')"
+    private const val POSTER_FIELDS = "id,name,parents,thumbnailLink,modifiedTime"
 
     /**
-     * Poster art, Plex/Kodi style: a folder's poster is a poster/folder/cover image inside it; a
-     * loose video's poster is an image with the same name next to it (Inception.mp4 + Inception.jpg).
-     * Those images are then hidden from the grid. Costs one extra request per 25 folders, three at a
-     * time (one after another, a library of 1,000 shows waited on 40 of them in a row).
+     * Poster art, Plex/Kodi style: a folder's poster is a poster/folder/cover image inside it; a loose video's poster
+     * is an image with the same name next to it (Inception.mp4 + Inception.jpg). Those images are then hidden from the
+     * grid. A library's folders are matched to one query for every such picture in the Drive, 1,000 a request
+     * (usually one to three requests, where asking about its folders 25 at a time was about 80 for 2,000 of them, on
+     * every listing); a few folders (a show's seasons) are asked about just them, one request per 25.
      */
     suspend fun withPosters(token: String, files: List<DriveFile>): List<DriveFile> = withContext(Dispatchers.IO) {
         val images = files.filter { it.kind == FileKind.IMAGE }
         val byStem = images.associateBy { it.name.substringBeforeLast('.').lowercase() }
         val used = HashSet<String>()
-        val folderPosters = java.util.concurrent.ConcurrentHashMap<String, String>()
-        val lanes = Semaphore(POSTER_LANES)
-        coroutineScope {
-            files.filter { it.isFolder }.chunked(25).map { chunk ->
-                async {
-                    lanes.withPermit {
-                        ensureActive()
-                        val parents = chunk.joinToString(" or ") { "'${it.id.replace("'", "\\'")}' in parents" }
-                        val q = "mimeType contains 'image/' and trashed = false and " +
-                            "(name contains 'poster' or name contains 'folder' or name contains 'cover') and ($parents)"
-                        val url = "$BASE?q=${enc(q)}&pageSize=200&fields=${enc("files(name,parents,thumbnailLink)")}" +
-                            "&includeItemsFromAllDrives=true&supportsAllDrives=true"
-                        val found = runCatching { JSONObject(get(token, url)).optJSONArray("files") }.getOrNull() ?: return@withPermit
-                        for (i in 0 until found.length()) {
-                            val f = found.getJSONObject(i)
-                            val stem = f.optString("name").substringBeforeLast('.').lowercase()
-                            val link = f.optString("thumbnailLink").ifEmpty { null } ?: continue
-                            if (stem !in POSTER_NAMES) continue
-                            val parentsArr = f.optJSONArray("parents") ?: continue
-                            for (j in 0 until parentsArr.length()) folderPosters.putIfAbsent(parentsArr.getString(j), big(link))
-                        }
-                    }
-                }
-            }.awaitAll()
+        val folders = files.filter { it.isFolder }
+        val wanted = folders.mapTo(HashSet()) { it.id }
+        val posters = HashMap<String, FolderPoster>()
+        val complete = postersByOneQuery(folders.size) && try {
+            allPosters(token, wanted, posters)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            true // no owner art this time (offline, Drive busy): asking about each folder would fail the same way
         }
+        // Few folders, or the one query cut short (a Drive with very many such pictures): the folders without one, 25 at a time.
+        if (!complete) chunkedPosters(token, folders.filter { it.id !in posters }, wanted, posters)
         // The subtitle files beside the videos ("Inception.en.srt"), for the player to attach as one
         // starts (SubtitleIndex). Learned in the background from the listing as it is.
         com.woodruff.tvexplorer.player.SubtitleIndex.learn(files)
-        files.mapNotNull { f ->
+        files.map { f ->
             when {
-                f.isFolder -> f.copy(posterUrl = folderPosters[f.id])
+                f.isFolder -> f.copy(posterUrl = posters[f.id]?.url)
                 f.kind == FileKind.VIDEO -> {
                     val img = byStem[f.name.substringBeforeLast('.').lowercase()]
                     if (img != null) used += img.id
                     // Only real artwork here; the tile falls back to the video frame, and TMDB fills the rest.
-                    f.copy(posterUrl = img?.thumbnailLink?.let(::big))
+                    f.copy(posterUrl = img?.thumbnailLink?.let(::poster))
                 }
                 else -> f
             }
         }.filter { it.id !in used && isTitle(it) }
+    }
+
+    /** Whether [folders] folders are matched to the one query for the Drive's posters, rather than asked about 25 at a time. Visible for tests. */
+    internal fun postersByOneQuery(folders: Int): Boolean = folders > POSTER_CHUNK * 2
+
+    /** A folder's poster image as found: its picture's address (tagged, at a tile's size) and its name's rank in [POSTER_NAMES]. */
+    internal class FolderPoster(val url: String, val rank: Int)
+
+    /**
+     * The poster images of [found] (Drive's answer: each file's id, name, parents, thumbnail link and modified time) put
+     * to the folders of [wanted] they're in, in [into] (folder id → its poster): "poster" before "folder" before
+     * "cover", whatever order Drive answers in. Visible for tests.
+     */
+    internal fun postersFrom(found: org.json.JSONArray, wanted: Set<String>, times: Rfc3339, into: MutableMap<String, FolderPoster>) {
+        for (i in 0 until found.length()) {
+            val f = found.optJSONObject(i) ?: continue
+            val rank = POSTER_NAMES.indexOf(f.optString("name").substringBeforeLast('.').lowercase())
+            if (rank < 0) continue
+            val link = f.optString("thumbnailLink").ifEmpty { null } ?: continue
+            val parents = f.optJSONArray("parents") ?: continue
+            val url = poster(DriveArt.tag(link, f.optString("id"), times.parse(f.optString("modifiedTime"))))
+            for (j in 0 until parents.length()) {
+                val folder = parents.optString(j)
+                if (folder !in wanted) continue
+                val had = into[folder]
+                if (had == null || rank < had.rank) into[folder] = FolderPoster(url, rank)
+            }
+        }
+    }
+
+    /**
+     * Every poster/folder/cover picture in the Drive put to the folders of [wanted] it's in ([postersFrom]),
+     * [POSTER_PAGES] pages at most. True when that was all of them; false when it was cut short there, or Drive said
+     * its answer may be incomplete. Throws when Drive can't be reached.
+     */
+    private suspend fun allPosters(token: String, wanted: Set<String>, into: MutableMap<String, FolderPoster>): Boolean {
+        val times = Rfc3339()
+        var next: String? = null
+        var pages = 0
+        do {
+            kotlin.coroutines.coroutineContext.ensureActive()
+            val url = "$BASE?q=${enc(POSTER_QUERY)}&pageSize=1000&fields=${enc("nextPageToken,incompleteSearch,files($POSTER_FIELDS)")}" +
+                "&corpora=allDrives&includeItemsFromAllDrives=true&supportsAllDrives=true" + (next?.let { "&pageToken=${enc(it)}" } ?: "")
+            val json = JSONObject(get(token, url))
+            postersFrom(json.optJSONArray("files") ?: org.json.JSONArray(), wanted, times, into)
+            if (json.optBoolean("incompleteSearch")) return false
+            next = json.optString("nextPageToken").ifEmpty { null }
+        } while (next != null && ++pages < POSTER_PAGES)
+        return next == null
+    }
+
+    /** [folders]' posters asked about 25 at a time, three requests at once ([postersFrom]); one that fails leaves its folders without. */
+    private suspend fun chunkedPosters(token: String, folders: List<DriveFile>, wanted: Set<String>, into: MutableMap<String, FolderPoster>) = coroutineScope {
+        val lanes = Semaphore(POSTER_LANES)
+        folders.chunked(POSTER_CHUNK).map { chunk ->
+            async {
+                lanes.withPermit {
+                    ensureActive()
+                    val parents = chunk.joinToString(" or ") { "'${it.id.replace("'", "\\'")}' in parents" }
+                    val url = "$BASE?q=${enc("$POSTER_QUERY and ($parents)")}&pageSize=200&fields=${enc("files($POSTER_FIELDS)")}" +
+                        "&includeItemsFromAllDrives=true&supportsAllDrives=true"
+                    val found = runCatching { JSONObject(get(token, url)).optJSONArray("files") }.getOrNull() ?: return@withPermit
+                    synchronized(into) { postersFrom(found, wanted, Rfc3339(), into) }
+                }
+            }
+        }.awaitAll()
     }
 
     /**
@@ -313,8 +376,27 @@ object DriveApi {
     internal fun isTitle(f: DriveFile): Boolean =
         f.isFolder || ((f.kind == FileKind.VIDEO || f.kind == FileKind.AUDIO) && !FileTypes.isSidecar(f.name))
 
-    /** Drive thumbnails come at 220px ("=s220"); ask for a size that's sharp on a TV poster. */
-    fun big(link: String) = link.replace(THUMB_SIZE, "") + "=s720"
+    /**
+     * Drive thumbnails come at 220px ("=s220"); a video's frame is asked for at 720 px, sharp on a TV: a wide frame
+     * cropped to fill a tall poster tile needs its height (480 px), so its width is near 850. Its version tag stays on
+     * the end ([DriveArt]).
+     */
+    fun big(link: String) = sized(link, 720)
+
+    /** A poster image, which is tall, for a tile: 480 px high is the tile's own size (320 × 480 on a 1080p TV). */
+    fun poster(link: String) = sized(link, 480)
+
+    /** A video's frame for an episode's card, which is 400 × 225. */
+    fun card(link: String) = sized(link, 400)
+
+    /**
+     * Drive's own art for a wide picture (a banner, a title page's background) at 720 px, whatever size its link asks
+     * (a poster image's is a tile's); TMDB's as it is.
+     */
+    fun wide(url: String) = if (isGoogleUrl(url)) sized(url, 720) else url
+
+    /** [link] asking for a thumbnail [px] on its longest side, its version tag kept on the end. */
+    private fun sized(link: String, px: Int) = DriveArt.link(link).replace(THUMB_SIZE, "") + "=s$px" + DriveArt.tagOf(link)
 
     // Compiled once: posters and episode cards ask for every tile they compose.
     private val THUMB_SIZE = Regex("=s\\d+(-c)?$")
