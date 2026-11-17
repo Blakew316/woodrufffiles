@@ -296,6 +296,10 @@ class TransferService : Service() {
             runCatching { com.woodruff.tvexplorer.notify.Board.sync(app) }
             // A linked TV whose sign-in Google ended: this TV's phones are told, once.
             runCatching { com.woodruff.tvexplorer.tvs.SignInAlerts.sync(app) }
+            // Continue Watching with the family's other TVs, iPhones, Macs and Apple TVs, whether or not a screen of
+            // Woodruff's is open (it was pulled only as Home, a title or the phone's Watch opened, and a push that
+            // failed, the TV going to sleep as a film stopped, waited for that): a pull also sends what's unsent.
+            runCatching { com.woodruff.tvexplorer.cloud.FamilySync.pullInBackground(app) }
             delay(MAIL_INTERVAL_MS)
         }
     }

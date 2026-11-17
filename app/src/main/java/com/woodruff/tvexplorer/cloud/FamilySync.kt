@@ -44,6 +44,8 @@ object FamilySync {
     private const val UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
     /** Each TV's file is "woodruff-<its id>.json". */
     private const val PREFIX = "woodruff-"
+    /** Pages of the app folder read at most (a hundred files each). */
+    private const val MAX_PAGES = 10
     private const val JSON = "application/json; charset=UTF-8"
     // Stored here: this TV's own file, and the others' as last merged (id to modifiedTime).
     private const val K_FILE = "file"
@@ -161,12 +163,21 @@ object FamilySync {
      * or one failed a moment ago and the network hasn't just come back) or the TV has no network;
      * joins the one under way. Its answer: true once the other TVs' progress is merged.
      */
-    private fun pull(app: Context, maxAgeMs: Long, afterComeback: Boolean = false): Deferred<Boolean>? {
-        watchNetwork(app)
+    /**
+     * The same as [pullSoon], from the TV's background service every few minutes ([com.woodruff.tvexplorer.server.TransferService]),
+     * which waits for the network itself: without the network watcher the screens' pulls start, which would outlive it.
+     */
+    fun pullInBackground(c: Context) {
+        pull(c.applicationContext, PULL_EVERY_MS, watch = false)
+    }
+
+    private fun pull(app: Context, maxAgeMs: Long, afterComeback: Boolean = false, watch: Boolean = true): Deferred<Boolean>? {
+        if (watch) watchNetwork(app)
         synchronized(this) {
             pulling?.takeIf { it.isActive }?.let { return it }
             val now = System.currentTimeMillis()
-            if (!clock.due(now, maxAgeMs, afterComeback) || !NetworkWatch.online.value) return null
+            // (From the service, which has just waited for the network, the watcher may not be running to say.)
+            if (!clock.due(now, maxAgeMs, afterComeback) || (watch && !NetworkWatch.online.value)) return null
             clock.started(now)
             val merged = CompletableDeferred<Boolean>()
             pulling = merged
@@ -291,8 +302,10 @@ object FamilySync {
             var mine = prefs(app).getString(K_FILE, null)
             if (pull) {
                 val files = list(token, quick)
-                // The listing knows best: null means this TV's file isn't there (yet, or any more).
-                mine = files.filter { it.name == name }.maxByOrNull { it.modified }?.id
+                // This TV's own file as listed (the newest, should there be more than one), else the one it remembers:
+                // a file that's gone answers 404 to the next write, which makes it again. (Taken as gone whenever the
+                // listing didn't show it, a new copy was made at each pull.)
+                mine = files.filter { it.name == name }.maxByOrNull { it.modified }?.id ?: mine
                 val seen = readSeen(app)
                 val listed = HashMap<String, String>()
                 val fresh = ArrayList<SyncData>()
@@ -416,13 +429,30 @@ object FamilySync {
 
     private class Remote(val id: String, val name: String, val modified: String)
 
+    /**
+     * Every device's file in the app folder: only the family's progress files (the Apple apps keep their film copies
+     * there too), newest first, page after page. Only the first hundred, in no set order, were read: a device whose
+     * file wasn't among them was never heard from, and this TV, its own file not among them, made another copy of it
+     * at every pull.
+     */
     private fun list(token: String, quick: Boolean): List<Remote> {
-        val json = JSONObject(request(token, "GET", "$FILES?spaces=appDataFolder&pageSize=100&fields=${enc("files(id,name,modifiedTime)")}", quick))
-        val files = json.optJSONArray("files") ?: return emptyList()
-        return (0 until files.length()).mapNotNull { i ->
-            val f = files.optJSONObject(i) ?: return@mapNotNull null
-            Remote(f.optString("id"), f.optString("name"), f.optString("modifiedTime")).takeIf { it.id.isNotEmpty() }
+        val out = ArrayList<Remote>()
+        val q = enc("name contains 'woodruff' and trashed = false")
+        val fields = enc("nextPageToken,files(id,name,modifiedTime)")
+        var page: String? = null
+        for (i in 0 until MAX_PAGES) {
+            val more = page?.let { "&pageToken=${enc(it)}" }.orEmpty()
+            val json = JSONObject(request(token, "GET", "$FILES?spaces=appDataFolder&pageSize=100&orderBy=${enc("modifiedTime desc")}&q=$q&fields=$fields$more", quick))
+            val files = json.optJSONArray("files")
+            if (files != null) {
+                for (j in 0 until files.length()) {
+                    val f = files.optJSONObject(j) ?: continue
+                    Remote(f.optString("id"), f.optString("name"), f.optString("modifiedTime")).takeIf { it.id.isNotEmpty() }?.let(out::add)
+                }
+            }
+            page = json.optString("nextPageToken").ifEmpty { null } ?: break
         }
+        return out
     }
 
     /**
