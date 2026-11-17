@@ -10,6 +10,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.MainActivity
 import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.ui.SearchKey
+import com.woodruff.tvexplorer.ui.screens.DashboardSamples
 import com.woodruff.tvexplorer.util.EarlyCrashes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -55,6 +56,10 @@ class RecoverySearchKeyTest {
         RecoveryView.load = { it.run() }
         // Somewhere for Android to say whether Woodruff may use the TV's storage (it may not, here).
         org.robolectric.shadows.ShadowEnvironment.addExternalDir("storage")
+        // Once Woodruff opens, Home doesn't ask the other TVs or the cameras (see MainWindowReopenTest): that
+        // answer comes back to Compose's main-thread dispatcher after the window has gone.
+        DashboardSamples.tvs = emptyList()
+        DashboardSamples.cameras = emptyList()
         scope.launch(start = CoroutineStart.UNDISPATCHED) { SearchKey.presses.collect { searches++ } }
     }
 
@@ -70,6 +75,8 @@ class RecoverySearchKeyTest {
         RecoveryView.resetForTest()
         Updater.resetForTest()
         AppVisibility.foreground = false
+        DashboardSamples.tvs = null
+        DashboardSamples.cameras = null
     }
 
     private fun content(a: MainActivity): View = a.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
@@ -105,5 +112,8 @@ class RecoverySearchKeyTest {
         assertTrue(search(again))
         assertEquals(1, searches)
         controller.pause().stop().destroy()
+        // The app's window ends with a step queued on Compose's main-thread dispatcher: run it now (see
+        // MainWindowOpeningTest). Left queued, the test's end dropped it and that dispatcher never ran again.
+        shadowOf(Looper.getMainLooper()).idle()
     }
 }
