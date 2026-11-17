@@ -23,10 +23,15 @@ data class OpProgress(val label: String, val doneBytes: Long, val totalBytes: Lo
 object FileOperations {
     private const val BUFFER = 256 * 1024
 
+    /**
+     * Copies or moves [sources] into [destDir]. [onPlaced] hears of each one in place, from where to where (on the IO
+     * thread): moved, it's no longer where it was, unless removing it there failed part-way (said by the error after).
+     */
     suspend fun copy(
         sources: List<File>,
         destDir: File,
         move: Boolean,
+        onPlaced: (from: File, to: File) -> Unit = { _, _ -> },
         onProgress: (OpProgress) -> Unit,
     ) = withContext(Dispatchers.IO) {
         val label = if (move) "Moving" else "Copying"
@@ -37,8 +42,9 @@ object FileOperations {
         }
         // Same-volume moves are an instant rename; only fall back to copy+delete across volumes.
         val remaining = if (move) sources.filterNot { src ->
-            src.parentFile?.canonicalPath == destDir.canonicalPath ||
-                src.renameTo(uniqueTarget(destDir, src.name))
+            if (src.parentFile?.canonicalPath == destDir.canonicalPath) return@filterNot true
+            val dest = uniqueTarget(destDir, src.name)
+            src.renameTo(dest).also { if (it) onPlaced(src, dest) }
         } else sources
         if (remaining.isEmpty()) return@withContext
 
@@ -77,15 +83,23 @@ object FileOperations {
                 dest.deleteRecursively() // never leave a half-written copy behind
                 throw t
             }
-            if (move && !src.deleteRecursively()) throw IOException("Copied but couldn’t remove ${src.name}")
+            val removed = !move || src.deleteRecursively()
+            onPlaced(src, dest)
+            if (!removed) throw IOException("Copied but couldn’t remove ${src.name}")
         }
     }
 
-    suspend fun delete(targets: List<File>, onProgress: (OpProgress) -> Unit) = withContext(Dispatchers.IO) {
+    /**
+     * Deletes [targets]. [onGone] hears of each one tried (on the IO thread), even one only part of which went (a
+     * folder): what's no longer there is let go of.
+     */
+    suspend fun delete(targets: List<File>, onGone: (File) -> Unit = {}, onProgress: (OpProgress) -> Unit) = withContext(Dispatchers.IO) {
         targets.forEachIndexed { i, f ->
             ensureActive()
             onProgress(OpProgress("Deleting", i.toLong(), targets.size.toLong(), f.name))
-            if (!f.deleteRecursively()) throw IOException("Couldn’t delete ${f.name}")
+            val deleted = f.deleteRecursively()
+            onGone(f)
+            if (!deleted) throw IOException("Couldn’t delete ${f.name}")
         }
     }
 
@@ -184,6 +198,18 @@ object FileOperations {
         var i = 1
         while (f.exists()) f = File(dir, "$stem (${i++})$ext")
         return f
+    }
+
+    /**
+     * Where [path] is within [root]: "" for [root] itself, "/rest" for something inside it, null for anything else.
+     * Paths as they're given (canonical ones for files the TV is told of).
+     */
+    fun within(path: File, root: File): String? = within(path.path, root.path)
+
+    fun within(path: String, root: String): String? = when {
+        path == root -> ""
+        path.startsWith(root.trimEnd(File.separatorChar) + File.separator) -> path.substring(root.trimEnd(File.separatorChar).length)
+        else -> null
     }
 
     fun validateName(name: String) {

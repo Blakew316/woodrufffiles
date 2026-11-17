@@ -17,6 +17,7 @@ import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.data.StorageRepository
 import com.woodruff.tvexplorer.mail.MailPoller
 import com.woodruff.tvexplorer.nest.Doorbell
+import com.woodruff.tvexplorer.photos.FamilyMemories
 import com.woodruff.tvexplorer.settings.SecretStore
 import com.woodruff.tvexplorer.settings.SharedKeys
 import com.woodruff.tvexplorer.tvs.TvLinks
@@ -224,7 +225,8 @@ class TransferService : Service() {
         val routes = CompanionRoutes(app)
         for (port in portsToTry(lastPort ?: PhonePort.saved(app))) {
             val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public, homeName = { PhoneIcon.label(app) },
-                driveToken = { GoogleAuth.blockingToken(app) })
+                driveToken = { GoogleAuth.blockingToken(app) },
+                onDeleted = { FamilyMemories.moved(app, it, null) }, onReceived = { FamilyMemories.arrived(app, it) })
             try {
                 s.start(SOCKET_TIMEOUT_MS, true)
             } catch (e: IOException) {

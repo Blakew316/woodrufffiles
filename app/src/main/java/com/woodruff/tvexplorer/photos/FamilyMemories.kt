@@ -107,13 +107,65 @@ object FamilyMemories {
     }
 
     /** [file] was deleted from the phone: picks, dates, the TV's background and its Family Memories let go of it. */
-    fun deleted(c: Context, file: File) {
-        GooglePhotos.forget(file)
-        MediaDates.forget(c, file)
-        MediaDates.save(c)
-        if (Appearance.background == file.path) runCatching { Appearance.setBackground(c, null) }
-        Memories.changed()
-        _changes.update { it + 1 }
+    fun deleted(c: Context, file: File) = moved(c, listOf(file to null))
+
+    /** [from] was deleted ([to] null), or renamed or moved to [to]: see the other [moved]. */
+    fun moved(c: Context, from: File, to: File?) = moved(c, listOf(from to to))
+
+    /** [file] was put where it is, new there: see the other [arrived]. */
+    fun arrived(c: Context, file: File) = arrived(c, listOf(file))
+
+    /**
+     * Each of [changes] is a file or folder (anywhere on the TV) deleted (to null), or renamed or moved (from, to), in
+     * the order they happened: from the TV's own file browser, or from the phone (its Files, its Family Memories). As
+     * on the LG (memoryGone), what was kept about each, and about everything in it, goes with it: a Google Photos pick
+     * follows it while it stays in its folder and is forgotten otherwise, so a different file later given its old name
+     * is never taken for the pick (by a pick that replaces it, or Remove all); when it was taken goes with it; the TV's
+     * background follows it, or goes. Only for what's no longer where it was (part of a folder can stay). All saved
+     * once; never fails the change itself. IO thread.
+     */
+    fun moved(c: Context, changes: List<Pair<File, File?>>) {
+        if (changes.isEmpty()) return
+        runCatching {
+            GooglePhotos.moved(changes)
+            for ((from, to) in changes) MediaDates.moved(c, from, to)
+            MediaDates.save(c)
+            for ((from, to) in changes) {
+                val background = Appearance.background ?: break
+                val rest = listOf(from.absolutePath, from.canonicalPath).firstNotNullOfOrNull { FileOperations.within(background, it) } ?: continue
+                if (File(background).exists()) continue
+                val now = to?.let { File(it.absolutePath + rest) }?.takeIf { it.isFile && Appearance.isImage(it) }
+                Appearance.setBackground(c, now?.absolutePath)
+            }
+            Memories.changed()
+            val memories = folders()
+            if (changes.any { (from, to) -> inMemories(from, memories) || to != null && inMemories(to, memories) }) _changes.update { it + 1 }
+        }.onFailure { android.util.Log.w("FamilyMemories", "couldn't follow what changed", it) }
+    }
+
+    /**
+     * [files] (or folders) were put where they are on the TV, new there (copied, extracted, sent from the phone's Files):
+     * whatever had their names before (deleted since) leaves nothing behind, neither its date nor a pick's claim on the
+     * name, which would take the new file with it when a pick replaces it. IO thread.
+     */
+    fun arrived(c: Context, files: List<File>) {
+        if (files.isEmpty()) return
+        runCatching {
+            GooglePhotos.moved(emptyList(), arrived = files)
+            for (f in files) MediaDates.forgetAll(c, f)
+            MediaDates.save(c)
+            val memories = folders()
+            if (files.any { inMemories(it, memories) }) { Memories.changed(); _changes.update { it + 1 } }
+        }.onFailure { android.util.Log.w("FamilyMemories", "couldn't take in what arrived", it) }
+    }
+
+    /** Family Memories' two folders, canonical. */
+    private fun folders() = listOf(photos.canonicalFile, videos.canonicalFile)
+
+    /** Whether [f] is in Family Memories ([memories]: its [folders]), is one of its folders, or holds one. */
+    private fun inMemories(f: File, memories: List<File>): Boolean {
+        val path = f.canonicalFile
+        return memories.any { FileOperations.within(path, it) != null || FileOperations.within(it, path) != null }
     }
 
     /** The size photos are kept at: what the TV draws, as Google Photos picks are. */
