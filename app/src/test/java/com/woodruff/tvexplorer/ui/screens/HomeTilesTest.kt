@@ -5,9 +5,13 @@ import com.woodruff.tvexplorer.cloud.DrivePlace
 import com.woodruff.tvexplorer.player.RecentItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Home's camera tile that plays in "one at a time", and an up-next tile's caption. */
+/**
+ * Home's camera tile that plays in "one at a time", an up-next tile's caption, and Continue watching's tiles: one per
+ * show whichever episode it stands for, and the focus handed on when one goes.
+ */
 class HomeTilesTest {
     private val tiles = listOf("door", "yard", "garage", "drive")
 
@@ -44,5 +48,33 @@ class HomeTilesTest {
         assertEquals("Next · S2 E5", upNextCaption("The Office S02E05.mkv"))
         assertEquals("Next · S1 E10", upNextCaption("Backyard Science 1x10"))
         assertEquals("Up next", upNextCaption("Pilot"))
+    }
+
+    @Test fun aTileThatGoesHandsTheFocusToTheNearestThatStays() {
+        val keys = listOf("a", "b", "c", "d")
+        // Its right-hand neighbour, else its left.
+        assertEquals("c", nearestThatStays(keys, "b") { it != "b" })
+        assertEquals("c", nearestThatStays(keys, "d") { it != "d" })
+        // Past the ones going with it: right first, then left.
+        assertEquals("d", nearestThatStays(keys, "b") { it == "a" || it == "d" })
+        assertEquals("a", nearestThatStays(keys, "c") { it == "a" })
+        // Nothing stays: none (the panel's first button, or the row's new first tile).
+        assertNull(nearestThatStays(keys, "b") { false })
+    }
+
+    @Test fun aShowsTileIsTheSameTileWhicheverEpisodeItStandsFor() {
+        val film = RecentItem("drive:film", "Orbit (2021).mp4", 600_000, 6_000_000, 1)
+        val e3 = RecentItem("drive:e3", "Backyard Science (2019) - S01E03.mkv", 600_000, 1_200_000, 2)
+        val before = tileKeys(listOf(e3, film), listOf(e3, film))
+        // S1 E3 watched to the end here and the player rolled on into S1 E4 (up next), the finished one still saved.
+        val e4 = RecentItem("drive:e4", "Backyard Science S01E04 The Lava", 0, 0, 3, upNext = true)
+        val done = e3.copy(positionMs = 1_200_000)
+        val after = tileKeys(listOf(e4, film), listOf(e4, done, film))
+        assertEquals(before["drive:e3"], after["drive:e4"])
+        assertEquals(before["drive:film"], after["drive:film"])
+        assertTrue(after["drive:e4"] != after["drive:film"])
+        // Two of one show read together (a save between two reads): never the same key twice.
+        val both = tileKeys(listOf(e4, e3), listOf(e4, e3))
+        assertEquals(2, both.values.toSet().size)
     }
 }

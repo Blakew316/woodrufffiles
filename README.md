@@ -334,7 +334,10 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   ✓s and each show's Skip intro and languages, through one small hidden file per TV in Drive (Settings → Accounts →
   *Share progress with other TVs*, on by default; it needs the `drive.appdata` permission, see the Drive setup below).
   Moving to another TV, Resume starts where you stopped: Home, Movies, TV Shows and a title's page fetch the other TVs'
-  progress as they open, and again when the network comes back. Starting something waits at most half a second for
+  progress as they open, every couple of minutes while Home, Movies or TV Shows stay on screen, and again when the
+  network comes back. Continue watching there shows what was just played as soon as the screen is back, and follows
+  what's watched elsewhere while it stays up: a show's tile keeps the focus as the show moves on to its next episode,
+  and a tile that leaves hands the focus to its neighbour first. Starting something waits at most half a second for
   it, and a show another TV went on with plays its next episode.
   Videos from the TV's own storage show a still from the video, made once and kept on the TV.
 - **iCloud**: iCloud Mail works through Mail (Apple supports IMAP with an app-specific password).

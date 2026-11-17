@@ -82,6 +82,7 @@ import com.woodruff.tvexplorer.notify.AppVisibility
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -124,7 +125,10 @@ internal fun LibraryRows(
      * each tile as it composes, so a ✓ changing redraws the tiles (see DriveScreen), not the rows.
      */
     seen: (DriveFile) -> Boolean = { false },
-    /** Changes when ✓s or progress may have changed while here (marked from a menu, or another TV's). */
+    /**
+     * Changes when ✓s or progress may have changed while here (marked from a menu, another TV's, or Continue
+     * watching changing on this TV): the bars and ✓s are read again, and Continue watching's row follows.
+     */
     marks: State<Int>,
     /** A title taking (true) or losing the focus, banner included: a folder's listing is fetched ahead. */
     onRest: (DriveFile, Boolean) -> Unit = { _, _ -> },
@@ -142,28 +146,32 @@ internal fun LibraryRows(
     // The last key press as it opens: one after it is someone putting the focus where they want it
     // themselves, and the rows arriving after that don't take it from them.
     val keyAtOpen = remember { AppVisibility.lastInput }
-    // What's being watched, as of opening — in progress or up next, one per show: the rows keep
-    // their titles while you're here, so a film finished meanwhile doesn't pull its tile (and the
-    // focus) out from under you...
-    val recentAtOpen = remember { RecentStore(context).continueWatching() }
-    // ...while the progress bars refresh on coming back from the player and when ✓s change. Read by
-    // the tiles alone: a change redraws them, not the rows.
+    // Every change to Continue watching on this TV since the app started: the rows worked out last time are
+    // shown again at once only when nothing's changed since.
+    val changes = remember(context) { RecentChanges.of(context) }
+    // The progress bars refresh on coming back from the player and when ✓s or Continue watching change.
+    // Read by the tiles alone: a change redraws them, not the rows.
     val progress = rememberProgress(marks)
     // The rows, what each Continue watching tile stands for, and the featured titles, worked out on a
-    // background thread (sorting a big library into rows held the main thread for frames on opening);
-    // again when the listing changes (TMDB's details arriving), the rows shown meanwhile staying put.
-    // Coming back to the same listing (from a show's folders, say), the rows worked out last time for
-    // it show at once, with nothing worked out again.
-    val page by produceState(remember { lastOverview[placeKey]?.takeIf { it.isFor(files, recentAtOpen, newShows) }?.page }, files, newShows) {
-        if (value != null && lastOverview[placeKey]?.isFor(files, recentAtOpen, newShows) == true) return@produceState
+    // background thread (sorting a big library into rows held the main thread for frames on opening),
+    // what's being watched read there too; again when the listing changes (TMDB's details arriving), the
+    // rows shown meanwhile staying put. Coming back to the same listing (from a show's folders, say) with
+    // nothing watched since, the rows worked out last time for it show at once, with nothing worked out again.
+    val page by produceState(remember { lastOverview[placeKey]?.takeIf { it.isFor(files, changes.value, newShows) }?.page }, files, newShows) {
+        if (value != null && lastOverview[placeKey]?.isFor(files, changes.value, newShows) == true) return@produceState
         val day = Library.today()
         value = withContext(Dispatchers.Default) {
+            // Counted before it's read: a change while it's read makes the next visit work it out again.
+            val seen = changes.value
+            // In progress or up next, one per show. Rows below Continue watching keep their titles as worked out
+            // here while you're on them; Continue watching itself follows what's being watched (below).
+            val recent = RecentStore(context).continueWatching()
             // An episode whose name doesn't say its show ("S01E013_Pilot"): the show it's known to sit
             // under. Names are matched by keys worked out ahead, off the main thread (matchKeyOf).
             EpisodeShows.load(context)
             val shows = EpisodeShows.map.value
-            overviewPage(files, recentAtOpen, shows, ::matchKeyOf, day) { NewEpisodes.addedAt(it, newShows) }
-                .also { lastOverview[placeKey] = WorkedOut(files, recentAtOpen, shows, day, newShows, it) }
+            overviewPage(files, recent, shows, ::matchKeyOf, day) { NewEpisodes.addedAt(it, newShows) }
+                .also { lastOverview[placeKey] = WorkedOut(files, seen, shows, day, newShows, it) }
         }
     }
     // Shown once both are in, a frame or two after opening, so the tiles come with their bars. The
@@ -171,33 +179,85 @@ internal fun LibraryRows(
     val progressRead by remember { derivedStateOf { progress.value != null } }
     val shown = page
     if (shown == null || !progressRead) return
-    val rows = shown.rows
-    val playing = shown.playing
+    // Continue watching as it is now (null: as the page has it), read again whenever ✓s or progress change
+    // ([marks]: a ✓ marked, another TV's progress merged in, the player saving where it stopped, the phone's
+    // Watch tab): which titles are in it, newest first, and what each tile stands for (a show's episode in
+    // progress or up next now: the one rolled on into, or gone on with on another TV).
+    var watching by remember { mutableStateOf<ContinueRow?>(null) }
+    val continuing = watching ?: ContinueRow(shown.rows.firstOrNull { it.first == CONTINUE_ROW }?.second.orEmpty(), shown.playing)
+    val rows = withContinuing(shown.rows, continuing.titles)
+    val playing = continuing.playing
     val featured = shown.featured
-    // Coming back (from a show's folders, say): the row and title you left from.
+    // Coming back (from a show's folders, say): the row and title you left from (by name and id: Continue
+    // watching can come or go above the other rows while you're here).
     val restore = remember { restoreAt(rows, rowsFocus[placeKey]) }
+    val restoreRow = remember { restore?.let { rows[it.first].first } }
+    val restoreId = remember { restore?.let { rows[it.first].second[it.second].id } }
     val heroFocus = remember { FocusRequester() }
     val firstTile = remember { FocusRequester() }
     val restoreTile = remember { FocusRequester() }
     val heroRows = if (featured.isNotEmpty()) 1 else 0
     val list = rememberLazyListState(initialFirstVisibleItemIndex = restore?.let { it.first + heroRows } ?: 0)
     val scope = rememberCoroutineScope()
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    // The Continue watching tile with the focus (its title's id), and each one's handle: a tile about to leave the
+    // row moves the focus to the nearest that stays first, on its right, else its left; the last one, to the row
+    // below (else the banner above). So a tile never goes from under the focus, leaving it on nothing.
+    val focusedTile = remember { arrayOfNulls<String>(1) }
+    val tileRequesters = remember { HashMap<String, FocusRequester>() }
+    val tileRequester = { id: String -> tileRequesters.getOrPut(id) { FocusRequester() } }
+    val moveOff = { ids: List<String>, focused: String, stays: (String) -> Boolean ->
+        val to = nearestThatStays(ids, focused, stays)
+        if (to == null) {
+            val moved = listOf(androidx.compose.ui.focus.FocusDirection.Down, androidx.compose.ui.focus.FocusDirection.Up)
+                .any { runCatching { focusManager.moveFocus(it) }.getOrDefault(false) }
+            if (!moved) heroFocus.tryFocus()
+        } else if (!tileRequester(to).tryFocus()) {
+            // Scrolled out of the row (not composed): the row's own move brings it in.
+            runCatching {
+                focusManager.moveFocus(if (ids.indexOf(to) > ids.indexOf(focused)) androidx.compose.ui.focus.FocusDirection.Right else androidx.compose.ui.focus.FocusDirection.Left)
+            }
+        }
+    }
+    val latestContinuing by rememberUpdatedState(continuing)
+    LaunchedEffect(files) {
+        androidx.compose.runtime.snapshotFlow { marks.value }.collectLatest {
+            // On the next frame: what's being written now is all in first (one write after the other), and nothing's
+            // read while the screen is off it (behind the player it's read as the screen comes back).
+            withFrameNanos {}
+            val next = withContext(Dispatchers.Default) {
+                EpisodeShows.load(context)
+                continueRow(files, RecentStore(context).continueWatching(), EpisodeShows.map.value)
+            }
+            // On the main thread, where the focus moves (whatever the read came back on).
+            withContext(Dispatchers.Main.immediate) {
+                val now = latestContinuing
+                if (next == now) return@withContext
+                val gone = removals?.gone.orEmpty()
+                val ids = now.titles.map { it.id }.filter { it !in gone }
+                val staying = next.titles.mapTo(HashSet()) { it.id }
+                val focused = focusedTile[0]
+                if (focused != null && focused in ids && focused !in staying) moveOff(ids, focused) { it in staying }
+                watching = next
+                // Taken off here and now left out of it: no longer hidden (watched again later, it comes back).
+                removals?.gone?.retainAll { it in staying }
+            }
+        }
+    }
     // A Continue watching tile taken off from its menu: the focus moves on to its neighbour (on the right, else
     // the left, else the row below or the banner above) before the tile glides out of the row.
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     if (removals != null) LaunchedEffect(removals) {
         androidx.compose.runtime.snapshotFlow { removals.pending.toList() }.collect { pending ->
             if (pending.isEmpty()) return@collect
             withFrameNanos {} // the menu's window gone, the focus back in this one
-            val focused = rowsFocus[placeKey]?.second
+            val focused = focusedTile[0]
             if (focused != null && focused in pending) {
-                val moved = listOf(
-                    androidx.compose.ui.focus.FocusDirection.Right, androidx.compose.ui.focus.FocusDirection.Left,
-                    androidx.compose.ui.focus.FocusDirection.Down, androidx.compose.ui.focus.FocusDirection.Up,
-                ).any { runCatching { focusManager.moveFocus(it) }.getOrDefault(false) }
-                if (!moved) runCatching { heroFocus.requestFocus() }
+                moveOff(latestContinuing.titles.map { it.id }.filter { it !in removals.gone }, focused) { it !in pending }
             }
             removals.done(pending)
+            // Already left out of Continue watching as read: nothing left to hide.
+            val listed = latestContinuing.titles.mapTo(HashSet()) { it.id }
+            removals.gone.retainAll { it in listed }
         }
     }
     // A featured folder being looked in for its film: OK pressed again meanwhile doesn't play it twice.
@@ -252,7 +312,7 @@ internal fun LibraryRows(
                 }
             }
             rows.forEachIndexed { r, (title, all) ->
-                // Continue watching less the tiles taken off while here (it otherwise keeps its tiles as of opening).
+                // Continue watching less the tiles taken off while here and not yet left out of it as read.
                 val items = if (removals == null || title != CONTINUE_ROW) all else all.filter { it.id !in removals.gone }
                 if (items.isEmpty()) return@forEachIndexed
                 item(key = "row:$title", contentType = "row") {
@@ -260,7 +320,7 @@ internal fun LibraryRows(
                     // in a row: the title left from shows first, where the focus rests in a row (below),
                     // so it takes the focus without the row moving at all.
                     val rowState = rowStates.getOrPut(title) {
-                        posterRowState(firstVisibleItemIndex = if (restore != null && restore.first == r) restore.second else 0)
+                        posterRowState(firstVisibleItemIndex = if (restore != null && title == restoreRow) restore.second else 0)
                     }
                     // The focused poster rests at the row's leading edge, in line with its title and the
                     // first poster, as in the Apple TV app: each step along glides the whole row instead
@@ -275,12 +335,14 @@ internal fun LibraryRows(
                             ) {
                                 itemsIndexed(items, key = { _, f -> f.id }) { c, f ->
                                     val key = MediaRef.Drive(f.id).key
-                                    // In Continue watching: what the tile stands for — its progress, or what's next.
-                                    val now = playing[f.id]
+                                    val continuingTile = title == CONTINUE_ROW
+                                    // In Continue watching: what the tile stands for — its progress, or what's next. (A
+                                    // title started since the rows were worked out is in another row too: plain there.)
+                                    val now = if (continuingTile) playing[f.id] else null
                                     // Elsewhere, a show with new episodes says what's new ("New · S3 E2"), in blue.
                                     val news = if (now == null) newShows[f.id]?.takeIf { it.announced }?.caption else null
                                     val requester = when {
-                                        restore != null && restore.first == r && restore.second == c -> restoreTile
+                                        title == restoreRow && f.id == restoreId -> restoreTile
                                         r == 0 && c == 0 -> firstTile
                                         else -> null
                                     }
@@ -291,10 +353,14 @@ internal fun LibraryRows(
                                             .then(if (requester != null) Modifier.focusRequester(requester) else Modifier)
                                             // Each row's first poster: where Back along the row puts the focus.
                                             .then(if (c == 0) Modifier.focusRequester(rowsBack.start(title)) else Modifier)
+                                            .then(if (continuingTile) Modifier.focusRequester(tileRequester(f.id)) else Modifier)
                                             .onFocusChanged {
                                                 if (it.isFocused) {
                                                     rowsFocus[placeKey] = title to f.id
                                                     onFocusArt(posterArt(f))
+                                                }
+                                                if (continuingTile) {
+                                                    if (it.isFocused) focusedTile[0] = f.id else if (focusedTile[0] == f.id) focusedTile[0] = null
                                                 }
                                                 rowsBack.focused(title, it.isFocused)
                                                 onRest(f, it.isFocused)
@@ -377,12 +443,37 @@ internal fun bannerWholeOrGone(wanted: Float, fromBanner: Boolean, toRows: Float
 private val lastOverview = java.util.concurrent.ConcurrentHashMap<String, WorkedOut>()
 
 private class WorkedOut(
-    val files: List<DriveFile>, val recent: List<RecentItem>, val shows: Map<String, String>, val day: Long,
+    val files: List<DriveFile>,
+    /** [RecentChanges]' count when what's being watched was read for it. */
+    val changes: Int,
+    val shows: Map<String, String>, val day: Long,
     val news: Map<String, NewShow>, val page: OverviewPage,
 ) {
-    /** Whether it's what [overviewPage] would give now: the same listing, watching, new episodes and day. */
-    fun isFor(files: List<DriveFile>, recent: List<RecentItem>, news: Map<String, NewShow>): Boolean =
-        this.files === files && this.recent == recent && shows === EpisodeShows.map.value && this.news == news && day == Library.today()
+    /**
+     * Whether it's what [overviewPage] would give now: the same listing, new episodes and day, with nothing
+     * watched since ([changes]: Continue watching hasn't changed on this TV since it was read).
+     */
+    fun isFor(files: List<DriveFile>, changes: Int, news: Map<String, NewShow>): Boolean =
+        this.files === files && this.changes == changes && shows === EpisodeShows.map.value && this.news == news && day == Library.today()
+}
+
+/** The Overview's Continue watching row: its [titles], newest first, and what each stands for, by title id ([playing]). */
+internal data class ContinueRow(val titles: List<DriveFile>, val playing: Map<String, RecentItem>)
+
+/** Continue watching's row in [files] for [recent] (newest first), found as [overviewPage] finds it ([shows]: media key to entry). */
+internal fun continueRow(files: List<DriveFile>, recent: List<RecentItem>, shows: Map<String, String>): ContinueRow {
+    val watching = Library.continuing(files, recent, shows, ::matchKeyOf).take(20)
+    return ContinueRow(watching.map { it.first }, watching.associate { (f, r) -> f.id to r })
+}
+
+/**
+ * The Overview's [rows] with Continue watching as [watching] has it now: in place of the one the rows were worked
+ * out with, at the top when there wasn't one, gone when nothing's in progress. The other rows keep their titles
+ * (a title just started elsewhere isn't taken out of them from under the focus).
+ */
+internal fun withContinuing(rows: List<Pair<String, List<DriveFile>>>, watching: List<DriveFile>): List<Pair<String, List<DriveFile>>> {
+    val rest = rows.filter { it.first != CONTINUE_ROW }
+    return if (watching.isEmpty()) rest else listOf(CONTINUE_ROW to watching) + rest
 }
 
 /** The Overview as it shows: its rows, what each Continue watching tile stands for, and the featured titles. */
@@ -598,13 +689,12 @@ private fun HeroButton(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 }
 
 /** The Overview's first row's name, which [RowRemovals] can take tiles off. */
-private const val CONTINUE_ROW = "Continue watching"
+internal const val CONTINUE_ROW = "Continue watching"
 
 /**
- * Continue watching tiles taken off from their menu while the Overview is up: the row otherwise keeps its
- * tiles as of opening (so a film finished meanwhile doesn't pull the focus away), but a tile removed on
- * purpose glides out at once, the focus moving to its neighbour first (title-access §4.2). One per library
- * visit, made by the screen.
+ * Continue watching tiles taken off from their menu while the Overview is up: a tile removed on purpose glides
+ * out at once, before it's written, the focus moving to its neighbour first (title-access §4.2), and stays
+ * hidden until Continue watching is read again without it. One per library visit, made by the screen.
  */
 @androidx.compose.runtime.Stable
 internal class RowRemovals {

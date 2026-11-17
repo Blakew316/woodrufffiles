@@ -440,14 +440,18 @@ internal fun quickTitleMenu(target: MenuFor, news: NewShow?): TitleMenuModel {
  * memory (a film's own folder from disk too), the ✓s and the linked TVs. Never the network. Background thread.
  */
 internal fun readTitleFacts(c: Context, target: MenuFor, libraries: Map<DrivePlace, List<DriveFile>>, news: Map<String, NewShow>): TitleFacts {
-    val recent = RecentStore(c).all()
+    val store = RecentStore(c)
+    val recent = store.all()
     EpisodeShows.load(c)
     val shows = EpisodeShows.map.value
     TvLinks.load(c)
+    // A Continue watching tile as its show is now, not as it was drawn: its rows (Mark as watched above all) are for
+    // the episode it stands for now.
+    val now = withLatestTile(target, store.continueWatching())
     // A Home tile whose entry wasn't known: the library entry it's found under, as Continue watching finds it.
     val found = when {
-        target.file != null -> target.place to target.file
-        target.tile != null -> entryOf(target.tile, libraries, shows) ?: (null to null)
+        now.file != null -> now.place to now.file
+        now.tile != null -> entryOf(now.tile, libraries, shows) ?: (null to null)
         else -> null to null
     }
     val (place, entry) = found
@@ -455,10 +459,19 @@ internal fun readTitleFacts(c: Context, target: MenuFor, libraries: Map<DrivePla
         FolderCache.inMemory(e.id) ?: if (place != DrivePlace.TvShows) FolderCache.peek(c, e.id) else null
     }
     return TitleFacts(
-        target, entry, place, recent, shows, inside, FolderCache::inMemory, { Watched.isWatched(c, it) },
+        now, entry, place, recent, shows, inside, FolderCache::inMemory, { Watched.isWatched(c, it) },
         entry?.let { news[it.id] }, System.currentTimeMillis(), TvLinks.linked.value.isNotEmpty(),
     )
 }
+
+/**
+ * [target] with its Continue watching tile as the tile's show is now in [watching] (Continue watching as saved,
+ * the other TVs' merged in): the show may have moved on since the tile was drawn (an episode finished here and the
+ * player rolled on into the next, or another TV went on), and the menu's rows and words are for that episode.
+ * A tile whose show has left Continue watching stays as it was.
+ */
+internal fun withLatestTile(target: MenuFor, watching: List<RecentItem>): MenuFor =
+    target.tile?.let { tile -> latestOf(tile, watching).takeIf { it != tile }?.let { target.copy(tile = it) } } ?: target
 
 /** The library entry (and its library) a Continue watching [tile] stands for: an episode's show, a film. */
 internal fun entryOf(tile: RecentItem, libraries: Map<DrivePlace, List<DriveFile>>, shows: Map<String, String>): Pair<DrivePlace, DriveFile>? {
@@ -495,6 +508,9 @@ internal class TitleRun(
 ) {
     /** A show being resumed, waiting for the other TVs' latest: a second press meanwhile doesn't start it twice. */
     private var goingOn: Job? = null
+
+    /** A Watch together waiting for the other TVs' latest spot and for the linked TVs: a second press meanwhile doesn't start it twice. */
+    private var joining: Job? = null
 
     /** [target]'s menu, read off the main thread. */
     suspend fun build(target: MenuFor): TitleMenuModel = withContext(Dispatchers.IO) {
@@ -600,11 +616,17 @@ internal class TitleRun(
         context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(title), key, positionMs))
     }
 
-    /** The same video on every linked TV and this one, from the same spot; this TV leads (pause and seek keep them in step). */
+    /**
+     * The same video on every linked TV and this one, from the same spot; this TV leads (pause and seek keep them in
+     * step). Not started if Woodruff left the screen meanwhile (Home on the remote while a linked TV that's off was
+     * being asked): nothing opens over another app.
+     */
     fun together(a: TitleAction.Together) {
-        scope.launch {
+        if (joining?.isActive == true) return
+        joining = scope.launch {
             // From where anyone last stopped, as Play does.
             FamilySync.awaitFresh(context)
+            if (!context.inFront()) return@launch
             val (key, title, at) = withContext(Dispatchers.IO) {
                 val store = RecentStore(context)
                 when {
@@ -614,6 +636,8 @@ internal class TitleRun(
                 }
             }
             withContext(Dispatchers.IO) { TvLinks.forEachLinked(context) { TvLinks.watch(it, key, title, at) } }
+            // Each linked TV gets a few seconds to answer (one that's off, longer): left meanwhile, it doesn't open here.
+            if (!context.inFront()) return@launch
             beforePlay()
             context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(title), key, at, together = true))
         }

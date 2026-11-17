@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BrushPainter
@@ -468,16 +469,22 @@ internal fun TitlePage(
         isShow -> resumeEpisode != null || playsNew || firstEps != null || seasons?.isEmpty() == true
         else -> inside != null
     }
+    // The last key press as the page opens, and whether the focus is anywhere on the page: a key pressed since,
+    // with the focus put somewhere on the page (Down to More like this while the seasons load), is someone choosing
+    // where it goes, and the main button arriving after that doesn't take it back.
+    val keyAtOpen = remember { com.woodruff.tvexplorer.notify.AppVisibility.lastInput }
+    val onPage = remember { BooleanArray(1) }
     LaunchedEffect(ready) {
         if (focused || !ready) return@LaunchedEffect
         repeat(10) {
             withFrameNanos {}
+            if (onPage[0] && com.woodruff.tvexplorer.notify.AppVisibility.lastInput != keyAtOpen) { focused = true; return@LaunchedEffect }
             // tryFocus: a request with nothing attached yet no longer throws, it does nothing (and the
             // next frames would never have tried again).
             if (primary.tryFocus()) { focused = true; return@LaunchedEffect }
         }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(Color.Black).onFocusChanged { onPage[0] = it.hasFocus }) {
         val wide = info.backdrop ?: art
         val samplePainter = LocalPosterPainter.current
         if (wide != null && samplePainter != null) {
