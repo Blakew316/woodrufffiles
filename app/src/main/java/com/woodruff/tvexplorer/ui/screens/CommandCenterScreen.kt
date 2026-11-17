@@ -106,7 +106,7 @@ import com.woodruff.tvexplorer.ui.theme.Palette
 import com.woodruff.tvexplorer.ui.theme.Shapes
 import com.woodruff.tvexplorer.ui.theme.glassPanel
 import com.woodruff.tvexplorer.util.Format
-import com.woodruff.tvexplorer.util.Qr
+import com.woodruff.tvexplorer.util.rememberQrBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
@@ -308,9 +308,9 @@ private fun SignInPanel(state: NestState, ended: Boolean) {
     Row(Modifier.fillMaxSize().padding(vertical = 20.dp), horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(250.dp).clip(RoundedCornerShape(16.dp)).background(Color.White), contentAlignment = Alignment.Center) {
             val url = state.qrUrl
+            // Made off the main thread: made here, it held up a frame or more as the panel came up and at each New QR code.
             if (url != null) {
-                val qr = remember(url) { Qr.bitmap(url, 640).asImageBitmap() }
-                Image(qr, contentDescription = "QR code", modifier = Modifier.fillMaxSize())
+                rememberQrBitmap(url, 640)?.let { Image(it, contentDescription = "QR code", modifier = Modifier.fillMaxSize()) }
             } else Text("Preparing…", color = Color.Black)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
