@@ -64,6 +64,38 @@ class PhoneStreamDriveTest {
         assertEquals(8L * 1024 * 1024, drive.specs.single().length)
     }
 
+    @Test fun googlesRefusalsReachThePhoneAsTheyCame() {
+        // Its daily limit (403) and too many requests (429): the phone's player heard "the TV failed" (500),
+        // which it takes as worth asking again at once, and again, against the same limit.
+        for ((code, reason) in listOf(403 to "downloadQuotaExceeded", 429 to null, 403 to "userRateLimitExceeded")) {
+            val refusing = DataSource.Factory { Refusing(code, reason) }
+            val e = runCatching { PhoneStream.drive("abc123", "bytes=0-", { "token" }, refusing) }.exceptionOrNull()
+            assertEquals("$code $reason", code, (e as? PhoneStream.DriveRefused)?.status)
+        }
+        // Through the TV's server: the same answer.
+        val token = "k3y"
+        for ((code, status) in listOf(403 to Response.Status.FORBIDDEN, 429 to Response.Status.TOO_MANY_REQUESTS)) {
+            val server = TransferServer(0, token, "<html></html>", { emptyList() }, {}, extra = { throw PhoneStream.answered(code) })
+            assertEquals(status, server.serve(phoneRequest("/api/elsewhere", params = mapOf("k" to token))).status)
+        }
+        // Anything else is still the TV's own trouble, as before.
+        assertTrue(PhoneStream.answered(500) !is PhoneStream.DriveRefused)
+        assertTrue(PhoneStream.answered(404) !is PhoneStream.DriveRefused)
+        assertEquals("Past the end of the video", PhoneStream.answered(416).message)
+    }
+
+    /** Google Drive turning every request down with [code] and its [reason]. */
+    private class Refusing(private val code: Int, private val reason: String?) : DataSource {
+        override fun open(dataSpec: DataSpec): Long {
+            val body = reason?.let { """{"error":{"errors":[{"reason":"$it"}],"code":$code}}""".toByteArray() } ?: ByteArray(0)
+            throw androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException(code, null, null, emptyMap(), dataSpec, body)
+        }
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = C.RESULT_END_OF_INPUT
+        override fun getUri(): Uri? = null
+        override fun close() = Unit
+        override fun addTransferListener(transferListener: TransferListener) = Unit
+    }
+
     @Test fun theRangesTakenAreSingleOnes() {
         assertEquals(0L to null, PhoneStream.askedRange("bytes=0-"))
         assertEquals(5L to 9L, PhoneStream.askedRange("bytes=5-9"))

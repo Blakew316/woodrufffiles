@@ -130,13 +130,25 @@ class ScrubPreview(
 
     private fun frame(target: Pair<String, Long>): Bitmap? {
         val (key, ms) = target
-        // This file couldn't be opened for frames (some MKVs, or the network): don't keep trying for a while.
+        // This file couldn't be opened for frames (some MKVs, or the network), or gave none: don't keep trying for a while.
         if (failedKey == key && System.currentTimeMillis() - failedAt < RETRY_FAILED_MS) return null
         val r = retrieverFor(key) ?: return null
         // Opening the file took a while (its header and index come from Drive first). If the scrub
         // has moved on or ended meanwhile, this spot is no longer wanted: reading it now would only
         // compete with the seek the scrub just made.
         if (wanted != target) return null
+        val bmp = readFrame(r, ms)
+        if (bmp == null) {
+            // Android can't make frames of this film: every step of the scrub read it again and showed
+            // nothing. Not tried again for a while, as one that wouldn't open isn't.
+            failedKey = key
+            failedAt = System.currentTimeMillis()
+            closeRetriever()
+        }
+        return bmp
+    }
+
+    private fun readFrame(r: MediaMetadataRetriever, ms: Long): Bitmap? {
         return runCatching {
             if (Build.VERSION.SDK_INT >= 27) {
                 // Scaled down by the decoder, keeping the picture's shape.

@@ -161,6 +161,11 @@ class PlayerFeedbackGallery {
         loading.show(Buffering.look(waitingMs = null, stall = Stall.SIGNED_OUT, stalledMs = 40_000, reduced = false)!!)
         settle()
         save(root, "player-signed-out")
+
+        // Google refuses the TV's keys: the same, and where to fix them.
+        loading.show(Buffering.look(waitingMs = null, stall = Stall.KEYS_REFUSED, stalledMs = 40_000, reduced = false)!!)
+        settle()
+        save(root, "player-keys-refused")
     }
 
     private fun settle() {

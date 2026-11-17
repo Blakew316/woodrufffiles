@@ -122,6 +122,43 @@ class SidecarPlaybackTest {
         assertEquals("Señor", shown.firstOrNull())
     }
 
+    @Test fun offTurnsOffTheShowsLanguageChosenBefore() {
+        val dir = tmp.newFolder("Films")
+        val film = wav(File(dir, "Heat.wav"))
+        val srt = File(dir, "Heat.en.srt").apply { writeBytes("1\n00:00:00,100 --> 00:00:00,900\nHello\n\n".toByteArray()) }
+        // Each episode starts with the show's language preferred: English, chosen for the show before.
+        val p = prepared(film, listOf(Sidecar(Uri.fromFile(srt).toString(), "application/x-subrip", "en")), subtitles = "en")
+        assertTrue(SubtitleTracks.of(p.currentTracks).single().track.selected)
+
+        // Media3's own Off alone: English stays on, still ticked in the menu.
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT).setIgnoredTextSelectionFlags(C.SELECTION_FLAG_FORCED.inv()).build()
+        settle()
+        assertTrue(SubtitleTracks.of(p.currentTracks).single().track.selected)
+
+        // The menu's Off: none.
+        p.trackSelectionParameters = SubtitleTracks.off(p.trackSelectionParameters)
+        waitFor("subtitles off") { SubtitleTracks.of(p.currentTracks).none { it.track.selected } }
+        assertTrue(p.trackSelectionParameters.preferredTextLanguages.isEmpty())
+        assertEquals(0, p.trackSelectionParameters.preferredTextRoleFlags)
+    }
+
+    private fun settle() {
+        repeat(25) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(20))
+            Thread.sleep(5)
+        }
+    }
+
+    private fun waitFor(what: String, done: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (!done() && System.currentTimeMillis() < deadline) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(20))
+            Thread.sleep(5)
+        }
+        assertTrue("never $what", done())
+    }
+
     /** A pause between tries, given up when the loading thread is interrupted (the film's loads let go), as the player's own is. */
     private fun pauseFor(ms: Long): Boolean = try { Thread.sleep(ms); true } catch (e: InterruptedException) { Thread.currentThread().interrupt(); false }
 

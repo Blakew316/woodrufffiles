@@ -97,6 +97,26 @@ class RetryWaitTest {
         wait.stop()
     }
 
+    @Test fun googlesDailyLimitWaitsItsWholeWaitWhateverTheNetworkDoes() = runBlocking {
+        var tries = 0
+        val wait = RetryWait(this, comebacks, delayMs = 60_000) { tries++ }
+        wait.arm(wait = 400, followNetwork = false)
+        // A Wi-Fi blip: it used to try at once, and then wait the whole 5 minutes again.
+        comebacks.value++
+        delay(100)
+        assertEquals(0, tries)
+        comebacks.value++
+        delay(100)
+        assertEquals(0, tries)
+        delay(350)
+        assertEquals(1, tries)
+        // Any other stall still follows the network.
+        wait.arm(wait = 60_000)
+        comebacks.value++
+        delay(50)
+        assertEquals(2, tries)
+    }
+
     @Test fun stoppedItNeverTries() = runBlocking {
         var tries = 0
         val wait = RetryWait(this, comebacks, delayMs = 200) { tries++ }

@@ -64,6 +64,9 @@ class TransferServer(
     } catch (e: NoRoom) {
         // Said before a byte is written; the rest of the upload is never read, so the connection closes after this.
         newFixedLengthResponse(InsufficientStorage, MIME_PLAINTEXT, e.message).apply { closeConnection(true) }
+    } catch (e: PhoneStream.DriveRefused) {
+        // Google Drive's own refusal of a film played on the phone (its limits), passed on as it came.
+        text(if (e.status == 429) Response.Status.TOO_MANY_REQUESTS else Response.Status.FORBIDDEN, e.message ?: "Google Drive turned this down")
     } catch (e: SecurityException) {
         text(Response.Status.FORBIDDEN, e.message ?: "Forbidden")
     } catch (e: IOException) {

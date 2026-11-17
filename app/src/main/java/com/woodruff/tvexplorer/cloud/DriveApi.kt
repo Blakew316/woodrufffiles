@@ -415,36 +415,113 @@ object DriveApi {
         return null
     }
 
-    /** Copies a Drive file to [dest], deleting the partial file on failure or cancel. */
-    suspend fun download(token: String, file: DriveFile, dest: File, onProgress: (OpProgress) -> Unit) =
+    /**
+     * Copies a Drive file to [dest]. It's written as it comes to a partial file of its own beside
+     * [dest] ([partialFor]), named [dest] once it's all in. A download that fails (a Wi-Fi stall at
+     * 90 % of a 20 GB film, Google's daily limit) keeps what came, and the next one of the same file
+     * carries on from there (`Range: bytes=<what came>-`): it used to delete it all, and the next
+     * press downloaded the whole film again. Cancelled, what came is thrown away. A partial file only
+     * goes with the file it came from: the same Drive file at the same size (a file replaced in Drive
+     * with another of a different size starts afresh, and so does a Drive answer that ignores the
+     * range). [url] is the file's address (tests give their own).
+     */
+    suspend fun download(token: String, file: DriveFile, dest: File, url: String = mediaUrl(file.id), onProgress: (OpProgress) -> Unit) =
         withContext(Dispatchers.IO) {
-            val conn = open(token, mediaUrl(file.id))
+            val dir = dest.parentFile ?: File(".")
+            val part = partialFor(dir, file)
+            dropStalePartials(dir, System.currentTimeMillis(), keep = part)
             try {
-                check(conn)
-                val total = file.size.takeIf { it > 0 } ?: conn.contentLengthLong
-                var done = 0L
-                val buf = ByteArray(256 * 1024)
-                try {
-                    conn.inputStream.use { input ->
-                        FileOutputStream(dest).use { out ->
-                            while (true) {
-                                ensureActive()
-                                val n = input.read(buf)
-                                if (n < 0) break
-                                out.write(buf, 0, n)
-                                done += n
-                                onProgress(OpProgress("Downloading", done, total, file.name))
-                            }
-                        }
-                    }
-                } catch (t: Throwable) {
-                    dest.delete()
-                    throw t
+                // A partial file Drive no longer goes with (416: it's past the end of what's there now) is
+                // started afresh, once.
+                if (!downloadInto(token, file, part, url, onProgress)) {
+                    part.delete()
+                    downloadInto(token, file, part, url, onProgress)
                 }
-            } finally {
-                conn.disconnect()
+                if (!part.renameTo(dest)) throw IOException("Couldn’t save ${file.name}.")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                part.delete()
+                throw e
             }
         }
+
+    /**
+     * One request for [file] into [part], from where [part] got to (or from its start). False when
+     * Drive says the range is past its end (416), so what's kept doesn't go with the file now.
+     */
+    private fun kotlinx.coroutines.CoroutineScope.downloadInto(token: String, file: DriveFile, part: File, url: String, onProgress: (OpProgress) -> Unit): Boolean {
+        val have = part.length().takeIf { part.isFile } ?: 0L
+        if (file.size > 0 && have == file.size) return true // all in already (stopped just before it was named)
+        if (file.size > 0 && have > file.size) return false
+        val conn = open(token, url)
+        try {
+            if (have > 0) conn.setRequestProperty("Range", "bytes=$have-")
+            if (have > 0 && conn.responseCode == 416) return false
+            check(conn)
+            // Carried on only when Drive answers with the rest of the file from there, at the size kept;
+            // the whole file (Drive sent it all anyway) is written from its first byte; any other part
+            // of it starts afresh.
+            val from = if (have > 0) resumeFrom(conn.responseCode, conn.getHeaderField("Content-Range"), have, file.size) else 0L
+            if (from == 0L && conn.responseCode == 206) return false
+            val total = file.size.takeIf { it > 0 } ?: (from + conn.contentLengthLong.coerceAtLeast(0))
+            var done = from
+            val buf = ByteArray(256 * 1024)
+            conn.inputStream.use { input ->
+                FileOutputStream(part, from > 0).use { out ->
+                    onProgress(OpProgress("Downloading", done, total, file.name))
+                    while (true) {
+                        ensureActive()
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        done += n
+                        onProgress(OpProgress("Downloading", done, total, file.name))
+                    }
+                }
+            }
+            // A connection that ended early, cleanly: what came is kept, and the next download carries on.
+            if (file.size > 0 && done < file.size) throw IOException("The download stopped before the end of ${file.name}.")
+            return true
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /**
+     * Where a download of [file] into [dir] keeps what has come so far: hidden (a dot first, as the
+     * TV's Files hides them), named after the Drive file and its size, so only a download of the same
+     * file finds it. Visible for tests.
+     */
+    internal fun partialFor(dir: File, file: DriveFile): File = File(dir, ".${file.id.replace(UNSAFE_NAME, "_")}.${file.size}.part")
+
+    private val UNSAFE_NAME = Regex("[^A-Za-z0-9_-]")
+
+    /**
+     * Throws away what other downloads into [dir] kept ([partialFor]) and nobody carried on with in
+     * [STALE_PARTIAL_MS]: they're hidden, and a forgotten one could hold gigabytes of a small TV's
+     * storage. [keep]: this download's own. Visible for tests.
+     */
+    internal fun dropStalePartials(dir: File, now: Long, keep: File) {
+        dir.listFiles()?.forEach { f ->
+            if (f != keep && f.isFile && PARTIAL_NAME.matches(f.name) && now - f.lastModified() > STALE_PARTIAL_MS) f.delete()
+        }
+    }
+
+    private val PARTIAL_NAME = Regex("""\..+\.\d+\.part""")
+    internal const val STALE_PARTIAL_MS = 3 * 24 * 3_600_000L
+
+    /**
+     * Where a download carries on from, given Drive's answer ([code], its [contentRange]) to a request
+     * for the rest of a file from [have] bytes on: [have] when it's the rest of the file of [size]
+     * bytes ("bytes <have>-<last>/<size>"; any size when [size] isn't known), else 0 (the whole file,
+     * from its first byte). Visible for tests.
+     */
+    internal fun resumeFrom(code: Int, contentRange: String?, have: Long, size: Long): Long {
+        if (code != 206 || contentRange == null) return 0
+        val m = Regex("""bytes (\d+)-(\d+)/(\d+|\*)""").find(contentRange.trim()) ?: return 0
+        val start = m.groupValues[1].toLongOrNull() ?: return 0
+        val whole = m.groupValues[3].toLongOrNull()
+        return if (start == have && (size <= 0 || whole == null || whole == size)) have else 0
+    }
 
     private fun get(token: String, url: String): String {
         val conn = open(token, url)
@@ -481,6 +558,8 @@ object DriveApi {
      */
     internal fun answerWords(code: Int, reason: String?): String = when {
         code == 404 -> "That file is no longer in Google Drive."
+        // Its daily download limit: "try again in a moment" had the family download it again and again.
+        code == 403 && reason.equals("downloadQuotaExceeded", ignoreCase = true) -> DAILY_LIMIT
         code == 403 && reason != null && reason.contains("ratelimit", ignoreCase = true) -> CANT_REACH
         code == 403 && reason != null && (reason.equals("accessNotConfigured", ignoreCase = true) || reason.contains("disabled", ignoreCase = true)) ->
             "The Google Drive API isn’t turned on for this TV’s Google keys. Turn it on in Google Cloud, then try again."
@@ -491,6 +570,9 @@ object DriveApi {
 
     /** What any other answer from Drive says on screen. */
     internal const val CANT_REACH = "Can’t reach Google Drive right now. Try again in a moment."
+
+    /** Google's daily download limit for a file, as the player says it. */
+    internal const val DAILY_LIMIT = "Google Drive won’t send this file right now (its daily limit). It usually clears within a day."
 
     /**
      * Reads times as Drive sends them, RFC 3339 in UTC (2026-10-14T00:48:23.123Z); java.time needs

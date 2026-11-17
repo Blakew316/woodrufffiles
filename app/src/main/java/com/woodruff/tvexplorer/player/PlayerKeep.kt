@@ -112,4 +112,13 @@ internal object PlayerKeep {
      */
     fun touched(played: Boolean, start: Pair<String, Long>?, key: String, positionMs: Long): Boolean =
         played || start == null || start.first != key || kotlin.math.abs(positionMs - start.second) > MOVED_MS
+
+    /**
+     * Whether a [video] playing at [positionMs] of [durationMs] has a place worth saving as it plays (every
+     * 30 s, in case Woodruff closes by itself): past its first seconds (Continue watching's own 10 s) and
+     * before its credits (the last 5 %, or 5 s), where finishing it is for when it stops or moves on.
+     * Not songs, nor anything whose length isn't known yet.
+     */
+    fun worthSavingAsItPlays(video: Boolean, positionMs: Long, durationMs: Long): Boolean =
+        video && durationMs > 0 && positionMs > 10_000 && durationMs - positionMs >= 5_000 && positionMs < durationMs * 0.95
 }

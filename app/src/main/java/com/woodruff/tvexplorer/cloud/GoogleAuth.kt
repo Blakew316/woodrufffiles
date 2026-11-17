@@ -395,11 +395,15 @@ object GoogleAuth {
      * the player, the doorbell, a screen.
      */
     fun blockingTokenResult(c: Context, grant: Grant = Grant.DRIVE): TokenResult {
-        val store = Stored(s(c))
+        val secrets = s(c)
+        val store = Stored(secrets)
         val result = current(store, grant, System.currentTimeMillis())?.let { TokenResult.Ok(it) }
             ?: synchronized(lock(grant)) {
+                // Google turned this sign-in's renewal down a moment ago: the same answer, without asking again.
+                renewalPauses.answer(secrets, store.get(grant.refreshKey), grant, System.currentTimeMillis())?.let { return@synchronized it }
                 val endedBefore = store.get(grant.endedKey)
                 val renewed = refresh(store, grant, System.currentTimeMillis(), tokenEndpoint)
+                renewalPauses.note(secrets, store.get(grant.refreshKey), grant, System.currentTimeMillis(), renewed)
                 // This renewal is what found out Google ended it: tell the family, once.
                 if (renewed == TokenResult.SignedOut) {
                     store.get(grant.endedKey)?.takeIf { it != endedBefore }?.toLongOrNull()?.let { at ->
@@ -419,6 +423,48 @@ object GoogleAuth {
     /** Google's token endpoint ([post]); replaced in tests, which never reach Google. */
     @androidx.annotation.VisibleForTesting
     internal var tokenEndpoint: (List<Pair<String, String>>) -> JSONObject = ::post
+
+    /** Renewals Google turned down just now, given again for a while without asking it ([RenewalPauses]). */
+    private val renewalPauses = RenewalPauses()
+
+    /**
+     * A renewal Google answered without a token, busy or failing (5xx, 429), or refusing the keys:
+     * the same answer for [PAUSE_MS] to whatever asks next, without asking Google again. The player
+     * asks for a token on every request to Drive, and each one renewed again: with the keys refused,
+     * a film being tried again sent Google's sign-in server a request for each of Drive's, every 10 s
+     * for as long as it stayed open. Per sign-in (a new one, its refresh token new, asks at once) and
+     * per run of the app ([run]: the store this run reads, as the tests' runs make their own). Not a
+     * renewal that never got an answer (no network, the Keystore still waking): that's the TV's own,
+     * and asked again the moment it may work. Called under the grant's lock.
+     */
+    internal class RenewalPauses(private val pauseMs: Long = PAUSE_MS) {
+        private class Pause(val run: Any, val signIn: Int, val at: Long, val answer: TokenResult)
+
+        private val pauses = java.util.concurrent.ConcurrentHashMap<Grant, Pause>()
+
+        /** The answer kept for [grant]'s sign-in ([refresh] its refresh token), while its pause lasts; null: ask Google. */
+        fun answer(run: Any, refresh: String?, grant: Grant, now: Long): TokenResult? {
+            val p = pauses[grant] ?: return null
+            if (p.run !== run || p.signIn != refresh.hashCode() || (now - p.at) !in 0 until pauseMs) return null
+            return p.answer
+        }
+
+        /** What a renewal of [grant]'s sign-in came to: kept when Google turned it down ([pauses]), forgotten otherwise. */
+        fun note(run: Any, refresh: String?, grant: Grant, now: Long, answer: TokenResult) {
+            if (pauses(answer)) pauses[grant] = Pause(run, refresh.hashCode(), now, answer) else pauses.remove(grant)
+        }
+
+        /** Google answered, and not with a token: busy or failing, refusing for some other reason, or refusing the keys. */
+        private fun pauses(answer: TokenResult): Boolean = when (answer) {
+            is TokenResult.Rejected -> true
+            is TokenResult.Offline -> (answer.cause as? TokenError)?.kind.let { it == TokenError.Kind.UNAVAILABLE || it == TokenError.Kind.OTHER }
+            else -> false
+        }
+
+        companion object {
+            const val PAUSE_MS = 30_000L
+        }
+    }
 
     /** Whether [result] is offline only because the Keystore can't read the sign-in (or its keys) just now. Visible for tests. */
     internal fun keysUnreadable(result: TokenResult): Boolean = (result as? TokenResult.Offline)?.cause is KeysUnreadable

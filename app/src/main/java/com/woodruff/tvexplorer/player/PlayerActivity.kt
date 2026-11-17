@@ -73,15 +73,23 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private var stalledKey: String? = null
     private var stall: Stall? = null
     private var stalledSince: Long? = null
+    /** The tries of this stall that failed already: Google busy or refusing waits longer each time ([PlaybackErrors.retryWaitMs]). */
+    private var stallTries = 0
     /**
-     * The next try for a stalled film: in [RETRY_MS], or the moment the network is back. A try
-     * prepares the player again where it was (nothing happens if a try is already under way).
+     * The next try for a stalled film: after its wait ([PlaybackErrors.retryWaitMs]), or the moment the
+     * network is back. A try prepares the player again where it was (nothing happens if a try is already
+     * under way).
      */
     private val retry by lazy {
-        RetryWait(lifecycleScope, com.woodruff.tvexplorer.util.NetworkWatch.comebacks, RETRY_MS) {
-            if (stall != null && stall != Stall.SIGNED_OUT) player?.prepare()
+        RetryWait(lifecycleScope, com.woodruff.tvexplorer.util.NetworkWatch.comebacks, PlaybackErrors.RETRY_MS) {
+            if (stall?.stopped == false) player?.prepare()
         }
     }
+    /**
+     * Films Google Drive turned down for good one after another, with nothing loading between them
+     * ([cantPlay]): the second in a row isn't moved on from.
+     */
+    private var refusedInARow = 0
     /** The item playing a moment ago and where it was, saved when Next / Previous moves on from it. */
     private var lastSeen: RecentItem? = null
     /** The key whose OK / Back press was handled here: its release is ours too (PlayerView would pop the controls up). */
@@ -105,6 +113,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 p.currentMediaItem?.let { item ->
                     lastSeen = RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0)
                 }
+                if (p.isPlaying && ++playingSeconds >= SAVE_PLACE_S) { playingSeconds = 0; savePlace(p) }
             }
             updateScreenOn()
             if (leader && ++syncTicks % 10 == 0) sendSync()
@@ -140,6 +149,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // The film, under Woodruff's own tvOS-style controls (layout/tv_player_controls): what's
         // playing at the bottom left, round buttons at the bottom right, the scrub bar under them.
         view = layoutInflater.inflate(com.woodruff.tvexplorer.R.layout.tv_player_view, root, false) as PlayerView
+        // The controls come and go in one step. Media3's own fade hides them in two: everything here is
+        // in the part it fades first (the scrub bar too), and the controls only went 2 s after that. In
+        // those 2 s nothing was on screen but the player still had its controls up: a press brought them
+        // back with focus off the scrub bar (Left / Right walked the round buttons, OK opened Subtitles),
+        // the subtitles stayed raised over nothing, and Skip intro / Next episode flickered.
+        view.setControllerAnimationEnabled(false)
         timeBar = view.findViewById(androidx.media3.ui.R.id.exo_progress)
         titleView = view.findViewById(com.woodruff.tvexplorer.R.id.player_title)
         eyebrowView = view.findViewById(com.woodruff.tvexplorer.R.id.player_eyebrow)
@@ -279,6 +294,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         recent.remove(key)
         Watched.mark(this, key)
         upNextAfter(key)
+        // Its start kept on this TV makes room for those of films still being watched (FilmStarts).
+        FilmStarts.forgetSoon(key)
         // The family's other TVs hear at once (as the player closes, onStop sends it instead).
         if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) com.woodruff.tvexplorer.cloud.FamilySync.pushNow(this)
     }
@@ -428,6 +445,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private fun fromPhone(cmd: com.woodruff.tvexplorer.nowplaying.PlayerCommand) {
         val p = player ?: return
         if (!inFront || isFinishing) return
+        // Someone's there, with the phone.
+        usedAt = android.os.SystemClock.elapsedRealtime()
         val seekable = p.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
         when (val step = phoneStep(cmd, p.currentPosition, p.duration, seekable, p.hasNextMediaItem(), upNextPanel.shown)) {
             PhoneStep.Next -> {
@@ -509,11 +528,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     /**
      * The connection or Google failed on [key] (after the one immediate try with a current token):
-     * stay on it, say what's going on under the ring, and try again in [RETRY_MS], or the moment the
-     * network is back, whichever comes first ([retry]). Drive's refusal is checked against the
-     * sign-in: when Google has ended it, trying stops and the ring's card says how to sign in again.
+     * stay on it, say what's going on under the ring, and try again after a wait that suits why
+     * ([PlaybackErrors.retryWaitMs]: 10 s without a connection, longer each time Google is busy or
+     * limiting requests, 5 minutes for its daily limit), or the moment the network is back, whichever
+     * comes first ([retry]); the daily limit waits its whole 5 minutes. Drive's refusal is checked
+     * against the sign-in: when Google has ended it, or refuses the TV's keys, trying stops and the
+     * ring's card says what to do.
      */
     private fun stalled(p: ExoPlayer, key: String?, kind: Stall) {
+        // The same trouble on the same film again: the try after this one waits longer, where that helps.
+        stallTries = if (stalledKey != null && stalledKey == key && stall == kind) stallTries + 1 else 0
         if (stalledKey == null) stalledSince = android.os.SystemClock.elapsedRealtime()
         stalledKey = key
         stall = kind
@@ -521,25 +545,33 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // during the next try: they'd come and go every few seconds over "Reconnecting…". The ring
         // says what's happening; OK or Play/Pause still bring the controls up.
         view.controllerAutoShow = false
-        // Google's daily limit doesn't pass in seconds: asked again every few minutes, not every 10 s.
-        retry.arm(if (kind == Stall.LIMIT) LIMIT_RETRY_MS else RETRY_MS)
+        // Google's daily limit doesn't lift because the Wi-Fi came back after a blip.
+        retry.arm(PlaybackErrors.retryWaitMs(kind, stallTries), followNetwork = kind != Stall.LIMIT)
         if (kind == Stall.REFUSED) checkDriveSignIn(p)
         updateLoading()
     }
 
     /**
      * Google Drive turned the film down while this TV looked signed in: whether Google has ended the
-     * sign-in (read off the main thread: it's in the TV's secret store). If so, nothing from Drive
-     * will play until someone signs in again, so the player stops trying and says how.
+     * sign-in, or refuses the TV's keys (read off the main thread: they're in the TV's secret store).
+     * Either way nothing from Drive will play until someone acts, so the player stops trying and says
+     * what to do: trying again with keys Google refuses sent its sign-in server a request with each
+     * of Drive's, every few seconds, under "Google Drive turned this down. Trying again…".
      */
     private fun checkDriveSignIn(p: ExoPlayer) {
         val app = applicationContext
         lifecycleScope.launch {
-            val signedIn = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { GoogleAuth.isConnected(app) }.getOrDefault(true)
+            val stop = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    when {
+                        !GoogleAuth.isConnected(app) -> Stall.SIGNED_OUT
+                        GoogleAuth.keysRefused(app, GoogleAuth.Grant.DRIVE) -> Stall.KEYS_REFUSED
+                        else -> null
+                    }
+                }.getOrNull()
             }
-            if (signedIn || player !== p || stall != Stall.REFUSED) return@launch
-            stall = Stall.SIGNED_OUT
+            if (stop == null || player !== p || stall != Stall.REFUSED) return@launch
+            stall = stop
             stopTrying()
             updateLoading()
         }
@@ -552,12 +584,32 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     /** The film plays (or is loaded and ready) again: the stall is over. */
     private fun clearStall() {
+        stallTries = 0
         if (stalledKey == null && stall == null) return
         stalledKey = null
         stall = null
         stalledSince = null
         stopTrying()
         view.controllerAutoShow = true
+    }
+
+    /**
+     * [p]'s film can't play here ([error]; [http] the server's answer, if any): said in plain words, and
+     * on to the next one rather than sitting on a black screen. The whole cause goes to the log: the TV
+     * running out of memory partway through a big remux otherwise looks just like a bad file. [refused]:
+     * Google Drive turned it down for good ([PlaybackErrors.refusedForGood]); a second film in a row like
+     * that isn't moved on from, as it's most likely all of them then (the TV's keys, the family's Drive),
+     * and each would have cost two requests to Drive and a renewal, all the way down the queue.
+     */
+    private fun cantPlay(p: ExoPlayer, key: String?, error: PlaybackException, http: Int?, drive: Boolean, refused: Boolean = false) {
+        android.util.Log.w("Player", "Can't play $key: ${error.errorCodeName}", error)
+        clearStall()
+        waitClock.reset()
+        val why = PlaybackErrors.why(error.errorCode, http, drive, PlaybackErrors.outOfMemory(error))
+        say(PlaybackErrors.cantPlay(p.currentMediaItem?.mediaMetadata?.title?.toString(), why), NOTICE_MESSAGE_MS)
+        val moveOn = !refused || ++refusedInARow < MOVE_ON_REFUSALS
+        if (moveOn && p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
+        updateLoading()
     }
 
     /** Films started again from Drive alone after trouble with this TV's copy of their start (once each). */
@@ -628,6 +680,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     }
     private var sleepAtEnd = false
     private val sleep = Runnable { sleepNow() }
+    /**
+     * When "Sleep in N minutes" runs out (elapsedRealtime); null with no such timer. Kept while the
+     * player is covered or left (a look at the doorbell, Home and back): its timer went with it, without
+     * a word, and the TV played on all night ([resumeSleepTimer]).
+     */
+    private var sleepAt: Long? = null
 
     /** The current episode's show and its intro end, worked out when the episode starts (not every second). */
     private var showCache: Pair<String?, String> = null to ""
@@ -655,6 +713,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
     /** Stop for the night: pause, leave the player, and let the slideshow take over the screen. */
     private fun sleepNow() {
+        sleepAt = null
         player?.pause()
         runCatching { com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(this, asleep = true) }
         finish()
@@ -672,28 +731,49 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // Speed and the next episode don't touch the sleep timer.
         val first = listOfNotNull(
             TvMenu.Row("Speed: $speed") { showSpeed(at) },
-            if (p.hasNextMediaItem()) TvMenu.Row("Play next") { playNext() } else null,
+            if (p.hasNextMediaItem()) TvMenu.Row("Play next") { playNextFromMenu() } else null,
         )
-        val choices = listOfNotNull<Pair<String, () -> Unit>>(
+        val sleeps = listOf<Pair<String, () -> Unit>>(
             "Sleep in 30 minutes" to { sleepIn(30) },
             "Sleep in 60 minutes" to { sleepIn(60) },
             "Sleep in 90 minutes" to { sleepIn(90) },
             "Sleep at the end of this episode" to { sleepAtEnd = true; say("Sleeping after this episode") },
             "Sleep timer off" to { say("Sleep timer off") },
-            "Intro ends here (${com.woodruff.tvexplorer.util.Format.duration(here)}): use for this show" to {
+        )
+        // The intro's rows don't touch the sleep timer either: they used to stop it without a word.
+        val intros = listOfNotNull(
+            TvMenu.Row("Intro ends here (${com.woodruff.tvexplorer.util.Format.duration(here)}): use for this show") {
                 ShowPrefs.setIntroEnd(this, show(), here); introEnd = here; say("Skip intro will jump here")
             },
-            if (intro > 0) ("Forget this show’s intro" to { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 }) else null,
+            if (intro > 0) TvMenu.Row("Forget this show’s intro") { ShowPrefs.setIntroEnd(this, show(), 0); introEnd = 0 } else null,
         )
-        // Any choice starts the sleep timer afresh, as it always has.
-        menu.show("Options", first + choices.map { (label, action) ->
-            TvMenu.Row(label) { countdown.removeCallbacks(sleep); sleepAtEnd = false; action() }
-        }, at)
+        // A sleep choice starts the sleep timer afresh, as it always has.
+        menu.show("Options", first + sleeps.map { (label, action) ->
+            TvMenu.Row(label) { countdown.removeCallbacks(sleep); sleepAt = null; sleepAtEnd = false; action() }
+        } + intros, at)
     }
 
     private fun sleepIn(minutes: Long) {
+        sleepAt = android.os.SystemClock.elapsedRealtime() + minutes * 60_000L
         countdown.postDelayed(sleep, minutes * 60_000L)
         say("Sleeping in $minutes minutes")
+    }
+
+    /**
+     * Back on screen with "Sleep in N minutes" set ([sleepAt]): what's left of it. One that ran out
+     * while the player was covered (someone looking at the door) sleeps a minute after it's back,
+     * saying so, rather than at once or never.
+     */
+    private fun resumeSleepTimer() {
+        val at = sleepAt ?: return
+        countdown.removeCallbacks(sleep)
+        val left = at - android.os.SystemClock.elapsedRealtime()
+        if (left > SLEEP_GRACE_MS) countdown.postDelayed(sleep, left)
+        else {
+            sleepAt = android.os.SystemClock.elapsedRealtime() + SLEEP_GRACE_MS
+            countdown.postDelayed(sleep, SLEEP_GRACE_MS)
+            say("Sleeping in a minute")
+        }
     }
 
     /** The tracks of one type the player can play, each with whether it's the one playing. */
@@ -717,17 +797,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private fun showSubtitles(anchor: android.view.View) {
         val p = player ?: return
         // Still opening: its tracks aren't known yet, so "No subtitles" wouldn't be true (as with Audio).
-        if (p.currentTracks.isEmpty) return
+        // Said, rather than the button doing nothing (a film that can't play has said why already).
+        if (p.currentTracks.isEmpty) { if (p.playerError == null) say(STILL_OPENING); return }
         val choices = SubtitleTracks.of(p.currentTracks)
         if (choices.isEmpty()) { say(SubtitleTracks.NONE); return }
         val rows = SubtitleTracks.menuRows(
             choices.map { it.track }, java.util.Locale.getDefault(), SubtitleLook.size(this), tvCaptions,
             off = {
-                // Media3's own "Off": no subtitles, but signs-only ("forced") ones still show.
-                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                    .setIgnoredTextSelectionFlags(C.SELECTION_FLAG_FORCED.inv())
-                    .build()
+                // Media3's own "Off": no subtitles, but signs-only ("forced") ones still show; and not the
+                // show's language chosen before either, which Media3 would otherwise keep showing.
+                p.trackSelectionParameters = SubtitleTracks.off(p.trackSelectionParameters)
             },
             choose = { i -> choose(p, choices[i].group, choices[i].index) },
             openSize = { showSubtitleSize(anchor) },
@@ -909,8 +988,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
      */
     private fun showAudio(anchor: android.view.View) {
         val p = player ?: return
-        // Still opening: its tracks aren't known yet, so there's nothing true to say.
-        if (p.currentTracks.isEmpty) return
+        // Still opening: its tracks aren't known yet, so there's nothing true to say but that.
+        if (p.currentTracks.isEmpty) { if (p.playerError == null) say(STILL_OPENING); return }
         val sound = SoundTracks.of(p.currentTracks)
         if (sound.isEmpty()) { say(SoundTracks.NO_SOUND); return }
         val rows = SoundTracks.menuRows(
@@ -977,7 +1056,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             when (text) {
                 null -> setIgnoredTextSelectionFlags(0).setPreferredTextLanguage(null)
                 // Like the menu's own "Off": no subtitles, but signs-only ("forced") ones still show.
-                ShowPrefs.OFF -> setIgnoredTextSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_FORCED.inv()).setPreferredTextLanguage(null)
+                ShowPrefs.OFF -> setIgnoredTextSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_FORCED.inv()).setPreferredTextLanguage(null).setPreferredTextRoleFlags(0)
                 else -> setIgnoredTextSelectionFlags(0).setPreferredTextLanguage(text)
             }
         }.build())
@@ -1118,6 +1197,14 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         }
     }
 
+    /**
+     * When the remote or the phone was last used with this player (elapsedRealtime; its start counts):
+     * Up next asks "Still watching?" after [UpNext.STILL_WATCHING_MS] without ([UpNext.stillWatching]).
+     */
+    private var usedAt = 0L
+    /** "Still watching?" unanswered: the player leaves, as Done does. */
+    private val leaveUnanswered = Runnable { stopWatching() }
+
     private fun startUpNext() {
         val p = player ?: return
         secondsLeft = UP_NEXT_SECONDS
@@ -1129,21 +1216,72 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         view.hideController()
         view.useController = false
         val next = p.getMediaItemAt(p.nextMediaItemIndex)
-        upNextPanel.show(EpisodeLabel.of(next.mediaMetadata.title?.toString() ?: "Next"), UP_NEXT_SECONDS)
-        // A picture from the next episode, a little way in (past any black at its start).
-        preview?.let { pv ->
-            pv.cached(next.mediaId, UP_NEXT_ART_MS)?.let(upNextPanel::setArt)
-                ?: pv.request(next.mediaId, UP_NEXT_ART_MS) { if (upNextPanel.shown) upNextPanel.setArt(it) }
-        }
-        countdown.postDelayed(tick, 1_000)
+        // Nobody has touched the remote or the phone for an hour and a half: it asks rather than playing on
+        // all night, each episode fetched from Google Drive for nobody; unanswered, the player leaves.
+        val asking = UpNext.stillWatching(android.os.SystemClock.elapsedRealtime() - usedAt)
+        upNextPanel.show(EpisodeLabel.of(next.mediaMetadata.title?.toString() ?: "Next"), UP_NEXT_SECONDS, asking)
+        upNextKey = next.mediaId
+        showUpNextArt(next.mediaId)
+        if (asking) countdown.postDelayed(leaveUnanswered, UpNext.ASK_FOR_MS) else countdown.postDelayed(tick, 1_000)
         updateLoading() // the ring makes way too
         subtitlesMakeWay() // and the subtitles fade away
+    }
+
+    /** The episode Up next is up for; null while it isn't. */
+    private var upNextKey: String? = null
+
+    /** The pictures of the queue's Drive episodes, by key, from the listings the player has had ([UpNext.art]). */
+    private val episodeArt = HashMap<String, String>()
+
+    /** [files]' pictures, for Up next: from a listing the player has fetched anyway (main thread). */
+    private fun learnArt(files: List<com.woodruff.tvexplorer.cloud.DriveFile>) {
+        for (f in files) UpNext.art(f)?.let { episodeArt[MediaRef.Drive(f.id).key] = it }
+    }
+
+    /**
+     * Up next's picture of [key] ([UpNext.artFor]): a Drive episode's from its listing (TMDB's still,
+     * or Drive's own frame of it), as its show's page shows it, from the listings the player fetched
+     * or that are in memory; a file on this TV's, a frame from it a little way in (past any black at
+     * its start). A Drive episode's used to be a frame read from the episode itself by Android's frame
+     * reader: its header, its index and the frame from Drive, while the player loaded that same start,
+     * and all of it for one picture when Up next was left with Done. None to be had: its plain stand-in.
+     */
+    private fun showUpNextArt(key: String) {
+        val art = UpNext.artFor(key) { episodeArt[it] ?: com.woodruff.tvexplorer.cloud.FolderCache.fileInMemory(it.removePrefix("drive:"))?.let(UpNext::art) }
+        when (art) {
+            UpNextArt.Frame -> preview?.let { pv ->
+                pv.cached(key, UP_NEXT_ART_MS)?.let(upNextPanel::setArt)
+                    ?: pv.request(key, UP_NEXT_ART_MS) { if (upNextPanel.shown && upNextKey == key) upNextPanel.setArt(it) }
+            }
+            is UpNextArt.Picture -> {
+                val app = applicationContext
+                val d = resources.displayMetrics.density
+                lifecycleScope.launch {
+                    // Drive's own pictures need the TV's Google token (and only they ever get it); TMDB's don't.
+                    val google = com.woodruff.tvexplorer.cloud.isGoogleUrl(art.url)
+                    val token = if (google) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { tokenOrEmpty() } else ""
+                    if ((google && token.isEmpty()) || !upNextPanel.shown || upNextKey != key) return@launch
+                    coil.Coil.imageLoader(app).enqueue(
+                        coil.request.ImageRequest.Builder(app).data(art.url)
+                            .apply { if (google) addHeader("Authorization", "Bearer $token") }
+                            .size((UP_NEXT_ART_W * d).toInt(), (UP_NEXT_ART_H * d).toInt())
+                            .target(onSuccess = { picture -> if (upNextPanel.shown && upNextKey == key) upNextPanel.setPicture(picture) })
+                            .build(),
+                    )
+                }
+            }
+            UpNextArt.None -> Unit
+        }
     }
 
     /** [animate] false: gone at once (the player stopping). */
     private fun cancelUpNext(animate: Boolean = true) {
         countdown.removeCallbacks(tick)
+        countdown.removeCallbacks(leaveUnanswered)
+        upNextKey = null
         val wasUp = ::upNextPanel.isInitialized && upNextPanel.shown
+        // Its picture, if one was still being read from a file on the TV, isn't wanted any more.
+        if (wasUp) preview?.cancel()
         if (::upNextPanel.isInitialized) upNextPanel.hide(animate)
         view.useController = true
         if (wasUp) { updateLoading(); subtitlesMakeWay() }
@@ -1164,6 +1302,24 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.play() }
     }
 
+    /**
+     * "Play next" in the options: in the episode's last 5 % or 40 s, the player's own Next Episode
+     * (this one counts as watched); before that, the remote's Next key, which keeps where this one was
+     * (onMediaItemTransition, [keepPlace]). It counted as watched wherever it was chosen: at minute 5,
+     * a ✓ on every TV and gone from Continue watching. (The phone's Next is Next Episode, as the README
+     * says: [fromPhone].)
+     */
+    private fun playNextFromMenu() {
+        val p = player ?: return
+        if (UpNext.nextCountsAsWatched(p.currentPosition, p.duration)) { playNext(); return }
+        cancelUpNext()
+        // Where it is now, kept as the move to the next one happens (as the report keeps it each second).
+        p.currentMediaItem?.let { item ->
+            lastSeen = RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0)
+        }
+        if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.play() }
+    }
+
     // ---- Screen on -----------------------------------------------------------------------------
 
     private var screenOn: Boolean? = null
@@ -1177,7 +1333,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val p = player
         val now = android.os.SystemClock.elapsedRealtime()
         val together = leader || syncedAt?.let { now - it < 60_000 } == true
-        val stalledMs = stalledSince?.takeIf { stall != null && stall != Stall.SIGNED_OUT }?.let { now - it }
+        val stalledMs = stalledSince?.takeIf { stall?.stopped == false }?.let { now - it }
         val on = together || (p != null && keepScreenOn(p.playWhenReady || heldForRate, p.playbackState, stalledMs))
         if (on == screenOn) return
         screenOn = on
@@ -1256,6 +1412,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             val nextRef = MediaRef.Drive(next.id)
             // Known as this show's whatever it's called (Continue watching's poster, the same-show checks).
             com.woodruff.tvexplorer.cloud.EpisodeShows.remember(app, mapOf(nextRef.key to show))
+            learnArt(listOf(next))
             p.addMediaItem(mediaItem(nextRef.key, com.woodruff.tvexplorer.util.Format.title(next.name)))
         }
     }
@@ -1306,6 +1463,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         picture?.let { com.woodruff.tvexplorer.notify.addNoticePicture(doorbellBox, it) }
         doorbellPictured = picture != null
         ringing = true
+        // Its OK is the card's ("OK to look"): a menu open as it rang would have taken it (Audio's
+        // row chosen, the sound loaded again from Drive) and the camera opened only on a later OK.
+        menu.hide()
         view.hideController()
         // Any card over other apps goes, and none comes over this one meanwhile (Notices).
         com.woodruff.tvexplorer.notify.Notices.playerDoorbellCard(true)
@@ -1435,6 +1595,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         stalledKey = null
         stall = null
         stalledSince = null
+        stallTries = 0
+        refusedInARow = 0
+        playingSeconds = 0
+        // Started (or come back to) by someone: the time Up next counts "Still watching?" from.
+        usedAt = android.os.SystemClock.elapsedRealtime()
         view.controllerAutoShow = true
         waitClock.reset()
         startedAgainFromDrive.clear()
@@ -1469,6 +1634,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // behind it) depends on how big that is: see playerLoadControl.
         val heapMb = getSystemService(android.app.ActivityManager::class.java)?.memoryClass ?: 256
         keptBehindMs = backBufferMs(heapMb)
+        // A paused film loads a few seconds ahead, and the next episode nothing until it's chosen (PlayerLoads).
+        loads = PlayerLoads()
         // The TV's own decoders (and sound passed straight through to a soundbar) first; FFmpeg's
         // for the sound the TV can't play itself, so DTS and TrueHD films aren't silent.
         player = ExoPlayer.Builder(this, playerRenderers(this))
@@ -1477,7 +1644,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     // Subtitles that don't parse show nothing rather than stopping the film; Windows-encoded ones keep their accents.
                     .setSubtitleParserFactory(SidecarLoading.parserFactory()),
             )
-            .setLoadControl(playerLoadControl(heapMb))
+            .setLoadControl(GatedLoadControl(playerLoadControl(heapMb), loads))
             // Seeks land on the first clean frame just after the spot (SeekAim); the viewer's are aimed
             // one by one (aimAt), and this covers the rest (a voice "rewind"). Watch together's leader
             // seeks exactly: the other TVs line up on the spot it asked for.
@@ -1509,23 +1676,21 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     if (kind != null) {
                         // A hiccup, or Google Drive turning the token down: try this episode again at
                         // once, from where it was; with a new token when Drive refused the one it had
-                        // (dropped off the main thread first: see RetryAtOnce).
+                        // (dropped off the main thread first: see RetryAtOnce). Not for Google's limits.
                         if (retryAtOnce.tryAgain(p, key, http, drive, reason)) return
+                        // Turned down again after that try, and not over one of Google's limits: Drive
+                        // won't send this file (flagged, downloads turned off). Said, and on to the next.
+                        if (PlaybackErrors.refusedForGood(http, drive, reason, retryAtOnce.hadTry(key))) {
+                            cantPlay(p, key, error, http, drive, refused = true)
+                            return
+                        }
                         // Stay on it and try again (it used to skip ahead, item after item, until the
                         // Wi-Fi came back many episodes later), the ring saying what's going on.
                         stalled(p, key, kind)
                         return
                     }
-                    // Unsupported codec etc.: say so in plain words and move on rather than sitting on a
-                    // black screen. The whole cause goes to the log: the TV running out of memory partway
-                    // through a big remux otherwise looks just like a bad file.
-                    android.util.Log.w("Player", "Can't play $key: ${error.errorCodeName}", error)
-                    clearStall()
-                    waitClock.reset()
-                    val why = PlaybackErrors.why(error.errorCode, http, drive, PlaybackErrors.outOfMemory(error))
-                    say(PlaybackErrors.cantPlay(p.currentMediaItem?.mediaMetadata?.title?.toString(), why), NOTICE_MESSAGE_MS)
-                    if (p.hasNextMediaItem()) { p.seekToNextMediaItem(); p.prepare() }
-                    updateLoading()
+                    // Unsupported codec etc.: say so in plain words and move on.
+                    cantPlay(p, key, error, http, drive)
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -1565,8 +1730,10 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                     if (tracks.isEmpty) return
-                    // Music runs straight on; only video pauses at the end for the Up next countdown.
+                    // Music runs straight on; only video pauses at the end for the Up next countdown. The
+                    // song after this one loads ahead, so there's no gap; the next video waits to be chosen.
                     p.pauseAtEndOfMediaItems = tracks.containsType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                    loads.holdNext = p.pauseAtEndOfMediaItems
                     // Remember tracks only when the viewer picked them, not the player's automatic choice.
                     val changed = userChanged
                     userChanged = emptySet()
@@ -1593,8 +1760,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
 
                 override fun onPlaybackStateChanged(state: Int) {
                     updateScreenOn()
-                    // Loaded again after a stall, even while paused: the connection is back.
-                    if (p.playbackState == Player.STATE_READY) clearStall()
+                    // Loaded again after a stall, even while paused: the connection is back (and
+                    // Google Drive isn't turning every film down).
+                    if (p.playbackState == Player.STATE_READY) { clearStall(); refusedInARow = 0 }
                     updateLoading()
                     // Last item of a music queue (no pause at the end): leave like a video does.
                     if (state == Player.STATE_ENDED) { p.currentMediaItem?.mediaId?.let(::finished); finish() }
@@ -1610,6 +1778,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    // The one playing now: it may load (PlayerLoads), and what comes after it waits.
+                    val was = loads.playing
+                    loads.playing = mediaItem?.mediaId
+                    // A menu open over the episode left was about it (its tracks, its intro): it goes too.
+                    if (mediaItem?.mediaId != was) menu.hide()
                     // A spot being scrubbed to was chosen in the item that just ended: it would land
                     // somewhere arbitrary in this one.
                     timeBar.cancelScrub()
@@ -1642,6 +1815,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             // Pause at the end of each item so the "Up next" countdown can run (and be cancelled).
             p.pauseAtEndOfMediaItems = true
             p.setMediaItems(items, start, startPos)
+            loads.playing = p.currentMediaItem?.mediaId
+            loads.holdNext = p.pauseAtEndOfMediaItems
             noteDriveFilm(p.currentMediaItem)
             applyShowTracks(p)
             // Back to it (from the doorbell, the screensaver): as it was, so paused stays paused. A
@@ -1665,6 +1840,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             if (com.woodruff.tvexplorer.cloud.FamilySync.isShared(keys[start])) com.woodruff.tvexplorer.cloud.FamilySync.pullFresh(this)
         }
         reporter.post(report)
+        // "Sleep in N minutes" set before the player was covered or left: what's left of it.
+        resumeSleepTimer()
         if (!leader) followJob = lifecycleScope.launch { WatchSync.updates.collect { follow(it) } }
         doorbellJob = lifecycleScope.launch {
             // A ring's picture from the family's Mac, for its card if it comes after the ring.
@@ -1762,6 +1939,26 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         else if (pos > 0) recent.save(item.key, item.title, pos, dur)
     }
 
+    /** Seconds played since the place was last saved as it plays ([savePlace]). */
+    private var playingSeconds = 0
+
+    /**
+     * Where the video playing has got to, saved every [SAVE_PLACE_S] seconds of play, on this TV only:
+     * the family's other TVs hear when it stops, as before ([keepPlace]), so nothing more goes to
+     * them. It was saved only as the player stopped or moved on, so Woodruff closing by itself (a crash,
+     * Android ending it) an hour into a film left every TV at the old spot. Not in its first seconds,
+     * nor in its credits: finishing it is for when it stops or moves on.
+     */
+    private fun savePlace(p: ExoPlayer) {
+        val item = p.currentMediaItem ?: return
+        val pos = p.currentPosition
+        val dur = p.duration
+        if (!PlayerKeep.worthSavingAsItPlays(p.pauseAtEndOfMediaItems, pos, dur)) return
+        if (!PlayerKeep.touched(playedSinceStart, startSpot, item.mediaId, pos)) return
+        stopCatchingUp()
+        recent.save(item.mediaId, item.mediaMetadata.title?.toString() ?: "", pos, dur, share = false)
+    }
+
     /**
      * Started on its own (Continue watching, Recently added, search): queue the other episodes in
      * its Google Drive folder around it, so Next / Previous and "Up next" work. Playback carries on
@@ -1787,6 +1984,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             val at = media.indexOfFirst { it.id == ref.id }.takeIf { it >= 0 } ?: return@launch
             val after = media.drop(at + 1).take(300)
             val before = media.take(at).takeLast(300)
+            // Their pictures, for Up next: the listing has them (nothing more is asked of Drive).
+            learnArt(after)
             // The episodes beside it are its show's too, whatever their files are called: they keep its
             // Skip intro and audio and subtitle choices, and Continue watching shows its poster for them.
             com.woodruff.tvexplorer.cloud.EpisodeShows.map.value[key]?.let { show ->
@@ -1802,11 +2001,17 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
      * Local files pass straight through; Drive URLs get an Authorization header per request, Google
      * is asked for them in bounded pieces, never "to the end of the film" ([BoundedDriveSource]: its
      * daily download allowance), and the start of each Drive film (its header and index) is kept on
-     * the TV ([FilmStarts]). A subtitle file beside the film that can't be read leaves the film
-     * without it ([SidecarLoading]).
+     * the TV ([FilmStarts]); a Drive film that isn't the one playing waits to be chosen before Google is
+     * asked for any of it ([HeldDriveSource]). A subtitle file beside the film that can't be read leaves
+     * the film without it, and one read once is read from memory after that ([SidecarLoading]).
      */
     private fun dataSources(): androidx.media3.datasource.DataSource.Factory =
-        SidecarLoading.dataSourceFactory(DefaultDataSource.Factory(this, FilmStarts.dataSourceFactory(applicationContext, toDrive(DrivePieces.FILMS))))
+        SidecarLoading.dataSourceFactory(
+            DefaultDataSource.Factory(this, FilmStarts.dataSourceFactory(applicationContext, HeldDriveSource.factory(toDrive(DrivePieces.FILMS), loads))),
+        )
+
+    /** What this player may load now ([PlayerLoads]): a new one for each player, told what plays as it moves on. */
+    private var loads = PlayerLoads()
 
     /**
      * Requests to Drive, in pieces of [pieces]: over OkHttp, on the app's shared connections (one
@@ -1886,6 +2091,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // pop the controls up over what just happened (after Next episode or Skip intro).
         if (event.action == KeyEvent.ACTION_UP && event.keyCode == swallowUp) { swallowUp = null; return true }
         if (event.action == KeyEvent.ACTION_DOWN) {
+            // Someone's there (Up next asks "Still watching?" after a long while without).
+            usedAt = android.os.SystemClock.elapsedRealtime()
             val handled = handleKey(event)
             if (handled) { swallowUp = event.keyCode; return true }
             aimSkip(event.keyCode) // ⏪ / ⏩: PlayerView jumps next
@@ -1898,9 +2105,12 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val ok = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER
         // A menu, while it's up: Up / Down choose, OK does it, Back (or the menu button) closes it.
         // Other keys (play, pause) go on to the player as before.
-        if (menu.shown) return menu.handleKey(event.keyCode)
+        // OK held down repeats: only its first press chooses (a submenu it opens isn't chosen from too).
+        if (menu.shown) return menu.handleKey(event.keyCode, event.repeatCount)
         if (event.keyCode == KeyEvent.KEYCODE_MENU || event.keyCode == KeyEvent.KEYCODE_INFO) {
-            showOptions(); return true
+            // Not over the doorbell's card or Up next: OK is theirs, and the options are about the episode ending.
+            if (!doorbellCard.shown && !upNextPanel.shown) showOptions()
+            return true
         }
         // The doorbell's card first: OK looks at the door, Back closes the card. (A card gliding out
         // is gone already, as far as the keys go.)
@@ -1960,6 +2170,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         /** Up next's countdown, and how far into the next episode its picture is taken from. */
         private const val UP_NEXT_SECONDS = 10
         private const val UP_NEXT_ART_MS = 90_000L
+        /** Up next's picture, as UpNextPanel lays it out (dp). */
+        private const val UP_NEXT_ART_W = 304
+        private const val UP_NEXT_ART_H = 171
         /** A button with nothing to offer (no subtitles, or no sound, in the video). */
         private const val DIM = 0.4f
         private val SPEEDS = listOf("0.5×" to 0.5f, "0.75×" to 0.75f, "Normal" to 1f, "1.25×" to 1.25f, "1.5×" to 1.5f, "2×" to 2f)
@@ -1969,17 +2182,21 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         private const val NOTICE_MESSAGE_MS = 6_000L
         /** Why a subtitle size didn't change, or isn't Woodruff's to choose (specs/player-feedback.md §3.6). */
         private const val SIZE_MESSAGE_MS = 3_500L
+        /** A sleep timer that ran out while the player was covered sleeps this long after it's back ([resumeSleepTimer]). */
+        private const val SLEEP_GRACE_MS = 60_000L
+        /** What the Subtitles and Audio buttons say while the film is still opening (its tracks aren't known yet). */
+        private const val STILL_OPENING = "Still opening…"
+        /** How often a video's place is saved as it plays, in seconds of play ([savePlace]). */
+        private const val SAVE_PLACE_S = 30
         /** How long a film waits to start for the subtitle files beside it to be found (a USB drive waking up). */
         private const val SIDECAR_WAIT_MS = 1_000L
         /** USB folders looked in for the rest of a queue's subtitle files, at most (a queue is usually one folder). */
         private const val MAX_SIDECAR_FOLDERS = 20
         /**
-         * How long a stalled film waits before trying again when nothing says the network is back
-         * (it was down for a moment only, or it's Google that's failing): see [RetryWait].
+         * Films Google Drive turned down for good in a row that the player moves on from ([cantPlay]):
+         * the first one; at the second it stays (on that one, saying so).
          */
-        private const val RETRY_MS = 10_000L
-        /** Between tries while Google's daily limit holds a film back. */
-        private const val LIMIT_RETRY_MS = 5 * 60_000L
+        private const val MOVE_ON_REFUSALS = 2
         /** How long after a film's first picture its sound is looked at: after the window's own entrance. */
         private const val SOUND_CHECK_DELAY_MS = 1_000L
         private const val EXTRA_KEYS = "keys"

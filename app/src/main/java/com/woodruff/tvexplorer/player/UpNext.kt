@@ -17,6 +17,50 @@ object UpNext {
         queue.indexOf(key).takeIf { it >= 0 && it < queue.lastIndex }?.plus(1)
 
     /**
+     * The picture Up next shows for Drive episode [f]: the one its listing has, TMDB's still or else
+     * Drive's own frame of the video, as its show's page shows it (TitleDetail's EpisodeCard). Never
+     * one read out of the episode itself: that was its header, its index and a frame from Google
+     * Drive, for a picture, while the player loaded that same start. Null when the listing has none.
+     */
+    fun art(f: DriveFile): String? = f.posterUrl ?: f.thumbnailLink?.let(com.woodruff.tvexplorer.cloud.DriveApi::big)
+
+    /**
+     * Where Up next's picture of [key] comes from: a Drive episode's from what its listing says
+     * ([known]: its picture, [art]), or none; a file on this TV, a frame from it (read from the TV, so
+     * it costs nothing); a link from the phone, none.
+     */
+    fun artFor(key: String, known: (String) -> String?): UpNextArt = when (MediaRef.parse(key)) {
+        is MediaRef.Drive -> known(key)?.let { UpNextArt.Picture(it) } ?: UpNextArt.None
+        is MediaRef.Local -> UpNextArt.Frame
+        is MediaRef.Remote -> UpNextArt.None
+    }
+
+    /**
+     * Whether "Play next" in the player's menu counts the episode as watched: in its last 5 % or 40 s
+     * (the credits, roughly, where Next Episode shows), as the TV's own Next Episode does. Before that
+     * it's the remote's Next: the place is kept, and it stays in Continue watching.
+     */
+    fun nextCountsAsWatched(positionMs: Long, durationMs: Long): Boolean =
+        durationMs > 0 && (durationMs - positionMs <= NEXT_EPISODE_LEAD_MS || positionMs >= durationMs * 0.95)
+
+    /** The end of an episode where Next Episode shows: its credits, roughly. */
+    const val NEXT_EPISODE_LEAD_MS = 40_000L
+
+    /**
+     * Whether Up next asks "Still watching?" instead of counting down to the next episode: nobody has
+     * pressed a key on the remote or the phone for [STILL_WATCHING_MS] ([idleMs] since the last one).
+     * It played on all night, each episode fetched from Google Drive for nobody. Unanswered for
+     * [ASK_FOR_MS], the player leaves as Done does. (The LG asks the same, at the same times.)
+     */
+    fun stillWatching(idleMs: Long): Boolean = idleMs >= STILL_WATCHING_MS
+
+    /** No key on the remote or the phone for this long: Up next asks before it plays on. */
+    const val STILL_WATCHING_MS = 90 * 60_000L
+
+    /** Asked, and no answer in this long: the player leaves, as Done does. */
+    const val ASK_FOR_MS = 5 * 60_000L
+
+    /**
      * The season an episode is from: the number of its folder among the show's [showItems]
      * ("Season 2"), else the one in its own name ("S02E10"); null when neither says.
      */
@@ -41,4 +85,16 @@ object UpNext {
             .minWithOrNull(compareBy<Pair<DriveFile, Pair<Int, Int>>>({ it.second.first }, { it.second.second }))?.first
             ?: videos.firstOrNull { ShowPrefs.isEpisode(it.name) }
     }
+}
+
+/** Where Up next's picture comes from ([UpNext.artFor]). */
+sealed interface UpNextArt {
+    /** A picture at this address (the listing's). */
+    data class Picture(val url: String) : UpNextArt
+
+    /** A frame read from the file itself: one on this TV. */
+    data object Frame : UpNextArt
+
+    /** Its plain stand-in. */
+    data object None : UpNextArt
 }

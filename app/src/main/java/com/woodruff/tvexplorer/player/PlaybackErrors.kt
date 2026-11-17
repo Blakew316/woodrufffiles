@@ -30,6 +30,17 @@ internal enum class Stall {
      * so the player stops trying and says how to fix it.
      */
     SIGNED_OUT,
+
+    /**
+     * Google refuses this TV's Client ID or secret ("Keys not accepted"): nothing from Drive plays until
+     * they're fixed in Settings, and trying again only asked Google's sign-in server again and again,
+     * so the player stops trying and says where to fix them.
+     */
+    KEYS_REFUSED,
+    ;
+
+    /** Trying again can't help until someone fixes something: the player has stopped trying. */
+    val stopped: Boolean get() = this == SIGNED_OUT || this == KEYS_REFUSED
 }
 
 /**
@@ -64,6 +75,7 @@ internal object PlaybackErrors {
      */
     fun why(errorCode: Int, http: Int?, drive: Boolean, outOfMemory: Boolean): String = when {
         http == 404 && drive -> "it’s no longer in Google Drive"
+        http == 403 && drive -> WONT_SEND
         outOfMemory -> "this TV ran out of memory"
         errorCode in DECODER_ERRORS -> "this TV can’t play its video format"
         errorCode in CONTAINER_ERRORS -> "the file seems to be damaged"
@@ -72,6 +84,58 @@ internal object PlaybackErrors {
 
     /** The whole message, said over the film for 6 s as the player moves on. */
     fun cantPlay(title: String?, why: String): String = "Can’t play ${title?.ifBlank { null } ?: "this file"}: $why."
+
+    /** Why, for a film Google Drive turned down for good ([refusedForGood]). */
+    const val WONT_SEND = "Google Drive won’t send this file"
+
+    /**
+     * Whether Google Drive has turned a film down for good: a 403 that isn't one of Google's limits
+     * ([reason]: Drive flagged the video, its owner stopped downloads, this TV's keys may not open it),
+     * once its one try with a new token ([RetryAtOnce], [hadTry]) was turned down too. No new token or
+     * wait changes Drive's mind about that file: it was tried every 10 s, four requests each, for as
+     * long as the player stayed open ("Google Drive turned this down. Trying again…" for hours). It's
+     * said ("Can’t play … Google Drive won’t send this file.") and the player moves on.
+     */
+    fun refusedForGood(http: Int?, drive: Boolean, reason: String?, hadTry: Boolean): Boolean =
+        drive && hadTry && http == 403 && !isDailyLimit(reason) && !isRateLimit(reason)
+
+    /**
+     * How long a stalled film waits before its next try (unless the network comes back first:
+     * [RetryWait]), [tries] being the tries of this stall that failed already. No connection: 10 s,
+     * every time (it's the TV's own network, and its coming back is heard at once). Google's daily
+     * limit: 5 minutes. Google busy, failing or limiting how fast requests come (a rate limit, 429,
+     * 5xx), or still turning the token down: a growing wait, 10 s, 30 s, 1 minute, 2, then every
+     * 5 minutes ([GROWING_WAITS_MS]). At a fixed 10 s each TV kept a rate limit going for the
+     * whole family, its tries adding to what made Google limit them.
+     */
+    fun retryWaitMs(stall: Stall, tries: Int): Long = when (stall) {
+        Stall.NETWORK -> RETRY_MS
+        Stall.LIMIT -> LIMIT_RETRY_MS
+        Stall.BUSY, Stall.REFUSED -> GROWING_WAITS_MS[tries.coerceIn(0, GROWING_WAITS_MS.lastIndex)]
+        Stall.SIGNED_OUT, Stall.KEYS_REFUSED -> LIMIT_RETRY_MS // never armed: the player has stopped trying
+    }
+
+    /** Between tries without a connection, and the first wait of any other stall. */
+    const val RETRY_MS = 10_000L
+
+    /** Between tries while Google's daily limit holds a film back. */
+    const val LIMIT_RETRY_MS = 5 * 60_000L
+
+    /** The waits between tries while Google is busy, failing or limiting requests ([retryWaitMs]): the last one repeats. */
+    val GROWING_WAITS_MS = longArrayOf(10_000L, 30_000L, 60_000L, 2 * 60_000L, 5 * 60_000L)
+
+    /**
+     * Whether Media3 should try a load again by itself ([FilmStartsErrorPolicy]): not when Drive (or
+     * any server) answered with a refusal another try a second later can't change: 401 and 403 (a
+     * token, or one of Google's limits), 404 and 410 (gone), 416 (past its end), 429 (too many
+     * requests). Media3 tried each of those three more times, a second apart, before the player even
+     * heard of it: every attempt at a refused film was four requests to Google, eight with the try at
+     * once, all counted against its limits. The player's own tries ([RetryAtOnce], [RetryWait]) do
+     * what's worth doing. Busy or failing servers (5xx) and dropped connections are still tried again.
+     */
+    fun noRetryFor(http: Int?): Boolean = http in NO_RETRY
+
+    private val NO_RETRY = setOf(401, 403, 404, 410, 416, 429)
 
     /**
      * Google's own reason in a refusal's answer ("downloadQuotaExceeded", "userRateLimitExceeded",

@@ -123,6 +123,35 @@ class ScrubPreviewTest {
         }
     }
 
+    @Test fun aFilmThatGivesNoFrameIsLetGoAndNotReadAgainForAWhile() {
+        // A film Android can't make frames of (none at 5 s); every step of a scrub read it again and showed nothing.
+        val letGo = CountDownLatch(1)
+        val film = object : android.media.MediaDataSource() {
+            override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int = -1
+            override fun getSize(): Long = -1
+            override fun close() = letGo.countDown()
+        }
+        // Were it asked, it would give one at 35 s: it isn't asked.
+        ShadowMediaMetadataRetriever.addScaledFrame(
+            DataSource.toDataSource(film), 35_000_000, ScrubPreview.WIDTH, ScrubPreview.HEIGHT,
+            Bitmap.createBitmap(ScrubPreview.WIDTH, ScrubPreview.HEIGHT, Bitmap.Config.ARGB_8888),
+        )
+        var opens = 0
+        val pv = ScrubPreview({ opens++; url to emptyMap() }, reader = { film })
+        try {
+            var shown = 0
+            pv.request(key, 0) { shown++ }
+            // Let go of at once (its reader holds a connection to Drive), not 5 s after the scrub.
+            assertTrue(letGo.await(2, TimeUnit.SECONDS))
+            pv.request(key, 30_000) { shown++ }
+            assertFalse(awaitMain { shown > 0 || pv.cached(key, 30_000) != null })
+            assertEquals(0, shown)
+            assertEquals("opened once", 1, opens)
+        } finally {
+            pv.release()
+        }
+    }
+
     @Test fun aWantedSpotIsReadOnceTheFileIsOpen() {
         frames()
         val slow = SlowOpen()

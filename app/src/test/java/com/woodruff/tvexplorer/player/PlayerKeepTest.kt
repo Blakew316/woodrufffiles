@@ -115,4 +115,19 @@ class PlayerKeepTest {
         // Not known where it started: kept, as before.
         assertTrue(PlayerKeep.touched(false, null, "drive:x", 1_800_000))
     }
+
+    @Test
+    fun aVideosPlaceIsSavedAsItPlaysBetweenItsFirstSecondsAndItsCredits() {
+        val hour = 3_600_000L
+        // An hour into a two-hour film: saved, so Woodruff closing by itself doesn't lose it.
+        assertTrue(PlayerKeep.worthSavingAsItPlays(video = true, positionMs = hour, durationMs = 2 * hour))
+        assertTrue(PlayerKeep.worthSavingAsItPlays(true, 10_001, 2 * hour))
+        // Its first seconds (not in Continue watching anyway), and its credits: finishing is for when it stops.
+        assertFalse(PlayerKeep.worthSavingAsItPlays(true, 10_000, 2 * hour))
+        assertFalse(PlayerKeep.worthSavingAsItPlays(true, (2 * hour * 0.95).toLong(), 2 * hour))
+        assertFalse(PlayerKeep.worthSavingAsItPlays(true, 56_000, 60_000))
+        // Songs, and anything whose length isn't known yet.
+        assertFalse(PlayerKeep.worthSavingAsItPlays(video = false, positionMs = hour, durationMs = 2 * hour))
+        assertFalse(PlayerKeep.worthSavingAsItPlays(true, hour, androidx.media3.common.C.TIME_UNSET))
+    }
 }

@@ -2,6 +2,7 @@ package com.woodruff.tvexplorer.player
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -31,12 +32,16 @@ internal class RetryWait(
     /** A try is coming (armed, not yet tried or stopped). */
     val waiting: Boolean get() = job?.isActive == true
 
-    /** Waits for the next try ([wait] at most), in place of any wait under way. */
-    fun arm(wait: Long = delayMs) {
+    /**
+     * Waits for the next try ([wait] at most), in place of any wait under way. [followNetwork] false:
+     * the whole [wait], whatever the network does. Google's daily limit doesn't lift because the Wi-Fi
+     * came back, and a blip used to cut its 5 minutes short, a try at once and then 5 minutes more.
+     */
+    fun arm(wait: Long = delayMs, followNetwork: Boolean = true) {
         job?.cancel()
         val mark = beforeTry ?: comebacks.value
         job = scope.launch {
-            withTimeoutOrNull(wait) { comebacks.first { it != mark } }
+            if (followNetwork) withTimeoutOrNull(wait) { comebacks.first { it != mark } } else delay(wait)
             beforeTry = comebacks.value
             tryAgain()
         }
