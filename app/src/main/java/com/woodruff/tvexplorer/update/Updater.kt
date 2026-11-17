@@ -274,10 +274,11 @@ object Updater {
      * (0: none pending). That's [ERROR_RETRY_MS] after a try GitHub may have counted (sooner than an hour,
      * but not on every pass: GitHub allows 60 an hour for the whole home, shared by every TV), and when
      * GitHub said, after it turned one down (as Settings says). A try further off than GitHub ever asks
-     * for is this TV's clock having gone back: it goes now. Visible for tests.
+     * for, or a last check after [now], is this TV's clock having gone back: it goes now (a last check
+     * dated in the future used to stop the routine checks until that day came). Visible for tests.
      */
     internal fun routineCheckDue(now: Long, lastCheck: Long, nextTryAt: Long, every: Long): Boolean =
-        if (nextTryAt > 0) now >= nextTryAt || nextTryAt - now > MAX_HOLD_MS else now - lastCheck >= every
+        if (nextTryAt > 0) now >= nextTryAt || nextTryAt - now > MAX_HOLD_MS else now - lastCheck !in 0 until every
 
     /**
      * Whether an update may restart Woodruff now, with no one asked: nothing that mustn't be cut short

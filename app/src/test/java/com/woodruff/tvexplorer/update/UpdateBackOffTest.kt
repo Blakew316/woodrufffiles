@@ -219,6 +219,26 @@ class UpdateBackOffTest {
         assertTrue(Updater.routineCheckDue(now, lastGood, now + 3 * hour, hour))
     }
 
+    @Test fun aLastCheckDatedInTheFutureIsTheClockHavingGoneBack() {
+        val now = 1_800_000_000_000L
+        // Saved while the TV's clock was days ahead, or a minute ahead: checking goes on now, as with no check at all
+        // (it waited until the clock caught up, and in the meantime no routine check was made).
+        assertTrue(Updater.routineCheckDue(now, now + 3 * 24 * hour, 0, hour))
+        assertTrue(Updater.routineCheckDue(now, now + minute, 0, 10 * minute))
+        assertTrue(Updater.routineCheckDue(now, 0, 0, hour))
+        // One that went through a moment ago, as before: not again until the hour is up.
+        assertFalse(Updater.routineCheckDue(now, now, 0, hour))
+        assertFalse(Updater.routineCheckDue(now, now - 59 * minute, 0, hour))
+    }
+
+    @Test fun theRoutineChecksAgainAfterTheClockWentBack() {
+        prefs.edit().putLong("lastCheck", System.currentTimeMillis() + 3 * 24 * hour).commit()
+        Updater.maybeAuto(app)
+        waitUntil("it checked") { apiAsked == 1 }
+        // Noted by the clock as it is now: the next pass waits its hour again.
+        assertTrue(prefs.getLong("lastCheck", 0) <= System.currentTimeMillis())
+    }
+
     @Test fun theNextTryIsWhenGitHubSaidAfterItTurnedOneDown() {
         prefs.edit().putLong("lastCheck", System.currentTimeMillis() - 3 * hour).commit()
         answer = Answer(429, mapOf("Retry-After" to "120"))
