@@ -656,7 +656,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     /** Stop for the night: pause, leave the player, and let the slideshow take over the screen. */
     private fun sleepNow() {
         player?.pause()
-        runCatching { com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(this) }
+        runCatching { com.woodruff.tvexplorer.screensaver.SlideshowActivity.start(this, asleep = true) }
         finish()
     }
 
