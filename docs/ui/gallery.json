@@ -1,7 +1,7 @@
 {
- "build": "192",
- "commit": "9e29708",
- "updated": "2026-11-17 05:51 UTC",
+ "build": "194",
+ "commit": "2ed5b62",
+ "updated": "2026-11-17 06:19 UTC",
  "tv": [
   {
    "name": "home",
@@ -512,6 +512,12 @@
    "title": "Player \u00b7 Drive sign-in ended",
    "dark": "img/tv-player-signed-out-dark.webp",
    "light": "img/tv-player-signed-out-light.webp"
+  },
+  {
+   "name": "player-keys-refused",
+   "title": "Player \u00b7 Drive keys not accepted",
+   "dark": "img/tv-player-keys-refused-dark.webp",
+   "light": "img/tv-player-keys-refused-light.webp"
   },
   {
    "name": "player-subtitles",
