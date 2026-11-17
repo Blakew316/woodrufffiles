@@ -1099,6 +1099,7 @@
       <button class="row act tap" id="g-signin" aria-haspopup="dialog" hidden>Sign In to Google Drive</button>
     </div>
     <p class="foot" id="g-foot" hidden>Google doesn’t accept the Client ID or secret. Check them above, then sign in.</p>
+    <p class="foot" id="g-share" hidden></p>
     <div class="head">Keys from Google Cloud</div>
     <div class="group">
       <label class="row field"><span class="lbl">Client ID</span><input id="g-id" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="1234…apps.googleusercontent.com"></label>
@@ -5410,11 +5411,16 @@
     settings = s;
     var g = s.google, on = [], gs = g.state || (g.connected ? 'signedIn' : g.hasSecret ? 'notSignedIn' : 'notSetUp');
     status(['g-status', 'g-status2'], g.text || ACCOUNT[gs], needsPerson(gs));
-    // Sign In from here when it can work: keys saved, and not signed in (or Google ended it). Keys Google turns down come first.
-    var gIn = gs === 'notSignedIn' ? 'Sign In to Google Drive' : gs === 'expired' ? 'Sign In to Google Drive Again' : '';
+    // Sign In from here when it can work: keys saved, and not signed in (or Google ended it, or the sign-in doesn't let the
+    // TV share Continue Watching with the family). Keys Google turns down come first.
+    var again = gs === 'expired' || (gs === 'signedIn' && !!g.shareSignIn);
+    var gIn = gs === 'notSignedIn' ? 'Sign In to Google Drive' : again ? 'Sign In to Google Drive Again' : '';
     setHidden($('g-signin'), !gIn); if (gIn) swapText($('g-signin'), gIn);
-    $('g-signin').onclick = function () { openSignIn('drive', gs === 'expired'); };
+    $('g-signin').onclick = function () { openSignIn('drive', again); };
     setHidden($('g-foot'), gs !== 'keysRejected');
+    // Signed in, but Continue Watching isn't shared with the family: why, in the TV's own words (a TV from before says nothing).
+    var share = gs === 'signedIn' ? g.share || '' : '';
+    setText($('g-share'), share); setHidden($('g-share'), !share);
     if (!$('g-id').value) $('g-id').value = g.clientId || '';
     $('g-redirect').textContent = g.redirectUri;
     status(['t-status', 't-status2'], s.tmdb ? 'On' : 'Off', false);

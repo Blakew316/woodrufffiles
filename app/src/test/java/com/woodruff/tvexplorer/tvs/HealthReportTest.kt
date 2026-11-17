@@ -101,6 +101,28 @@ class HealthReportTest {
         assertEquals("keys", r.attention[0].fix)
     }
 
+    @Test fun progressThatIsntSharedNeedsAttentionThoughDriveReadsSignedIn() {
+        val r = report(facts().copy(shareNeedsSignIn = true))
+        assertEquals(listOf("signin.share"), ids(r))
+        assertEquals("progress isn’t shared with the family", r.attention[0].words)
+        assertEquals("Sign in to Google Drive again and leave every box ticked. On Den: Settings → Accounts.", r.attention[0].detail)
+        // The phone offers to sign Drive in again, here or on the TV it's about.
+        assertEquals("signin", r.attention[0].fix)
+        assertEquals("drive", r.attention[0].grant)
+        assertEquals("Progress isn’t shared with the family.", r.sentence)
+        // Drive's own row is as it was: signed in.
+        assertEquals(SignInState.SIGNED_IN, r.signIns.getValue(HealthGrant.DRIVE).state)
+        assertEquals(HealthSummary("attention", 1, "Progress isn’t shared with the family"), r.summary)
+        // It travels to the hub and the phone, and comes back the same.
+        assertEquals(r, HealthReport.fromJson(JSONObject(r.toJson().toString())))
+    }
+
+    @Test fun anEndedDriveSignInIsOneItemNotTwo() {
+        val r = report(facts(signIns = HealthGrant.entries.associateWith { SignInFact(SignInState.SIGNED_IN) } +
+            (HealthGrant.DRIVE to SignInFact(SignInState.EXPIRED, now - DAY))).copy(shareNeedsSignIn = true))
+        assertEquals(listOf("signin.drive"), ids(r))
+    }
+
     @Test fun aFailedInstallIsTheLastUpdateDidntInstall() {
         val r = report(facts(update = UpdateFact("ready", "2.0.172", message = "INSTALL_FAILED_INSUFFICIENT_STORAGE: not enough room", readySince = now - 3 * DAY)))
         assertEquals(listOf("update.failed"), ids(r)) // not also "waiting": one problem, one item

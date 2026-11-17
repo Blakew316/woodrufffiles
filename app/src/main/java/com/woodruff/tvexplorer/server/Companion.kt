@@ -687,6 +687,10 @@ class CompanionRoutes(private val ctx: Context) {
                 .put("hasSecret", GoogleAuth.isConfigured(ctx))
                 .put("connected", GoogleAuth.isConnected(ctx))
                 .put("state", drive.json).put("text", drive.words(HealthGrant.DRIVE))
+                // Why Continue watching isn't shared with the family, as Settings → Accounts says it ("" while it is, or
+                // it's turned off), and whether signing in to Drive again is what fixes it.
+                .put("share", com.woodruff.tvexplorer.cloud.FamilySync.problem(ctx) ?: "")
+                .put("shareSignIn", com.woodruff.tvexplorer.cloud.FamilySync.needsNewSignIn(ctx))
                 .put("redirectUri", GoogleAuth.REDIRECT_URI))
             .put("tmdb", Tmdb.isConfigured(ctx))
             .put("weather", com.woodruff.tvexplorer.weather.Weather.place(ctx) ?: "")

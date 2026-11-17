@@ -7,6 +7,7 @@ import com.woodruff.tvexplorer.player.RecentItem
 import com.woodruff.tvexplorer.player.RecentStore
 import com.woodruff.tvexplorer.player.ShowPrefs
 import com.woodruff.tvexplorer.player.Watched
+import com.woodruff.tvexplorer.settings.SecretStore
 import com.woodruff.tvexplorer.tvs.TvLinks
 import com.woodruff.tvexplorer.util.NetworkWatch
 import kotlinx.coroutines.CancellationException
@@ -215,10 +216,22 @@ object FamilySync {
 
     /**
      * Signed in to Drive, but without the shared folder: from before it was asked for, or its box
-     * was unticked on Google's consent screen. Signing in once more (one QR scan) fixes it.
+     * was unticked on Google's consent screen, or Drive turned the folder down for want of it.
+     * Signing in once more (one QR scan) fixes it: Settings → Accounts and the phone's Connections offer it.
      */
-    fun needsNewSignIn(c: Context): Boolean =
-        enabled(c) && GoogleAuth.isConnected(c) && !GoogleAuth.hasScope(c, GoogleAuth.APPDATA)
+    fun needsNewSignIn(c: Context): Boolean = problem(c) == SIGN_IN_AGAIN
+
+    /**
+     * [needsNewSignIn] as far as Google has said so, for the health report: the scopes it granted the Drive sign-in
+     * are kept and the shared folder isn't one, or Drive turned the folder down. Not while that isn't known (a sign-in
+     * from before the scopes were kept, or scopes the Keystore can't read just now): its next token says.
+     */
+    fun sharingRefused(c: Context): Boolean {
+        if (!needsNewSignIn(c)) return false
+        if (lastProblem == SIGN_IN_AGAIN) return true
+        val granted = SecretStore.get(c).get(GoogleAuth.Grant.DRIVE.scopesKey) ?: return false
+        return GoogleAuth.APPDATA !in granted.split(' ')
+    }
 
     /** Drive was just signed in to: fetch the other TVs' progress now and send this TV's. */
     internal fun signedIn(c: Context) {

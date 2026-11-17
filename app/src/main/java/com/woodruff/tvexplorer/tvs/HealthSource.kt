@@ -148,6 +148,7 @@ object Health {
                 camerasProject = GoogleAuth.hasNestProject(c),
                 tmdb = Tmdb.hasKey(c),
             ),
+            shareNeedsSignIn = runCatching { com.woodruff.tvexplorer.cloud.FamilySync.sharingRefused(c) }.getOrDefault(false),
         )
     }
 
