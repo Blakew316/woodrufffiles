@@ -192,7 +192,7 @@ object Nest {
         val here = TransferService.state.value.base
         val waiting = cameraSignInWaiting(
             CompanionHub.googleAttempts.values.filter { it.grant == GoogleAuth.Grant.NEST }, _state.value.qrUrl,
-            answeredHere = { here != null && answeredAt(it) == here }, phoneWaiting = ::phoneWaiting,
+            stillGood = { stillGood(it, here) }, phoneWaiting = ::phoneWaiting,
         ) ?: return startSignIn()
         if (!waiting.fromPhone) return
         signInJob?.cancel()
@@ -213,6 +213,13 @@ object Nest {
 
     /** Whether Google's answer to [a] came and this TV is still swapping it for its sign-in. */
     private fun phoneFinishing(a: GoogleAuth.Attempt): Boolean = phoneProgress(a) == com.woodruff.tvexplorer.server.SignInProgress.FINISHING.json
+
+    /**
+     * Whether this TV's code [a] still works: Google's answer to it comes to this TV's phone connection ([here]), and it
+     * was made with the Google Client ID and the cameras' project saved now (a new key or project: a new code).
+     */
+    private fun stillGood(a: GoogleAuth.Attempt, here: String?): Boolean =
+        here != null && answeredAt(a) == here && cameraSignInMadeWith(a.authUrl, GoogleAuth.clientId(app), GoogleAuth.nestProject(app))
 
     /** The address Google's answer to [a] goes to: this TV's phone connection as it was when [a] was made. */
     private fun answeredAt(a: GoogleAuth.Attempt): String? = runCatching {
@@ -336,15 +343,24 @@ object Nest {
 
 /**
  * Of the cameras' sign-in [attempts] still waiting for Google's answer, the one opening the Command Center leaves
- * as it is: this TV's code on show ([shown], its answer still coming to this TV's address: [answeredHere]), else one
- * started from the phone that the phone still waits on ([phoneWaiting]). Null when there's none: a new code then.
+ * as it is: this TV's code on show ([shown], when it still works: [stillGood]), else one started from the phone that
+ * the phone still waits on ([phoneWaiting]). Null when there's none: a new code then.
  */
 internal fun cameraSignInWaiting(
     attempts: Collection<GoogleAuth.Attempt>, shown: String?,
-    answeredHere: (GoogleAuth.Attempt) -> Boolean, phoneWaiting: (GoogleAuth.Attempt) -> Boolean,
+    stillGood: (GoogleAuth.Attempt) -> Boolean, phoneWaiting: (GoogleAuth.Attempt) -> Boolean,
 ): GoogleAuth.Attempt? =
-    attempts.firstOrNull { !it.fromPhone && shown != null && it.authUrl == shown && answeredHere(it) }
+    attempts.firstOrNull { !it.fromPhone && shown != null && it.authUrl == shown && stillGood(it) }
         ?: attempts.firstOrNull { it.fromPhone && phoneWaiting(it) }
+
+/** Whether the cameras' sign-in page [url] (Google's Partner Connections page) was made with [clientId] and [project]. */
+internal fun cameraSignInMadeWith(url: String, clientId: String?, project: String?): Boolean {
+    if (clientId == null || project == null) return false
+    val u = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+    val id = u.rawQuery.orEmpty().split('&').firstOrNull { it.startsWith("client_id=") }
+        ?.let { runCatching { java.net.URLDecoder.decode(it.substringAfter('='), "UTF-8") }.getOrNull() }
+    return id == clientId && u.path.orEmpty().split('/').filter { it.isNotEmpty() }.getOrNull(1) == project
+}
 
 /**
  * What shows at start-up once the cameras saved at the last listing ([known]) have been read, over
