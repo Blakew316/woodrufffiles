@@ -13,6 +13,7 @@ import fi.iki.elonen.NanoHTTPD.Response
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.io.InputStream
 import java.security.MessageDigest
 
 /**
@@ -27,6 +28,8 @@ internal object PhonePosters {
     private const val KEEP_BYTES = 50L * 1024 * 1024
     private const val TRIM_TO_BYTES = 40L * 1024 * 1024
     private const val MAX_PICTURE = 6 * 1024 * 1024
+    /** A picture's file on its way in (".part") older than this was left by a run that ended mid-picture: it goes. */
+    private const val PART_LEFT_MS = 60 * 60_000L
     @Volatile private var writes = 0
 
     fun serve(c: Context, s: IHTTPSession): Response {
@@ -113,23 +116,35 @@ internal object PhonePosters {
             if (conn.responseCode != 200) throw IOException("HTTP ${conn.responseCode}")
             val type = conn.contentType.orEmpty()
             if (!type.startsWith("image/")) throw IOException("Not a picture")
-            val tmp = File(to.parentFile, to.name + ".part" + Thread.currentThread().id)
-            conn.inputStream.use { input ->
-                tmp.outputStream().use { out ->
-                    val buf = ByteArray(32 * 1024)
-                    var total = 0
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        total += n
-                        if (total > MAX_PICTURE) throw IOException("Too big")
-                        out.write(buf, 0, n)
-                    }
-                }
-            }
-            if (!tmp.renameTo(to)) { tmp.delete(); throw IOException("Couldn’t keep it") }
+            conn.inputStream.use { keep(it, to) }
         } finally {
             conn.disconnect()
+        }
+    }
+
+    /**
+     * Keeps the picture [input] gives as [to], written to a file of its own beside it first and renamed when it's all
+     * there, so nobody is shown half a picture. That file never stays behind: one that failed halfway (the connection
+     * dropped, more than [max] bytes) is deleted. Visible for tests.
+     */
+    fun keep(input: InputStream, to: File, max: Int = MAX_PICTURE) {
+        val tmp = File(to.parentFile, to.name + ".part" + Thread.currentThread().id)
+        try {
+            tmp.outputStream().use { out ->
+                val buf = ByteArray(32 * 1024)
+                var total = 0
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    total += n
+                    if (total > max) throw IOException("Too big")
+                    out.write(buf, 0, n)
+                }
+            }
+            if (!tmp.renameTo(to)) throw IOException("Couldn’t keep it")
+        } finally {
+            // Renamed: nothing there any more.
+            tmp.delete()
         }
     }
 
@@ -152,8 +167,12 @@ internal object PhonePosters {
 
     private fun dir(c: Context) = File(c.applicationContext.cacheDir, "phone-posters").apply { mkdirs() }
 
-    /** Past [KEEP_BYTES], the pictures shown least recently go until it's under [TRIM_TO_BYTES]. */
-    private fun trim(d: File) = runCatching {
+    /**
+     * Past [KEEP_BYTES], the pictures shown least recently go until it's under [TRIM_TO_BYTES]; and any picture left
+     * half-fetched an hour ago or more (before Woodruff cleared those up itself) goes too. Visible for tests.
+     */
+    fun trim(d: File, now: Long = System.currentTimeMillis()) = runCatching {
+        d.listFiles { f -> f.name.contains(".img.part") && now - f.lastModified() >= PART_LEFT_MS }?.forEach { it.delete() }
         val files = d.listFiles { f -> f.name.endsWith(".img") }?.sortedBy { it.lastModified() } ?: return@runCatching
         var total = files.sumOf { it.length() }
         if (total <= KEEP_BYTES) return@runCatching

@@ -87,6 +87,38 @@ class PhonePostersTest {
         assertEquals(Status.NOT_FOUND, still("e11", "t1"))
     }
 
+    @Test fun aPictureThatFailsHalfwayLeavesNothingBehind() {
+        val d = File(c.cacheDir, "phone-posters").apply { mkdirs() }
+        val to = File(d, "a.img")
+        // The connection drops after the first bytes.
+        val dropping = object : java.io.InputStream() {
+            var n = 0
+            override fun read(): Int = if (n++ < 100) 0xFF else throw java.io.IOException("Connection reset")
+        }
+        assertTrue(runCatching { PhonePosters.keep(dropping, to) }.isFailure)
+        // Bigger than any picture.
+        assertTrue(runCatching { PhonePosters.keep(java.io.ByteArrayInputStream(ByteArray(2_000)), to, max = 1_000) }.isFailure)
+        assertFalse(to.exists())
+        assertEquals(emptyList<String>(), d.list()!!.filter { it.startsWith("a.img") })
+        // One that comes in whole is kept, and only it.
+        PhonePosters.keep(java.io.ByteArrayInputStream(byteArrayOf(1, 2, 3)), to)
+        assertEquals(listOf("a.img"), d.list()!!.filter { it.startsWith("a.img") })
+        assertEquals(3L, to.length())
+    }
+
+    @Test fun picturesLeftHalfFetchedBeforeAreClearedAway() {
+        val d = File(c.cacheDir, "phone-posters").apply { mkdirs() }
+        val now = System.currentTimeMillis()
+        val old = File(d, "b.img.part42").apply { writeBytes(ByteArray(10)); setLastModified(now - 2 * 3_600_000L) }
+        val coming = File(d, "c.img.part43").apply { writeBytes(ByteArray(10)); setLastModified(now - 5_000L) }
+        val kept = File(d, "d.img").apply { writeBytes(ByteArray(10)) }
+        PhonePosters.trim(d, now)
+        assertFalse(old.exists())
+        // One on its way in now, and the pictures kept, stay.
+        assertTrue(coming.exists())
+        assertTrue(kept.exists())
+    }
+
     @Test fun aFolderIsTheWatchTabsOnlyIfItsALibraryEntryOrASeasonOfAShow() {
         val entries = listOf(harborFilms, backyard, lighthouse)
         val shows = listOf(backyard, lighthouse)
