@@ -62,6 +62,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init { refreshRoots() }
 
+    /**
+     * A main window has opened on this already: one made again on it (the TV's settings changed) finds its screens
+     * as they were. Made anew (Android closed Woodruff to free memory), the window puts back the screen it saved.
+     */
+    var windowOpened = false
+
     // ---- Navigation -------------------------------------------------------------------------
 
     fun refreshRoots() {
