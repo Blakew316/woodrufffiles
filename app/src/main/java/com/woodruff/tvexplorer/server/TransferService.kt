@@ -92,7 +92,7 @@ class TransferService : Service() {
     @Volatile private var shownAt: String? = null
     /** Address and port this TV is announced at, so a new one is announced again (and a flicker isn't). */
     @Volatile private var announced: String? = null
-    /** The port last opened: opened again first, so phones' saved links keep working. */
+    /** The port last opened: opened again first, so phones' saved links keep working (kept across restarts: [PhonePort]). */
     @Volatile private var lastPort: Int? = null
     /** Since when (elapsedRealtime) the pairing key has been unreadable; null while it's fine. */
     @Volatile private var keyUnreadableSince: Long? = null
@@ -215,7 +215,7 @@ class TransferService : Service() {
         val page = assets.open("web/index.html").bufferedReader().use { it.readText() }
         val storage = StorageRepository(app)
         val routes = CompanionRoutes(app)
-        for (port in portsToTry(lastPort)) {
+        for (port in portsToTry(lastPort ?: PhonePort.saved(app))) {
             val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public, homeName = { PhoneIcon.label(app) },
                 driveToken = { GoogleAuth.blockingToken(app) })
             try {
@@ -229,6 +229,7 @@ class TransferService : Service() {
                 server = s
             }
             lastPort = s.listeningPort
+            PhonePort.save(app, s.listeningPort)
             showAt(address)
             return true
         }
@@ -509,6 +510,22 @@ internal fun nextStep(open: Boolean, alive: Boolean, shownAt: String?, address: 
 
 /** The phone connection's usual ports, in order; 0 is any free one. */
 private val PORTS = listOf(8080, 8090, 8888, 9090, 0)
+
+/**
+ * The port the phone connection last opened on, kept across restarts (an update, the TV turning on), so it opens
+ * there again first: phones' links, Shortcuts and Home Screen apps carry it. Another app holding 8080 for a while
+ * (Kodi's web server) used to move it to 8090 and, at a later restart, back.
+ */
+internal object PhonePort {
+    private const val PREFS = "phone_connection"
+    private const val KEY = "port"
+
+    fun saved(c: Context): Int? = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY, 0).takeIf { it in 1..65535 }
+
+    fun save(c: Context, port: Int) {
+        if (port in 1..65535 && saved(c) != port) c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(KEY, port).apply()
+    }
+}
 
 /** The ports to try: the last one first (phones keep links with it), then the usual ones. */
 internal fun portsToTry(last: Int?): List<Int> = (listOfNotNull(last?.takeIf { it > 0 }) + PORTS).distinct()

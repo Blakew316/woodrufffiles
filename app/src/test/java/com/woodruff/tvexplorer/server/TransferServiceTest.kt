@@ -149,6 +149,17 @@ class TransferServiceTest {
         assertTrue(state.url!!.endsWith("/?k=the-saved-key"))
     }
 
+    @Test fun opensOnThePortPhonesWereGivenLastTime() {
+        // Last time it opened on a port other than 8080 (something else held 8080 then): phones' links carry that one.
+        val port = java.net.ServerSocket(0).use { it.localPort }
+        PhonePort.save(context, port)
+        address = "192.0.2.10"
+        service().onStartCommand(start, 0, 1)
+        waitFor("open") { state.running }
+        assertEquals("http://192.0.2.10:$port", state.base)
+        assertEquals(port, PhonePort.saved(context))
+    }
+
     @Test fun startsAgainWhileRunningChangeNothing() {
         val service = service()
         service.onStartCommand(start, 0, 1)
