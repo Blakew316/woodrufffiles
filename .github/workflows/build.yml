@@ -2,18 +2,25 @@ name: Build APK
 
 on:
   push:
+    # Branches only: a pushed tag builds nothing, and never releases.
+    branches: ['**']
   pull_request:
   workflow_dispatch:
     inputs:
       ref:
-        # Undo a bad update: rebuild an earlier commit. It gets this run's (higher) build number,
-        # so every TV treats it as an update and installs it like any other.
+        # Undo a bad update: rebuild an earlier commit of the release branch. It gets this run's (higher) build
+        # number, so every TV treats it as an update and installs it like any other.
         description: "Commit to re-release (leave empty for the branch's newest)"
         required: false
         default: ""
 
 permissions:
   contents: write # needed to publish the APK as a GitHub Release
+
+env:
+  # The one branch the TVs' updates come from. Every TV takes the release with the highest number, whatever it was
+  # built from, so a push anywhere else (another branch, a pull request) is built and tested only.
+  RELEASE_BRANCH: claude/busy-heisenberg-vk1mse
 
 jobs:
   build:
@@ -23,6 +30,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.sha }}
+      # Whether this run releases: a push to the release branch whose subject (the commit message's first line) doesn't
+      # have "[no release]", or Run workflow on that branch. The markers are read from the subject alone, as written.
+      - name: Release or not
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse HEAD)
+          release=false
+          urgent=false
+          if [ "$GITHUB_REF" != "refs/heads/$RELEASE_BRANCH" ]; then
+            echo "Built and tested only: releases come from $RELEASE_BRANCH alone, and this is $GITHUB_REF."
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            # The branch's newest commit, or the one asked for, which must be one of the branch's own.
+            if ! status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$commit...$GITHUB_SHA" --jq .status); then
+              echo "::error::Couldn't check that $commit is one of $RELEASE_BRANCH's commits (GitHub's answer is above)."; exit 1
+            fi
+            case "$status" in
+              ahead|identical) release=true ;;
+              *) echo "::error::$commit isn't one of $RELEASE_BRANCH's commits: only those are released."; exit 1 ;;
+            esac
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+            subject=$(git log -1 --format=%s HEAD)
+            case "$subject" in
+              *"[no release]"*) echo "Built and tested only: the subject has [no release]." ;;
+              *) release=true ;;
+            esac
+            case "$subject" in *"[urgent]"*) urgent=true ;; esac
+          fi
+          { echo "release=$release"; echo "urgent=$urgent"; echo "commit=$commit"; } >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -33,7 +71,9 @@ jobs:
       - name: Build APKs
         # The build number becomes the version, so the app's updater can tell newer releases apart.
         run: ./gradlew --no-daemon assembleDebug assembleRelease -PbuildNumber=${{ github.run_number }}
+      # Kept with the run for a few days. Never holds up a release: GitHub's artifact store can fail now and then.
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: WoodruffFamily-apk
           path: |
@@ -41,7 +81,7 @@ jobs:
             app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
       - name: Prepare release APK
-        if: github.event_name != 'pull_request'
+        if: steps.plan.outputs.release == 'true'
         run: |
           cp app/build/outputs/apk/release/*.apk WoodruffFamily.apk
           # Older names too, so links (and short links) made for earlier versions keep working.
@@ -51,7 +91,7 @@ jobs:
       # compiles the new code as it installs instead of overnight. Never holds up a release: without
       # them, updates install as before.
       - name: Prepare speed profiles
-        if: github.event_name != 'pull_request'
+        if: steps.plan.outputs.release == 'true'
         continue-on-error: true
         run: |
           set +e
@@ -112,30 +152,99 @@ jobs:
             echo "No speed profiles for this release: updates install without one, as before."
           fi
           exit 0
-      # Builds can finish out of order; only the build of the branch's newest commit becomes
-      # "latest", so the stable link never goes back to an older APK. The gallery job's own
-      # "Update UI gallery" commits land on top of this one and don't count, nor do "[no release]" ones.
-      - name: Is this the newest commit?
-        id: head
-        if: github.event_name != 'pull_request'
+      # The build number must be above every build already published (every tag and release, drafts too), and the
+      # highest number is always the latest: the TVs take the highest one, and a TV repairing itself after an early
+      # close asks /releases/latest first. A run that finishes after a newer commit's build is out publishes nothing
+      # (the TVs would pass it by); a number that isn't above the newest for any other reason (the run counter started
+      # again: a renamed workflow, a moved repository) fails, instead of publishing a build every TV takes for older.
+      - name: Check the build number
+        id: number
+        if: steps.plan.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ github.run_number }}
+          COMMIT: ${{ steps.plan.outputs.commit }}
+          # How the TVs read a build number from a tag (Updater.buildNumber): "v2.0.312" is build 312.
+          NUMBER: '^v?\d+\.\d+\.(\d+)$'
         run: |
-          # A re-release (undo) is always meant to become the latest.
-          if [ -n "${{ inputs.ref }}" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; exit 0; fi
-          git fetch -q --depth=50 origin "$GITHUB_REF_NAME"
-          newer=$(git log --format=%s "$GITHUB_SHA..FETCH_HEAD" | grep -v '^Update UI gallery' | grep -vF '[no release]' || true)
-          if [ -z "$newer" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
+          python3 - <<'EOF'
+          import os, re, subprocess, sys
+
+          build = int(os.environ["BUILD"])
+          commit = os.environ["COMMIT"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          number = re.compile(os.environ["NUMBER"])
+
+          def fail(why):
+              print(f"::error::{why}")
+              sys.exit(1)
+
+          def ask(path, jq):
+              """GitHub's answer, a line per item; None when GitHub says it isn't there (404, 422)."""
+              r = subprocess.run(["gh", "api", "--paginate", path, "--jq", jq], capture_output=True, text=True)
+              if r.returncode == 0:
+                  return r.stdout.splitlines()
+              if re.search(r"HTTP (404|422)", r.stderr):
+                  return None
+              fail(f"Couldn't ask GitHub for {path}: {r.stderr.strip()}")
+
+          def contains(c):
+              """Whether commit c's history has this run's commit."""
+              status = ask(f"repos/{repo}/compare/{commit}...{c}", ".status")
+              return bool(status) and status[0] in ("ahead", "identical")
+
+          # Every build number in use: every tag (a deleted release's tag stays, and a new release would sit on it)
+          # and every release, drafts too (one whose files are still uploading is a draft).
+          tags = {}
+          for line in ask(f"repos/{repo}/tags?per_page=100", ".[] | [.name, .commit.sha] | @tsv") or []:
+              name, sha = line.split("\t")
+              tags[name] = sha
+          taken = []
+          released = set()
+          for line in ask(f"repos/{repo}/releases?per_page=100", ".[] | [.tag_name, (.draft | tostring), .target_commitish] | @tsv") or []:
+              name, draft, target = line.split("\t")
+              released.add(name)
+              m = number.match(name)
+              if m:
+                  taken.append((int(m.group(1)), f"the release {name}" + (" (a draft)" if draft == "true" else ""), tags.get(name) or target))
+          for name, sha in tags.items():
+              m = number.match(name)
+              if m and name not in released:
+                  taken.append((int(m.group(1)), f"the tag {name}", sha))
+
+          newest = max((n for n, _, _ in taken), default=0)
+          clash = [t for t in taken if t[0] == build and t[2] != commit]
+          if clash:
+              _, what, sha = clash[0]
+              fail(f"Build {build} is taken already, by {what} (commit {sha[:12]}): the build numbers have gone back (a renamed "
+                   f"workflow, or a moved repository). Nothing was published. The numbers must start above {newest} again.")
+          if build >= newest:
+              # Equal only to this run's own release, from before a re-run.
+              print(f"Build {build} is above every published build (the newest was {newest}): it's published, as the latest.")
+              publish = "true"
+          else:
+              top = [t for t in taken if t[0] == newest][0]
+              if not contains(top[2]):
+                  fail(f"Build {build} isn't above build {newest} ({top[1]}), which isn't from a newer commit: the build numbers "
+                       f"have gone back (a renamed workflow, or a moved repository), or an older commit was published again since. "
+                       f"Nothing was published.")
+              print(f"::notice::Not published: build {newest}, from a newer commit, is out already (this run finished after it).")
+              publish = "false"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"publish={publish}\n")
+          EOF
       # Gives a stable download link: /releases/latest/download/WoodruffFamily.apk
-      # A commit whose message says "[no release]" is built and tested but not released (for trying a
-      # risky change in CI first); it doesn't count as newer above either.
-      - uses: softprops/action-gh-release@v2
-        if: github.event_name != 'pull_request' && !contains(github.event.head_commit.message, '[no release]')
+      # A commit whose subject has "[no release]" is built and tested but not released (for trying a risky change in
+      # CI first).
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        if: steps.number.outputs.publish == 'true'
         with:
           tag_name: v2.0.${{ github.run_number }}
-          # "rollback" tells the TVs to install it right away instead of waiting a day: re-releases, and
-          # urgent fixes (a commit message with "[urgent]") that every TV needs now.
-          name: Woodruff Family 2.0 (build ${{ github.run_number }})${{ (inputs.ref || contains(github.event.head_commit.message, '[urgent]')) && ' · rollback' || '' }}
-          target_commitish: ${{ inputs.ref || github.sha }}
-          make_latest: ${{ steps.head.outputs.latest }}
+          # "rollback" in the name: re-releases, and urgent fixes (a subject with "[urgent]"). The TVs read it, but it
+          # changes nothing today: every TV takes each new build at its next check.
+          name: Woodruff Family 2.0 (build ${{ github.run_number }})${{ (inputs.ref || steps.plan.outputs.urgent == 'true') && ' · rollback' || '' }}
+          target_commitish: ${{ steps.plan.outputs.commit }}
+          make_latest: true
           files: |
             WoodruffFamily.apk
             WoodruffFilms.apk
@@ -183,7 +292,7 @@ jobs:
           node phone.mjs ../../build/gallery
       - name: Publish to GitHub Pages
         run: |
-          pip install --quiet pillow
+          pip install --quiet pillow==13.0.0
           # Build the gallery outside the checkout, then lay it over the latest branch each try:
           # never merge (binary images can't be merged when two runs overlap).
           python3 tools/gallery/publish.py build/gallery "$RUNNER_TEMP/ui" "${{ github.run_number }}" "${GITHUB_SHA::7}"

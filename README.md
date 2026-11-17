@@ -431,20 +431,21 @@ before the time it gives, and Settings → Updates says so (*GitHub is busy · c
 - **Fast straight after an update**: each release carries a speed profile (`WoodruffFamily-api28.dm` and
   `WoodruffFamily-api31.dm`) that installs with it on Android 9 and newer, so Android prepares the app's busiest code
   while installing instead of over the following days. Settings → Advanced → *App code* shows how it's prepared.
-- **Test TV** (Settings → Updates): turn it on for one TV. That TV installs each new version as soon as it's out.
-  Every other TV only installs a version that was the newest for a whole day, however often new versions come: a run
-  of releases only makes them wait longer, and a version that had to be replaced within its first day never reaches
-  them. They go by release times, so this works best with the test TV in use. *Check for updates* in a TV's own
-  Settings skips the wait; one asked for from the phone or another TV looks at once but still waits for the day.
+- **Every TV at once**: every TV takes a new version at its next check (within the hour, or when Woodruff opens) and
+  installs it at the next quiet moment. There's no longer a day's wait after the test TV, so the *Test TV* switch
+  (Settings → Updates) doesn't change when a TV updates, and nor does an urgent fix (a commit whose subject has
+  `[urgent]`, released as "rollback"). *Check for updates* looks at once, on the TV or asked for from the phone or
+  another TV.
 - **Undo a bad update**: Android won't install an older version over a newer one, so an earlier version is
-  re-released with a new, higher number: GitHub → Actions → Build APK → *Run workflow*, with the commit to go
-  back to. It's marked "rollback", so no TV waits a day for it.
+  re-released with a new, higher number: GitHub → Actions → Build APK → *Run workflow* on
+  `claude/busy-heisenberg-vk1mse`, with the commit to go back to (one of that branch's own). It's marked "rollback";
+  every TV takes it like any new version.
 - **A bad update repairs itself**: if a new version closes within 45 seconds of Woodruff opening (on any Android
   version; on Android 11 and newer also a crash in native code or a freeze, when the TV reports it), every start of
   Woodruff looks for a fixed version at once, then every few minutes. A start means the TV turning on, the phone
-  connection coming back, or someone opening it. It takes any newer build without waiting for the test TV's day and
-  installs it as soon as it's there, even while Woodruff is on screen (never over a film that's playing or a copy
-  that's still running). What was on screen comes back afterwards. Publishing a rollback (above) is all it takes.
+  connection coming back, or someone opening it. It takes any newer build and installs it as soon as it's there, even
+  while Woodruff is on screen (never over a film that's playing or a copy that's still running). What was on screen
+  comes back afterwards. Publishing a rollback (above) is all it takes.
   After two such closes in a row, Woodruff opens to a plain recovery screen instead. It says what happened, looks for
   the fix, and offers *Install the fix* once it's ready (Android 12 and newer install it by themselves; Android 11 and
   older show Android's *Update* screen for one press). *Try opening again* opens Woodruff normally, and one more close
@@ -455,7 +456,11 @@ before the time it gives, and Settings → Updates says so (*GitHub is busy · c
   up), and the phone app shows the full report under Settings → *Last Crash on This TV*, with Copy.
 
 Each release is built with its build number as the version (release v2.0.N is version N), which is how the app
-tells a newer release apart.
+tells a newer release apart. Only a push to `claude/busy-heisenberg-vk1mse` is released, unless its subject (the commit
+message's first line) has `[no release]`, as written; a push to another branch, a pull request or a tag is built and
+tested only. The highest build is always GitHub's latest release, and a build whose number isn't above every
+published one isn't published: one that finished after a newer commit's build is left out, and one whose number has
+gone back (a renamed workflow) fails instead of going out as an older version.
 
 ## How it moves
 
