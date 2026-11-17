@@ -1,8 +1,22 @@
 package com.woodruff.tvexplorer.server
 
+import android.net.Uri
+import androidx.annotation.OptIn
+import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.woodruff.tvexplorer.cloud.DriveApi
 import com.woodruff.tvexplorer.data.FileTypes
 import com.woodruff.tvexplorer.net.Http
+import com.woodruff.tvexplorer.player.DataSourceBody
+import com.woodruff.tvexplorer.player.DriveAsks
+import com.woodruff.tvexplorer.player.MediaRef
+import com.woodruff.tvexplorer.player.boundedDrive
+import com.woodruff.tvexplorer.player.documentSize
+import com.woodruff.tvexplorer.player.driveAuthorized
 import fi.iki.elonen.NanoHTTPD.Response
 import fi.iki.elonen.NanoHTTPD.newChunkedResponse
 import fi.iki.elonen.NanoHTTPD.newFixedLengthResponse
@@ -58,8 +72,62 @@ internal object PhoneStream {
         }
     }
 
-    /** A Drive video, passed through as Drive sends it (Drive answers ranges itself). */
-    fun drive(id: String, range: String?, token: String): Response {
+    /**
+     * A Drive video, the part the phone asks for ("bytes=a-b", "bytes=a-" or all of it), answered as Drive would, with
+     * this TV's sign-in ([token], asked afresh for each request). Google itself is asked in bounded pieces
+     * ([boundedDrive]), however much the phone asks for: its player asks for everything from a spot to the end of the
+     * film and hangs up as it seeks, and Google may count each of those as the rest of the film against its daily
+     * download allowance. A phone that hangs up asks Google for nothing more. Any other Range ("bytes=-n", several) is
+     * passed on as it is ([driveAsAsked]): it's bounded already, or Drive turns it down.
+     */
+    @OptIn(UnstableApi::class)
+    fun drive(id: String, range: String?, token: () -> String, upstream: DataSource.Factory = OkHttpDataSource.Factory(Http.client)): Response {
+        val asked = if (range == null) 0L to null else askedRange(range) ?: return driveAsAsked(id, range, token())
+        val (start, last) = asked
+        DriveAsks.onPhone(MediaRef.Drive(id).key)
+        val source = boundedDrive(driveAuthorized(upstream, token)).createDataSource()
+        val spec = DataSpec.Builder().setUri(Uri.parse(DriveApi.mediaUrl(id))).setPosition(start)
+            .setLength(if (last == null) C.LENGTH_UNSET.toLong() else last - start + 1).build()
+        val opened = try {
+            source.open(spec)
+        } catch (e: IOException) {
+            runCatching { source.close() }
+            val code = generateSequence<Throwable>(e) { it.cause }.take(10).filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode
+            throw if (code == null) e else IOException(if (code == 416) "Past the end of the video" else "Google Drive answered $code")
+        }
+        val headers = source.responseHeaders
+        val total = documentSize(headers)
+        val type = headers.entries.firstOrNull { it.key?.equals("Content-Type", ignoreCase = true) == true }?.value?.firstOrNull()
+            ?.takeUnless { it.startsWith("application/octet-stream") } ?: "video/mp4"
+        val end = when {
+            total != C.LENGTH_UNSET.toLong() -> minOf(last ?: (total - 1), total - 1)
+            last != null -> last
+            opened != C.LENGTH_UNSET.toLong() -> start + opened - 1
+            else -> null
+        }
+        if (end != null && end < start) {
+            runCatching { source.close() }
+            throw IOException("Past the end of the video")
+        }
+        val body = DataSourceBody(source)
+        val status = if (range != null) Response.Status.PARTIAL_CONTENT else Response.Status.OK
+        val r = if (end != null) newFixedLengthResponse(status, type, body, end - start + 1) else newChunkedResponse(status, type, body)
+        r.addHeader("Accept-Ranges", "bytes")
+        if (range != null && end != null && total != C.LENGTH_UNSET.toLong()) r.addHeader("Content-Range", "bytes $start-$end/$total")
+        return r
+    }
+
+    /** The one range in [header] ("bytes=a-b", "bytes=a-": its first byte and its last, null for "to the end"); null for any other. */
+    internal fun askedRange(header: String): Pair<Long, Long?>? {
+        val m = Regex("""bytes=(\d+)-(\d*)""").matchEntire(header.trim()) ?: return null
+        val start = m.groupValues[1].toLongOrNull() ?: return null
+        val last = m.groupValues[2].takeIf { it.isNotEmpty() }?.let { it.toLongOrNull() ?: return null }
+        if (last != null && last < start) return null
+        return start to last
+    }
+
+    /** A Drive video passed through as Drive sends it, for a Range [askedRange] doesn't take (Drive answers ranges itself). */
+    private fun driveAsAsked(id: String, range: String?, token: String): Response {
         val c = Http.open(DriveApi.mediaUrl(id))
         c.connectTimeout = 15_000
         c.readTimeout = 30_000

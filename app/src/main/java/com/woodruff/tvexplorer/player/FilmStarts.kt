@@ -101,10 +101,13 @@ internal object FilmStarts {
         runCatching { opened.checkInitialization() }.onFailure { unusable = true; cache = null }
     }
 
-    /** The player's sources: Drive's films through the TV's copy of their start, everything else straight to [upstream]. */
-    fun dataSourceFactory(c: Context, upstream: DataSource.Factory): DataSource.Factory {
+    /**
+     * The player's sources: Drive's films through the TV's copy of their start, everything else straight to [upstream].
+     * [noteCopyReads] false: reads that aren't the player's (the scrub preview's) aren't noted as its start read from the copy.
+     */
+    fun dataSourceFactory(c: Context, upstream: DataSource.Factory, noteCopyReads: Boolean = true): DataSource.Factory {
         val app = c.applicationContext
-        return DataSource.Factory { DriveStartsDataSource(upstream) { usable(app) } }
+        return DataSource.Factory { DriveStartsDataSource(upstream, noteCopyReads = noteCopyReads) { usable(app) } }
     }
 
     /** The cache, if it opened well and its starts can be checked. On the loader's thread: may wait for it to open. */
@@ -238,6 +241,7 @@ internal class FilmStartsErrorPolicy : DefaultLoadErrorHandlingPolicy() {
 internal class DriveStartsDataSource(
     private val upstream: DataSource.Factory,
     private val windows: StartWindows = StartWindows(),
+    private val noteCopyReads: Boolean = true,
     private val cacheFor: () -> Cache?,
 ) : DataSource {
     private val plain = upstream.createDataSource()
@@ -279,7 +283,7 @@ internal class DriveStartsDataSource(
     private fun copied(): DataSource? {
         copied?.let { return it }
         val cache = cacheFor() ?: return null
-        return FilmStarts.cachedSource(cache, upstream.createDataSource(), windows, onReadFromCopy = { currentKey?.let(FilmStarts::noteReadFromCopy) })
+        return FilmStarts.cachedSource(cache, upstream.createDataSource(), windows, onReadFromCopy = { if (noteCopyReads) currentKey?.let(FilmStarts::noteReadFromCopy) })
             .also { source -> listeners.forEach(source::addTransferListener); copied = source }
     }
 }

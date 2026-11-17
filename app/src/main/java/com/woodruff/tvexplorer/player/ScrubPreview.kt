@@ -1,6 +1,7 @@
 package com.woodruff.tvexplorer.player
 
 import android.graphics.Bitmap
+import android.media.MediaDataSource
 import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.Handler
@@ -18,13 +19,20 @@ import java.util.concurrent.atomic.AtomicBoolean
  * happens on one background thread, always for the latest spot asked for; results come back on the
  * main thread.
  *
- * It stays out of the way of the film: Android's reader fetches only a little past each frame
- * ([headersFor]), and once a scrub has ended ([cancel]) no new spot is read, so the seek the family
- * is waiting for has the connection to itself.
+ * It stays out of the way of the film: a Drive film is read the player's way ([reader], see
+ * [DriveFrames]: its kept start, then small bounded pieces, never "to the end of the film");
+ * Android's reader, for anything else, fetches only a little past each frame ([headersFor]); and
+ * once a scrub has ended ([cancel]) no new spot is read, so the seek the family is waiting for has
+ * the connection to itself.
  */
 class ScrubPreview(
     /** Where to read the video from, and any headers (the Drive token), for a media key. Called off the main thread. */
     private val source: (key: String) -> Pair<String, Map<String, String>>?,
+    /**
+     * The app's own reader for an address (a Drive film's: [DriveFrames]), or null to leave it to
+     * Android's. Called off the main thread.
+     */
+    private val reader: (url: String) -> MediaDataSource? = { null },
 ) {
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "scrub-preview").apply { priority = Thread.MIN_PRIORITY } }
     private val main = Handler(Looper.getMainLooper())
@@ -36,6 +44,8 @@ class ScrubPreview(
     // Only touched on the worker thread.
     private var retriever: MediaMetadataRetriever? = null
     private var retrieverKey: String? = null
+    /** The app's own reader the retriever reads through, if any: closed with it. */
+    private var retrieverReader: MediaDataSource? = null
     private var failedKey: String? = null
     private var failedAt = 0L
     /** The last spot fetched (or tried) in this scrub. */
@@ -112,8 +122,10 @@ class ScrubPreview(
 
     private fun closeRetriever() {
         runCatching { retriever?.release() }
+        runCatching { retrieverReader?.close() }
         retriever = null
         retrieverKey = null
+        retrieverReader = null
     }
 
     private fun frame(target: Pair<String, Long>): Bitmap? {
@@ -145,12 +157,19 @@ class ScrubPreview(
         if (retrieverKey == key && retriever != null) return retriever
         closeRetriever()
         val (url, headers) = source(key) ?: return null
+        var own: MediaDataSource? = null
         return runCatching {
+            own = reader(url)
             MediaMetadataRetriever().apply {
-                if (isHttp(url)) setDataSource(url, headersFor(url, headers)) else setDataSource(url)
+                val r = own
+                when {
+                    r != null -> setDataSource(r)
+                    isHttp(url) -> setDataSource(url, headersFor(url, headers))
+                    else -> setDataSource(url)
+                }
             }
-        }.onFailure { failedKey = key; failedAt = System.currentTimeMillis() }
-            .getOrNull()?.also { retriever = it; retrieverKey = key }
+        }.onFailure { runCatching { own?.close() }; failedKey = key; failedAt = System.currentTimeMillis() }
+            .getOrNull()?.also { retriever = it; retrieverKey = key; retrieverReader = own }
     }
 
     companion object {

@@ -130,6 +130,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         // index from disk): Continue watching then asks Drive for one thing instead of three.
         val app = applicationContext
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { FilmStarts.warm(app) }
+        // What this TV asked of Google today and its last lines about it, read back (the TV's diagnostics).
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { DriveAsks.attach(app) }
         // The subtitle files beside Drive's films, as last seen in their folders: read in now, so
         // the first film has them (it waits for this only if it isn't done by then).
         SubtitleIndex.attach(app)
@@ -1414,7 +1416,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         swallowUp = null
         com.woodruff.tvexplorer.util.FrameStats.screen = "Player"
         com.woodruff.tvexplorer.util.FrameStats.attach(this)
-        preview = ScrubPreview(::previewSource)
+        preview = ScrubPreview(::previewSource, ::previewReader)
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
         var keys: List<String> = savedQueue?.first ?: intent.getStringArrayListExtra(EXTRA_KEYS).orEmpty()
         var titles: List<String> = savedQueue?.second ?: intent.getStringArrayListExtra(EXTRA_TITLES).orEmpty()
@@ -1617,6 +1619,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     autoSubsOn = false
                     applyShowTracks(p)
                     bindTitle(mediaItem)
+                    noteDriveFilm(mediaItem)
                     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                         // Finished the previous one: drop it from Continue watching.
                         val prev = p.previousMediaItemIndex.takeIf { it >= 0 }?.let { p.getMediaItemAt(it) }
@@ -1636,6 +1639,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             // Pause at the end of each item so the "Up next" countdown can run (and be cancelled).
             p.pauseAtEndOfMediaItems = true
             p.setMediaItems(items, start, startPos)
+            noteDriveFilm(p.currentMediaItem)
             applyShowTracks(p)
             // Back to it (from the doorbell, the screensaver): as it was, so paused stays paused. A
             // new film plays, unless it's one put back after an update (paused at its spot).
@@ -1712,6 +1716,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             com.woodruff.tvexplorer.cloud.FamilySync.pushNow(this)
             p.release()
         }
+        // The film closed: what it asked of Google, said in the TV's diagnostics.
+        noteDriveFilm(null)
         heldForRate = false
         player = null
         // Off the screen: the loading ring goes at once, as the cards above do, and the subtitles are back in their place.
@@ -1790,17 +1796,46 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     }
 
     /**
-     * Local files pass straight through; Drive URLs get an Authorization header per request, and
-     * the start of each Drive film (its header and index) is kept on the TV ([FilmStarts]). A
-     * subtitle file beside the film that can't be read leaves the film without it ([SidecarLoading]).
+     * Local files pass straight through; Drive URLs get an Authorization header per request, Google
+     * is asked for them in bounded pieces, never "to the end of the film" ([BoundedDriveSource]: its
+     * daily download allowance), and the start of each Drive film (its header and index) is kept on
+     * the TV ([FilmStarts]). A subtitle file beside the film that can't be read leaves the film
+     * without it ([SidecarLoading]).
      */
-    private fun dataSources(): androidx.media3.datasource.DataSource.Factory {
-        // Over OkHttp, on the app's shared connections: one kept-open (HTTP/2) connection to Drive
-        // carries every range request, so a start (3-4 requests for an MKV) and each seek no longer
-        // wait for a new connection and handshake. Redirects between http and https are still followed.
-        val http = OkHttpDataSource.Factory(streamClient)
-        val authed = driveAuthorized(http, ::token)
-        return SidecarLoading.dataSourceFactory(DefaultDataSource.Factory(this, FilmStarts.dataSourceFactory(applicationContext, authed)))
+    private fun dataSources(): androidx.media3.datasource.DataSource.Factory =
+        SidecarLoading.dataSourceFactory(DefaultDataSource.Factory(this, FilmStarts.dataSourceFactory(applicationContext, toDrive(DrivePieces.FILMS))))
+
+    /**
+     * Requests to Drive, in pieces of [pieces]: over OkHttp, on the app's shared connections (one
+     * kept-open HTTP/2 connection to Drive carries every request, so a start and each seek don't wait
+     * for a new connection and handshake; redirects between http and https are still followed), each
+     * with the token asked for afresh ([driveAuthorized]), so a piece asked for an hour into a film
+     * carries a token that's current.
+     */
+    private fun toDrive(pieces: DrivePieces): androidx.media3.datasource.DataSource.Factory =
+        boundedDrive(driveAuthorized(OkHttpDataSource.Factory(streamClient), ::token), pieces)
+
+    /**
+     * The scrub preview's reader for a Drive film ([DriveFrames]): the player's way to Drive, its
+     * kept start and then small pieces, instead of Android's reader asking Google for the rest of the
+     * film at every frame. Null for anything else. Off the main thread.
+     */
+    private fun previewReader(url: String): android.media.MediaDataSource? {
+        val uri = android.net.Uri.parse(url)
+        if (driveFileKey(uri) == null) return null
+        return DriveFrames(FilmStarts.dataSourceFactory(applicationContext, toDrive(DrivePieces.FRAMES), noteCopyReads = false).createDataSource(), uri)
+    }
+
+    /** The Drive film this player is asking Google for now, for the TV's diagnostics ([DriveAsks]). */
+    private var driveFilm: String? = null
+
+    /** [item] is the one playing: the last Drive film's counts are said, and [item]'s begin (under its title). */
+    private fun noteDriveFilm(item: MediaItem?) {
+        val key = item?.mediaId?.takeIf { MediaRef.parse(it) is MediaRef.Drive }
+        if (key == driveFilm) return
+        driveFilm?.let(DriveAsks::closed)
+        driveFilm = key
+        if (key != null) DriveAsks.playing(key, item?.mediaMetadata?.title?.toString())
     }
 
     /**

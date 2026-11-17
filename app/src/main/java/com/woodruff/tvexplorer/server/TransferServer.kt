@@ -151,7 +151,7 @@ class TransferServer(
         val range = s.headers["range"]
         if (key.startsWith("drive:")) {
             val token = driveToken() ?: throw IOException("This TV isn’t signed in to Google Drive just now")
-            return PhoneStream.drive(key.removePrefix("drive:"), range, token)
+            return PhoneStream.drive(key.removePrefix("drive:"), range, { driveToken() ?: token })
         }
         val f = resolve(key)
         if (!f.isFile) throw IllegalArgumentException("Not a file")
