@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import com.woodruff.tvexplorer.data.FileKind
 import com.woodruff.tvexplorer.data.FileTypes
 import java.io.File
+import kotlin.random.Random
 
 /**
  * App background picture and slideshow/screensaver settings. Values are Compose state so the
@@ -86,22 +87,49 @@ object Appearance {
         prefs(c).edit().putInt("idle", idleMinutes).apply()
     }
 
-    /** Photos for the slideshow: the chosen folder, else the TV's Pictures and DCIM folders. */
-    fun photos(c: Context, limit: Int = 2000): List<File> {
+    /**
+     * Photos for the slideshow (and "On this day"): the chosen folder, else the TV's Pictures and DCIM folders. Up to
+     * [limit] of them, each as likely as any other however many there are, in random order: taking the first [limit]
+     * found left the rest out every time, DCIM's included. At most [LOOKED_AT] are looked at, so a slideshow of a huge
+     * USB drive doesn't sit on "Loading photos…".
+     */
+    fun photos(c: Context, limit: Int = 2000, random: Random = Random.Default): List<File> {
         val roots = slideshowFolder?.let { listOf(File(it)) } ?: listOf(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
         )
-        return roots.asSequence()
+        val found = roots.asSequence()
             .filter { it.isDirectory }
             .flatMap { it.walkTopDown().maxDepth(6).onEnter { d -> !d.name.startsWith(".") } }
-            .filter { it.isFile && isImage(it) }
-            .take(limit)
-            .toList()
-            .shuffled()
+            .filter { isImage(it) && it.isFile }
+            .take(LOOKED_AT)
+        return sample(found, limit, random)
     }
+
+    /** The most photos [photos] looks at. */
+    internal const val LOOKED_AT = 10_000
 
     fun isImage(f: File) = FileTypes.kindOf(f.name) == FileKind.IMAGE
 
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
+
+/**
+ * Up to [limit] of [items], each as likely to be among them as any other, in random order: one pass, holding only
+ * [limit] (reservoir sampling).
+ */
+internal fun <T> sample(items: Sequence<T>, limit: Int, random: Random = Random.Default): List<T> {
+    val kept = ArrayList<T>()
+    var seen = 0
+    for (item in items) {
+        if (kept.size < limit) {
+            kept += item
+        } else {
+            val at = random.nextInt(seen + 1)
+            if (at < limit) kept[at] = item
+        }
+        seen++
+    }
+    kept.shuffle(random)
+    return kept
 }

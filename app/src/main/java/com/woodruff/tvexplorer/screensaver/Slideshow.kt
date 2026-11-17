@@ -75,6 +75,8 @@ class SlideshowView(context: Context) : FrameLayout(context) {
     /** Photos in a row that couldn't be read. */
     private var misses = 0
     private var running = false
+    /** Which [start] this is: a folder scan finishing after a later start (or a stop) shows nothing. */
+    private var run = 0
 
     init {
         setBackgroundColor(Color.BLACK)
@@ -111,6 +113,7 @@ class SlideshowView(context: Context) : FrameLayout(context) {
     fun start() {
         if (running) return
         running = true
+        val mine = ++run
         misses = 0
         Appearance.load(context)
         main.post(tick)
@@ -126,7 +129,9 @@ class SlideshowView(context: Context) : FrameLayout(context) {
             val memories = runCatching { com.woodruff.tvexplorer.photos.Memories.forToday(context) { all } }.getOrDefault(emptyList())
             val found = if (memoriesOnly) memories else memories + (all - memories.toSet())
             main.post {
-                if (!running) return@post
+                // Stopped meanwhile, or stopped and started again (the doorbell's camera opening and closing over
+                // "Loading photos…"): only the newest scan moves the slideshow on, or each photo got half its turn.
+                if (!running || mine != run) return@post
                 photos = found
                 if (found.isEmpty()) {
                     message.text = "No photos yet.\n\nSend photos from your phone (Woodruff → Files), then pick their folder in Settings → Screensaver."
@@ -272,13 +277,34 @@ class SlideshowDream : DreamService() {
 /** In-app slideshow: started from Settings or after the idle timeout. Any button closes it. */
 class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Restorable {
     private lateinit var view: SlideshowView
+    /** Started by the player's sleep timer: it never keeps the screen on, so the TV sleeps by its own timers. */
+    private var asleep = false
+    private val screen = Handler(Looper.getMainLooper())
+    private val lookAgain = Runnable { keepScreenOn() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        asleep = intent.getBooleanExtra(EXTRA_ASLEEP, false)
         view = SlideshowView(this).apply { memoriesOnly = intent.getBooleanExtra(EXTRA_MEMORIES, false) }
         setContentView(view)
         current = java.lang.ref.WeakReference(this)
+    }
+
+    /**
+     * The screen stays on while someone may be watching: until [SLIDESHOW_SCREEN_ON_MS] after Woodruff was last used
+     * (a key, or the slideshow coming on screen: [com.woodruff.tvexplorer.util.Presence]). Then the TV's own
+     * screensaver and sleep timers run again, as over any other screen of Woodruff's. After the player's sleep timer
+     * it doesn't keep the screen on at all.
+     */
+    private fun keepScreenOn() {
+        screen.removeCallbacks(lookAgain)
+        val left = slideshowScreenOnFor(com.woodruff.tvexplorer.util.Presence.sinceUseMs(), asleep)
+        if (left > 0) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            screen.postDelayed(lookAgain, left)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     override fun onDestroy() {
@@ -291,6 +317,7 @@ class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Res
 
     override fun onStart() {
         super.onStart()
+        keepScreenOn()
         view.start()
         com.woodruff.tvexplorer.remote.TvScreen.attach(this)
         doorbell = Doorbell.watchFor(Doorbell.Host.SLIDESHOW) { ring -> startActivity(doorbellIntent(this, ring)) }
@@ -308,6 +335,7 @@ class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Res
     }
 
     override fun onStop() {
+        screen.removeCallbacks(lookAgain)
         doorbell?.stop()
         doorbell = null
         com.woodruff.tvexplorer.remote.TvScreen.detach(this)
@@ -317,12 +345,16 @@ class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Res
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean { finish(); return true }
 
-    /** After an update, the slideshow runs again (update/Restore). */
-    override fun restoreRoute(): com.woodruff.tvexplorer.update.Restore.Route =
-        com.woodruff.tvexplorer.update.Restore.Slideshow(memories = view.memoriesOnly)
+    /**
+     * After an update, the slideshow runs again (update/Restore). Not the one after the player's sleep timer: put back,
+     * it would keep the screen on; the screen under it comes back instead, and the TV sleeps by its own timers.
+     */
+    override fun restoreRoute(): com.woodruff.tvexplorer.update.Restore.Route? =
+        if (asleep) null else com.woodruff.tvexplorer.update.Restore.Slideshow(memories = view.memoriesOnly)
 
     companion object {
         private const val EXTRA_MEMORIES = "memories"
+        private const val EXTRA_ASLEEP = "asleep"
 
         /** The slideshow up now, if one is. Main thread. */
         private var current: java.lang.ref.WeakReference<SlideshowActivity>? = null
@@ -342,13 +374,28 @@ class SlideshowActivity : Activity(), com.woodruff.tvexplorer.update.Restore.Res
             current?.get()?.takeIf { !it.isFinishing }?.finish()
         }
 
-        fun start(context: Context, memories: Boolean = false) = context.startActivity(intent(context, memories))
+        fun start(context: Context, memories: Boolean = false, asleep: Boolean = false) = context.startActivity(intent(context, memories, asleep))
 
-        /** [memories]: only today's "On this day" photos. */
-        fun intent(context: Context, memories: Boolean = false): Intent =
-            Intent(context, SlideshowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(EXTRA_MEMORIES, memories)
+        /** [memories]: only today's "On this day" photos. [asleep]: after the player's sleep timer (the screen isn't kept on). */
+        fun intent(context: Context, memories: Boolean = false, asleep: Boolean = false): Intent =
+            Intent(context, SlideshowActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra(EXTRA_MEMORIES, memories).putExtra(EXTRA_ASLEEP, asleep)
     }
 }
+
+/**
+ * How much longer Woodruff's own slideshow keeps the screen on, [sinceUseMs] after Woodruff was last used: what's left of
+ * [SLIDESHOW_SCREEN_ON_MS], and nothing after the player's sleep timer ([asleep]). Nothing left: the TV's own timers run.
+ */
+internal fun slideshowScreenOnFor(sinceUseMs: Long, asleep: Boolean): Long =
+    if (asleep) 0 else (SLIDESHOW_SCREEN_ON_MS - sinceUseMs).coerceAtLeast(0)
+
+/**
+ * An hour: a slideshow someone puts on (or that starts when Woodruff sits idle) shows that long without a key pressed
+ * before the TV's screensaver and sleep timers may take over, so the screen doesn't go dark under someone watching, and
+ * a TV left on with nobody there still goes to sleep by itself.
+ */
+internal const val SLIDESHOW_SCREEN_ON_MS = 60 * 60_000L
 
 /** Folder scans for every slideshow run on this one background thread. */
 private val sharedIo = Executors.newSingleThreadExecutor()

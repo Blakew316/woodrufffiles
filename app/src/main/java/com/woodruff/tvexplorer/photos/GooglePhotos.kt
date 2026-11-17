@@ -155,11 +155,13 @@ object GooglePhotos {
                 }
                 download(id)
             } catch (e: CancellationException) {
+                // Stopped part-way through the downloads: the window isn't left on "Adding…" for good.
+                _state.update { pickStopped(it, null) }
                 throw e
             } catch (e: Exception) {
                 Log.w("GooglePhotos", "pick failed", e)
                 // No network, or Google not answering: never "sign-in expired".
-                _state.update { it.copy(error = if (com.woodruff.tvexplorer.util.isNetworkFailure(e)) CANT_REACH else e.message ?: "Couldn’t get photos") }
+                _state.update { pickStopped(it, if (com.woodruff.tvexplorer.util.isNetworkFailure(e)) CANT_REACH else e.message ?: "Couldn’t get photos") }
             } finally {
                 endSession()
             }
@@ -208,13 +210,12 @@ object GooglePhotos {
                     for (item in todo) launch(Dispatchers.IO) {
                         gate.withPermit {
                             val dir = (if (item.video) videoFolder else folder).apply { mkdirs() }
-                            val target = synchronized(this@GooglePhotos) {
-                                // Reserve the name so two parallel downloads can't pick the same one.
-                                FileOperations.uniqueTarget(dir, if (item.video) cleanName(item.name) else jpegName(item.name))
-                                    .also { it.createNewFile() }
-                            }
-                            val tmp = File(dir, ".${target.name}.part")
+                            // Only what this download made goes if it fails: never a file that was already there.
+                            var reserved: File? = null
+                            var part: File? = null
                             try {
+                                val target = reserve(dir, if (item.video) cleanName(item.name) else jpegName(item.name)).also { reserved = it }
+                                val tmp = File(dir, ".${target.name}.part").also { part = it }
                                 // Photos at the size the TV draws them; videos as-is ("=dv").
                                 val conn = open(if (item.video) "${item.url}=dv" else "${item.url}$sized", "GET")
                                 try {
@@ -228,19 +229,19 @@ object GooglePhotos {
                                 if (!tmp.renameTo(target)) throw IOException("Couldn’t save ${target.name}")
                                 item.taken?.let { MediaDates.record(app, target, it) }
                                 if (item.video) videos.incrementAndGet() else added.incrementAndGet()
-                                // Written down as it arrives (and saved now and then), so even an interrupted
-                                // download is replaced by the next pick instead of staying on the TV for good.
-                                val n = synchronized(picked) { picked[item.id] = Kept(target.name, item.video); picked.size }
-                                if (n % 25 == 0) savePicked()
+                                // Written down and saved as each one arrives, so a pick that's cut short (Woodruff
+                                // stopped, the power cut) leaves nothing the next pick would download a second time.
+                                synchronized(picked) { picked[item.id] = Kept(target.name, item.video); savePicked() }
                             } catch (e: CancellationException) {
-                                target.delete()
+                                reserved?.delete()
                                 throw e
                             } catch (e: Exception) {
-                                target.delete()
+                                // (Storage full, say: this one counts as not downloaded, and the others carry on.)
+                                reserved?.delete()
                                 failed.incrementAndGet()
                                 Log.w("GooglePhotos", "download failed: ${item.name}", e)
                             } finally {
-                                tmp.delete()
+                                part?.delete()
                             }
                         }
                         val n = finished.incrementAndGet()
@@ -263,6 +264,7 @@ object GooglePhotos {
                 n
             }
             if (items.any { !it.video } && _onTv.value.photos > 0) Appearance.setSlideshowFolder(app, folder.path)
+            Memories.changed()
             _state.value = State(
                 Step.DONE, done = todo.size, total = todo.size, added = added.get(), videos = videos.get(),
                 kept = kept, removed = removed, failed = failed.get(),
@@ -270,27 +272,47 @@ object GooglePhotos {
         }
     }
 
-    /** Takes every downloaded photo and video off the TV (Google Photos itself isn't touched). */
-    fun removeAll() {
-        scope.launch {
-            files.withLock {
-                withContext(Dispatchers.IO) {
-                    loadPicked()
-                    for (dir in listOf(folder, videoFolder)) dir.listFiles()?.forEach { if (it.isFile) it.delete() }
-                    synchronized(picked) { picked.clear() }
-                    savePicked()
-                    countOnTv()
-                }
-                // Nothing left to show there: the slideshow goes back to the usual photo folders.
-                if (Appearance.slideshowFolder == folder.path) Appearance.setSlideshowFolder(app, null)
+    /**
+     * Takes the photos and videos picks downloaded off the TV (Google Photos itself isn't touched). Only those: the two
+     * folders are Family Memories, and what the phones added there stays.
+     */
+    fun removeAll(): Job = scope.launch {
+        files.withLock {
+            val gone = withContext(Dispatchers.IO) {
+                loadPicked()
+                val gone = synchronized(picked) { picked.values.mapTo(HashSet()) { fileOf(it) }.also { picked.clear() } }
+                for (f in gone) if (f.delete()) MediaDates.forget(app, f)
+                savePicked()
+                MediaDates.save(app)
+                countOnTv()
+                gone
             }
+            // The TV's background was one of them: it goes, rather than staying blank (as for a photo the phone deletes).
+            val background = Appearance.background
+            if (background != null && File(background) in gone) runCatching { Appearance.setBackground(app, null) }
+            // Nothing left to show there: the slideshow goes back to the usual photo folders. Photos the phones added
+            // keep it there.
+            if (Appearance.slideshowFolder == folder.path && withContext(Dispatchers.IO) { !hasPhotos(folder) }) {
+                Appearance.setSlideshowFolder(app, null)
+            }
+            Memories.changed()
         }
     }
+
+    /** Whether [dir] holds a photo the slideshow can show (IO thread). */
+    private fun hasPhotos(dir: File) = dir.listFiles()?.any { it.isFile && !it.name.startsWith(".") && it.length() > 0 && Appearance.isImage(it) } == true
 
     fun setReplace(on: Boolean) { _replace.value = on }
 
     /** Reads which files came from picks, before anything else is saved in their folders (IO thread). */
     fun ready() = loadPicked()
+
+    /** Back to a fresh start, the pick list read from disk again: for tests. */
+    internal fun resetForTest() = synchronized(picked) {
+        picked.clear()
+        pickedLoaded = false
+        _onTv.value = OnTv()
+    }
 
     /** [file] is no longer a pick's: deleted, or something else took its name (IO thread). */
     fun forget(file: File) {
@@ -342,24 +364,43 @@ object GooglePhotos {
         }
     }
 
-    /** Counts what's in the two folders, for the storage line (IO thread). */
+    /**
+     * Counts what picks left on the TV, for the window's storage line and what a pick replaces or Remove all deletes:
+     * not what the phones added to the same folders (IO thread, the pick list read).
+     */
     private fun countOnTv() {
         var photos = 0
         var videos = 0
         var bytes = 0L
-        for ((dir, video) in listOf(folder to false, videoFolder to true)) dir.listFiles()?.forEach {
-            if (it.isFile && !it.name.startsWith(".")) {
-                if (video) videos++ else photos++
-                bytes += it.length()
-            }
+        val kept = synchronized(picked) { picked.values.associateBy { fileOf(it) } }
+        for ((f, k) in kept) {
+            if (!f.isFile) continue
+            if (k.video) videos++ else photos++
+            bytes += f.length()
         }
         _onTv.value = OnTv(photos, videos, bytes)
     }
 
-    /** Leaves the window: stops waiting for a pick and tells Google to drop the session. */
+    /**
+     * Leaves the window: stops waiting for a pick and tells Google to drop the session. Photos already downloading carry
+     * on (the window only hides), whatever the window last drew: it can still show the pick's code as they start.
+     * Main thread.
+     */
     fun cancel() {
+        val step = _state.value.step
+        if (step == Step.DOWNLOADING || step == Step.DONE) return
         job?.cancel()
         scope.launch { endSession() }
+    }
+
+    /** [name] in [dir] under a name nothing has, kept taken by an empty file; a file already there is never touched (IO thread). */
+    internal fun reserve(dir: File, name: String): File = synchronized(this) {
+        repeat(20) {
+            val target = FileOperations.uniqueTarget(dir, name)
+            // False: a phone's photo took the name a moment ago; the next free one, then.
+            if (target.createNewFile()) return target
+        }
+        throw IOException("Couldn’t save $name")
     }
 
     fun signOut(done: () -> Unit = {}) {
@@ -434,6 +475,14 @@ object GooglePhotos {
  */
 internal fun photoSize(widthPx: Int, heightPx: Int): String =
     if (maxOf(widthPx, heightPx) > 1920) "=w3840-h2160" else "=w1920-h1080"
+
+/**
+ * The window's step once a pick stopped before the end ([error], or null when it was stopped): downloads that were
+ * under way end as done, with what arrived, so the window can pick again instead of showing "Adding…" for good.
+ */
+internal fun pickStopped(s: GooglePhotos.State, error: String?): GooglePhotos.State =
+    if (s.step == GooglePhotos.Step.DOWNLOADING) s.copy(step = GooglePhotos.Step.DONE, error = error ?: s.error)
+    else if (error != null) s.copy(error = error) else s
 
 /**
  * The earlier picks a finished pick takes off the TV: those not in it, when it replaces them. None when adding, when

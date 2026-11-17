@@ -122,7 +122,9 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
 - **Screensaver and background**: any photo can be the app background, and a photo slideshow (with a clock) can
   start after a few minutes without a key pressed anywhere in Woodruff (Settings → Screensaver → *Start when idle*; it
   waits while a Google Photos pick or a copy is under way), or run as the TV's own screensaver (*Use as the TV's
-  screensaver* there). Leaving Woodruff with Home ends its slideshow, so Woodruff reopens on the screen under it.
+  screensaver* there). Woodruff's own slideshow keeps the screen on for its first hour, then the TV's own
+  screensaver and sleep timers take over. Leaving Woodruff with Home ends its slideshow, so Woodruff reopens
+  on the screen under it.
   Coming back from it, posters show at once.
 - **Light on the TV**: camera tiles let go of their camera and graphics as soon as their screen goes. Ten minutes
   after Woodruff leaves the screen (another app, the TV's home or screensaver, standby), or at once if Android says
@@ -151,7 +153,8 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   spot, so the picture comes back sooner (Watch together seeks exactly). Back puts the controls away first, a second
   Back leaves.
 - **Player options**: the **…** button in the player's controls (or the remote's Menu/Info button) sets a sleep
-  timer (30/60/90 minutes or end of episode; then the slideshow takes over) and marks where a show's intro ends.
+  timer (30/60/90 minutes or end of episode; then the slideshow takes over, without keeping the screen on, so the TV
+  goes to sleep by its own timers) and marks where a show's intro ends.
   After that, *Skip intro* appears during the intro of every episode of that show; OK skips it.
 - **Subtitles, audio and speed**: Subtitles and Audio open a menu above their button (✓ marks what's on), speed is
   under **…**; the subtitle and audio choices are remembered per show. Audio lists every sound track in the film, as
@@ -677,8 +680,9 @@ code, type the album's name in the picker's search bar, select its photos and ta
   pick) keeps what's there and adds to it. If any photo fails to download, nothing is removed; pick again.
 - Photos are saved at the size the TV shows them: 1920×1080 (about a quarter of a 4K copy), 3840×2160 only on the
   few boxes that draw their screen in 4K. Videos are saved as they are.
-- The window shows how many photos and videos are on the TV and how much space they take, with **Remove all** to
-  delete them from the TV (your Google Photos library isn't touched).
+- The window shows how many photos and videos picks left on the TV and how much space they take, with **Remove all**
+  to delete them from the TV. What the phones added to Family Memories stays, and your Google Photos library isn't
+  touched.
 
 Google only lets apps see the photos you pick each time (no browsing the whole library or its albums since 2025),
 which is why it's a pick-and-download flow.

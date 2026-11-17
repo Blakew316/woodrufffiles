@@ -102,6 +102,7 @@ object FamilyMemories {
         if (taken != null && taken > 0) MediaDates.record(c, file, taken)
         MediaDates.save(c)
         GooglePhotos.forget(file)
+        Memories.changed()
         _changes.update { it + 1 }
     }
 
@@ -111,6 +112,7 @@ object FamilyMemories {
         MediaDates.forget(c, file)
         MediaDates.save(c)
         if (Appearance.background == file.path) runCatching { Appearance.setBackground(c, null) }
+        Memories.changed()
         _changes.update { it + 1 }
     }
 
