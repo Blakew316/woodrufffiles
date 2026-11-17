@@ -740,7 +740,7 @@ internal fun TitlePage(
             actions = buildList {
                 add(MenuAction(if (at > RESUME_FROM_MS) "Resume from ${Format.duration(at)}" else "Play", Sym.PlayArrow) { resume { onPlayEpisode(ep, season, false) } })
                 if (at > RESUME_FROM_MS) add(MenuAction("Play from the start", Sym.Replay) { onPlayEpisode(ep, season, true) })
-                if (linked.isNotEmpty()) add(MenuAction("Watch together on all TVs", Sym.Groups) {
+                if (linked.isNotEmpty()) add(MenuAction("Watch together", Sym.Groups) {
                     run.together(TitleAction.Together(key, episodePlayTitle(info.title, ep), at))
                 })
                 add(

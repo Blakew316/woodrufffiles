@@ -246,14 +246,16 @@ each TV screen and phone-app tab, light and dark (`gallery` job in the build wor
   *Episodes will show when the TV is back online.* and loads by itself when the network returns.
 - **Title menu**: hold OK (or press Menu) on any film or show (Home, Streaming's rows, grid and banner, a title page's
   rows, Search) for one short menu. It offers the title page's own main action (*Play* / *Resume S2 E4*), then
-  *Start over*, *Episodes* / *Details* (Home's resume tiles), *Watch together on all TVs* (linked TVs), *Mark as
+  *Start over*, *Episodes* / *Details* (Home's resume tiles), *Watch together* (linked TVs), *Mark as
   watched* (or unwatched), *Download to this TV* and *Remove from Continue watching*. Episodes on a show's page have
-  the same kind of menu (*Resume from 40m*, *Play from the start*, *Watch together on all TVs*, *Mark as watched*),
+  the same kind of menu (*Resume from 40m*, *Play from the start*, *Watch together*, *Mark as watched*),
   and holding OK on a season's tab offers *Mark season as watched* (or unwatched). Play/Pause on a focused title plays
   it straight away.
-- **Watch together**: *Watch together on all TVs* in the title menu (with TVs linked) starts that Google Drive video
-  on every linked TV from the same spot. The TV that started it leads: pausing, seeking and its position keep the
-  others in step (re-synced when more than 2 seconds apart).
+- **Watch together**: *Watch together* in the title menu (with TVs linked) starts that Google Drive video, from the
+  same spot, on the linked TVs showing Woodruff: a TV showing something else, or asleep, isn't pulled into the film,
+  nor made to stream it from Google Drive. With none of them showing Woodruff it says *Open Woodruff on another TV
+  first*. The TV that started it leads: pausing, seeking and its position keep the others in step (re-synced when
+  more than 2 seconds apart).
 - **Search**: the first item in the side menu. The remote's search (or mic) button, on TVs that pass it to apps,
   opens it from any screen, title page or menu (the player, photo viewer and slideshow leave it to the TV) and starts
   listening where the TV can; pressed again while Search is open, it listens again. Streaming's search field (*Search
