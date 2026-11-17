@@ -306,7 +306,7 @@ fun TvCard(
     platter: FocusPlatter? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val longPressed = remember { BooleanArray(1) }
+    val ok = remember { OkPress() }
     // OK held sinks it back to its resting size (not a row on a platter: the platter doesn't sink with it).
     val scope = rememberCoroutineScope()
     val press: ((Boolean) -> Unit)? = if (platter != null) null else { down ->
@@ -325,7 +325,7 @@ fun TvCard(
                 focusIn = if (platter != null) TvMotion.Glide else TvMotion.FocusIn,
                 focusOut = if (platter != null) TvMotion.Glide else TvMotion.FocusOut,
             )
-            .onKeyEvent { okKey(it, longPressed, onClick, onLongClick, press) }
+            .onKeyEvent { okKey(it, ok, onClick, onLongClick, press) }
             .focusable()
             .semantics(mergeDescendants = true) {
                 this.onClick(label = null, action = { onClick(); true })
@@ -368,10 +368,24 @@ private fun CardBorder(shape: Shape, width: Dp, color: Color, modifier: Modifier
 }
 
 /**
+ * Where OK stands on one card: [down], its press began here (not in a card, or a window, the focus has left since);
+ * [held], that press became the long click.
+ */
+internal class OkPress {
+    var down = false
+    var held = false
+}
+
+/**
  * OK/Enter: a click when let go; held (its first repeat): the long click; Menu: the long click. [press]: told
  * when OK goes down and comes back up.
+ *
+ * Only a press that began on this card clicks it. A long press opens its menu as a window of its own while OK is
+ * still held, and Android hands that window the held key's repeats and then its release: taken as a click there,
+ * the menu's first row ran (the film played, Install or Extract here ran). Nor does a release Android cancelled (its
+ * window lost the focus while OK was held) click anything.
  */
-private fun okKey(e: KeyEvent, longPressed: BooleanArray, onClick: () -> Unit, onLongClick: (() -> Unit)?, press: ((Boolean) -> Unit)?): Boolean {
+internal fun okKey(e: KeyEvent, ok: OkPress, onClick: () -> Unit, onLongClick: (() -> Unit)?, press: ((Boolean) -> Unit)?): Boolean {
     val n = e.nativeKeyEvent
     if (n.keyCode == NativeKeyEvent.KEYCODE_MENU) {
         if (onLongClick == null) return false
@@ -382,12 +396,14 @@ private fun okKey(e: KeyEvent, longPressed: BooleanArray, onClick: () -> Unit, o
         n.keyCode != NativeKeyEvent.KEYCODE_NUMPAD_ENTER) return false
     when (n.action) {
         NativeKeyEvent.ACTION_DOWN -> {
-            if (n.repeatCount == 0) press?.invoke(true)
-            if (n.repeatCount == 1 && onLongClick != null) { longPressed[0] = true; onLongClick() }
+            if (n.repeatCount == 0) { ok.down = true; ok.held = false; press?.invoke(true) }
+            if (n.repeatCount == 1 && ok.down && onLongClick != null) { ok.held = true; onLongClick() }
         }
         NativeKeyEvent.ACTION_UP -> {
+            val click = ok.down && !ok.held && !n.isCanceled
+            ok.down = false; ok.held = false
             press?.invoke(false)
-            if (longPressed[0]) longPressed[0] = false else onClick()
+            if (click) onClick()
         }
     }
     return true   // also keeps Compose from taking OK as "enter this group"

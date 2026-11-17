@@ -28,8 +28,10 @@ import java.util.WeakHashMap
  *    Search button opening Search ([SearchKey]) instead of falling through to Android.
  *  - Settings → Smoothness counts its frames under its own name ([name]: "Title page", "Filters", "Menu"),
  *    not the screen's under it.
+ *  - Over the main window in front ([mainWindow]), it covers Woodruff's own notice card there
+ *    ([overMainWindow]): a notice then shows over it as over another app.
  *
- * Main thread.
+ * Main thread ([overMainWindow]: any thread).
  */
 object DialogWindows {
     /** What a pop-up nobody named is counted as in Settings → Smoothness. */
@@ -42,6 +44,34 @@ object DialogWindows {
         var holders = 1
         /** Read for each of its frames, on the frame-stats thread. */
         @Volatile var label: String = POP_UP
+    }
+
+    /** The main window while it's in front (started); null when it isn't. */
+    private var front: WeakReference<Activity>? = null
+
+    /** How many of [front]'s pop-ups are up, for [overMainWindow] (written on the main thread). */
+    @Volatile private var mainPopUps = 0
+
+    /**
+     * Whether one of the pop-ups of the main window in front is up (a title page, Search, the filters, a menu): the
+     * notice card Woodruff draws in its main window would be under it. Any thread.
+     */
+    val overMainWindow: Boolean get() = mainPopUps > 0
+
+    /** [activity], the main window, came in front (started); null: it went (stopped). Main thread. */
+    fun mainWindow(activity: Activity?) {
+        front = activity?.let { WeakReference(it) }
+        counted()
+    }
+
+    /** [activity] went from the front (stopped): no longer the main window in front, unless another one is now. */
+    fun mainWindowGone(activity: Activity) {
+        if (front?.get() === activity) mainWindow(null)
+    }
+
+    private fun counted() {
+        val main = front?.get()
+        mainPopUps = if (main == null) 0 else entries.count { it.owner?.get() === main }
     }
 
     /** The pop-ups that are up, in the order they came up (each one over the ones before). */
@@ -61,6 +91,7 @@ object DialogWindows {
         val entry = Entry(window, owner, order).apply { label = names[window] ?: POP_UP }
         val at = entries.indexOfFirst { it.order > order }
         if (at < 0) entries += entry else entries.add(at, entry)
+        counted()
         val callback = window.callback
         if (callback != null && callback !is OnScreen.KeyCounter) window.callback = Keys(callback, opensSearch = owner is SearchKey.Host)
         FrameStats.attach(window) { entry.label }
@@ -71,6 +102,7 @@ object DialogWindows {
         val entry = entries.firstOrNull { it.window.get() === window } ?: return
         if (--entry.holders > 0) return
         entries.remove(entry)
+        counted()
         FrameStats.detach(window)
     }
 
@@ -79,6 +111,9 @@ object DialogWindows {
         names[window] = label
         entries.firstOrNull { it.window.get() === window }?.label = label
     }
+
+    /** Whether any pop-up of the screen [context] belongs to is up now (a title page, Search, a menu). Main thread. */
+    fun anyOver(context: Context): Boolean = context.activity()?.let { of(it).isNotEmpty() } == true
 
     /** [activity]'s pop-ups that are up now, the lowest first (the last one is on top). */
     fun of(activity: Activity): List<Window> {
@@ -91,7 +126,7 @@ object DialogWindows {
     /** What [window]'s frames are counted as (for tests). */
     internal fun label(window: Window): String? = entries.firstOrNull { it.window.get() === window }?.label
 
-    private fun prune() { entries.removeAll { it.window.get() == null } }
+    private fun prune() { if (entries.removeAll { it.window.get() == null }) counted() }
 
     /** The activity a pop-up's window belongs to: its context is the activity's, themed for dialogs. */
     private fun Context.activity(): Activity? {

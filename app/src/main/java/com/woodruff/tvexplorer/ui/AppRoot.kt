@@ -314,9 +314,9 @@ fun AppRoot(vm: MainViewModel) {
     com.woodruff.tvexplorer.ui.screens.SearchHost(vm, drive)
     com.woodruff.tvexplorer.ui.screens.UpdatePrompt(vm)
     // Doorbell: a ring while Woodruff is on screen opens that camera full screen (no card over it).
-    // On the Command Center's cameras it shows in place (Back: the grid); over any other screen the
-    // doorbell's own view opens, and Back returns to that screen exactly as it was (its focus, scroll,
-    // folder and open pages untouched underneath).
+    // On the Command Center's cameras it shows in place (Back: the grid), when it can ([ringsInPlace]);
+    // otherwise the doorbell's own view opens, and Back returns to the screen exactly as it was (its
+    // focus, scroll, folder and open pages untouched underneath).
     val context = LocalContext.current
     LaunchedEffect(Unit) {
         val bell = com.woodruff.tvexplorer.nest.Doorbell
@@ -325,11 +325,10 @@ fun AppRoot(vm: MainViewModel) {
             // ring's card pops up a moment later, rather than a view Android won't start from behind.
             if (!com.woodruff.tvexplorer.notify.AppVisibility.foreground) return@collect
             if (!bell.claim(ring, com.woodruff.tvexplorer.nest.Doorbell.Host.APP)) return@collect
-            val cams = com.woodruff.tvexplorer.nest.Nest.state.value.cameras
+            val nest = com.woodruff.tvexplorer.nest.Nest.state.value
+            val cams = nest.cameras
             val requests = com.woodruff.tvexplorer.ui.screens.cameraRequests
-            // In place only when the Command Center's cameras are there to take it (not in the frame
-            // it's still coming in): a request nobody hears would open nothing.
-            if (vm.screen.value == Screen.CAMERAS && cams.isNotEmpty() && requests.subscriptionCount.value > 0) {
+            if (ringsInPlace(vm.screen.value, nest, requests.subscriptionCount.value > 0, com.woodruff.tvexplorer.ui.motion.DialogWindows.anyOver(context))) {
                 val i = cams.indexOfFirst { it.name == ring.camera }.coerceAtLeast(0)
                 requests.tryEmit(com.woodruff.tvexplorer.ui.screens.CameraRequest(i, ring.at))
             } else {
@@ -389,6 +388,17 @@ fun AppRoot(vm: MainViewModel) {
         if (!contentFocused) railWanted = true
     }
 }
+
+/**
+ * Whether a doorbell ring while Woodruff's main window is on [screen] opens its camera in place, full screen on the
+ * Command Center's cameras ([listening]: they're up to take it, not in the frame they're still coming in, where a
+ * request nobody hears would open nothing). Not while the cameras' sign-in isn't connected (Google ended it: the
+ * cameras listed before are kept, but none opens full screen), nor under a pop-up ([popUp]: Search, a title page, the
+ * update prompt), behind which the camera would open, its sound on: the doorbell's own view opens over all that.
+ */
+internal fun ringsInPlace(screen: Screen, nest: com.woodruff.tvexplorer.nest.NestState, listening: Boolean, popUp: Boolean): Boolean =
+    screen == Screen.CAMERAS && nest.cameras.isNotEmpty() && listening &&
+        nest.step == com.woodruff.tvexplorer.nest.NestStep.CONNECTED && !popUp
 
 /**
  * A page easing in over the one before it (a title picked on a title's page), as on Apple TV: a fade

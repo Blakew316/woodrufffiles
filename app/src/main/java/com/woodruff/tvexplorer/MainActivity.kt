@@ -92,6 +92,15 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
         Appearance.load(this)
         // Before the first frame: a screen put back after an update is the first thing drawn.
         handleOpen(intent, fresh = savedInstanceState == null)
+        // Android closed Woodruff to free memory while another app was in front (1–2 GB TVs do) and opens it again
+        // now: the screen that was up comes back as it was, as after an update. Not when only this window was made
+        // again (the TV's settings changed): its screens are all still here then, back stack and all.
+        if (savedInstanceState != null && !vm.windowOpened) {
+            (Restore.decode(savedInstanceState.getString(STATE_ROUTE)) as? Restore.App)?.let { saved ->
+                Restore.apply(Restore.checked(saved) { !java.io.File(it).exists() } as Restore.App, vm) { drive }
+            }
+        }
+        vm.windowOpened = true
         // The app's motion plays at its own speed, even on a TV with Android's animations turned off.
         window.decorView.useAppMotion(lifecycle)
         // Android 9–11: Back at Home's side menu (the last level) puts Woodruff in the background, as
@@ -146,6 +155,8 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
         // over it as over another app (Android's install prompt still opens over it: RecoveryView.inFront).
         if (recovering) { RecoveryView.inFront = true; return }
         AppVisibility.foreground = true
+        // Its pop-ups (a title page, Search, the filters) cover its notice card: a notice shows over them then.
+        com.woodruff.tvexplorer.ui.motion.DialogWindows.mainWindow(this)
         // Keep the phone connection (and new-mail checks) running while the app is in use.
         if (hasAccess) runCatching { TransferService.start(this) }
         // An update that needs a press is offered now, as Woodruff comes on screen, unless it was
@@ -162,6 +173,7 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
     override fun onStop() {
         TvScreen.detach(this)
         AppVisibility.foreground = false
+        com.woodruff.tvexplorer.ui.motion.DialogWindows.mainWindowGone(this)
         RecoveryView.inFront = false
         idle.removeCallbacks(startSlideshow)
         super.onStop()
@@ -233,6 +245,12 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
         }
     }
 
+    /** What onCreate puts back should Android close Woodruff to free memory ([restoreRoute], the screen up now). */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (!recovering) runCatching { outState.putString(STATE_ROUTE, Restore.encode(restoreRoute())) }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (!recovering) handleOpen(intent)
@@ -278,6 +296,8 @@ class MainActivity : ComponentActivity(), Restore.Restorable, com.woodruff.tvexp
 
     companion object {
         const val EXTRA_OPEN = "open"
+        /** The screen that was up ([Restore.encode]), kept by Android with the window's saved state. */
+        private const val STATE_ROUTE = "woodruff.route"
     }
 
     private fun recheck() {

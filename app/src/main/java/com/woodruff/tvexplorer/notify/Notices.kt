@@ -180,9 +180,9 @@ object Notices {
     internal var screenOn: (Context) -> Boolean = { c -> c.applicationContext.getSystemService(PowerManager::class.java)?.isInteractive != false }
 
     /**
-     * [n]'s card, where the viewer is: Woodruff's own banner, or over other apps (else an Android
-     * notification). Also a doorbell ring's card when its camera couldn't open after all. A camera
-     * alert's card shows its picture when that came first; one that comes later is added to it
+     * [n]'s card, where the viewer is: Woodruff's own banner, or over other apps and over the main window's
+     * pop-ups (else an Android notification). Also a doorbell ring's card when its camera couldn't open after
+     * all. A camera alert's card shows its picture when that came first; one that comes later is added to it
      * ([pictureCame]).
      */
     fun popUp(context: Context, n: Notice) {
@@ -190,9 +190,13 @@ object Notices {
         // another app or a dark screen) waited there, and came up again when that screen next did, beside or long after
         // the card over other apps.
         val inApp = AppVisibility.foreground
+        // That banner is drawn in the main window, under the window's pop-ups (a title page, Search, the filters, a
+        // menu): with one of them up, the card shows over them as over another app, and not under them too.
+        val underPopUp = inApp && com.woodruff.tvexplorer.ui.motion.DialogWindows.overMainWindow
+        val overPopUp = underPopUp && Settings.canDrawOverlays(context)
         // (With the picture's arrival on another thread, in one step: either the card finds it here, or it finds the card.)
-        val card = synchronized(cards) { withPicture(n).also { if (inApp) _latest.value = it } }
-        if (inApp) return
+        val card = synchronized(cards) { withPicture(n).also { if (inApp) _latest.value = if (overPopUp) null else it } }
+        if (inApp && !underPopUp) return
         // Woodruff's own player shows the doorbell in its own card (with OK to look): not twice.
         if (card.chime == Chime.Sound.DOORBELL && NowPlaying.ownPlayer != null) return
         if (Settings.canDrawOverlays(context)) NoticeOverlay.show(context, card) else systemNotification(context, card)
