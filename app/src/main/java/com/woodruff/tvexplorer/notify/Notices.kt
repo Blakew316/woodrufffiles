@@ -11,9 +11,11 @@ import androidx.core.app.NotificationCompat
 import com.woodruff.tvexplorer.R
 import com.woodruff.tvexplorer.nest.AlertPictures
 import com.woodruff.tvexplorer.nest.CameraAlert
+import com.woodruff.tvexplorer.nest.Doorbell
 import com.woodruff.tvexplorer.nest.Shelved
 import com.woodruff.tvexplorer.nest.pictureFits
 import com.woodruff.tvexplorer.nowplaying.NowPlaying
+import com.woodruff.tvexplorer.remote.TvScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -97,10 +99,10 @@ object Notices {
         val n = Notice(System.nanoTime(), source, title.take(200), body.take(2000), System.currentTimeMillis(), link, chime = sound, alert = alert)
         _items.update { (listOf(n) + it).take(MAX) }
         save(context)
-        // The TV's screen is on the Apple TV (one of its inputs): Woodruff on the Apple TV shows what
-        // happens there itself, so this TV draws and chimes nothing over it. Kept, unread, like quiet
-        // news. What someone sends this TV from a phone still shows.
-        val elsewhere = source != NoticeSource.PHONE && !AppVisibility.foreground && overAppleTv(context)
+        // The TV's screen is on the Apple TV (its input, or Woodruff on the Apple TV says so): Woodruff on
+        // the Apple TV shows what happens there itself, so this TV draws and chimes nothing over it. Kept,
+        // unread, like quiet news. What someone sends this TV from a phone still shows.
+        val elsewhere = source != NoticeSource.PHONE && onAppleTvNow(context)
         if (quiet || elsewhere) {
             // Woodruff's own banner while its main screen is in front; otherwise stored, unread, for
             // when someone next looks: nothing pops up now.
@@ -162,8 +164,22 @@ object Notices {
         NoticeOverlay.picture(p)
     }
 
-    /** Whether the TV's screen is on the Apple TV's input ([NowPlaying.onAppleTv]); replaced in tests. */
+    /** Whether the TV's screen is on the Apple TV ([NowPlaying.onAppleTv]); replaced in tests. */
     internal var overAppleTv: (Context) -> Boolean = { NowPlaying.onAppleTv(it) }
+
+    /**
+     * Whether one of Woodruff's own screens is up (the main window, the photo viewer, the slideshow, the
+     * doorbell's camera, the player) or Woodruff is the TV's screensaver; replaced in tests.
+     */
+    internal var ownScreenUp: () -> Boolean = { AppVisibility.foreground || TvScreen.onScreen || Doorbell.dreaming }
+
+    /**
+     * Whether what this TV would draw now would land on the Apple TV ([overAppleTv]). Never over Woodruff's own
+     * screens or its screensaver ([ownScreenUp]), where everything shows as before: Woodruff on the Apple TV
+     * only knows what's on its own screen, and can say so while this TV shows Woodruff. A doorbell ring's card
+     * that comes late asks it again.
+     */
+    internal fun onAppleTvNow(context: Context): Boolean = !ownScreenUp() && overAppleTv(context)
 
     private val shown = RecentIds(200)
 

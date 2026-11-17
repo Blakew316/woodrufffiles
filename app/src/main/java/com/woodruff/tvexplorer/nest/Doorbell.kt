@@ -213,7 +213,9 @@ object Doorbell {
 
     private val views = AtomicInteger()
     private val slideshows = AtomicInteger()
-    @Volatile private var dreaming = false
+    /** Woodruff is the TV's screensaver now, listening for rings ([Host.SCREENSAVER]): Notices shows everything over it as before. */
+    @Volatile internal var dreaming = false
+        private set
     /** When a doorbell view last came on screen. */
     @Volatile private var viewStartedAt = 0L
     /** When a screen last started a doorbell view that isn't up yet (this TV's clock); 0: none on its way. */
@@ -431,17 +433,20 @@ object Doorbell {
         )
         // A camera is about to open: WebRTC is made ready meanwhile, so its picture comes sooner.
         if (host != null) Rtc.warm(app)
-        // The camera opening is the notice: no card over it (it's kept in Notifications all the same).
+        // The camera opening is the notice: no card over it (it's kept in Notifications all the same). No camera:
+        // the card, unless the TV's screen is on the Apple TV, which shows the ring itself (Notices.post). A camera
+        // only ever opens over Woodruff's own screens and its screensaver (pickHost), never over the Apple TV.
         val notice = Notices.post(app, NoticeSource.SYSTEM, "Someone’s at the door", name, chime = Chime.Sound.DOORBELL, popUp = host == null, alert = alert)
         if (host != null) {
             val ring = Ring(ringIds.incrementAndGet(), camera, at, host)
             _opens.tryEmit(ring)
             // The camera couldn't open after all (that screen went just then, or Android wouldn't let
-            // the screensaver open it): the card, a moment late, rather than nothing.
+            // the screensaver open it): the card, a moment late, rather than nothing. Not if the screen
+            // has gone to the Apple TV meanwhile, as for any card.
             scope.launch {
                 delay(SHOW_GRACE_MS)
                 val opened = if (host == Host.SCREENSAVER) viewStartedAt >= at else claims.taken(ring.id)
-                if (!opened) Notices.popUp(app, notice)
+                if (!opened && !Notices.onAppleTvNow(app)) Notices.popUp(app, notice)
             }
         }
         _rings.tryEmit(alert)

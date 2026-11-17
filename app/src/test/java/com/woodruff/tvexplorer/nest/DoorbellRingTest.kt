@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.woodruff.tvexplorer.notify.Notices
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -110,6 +111,31 @@ class DoorbellRingTest {
             assertEquals(before + 4, Notices.items.value.size)
         } finally {
             Doorbell.clock = System::currentTimeMillis
+        }
+    }
+
+    @Test fun aRingOverTheAppleTvIsKeptButNothingIsDrawn() {
+        Notices.load(app)
+        Notices.dismissLatest()
+        val over = Notices.overAppleTv
+        val own = Notices.ownScreenUp
+        // The TV's screen is on the Apple TV (its input, or Woodruff on the Apple TV says so), which shows the ring itself.
+        Notices.overAppleTv = { true }
+        Notices.ownScreenUp = { false }
+        try {
+            Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v30")
+            val n = Notices.items.value.first()
+            assertEquals("Someone’s at the door" to "Front Door", n.title to n.body)
+            assertFalse(n.read)
+            assertNull(Notices.latest.value)
+            // Over Woodruff's own screens or its screensaver, a ring's card shows as before.
+            Notices.ownScreenUp = { true }
+            Doorbell.ring(app, camera(), "Front Door", relay = false, session = "v31")
+            assertEquals("Someone’s at the door", Notices.latest.value?.title)
+        } finally {
+            Notices.overAppleTv = over
+            Notices.ownScreenUp = own
+            Notices.dismissLatest()
         }
     }
 

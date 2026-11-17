@@ -122,10 +122,12 @@ object NowPlaying {
     fun current(c: Context): Playing? = ownPlayer?.let { it.copy(can = ownCan(it, playerListens)) } ?: fromSessions(c)
 
     /**
-     * Whether this TV's screen is on the input the Apple TV is plugged into ([isAppleTvInput]). False
-     * when other apps can't be seen (no Notification access), and while Woodruff's own player is open.
+     * Whether this TV's screen is on the Apple TV ([showsAppleTv]): on the input it's plugged into, or Woodruff on
+     * the Apple TV says it's on screen ([AppleTvScreen], at [now]) while no app of this TV's own plays. Without
+     * Notification access only the Apple TV's word counts. False while Woodruff's own player is open.
      */
-    fun onAppleTv(c: Context): Boolean = ownPlayer == null && isAppleTvInput(fromSessions(c.applicationContext))
+    fun onAppleTv(c: Context, now: Long = SystemClock.elapsedRealtime()): Boolean =
+        ownPlayer == null && showsAppleTv(fromSessions(c.applicationContext), AppleTvScreen.onScreen(now))
 
     fun canSeeOtherApps(c: Context): Boolean = try {
         sessions(c); true
@@ -239,9 +241,27 @@ object NowPlaying {
 internal fun isAppleTvInput(p: Playing?): Boolean {
     if (p == null || !p.playing || p.key != null || p.durationMs > 0) return false
     val title = p.title.lowercase()
-    val input = "hdmi" in title || p.app.trim().lowercase() in INPUT_APPS
-    return input && ("apple tv" in title || "appletv" in title)
+    return isInput(p) && ("apple tv" in title || "appletv" in title)
 }
+
+/**
+ * Whether this TV's screen shows the Apple TV, from [p], what Android says is playing here (null when nothing
+ * can be seen: no Notification access, or nothing playing), and whether Woodruff on the Apple TV says it's on
+ * the Apple TV's screen ([appleTvSays], [AppleTvScreen]). The input it's plugged into, named so, counts by
+ * itself. The Apple TV's word counts unless an app of this TV's own is playing ([otherAppPlaying]): the TV
+ * has gone from the Apple TV to that app, which the Apple TV can't see. Visible for tests.
+ */
+internal fun showsAppleTv(p: Playing?, appleTvSays: Boolean): Boolean = isAppleTvInput(p) || (appleTvSays && !otherAppPlaying(p))
+
+/**
+ * Whether [p] is an app of this TV's own playing (Netflix, YouTube, Plex…), not one of the TV's inputs
+ * ([isInput]): an input plays whatever is plugged in there, the Apple TV perhaps, under whatever name it was
+ * given. Nothing seen is no app playing. Visible for tests.
+ */
+internal fun otherAppPlaying(p: Playing?): Boolean = p != null && p.playing && !isInput(p)
+
+/** Whether [p] is one of the TV's inputs, as the TV's own input app says it plays one: by the input's name, or its own. */
+private fun isInput(p: Playing): Boolean = "hdmi" in p.title.lowercase() || p.app.trim().lowercase() in INPUT_APPS
 
 /** What the TVs' own input apps are called. */
 private val INPUT_APPS = setOf("tv", "live tv", "live channels", "tv input", "input", "inputs", "source", "sources")

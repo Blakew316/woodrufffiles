@@ -253,6 +253,16 @@ class CompanionRoutes(private val ctx: Context) {
             com.woodruff.tvexplorer.nest.AlertPictures.receive(ctx, jsonBody(s, MAX_PICTURE_REQUEST), relay = !fromTv)
             ok()
         }
+        // Woodruff on the Apple TV plugged into this TV: {"on": true, "for": 25} every 10 s or so while it's the app on
+        // the Apple TV's screen, {"on": false} when it leaves. Meanwhile this TV draws and chimes nothing of its own
+        // over the Apple TV (NowPlaying.onAppleTv). With the pairing key, as the family's phones and Macs: not in LINK_ROUTES.
+        s.uri == "/api/appletv" && s.method == Method.POST -> {
+            val b = body(s)
+            com.woodruff.tvexplorer.nowplaying.AppleTvScreen.said(
+                b.optBoolean("on"), b.optInt("for", com.woodruff.tvexplorer.nowplaying.AppleTvScreen.DEFAULT_SECONDS),
+            )
+            ok()
+        }
         // ---- Several TVs (this one is the hub) ------------------------------------------------
         s.uri == "/api/status" && s.method == Method.GET -> json(TvLinks.status(ctx))
         // This TV's health report (also for a linked hub, with its link key): words and facts, no secrets.
