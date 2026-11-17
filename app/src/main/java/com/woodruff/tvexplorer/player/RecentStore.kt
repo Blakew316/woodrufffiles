@@ -22,8 +22,8 @@ data class RecentItem(
 
 /**
  * Remembers where playback stopped, so videos resume and Home can offer "Continue watching".
- * Kept in SharedPreferences as a small JSON list (newest first, capped at [MAX]). Drive videos are
- * shared with the family's other TVs ([FamilySync]), and so is taking one out of the list.
+ * Kept in SharedPreferences as a small JSON list (newest first: [MAX] Drive videos and, apart, [MAX] of this TV's own,
+ * [FamilyMerge.capped]). Drive videos are shared with the family's other TVs ([FamilySync]), and so is taking one out of the list.
  */
 class RecentStore(context: Context) {
     private val app = context.applicationContext
@@ -60,7 +60,7 @@ class RecentStore(context: Context) {
             val items = listOf(RecentItem(key, title, positionMs, durationMs, System.currentTimeMillis(), stillNext)) +
                 before.filter { it.key != key }
             // Playing it again outdates its removal.
-            write(items.take(MAX), removals() - key)
+            write(FamilyMerge.capped(items), removals() - key)
         }
         if (FamilySync.isShared(key)) FamilySync.changed(app)
     }
@@ -73,7 +73,7 @@ class RecentStore(context: Context) {
             // Already partway through it: keep that place, just bring it to the front.
             val started = before.firstOrNull { it.key == key }?.takeIf { it.positionMs > 10_000 && it.progress < FINISHED }
             val item = started?.copy(updatedAt = now) ?: RecentItem(key, title, 0, 0, now, upNext = true)
-            write((listOf(item) + before.filter { it.key != key }).take(MAX), removals() - key)
+            write(FamilyMerge.capped(listOf(item) + before.filter { it.key != key }), removals() - key)
         }
         if (FamilySync.isShared(key)) FamilySync.changed(app)
     }
@@ -116,7 +116,7 @@ class RecentStore(context: Context) {
         val gone = removals()
         val (mergedItems, mergedGone) = merge(items, gone)
         val changed = mergedItems != items || mergedGone != gone
-        if (changed) write(mergedItems.take(MAX), FamilyMerge.newest(mergedGone, MAX_GONE))
+        if (changed) write(FamilyMerge.capped(mergedItems), FamilyMerge.newest(mergedGone, MAX_GONE))
         changed
     }
 
@@ -155,7 +155,7 @@ class RecentStore(context: Context) {
 
         private const val KEY = "items"
         private const val GONE = "gone"
-        /** Entries kept, the other TVs' included. */
+        /** Drive videos kept, the other TVs' included, and as many of this TV's own besides. */
         internal const val MAX = 30
         /** Removals remembered for the other TVs: weeks of finished episodes. */
         internal const val MAX_GONE = 200

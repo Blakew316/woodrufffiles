@@ -19,7 +19,7 @@ object Watched {
     private const val TIMES = "times"
     /** ✓s taken off, with when. Drive videos only: those are the ones the other TVs know. */
     private const val OFF = "off"
-    /** Newest few thousand are plenty; the set only grows by what's finished. */
+    /** Newest few thousand are plenty (Drive videos, and apart this TV's own); the set only grows by what's finished. */
     internal const val MAX = 4000
     internal const val MAX_OFF = 2000
 
@@ -46,7 +46,7 @@ object Watched {
             val added = keys.filterTo(HashSet<String>()) { it !in now.on }
             if (added.isEmpty()) return
             val at = System.currentTimeMillis()
-            write(c, State(FamilyMerge.newest(now.on + added.associateWith { at }, MAX), now.off - added))
+            write(c, State(FamilyMerge.newestEach(now.on + added.associateWith { at }, MAX), now.off - added))
             added.any { FamilySync.isShared(it) }
         }
         if (shared) FamilySync.changed(c)
@@ -83,7 +83,7 @@ object Watched {
         val now = load(c)
         val (on, off) = merge(now.on, now.off)
         val changed = on != now.on || off != now.off
-        if (changed) write(c, State(FamilyMerge.newest(on, MAX), FamilyMerge.newest(off, MAX_OFF)))
+        if (changed) write(c, State(FamilyMerge.newestEach(on, MAX), FamilyMerge.newest(off, MAX_OFF)))
         changed
     }
 

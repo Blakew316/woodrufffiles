@@ -589,7 +589,10 @@ internal object FamilyMerge {
         return SyncData(recent, gone, watched, unwatched, shows(local.shows, others))
     }
 
-    /** Continue watching: the newest entry or removal per key; the [RecentStore.MAX] newest entries, newest first. */
+    /**
+     * Continue watching: the newest entry or removal per key; newest first, the [RecentStore.MAX] newest Drive videos and,
+     * apart, as many of this TV's own ([capped]).
+     */
     fun recent(items: List<RecentItem>, gone: Map<String, Long>, others: List<SyncData>): Pair<List<RecentItem>, Map<String, Long>> {
         val latest = LinkedHashMap<String, RecentItem>()
         val removed = HashMap(gone)
@@ -606,7 +609,26 @@ internal object FamilyMerge {
         // Watched again after a removal: the removal is spent.
         kept.forEach { removed.remove(it.key) }
         // Stable: entries as new as each other keep this TV's order.
-        return kept.sortedByDescending { it.updatedAt }.take(RecentStore.MAX) to newest(removed, RecentStore.MAX_GONE)
+        return capped(kept.sortedByDescending { it.updatedAt }) to newest(removed, RecentStore.MAX_GONE)
+    }
+
+    /**
+     * [items] (newest first) down to the [max] first Drive videos and, counted apart, the [max] first of this TV's own
+     * (its USB drives, Family Memories, links): the whole family's progress, which only ever has Drive videos, never
+     * pushes this TV's own half-watched videos out of Continue watching.
+     */
+    fun capped(items: List<RecentItem>, max: Int = RecentStore.MAX): List<RecentItem> {
+        var shared = 0
+        var own = 0
+        return items.filter { if (FamilySync.isShared(it.key)) shared++ < max else own++ < max }
+    }
+
+    /** [newest] for the family's Drive videos and, apart, for this TV's own: the family's ✓s never push this TV's own out. */
+    fun newestEach(times: Map<String, Long>, max: Int): Map<String, Long> {
+        val (shared, own) = times.entries.partition { FamilySync.isShared(it.key) }
+        if (shared.size <= max && own.size <= max) return times
+        fun keep(e: List<Map.Entry<String, Long>>) = e.sortedByDescending { it.value }.take(max)
+        return (keep(shared) + keep(own)).associate { it.key to it.value }
     }
 
     /** ✓s: per key the newest of a mark and an unmark. */
@@ -619,7 +641,7 @@ internal object FamilyMerge {
         }
         val kept = marks.filter { (k, at) -> at > (unmarks[k] ?: Long.MIN_VALUE) }
         val taken = unmarks.filterKeys { it !in kept }
-        return newest(kept, Watched.MAX) to newest(taken, Watched.MAX_OFF)
+        return newestEach(kept, Watched.MAX) to newest(taken, Watched.MAX_OFF)
     }
 
     /** Per-show choices: per key the newest (a cleared one included). */
