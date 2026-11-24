@@ -1856,6 +1856,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     loads.playing = mediaItem?.mediaId
                     // A menu open over the episode left was about it (its tracks, its intro): it goes too.
                     if (mediaItem?.mediaId != was) menu.hide()
+                    // A choice the viewer made there that changed nothing playing (OK on the row already
+                    // ticked) was never remembered: it isn't this episode's to remember. It saved the next
+                    // episode's own picks as the show's choice, and kept its English subtitles for
+                    // foreign speech away.
+                    if (mediaItem?.mediaId != was) userChanged = emptySet()
                     // A spot being scrubbed to was chosen in the item that just ended: it would land
                     // somewhere arbitrary in this one.
                     timeBar.cancelScrub()
