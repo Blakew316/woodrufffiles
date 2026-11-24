@@ -649,7 +649,7 @@ internal class TitleRun(
             // Each linked TV gets a few seconds to answer (one that's off, longer): left meanwhile, it doesn't open here.
             if (!context.inFront()) return@launch
             beforePlay()
-            context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(title), key, at, together = true))
+            context.startActivity(PlayerActivity.intent(context, listOf(key), listOf(title), key, at, together = true, with = on))
         }
     }
 }

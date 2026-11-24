@@ -209,6 +209,177 @@ class DriveRangesTest {
         }
     }
 
+    // ---- The places the player jumps away from ------------------------------------------------
+
+    /**
+     * Drive with a connection for each place kept ([BoundedDriveSource.kept]): every connection made
+     * ([made]) records its requests in [specs], in the order Google got them.
+     */
+    private inner class Connections(var saysSize: Boolean = true) {
+        val specs = ArrayList<DataSpec>()
+        val made = ArrayList<FakeDrive>()
+        fun make(): DataSource = FakeDrive(film, saysSize, specs = specs).also { made += it }
+        fun source(places: Int = 4, counts: DriveAskSink = NoCounts, skip: Long = 4 * KB, keptFor: Long = 60_000, clock: () -> Long = { 0L }) =
+            BoundedDriveSource(make(), pieces, counts, more = ::make, placesKept = places, skipAtMost = skip, keptForMs = keptFor, clock = clock)
+    }
+
+    /**
+     * The player reading a film whose sound is far from its picture: [rounds] times, 3 KB of picture
+     * at [picture], then 1 KB of sound at [sound], each place a little further on each time (the
+     * bytes the player skips between its reads there). Checks every byte; the requests Drive got.
+     */
+    private fun hop(source: DataSource, picture: Long = 100_000, sound: Long = 600_000, rounds: Int = 20, gap: Long = 500) {
+        var p = picture
+        var q = sound
+        repeat(rounds) { round ->
+            assertArrayEquals("picture, round $round", film.copyOfRange(p.toInt(), (p + 3 * KB).toInt()), read(source, p, (3 * KB).toInt(), readSize = 1000))
+            p += 3 * KB + gap
+            assertArrayEquals("sound, round $round", film.copyOfRange(q.toInt(), (q + KB).toInt()), read(source, q, KB.toInt(), readSize = 700))
+            q += KB + 4 * gap
+        }
+    }
+
+    @Test fun jumpingBetweenThePictureAndTheSoundAsksGoogleOnlyAsEachPlaceRunsOn() {
+        val drive = Connections()
+        hop(drive.source())
+        // Without places kept, every jump was a request: 40 of them.
+        val before = FakeDrive(film)
+        hop(BoundedDriveSource(before, pieces, NoCounts))
+        assertEquals(40, before.specs.size)
+        // Kept, each place is asked for as its pieces run out (8, 16, 32 KB...), and no more.
+        assertTrue("${drive.specs.size} requests", drive.specs.size <= 8)
+        val (picture, sound) = drive.specs.partition { it.position < 600_000 }
+        assertEquals(listOf(8 * KB, 16 * KB, 32 * KB, 64 * KB).take(picture.size), picture.map { it.length })
+        assertEquals(listOf(8 * KB, 16 * KB, 32 * KB, 64 * KB).take(sound.size), sound.map { it.length })
+        // A connection for each place and the one between: no more made.
+        assertTrue("${drive.made.size} connections", drive.made.size <= 3)
+    }
+
+    @Test fun whatIsAskedAndReceivedIsCountedWithPlacesKept() {
+        val drive = Connections()
+        val counts = Counts()
+        hop(drive.source(counts = counts), gap = 0)
+        assertEquals(drive.specs.size, counts.requests)
+        // Every byte read is counted once, whichever connection it came on.
+        assertEquals(20 * 4 * KB, counts.received)
+    }
+
+    @Test fun aPlaceNothingComesBackToIsLetGoOf() {
+        var now = 0L
+        val drive = Connections()
+        val source = drive.source(keptFor = 15_000, clock = { now })
+        read(source, 100_000, 3_000)
+        read(source, 600_000, 1_000)
+        now = 16_000
+        drive.specs.clear()
+        // Back at the first place after its time: asked for afresh, small, and the bytes are right.
+        assertArrayEquals(film.copyOfRange(103_000, 106_000), read(source, 103_000, 3_000))
+        assertEquals(listOf(103_000L to 8 * KB), drive.specs.map { it.position to it.length })
+    }
+
+    @Test fun aPlaceKeptIsClosedOnceItsTimeIsUp() {
+        val drive = Connections()
+        val source = drive.source(keptFor = 50)
+        read(source, 100_000, 3_000)
+        val kept = drive.made.first()
+        assertTrue(kept.isOpen)
+        Thread.sleep(1_000)
+        assertTrue("closed by the timer", !kept.isOpen)
+    }
+
+    @Test fun theOldestPlaceIsLetGoOfWhenTooManyAreKept() {
+        val drive = Connections()
+        val source = drive.source(places = 2)
+        read(source, 100_000, 1_000)
+        read(source, 300_000, 1_000)
+        read(source, 500_000, 1_000)
+        assertTrue("the oldest closed", !drive.made.first().isOpen)
+        drive.specs.clear()
+        read(source, 101_000, 1_000) // let go of: asked for afresh
+        read(source, 501_000, 1_000) // still kept: carried on
+        assertEquals(listOf(101_000L), drive.specs.map { it.position })
+    }
+
+    @Test fun aReadBehindOrFarPastAPlaceKeptAsksAfresh() {
+        val drive = Connections()
+        val source = drive.source(skip = 4 * KB)
+        read(source, 100_000, 3_000)
+        drive.specs.clear()
+        assertArrayEquals(film.copyOfRange(99_000, 100_000), read(source, 99_000, 1_000)) // behind it
+        assertArrayEquals(film.copyOfRange(120_000, 121_000), read(source, 120_000, 1_000)) // past its reach
+        assertEquals(listOf(99_000L, 120_000L), drive.specs.map { it.position })
+    }
+
+    @Test fun aPlaceGoogleLetGoOfMeanwhileIsAskedForAfreshWithNothingLost() {
+        for (how in listOf("error", "end")) {
+            val drive = Connections()
+            val source = drive.source()
+            read(source, 100_000, 3_000)
+            read(source, 600_000, 1_000)
+            // Google hung up the first place while it waited.
+            val kept = drive.made.first()
+            if (how == "error") kept.failNextRead = IOException("Connection reset") else kept.endNow = true
+            drive.specs.clear()
+            assertArrayEquals(how, film.copyOfRange(103_000, 110_000), read(source, 103_000, 7_000, readSize = 1000))
+            assertEquals(how, listOf(103_000L to 8 * KB), drive.specs.map { it.position to it.length })
+        }
+    }
+
+    @Test fun aPlaceGoogleLetGoOfWhileReadingPastIsAskedForAfresh() {
+        val drive = Connections()
+        val source = drive.source()
+        read(source, 100_000, 3_000)
+        drive.made.first().failNextRead = IOException("Connection reset")
+        drive.specs.clear()
+        assertArrayEquals(film.copyOfRange(103_500, 104_000), read(source, 103_500, 500))
+        assertEquals(listOf(103_500L), drive.specs.map { it.position })
+    }
+
+    @Test fun aReadThatFailedIsNeverKept() {
+        val drive = Connections()
+        val source = drive.source()
+        source.open(spec(100_000))
+        val buffer = ByteArray(1000)
+        source.read(buffer, 0, buffer.size)
+        drive.made.first().failNextRead = IOException("Connection reset")
+        assertThrows(IOException::class.java) { source.read(buffer, 0, buffer.size) }
+        source.close()
+        assertTrue(!drive.made.first().isOpen)
+        drive.specs.clear()
+        read(source, 101_000, 1_000)
+        assertEquals(listOf(101_000L), drive.specs.map { it.position })
+    }
+
+    @Test fun aLengthAskedEndsTheReadEvenOnAPlaceKept() {
+        val drive = Connections()
+        val source = drive.source()
+        read(source, 100_000, 60_000) // 8, 16, 32 and 64 KB asked: the last, to 222,880, kept
+        assertEquals(4, drive.specs.size)
+        // Carried on, and ended where the length asked does, though more of the piece is coming.
+        assertArrayEquals(film.copyOfRange(160_000, 180_000), read(source, 160_000, -1, asked = 20_000))
+        assertArrayEquals(film.copyOfRange(180_000, 190_000), read(source, 180_000, 10_000))
+        assertEquals(4, drive.specs.size)
+    }
+
+    @Test fun aReadJustPastTheEndOfAPlacesPieceGoesOnGrowing() {
+        val drive = Connections()
+        val source = drive.source(skip = 4 * KB)
+        read(source, 100_000, 5_000) // 8 KB asked, to 108,192
+        drive.specs.clear()
+        // Past that piece's end, within reach: the next piece, twice as big, on the same connection.
+        assertArrayEquals(film.copyOfRange(109_000, 110_000), read(source, 109_000, 1_000))
+        assertEquals(listOf(109_000L to 16 * KB), drive.specs.map { it.position to it.length })
+        assertEquals(1, drive.made.count { it.specs.isNotEmpty() && it === drive.made.first() })
+    }
+
+    @Test fun nothingIsKeptWhereDriveDoesntSayTheFilesSize() {
+        val drive = Connections(saysSize = false)
+        val source = drive.source()
+        read(source, 100_000, 1_000)
+        read(source, 101_000, 1_000)
+        assertEquals(listOf(100_000L, 101_000L), drive.specs.map { it.position })
+    }
+
     // ---- How it's read --------------------------------------------------------------------------
 
     private fun spec(position: Long, length: Long = UNSET, at: Uri = uri, flags: Int = 0) =
@@ -257,10 +428,19 @@ class DriveRangesTest {
      * from the very end, nothing (Drive's 416 with the size). [honoursRanges] false: every answer is
      * the whole file, as a server that ignores ranges sends it. Records every request.
      */
-    private class FakeDrive(val film: ByteArray, var saysSize: Boolean = true, val honoursRanges: Boolean = true) : DataSource {
-        val specs = ArrayList<DataSpec>()
+    private class FakeDrive(
+        val film: ByteArray,
+        var saysSize: Boolean = true,
+        val honoursRanges: Boolean = true,
+        val specs: MutableList<DataSpec> = ArrayList(),
+    ) : DataSource {
         /** The request (counted from 1) that fails, and how. */
         var failAt: Pair<Int, IOException>? = null
+        /** The next read fails so (the connection reset). */
+        var failNextRead: IOException? = null
+        /** The answer ends here, cleanly, short of its end. */
+        var endNow = false
+        val isOpen get() = spec != null
         private var spec: DataSpec? = null
         private var position = 0L
         private var end = 0L
@@ -296,6 +476,8 @@ class DriveRangesTest {
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
             if (length == 0) return 0
+            failNextRead?.let { failNextRead = null; throw it }
+            if (endNow) { endNow = false; end = position }
             if (position >= end) return C.RESULT_END_OF_INPUT
             val n = minOf(length.toLong(), end - position).toInt()
             System.arraycopy(film, position.toInt(), buffer, offset, n)

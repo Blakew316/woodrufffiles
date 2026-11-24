@@ -26,6 +26,8 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import com.woodruff.tvexplorer.cloud.GoogleAuth
 import com.woodruff.tvexplorer.net.Http
+import okhttp3.ConnectionPool
+import okhttp3.Protocol
 import java.util.concurrent.TimeUnit
 
 /**
@@ -612,6 +614,49 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         updateLoading()
     }
 
+    /** The film tried again where it was ([tryInPlace]), and how many times since it last played well. */
+    private var inPlaceKey: String? = null
+    private var inPlaceTries = 0
+    /** How long the film has played since its last try in place, and since when it's been playing now (elapsedRealtime). */
+    private var playedSinceTryMs = 0L
+    private var playingSince: Long? = null
+    /** The films that have played in this player: trouble in them later on isn't their format's. */
+    private val playedHere = HashSet<String>()
+
+    private fun notePlaying(isPlaying: Boolean, key: String?) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (isPlaying) {
+            if (playingSince == null) playingSince = now
+            if (key != null) playedHere += key
+        } else {
+            playingSince?.let { playedSinceTryMs += now - it }
+            playingSince = null
+        }
+    }
+
+    /**
+     * [p]'s film [key] stopped over trouble of its own ([error]: its sound output, a decoder, a read
+     * gone wrong): tried again from where it was after a short wait, as often as
+     * [PlaybackErrors.triesInPlace] allows, before it's said it can't play. A film that has played a
+     * minute since its last try ([PLAYED_WELL_MS]) has all its tries again. False: no more tries.
+     */
+    private fun tryInPlace(p: ExoPlayer, key: String?, error: PlaybackException): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val played = playedSinceTryMs + (playingSince?.let { now - it } ?: 0L)
+        if (key != inPlaceKey || played >= PLAYED_WELL_MS) { inPlaceKey = key; inPlaceTries = 0 }
+        val allowed = PlaybackErrors.triesInPlace(error.errorCode, played = key != null && key in playedHere)
+        if (inPlaceTries >= allowed) return false
+        val wait = PlaybackErrors.IN_PLACE_WAITS_MS[inPlaceTries.coerceAtMost(PlaybackErrors.IN_PLACE_WAITS_MS.lastIndex)]
+        inPlaceTries++
+        // What it plays from now on counts towards having played well again.
+        playedSinceTryMs = 0
+        if (playingSince != null) playingSince = now
+        android.util.Log.w("Player", "Trying $key again where it was in $wait ms (${error.errorCodeName}, $inPlaceTries of $allowed)", error)
+        countdown.postDelayed({ if (player === p && p.playbackState == Player.STATE_IDLE && p.currentMediaItem?.mediaId == key) p.prepare() }, wait)
+        updateLoading()
+        return true
+    }
+
     /** Films started again from Drive alone after trouble with this TV's copy of their start (once each). */
     private val startedAgainFromDrive = HashSet<String>()
 
@@ -626,7 +671,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val stale = FilmStarts.isStale(error)
         val unreadable = error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
             error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
-        if (!stale && !(unreadable && FilmStarts.readFromCopy(key))) return false
+        // A Drive film read "past its end" where it isn't: the TV's copy of its start took a read Google
+        // ended early for the film's end, and every start after that failed the same way, "Can't
+        // play", until the copy was let go.
+        val cutShort = error.errorCode == PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE && key.startsWith("drive:")
+        if (!stale && !cutShort && !(unreadable && FilmStarts.readFromCopy(key))) return false
         if (!startedAgainFromDrive.add(key)) return false
         android.util.Log.i("Player", "Starting $key again from Drive alone (${if (stale) "it changed" else "its kept start didn't read"})")
         lifecycleScope.launch {
@@ -645,14 +694,22 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     /** When the leader last said where it is (this TV follows one): the screen stays on meanwhile. */
     private var syncedAt: Long? = null
 
+    /**
+     * The TVs (their ids) this TV started watching with: only they follow it. Every linked TV did, and
+     * one playing an episode of the same show by itself jumped to the leader's and paused with it.
+     * Null: every linked TV (a start that didn't say).
+     */
+    private val together: Set<String>? get() = intent.getStringArrayListExtra(EXTRA_TOGETHER_WITH)?.toSet()
+
     private fun sendSync() {
         val p = player ?: return
         val key = p.currentMediaItem?.mediaId ?: return
         val pos = p.currentPosition
         val playing = p.playWhenReady
         val app = applicationContext
+        val with = together
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            com.woodruff.tvexplorer.tvs.TvLinks.forEachLinked(app) { com.woodruff.tvexplorer.tvs.TvLinks.sync(it, key, pos, playing) }
+            com.woodruff.tvexplorer.tvs.TvLinks.forEachLinked(app) { if (with == null || it.id in with) com.woodruff.tvexplorer.tvs.TvLinks.sync(it, key, pos, playing) }
         }
     }
 
@@ -762,13 +819,15 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     /**
      * Back on screen with "Sleep in N minutes" set ([sleepAt]): what's left of it. One that ran out
      * while the player was covered (someone looking at the door) sleeps a minute after it's back,
-     * saying so, rather than at once or never.
+     * saying so, rather than at once or never. One that ran out long before ([SLEEP_OVER_MS]: the TV
+     * was off for the night) is over: the film turned on the next morning doesn't close by itself.
      */
     private fun resumeSleepTimer() {
         val at = sleepAt ?: return
         countdown.removeCallbacks(sleep)
         val left = at - android.os.SystemClock.elapsedRealtime()
         if (left > SLEEP_GRACE_MS) countdown.postDelayed(sleep, left)
+        else if (-left > SLEEP_OVER_MS) sleepAt = null
         else {
             sleepAt = android.os.SystemClock.elapsedRealtime() + SLEEP_GRACE_MS
             countdown.postDelayed(sleep, SLEEP_GRACE_MS)
@@ -1645,6 +1704,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     .setSubtitleParserFactory(SidecarLoading.parserFactory()),
             )
             .setLoadControl(GatedLoadControl(playerLoadControl(heapMb), loads))
+            // The sound is chosen again when what the TV can send changes (a soundbar waking after the
+            // film started, or back after a dropped connection): it went on decoded to stereo, its
+            // Dolby passed straight through no more, until the player was left.
+            .setTrackSelector(
+                androidx.media3.exoplayer.trackselection.DefaultTrackSelector(
+                    this,
+                    androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters.Builder(this)
+                        .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true).build(),
+                ),
+            )
             // Seeks land on the first clean frame just after the spot (SeekAim); the viewer's are aimed
             // one by one (aimAt), and this covers the rest (a voice "rewind"). Watch together's leader
             // seeks exactly: the other TVs line up on the spot it asked for.
@@ -1680,7 +1749,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                         if (retryAtOnce.tryAgain(p, key, http, drive, reason)) return
                         // Turned down again after that try, and not over one of Google's limits: Drive
                         // won't send this file (flagged, downloads turned off). Said, and on to the next.
-                        if (PlaybackErrors.refusedForGood(http, drive, reason, retryAtOnce.hadTry(key))) {
+                        if (PlaybackErrors.refusedForGood(http, drive, reason, retryAtOnce.hadNewToken(key))) {
                             cantPlay(p, key, error, http, drive, refused = true)
                             return
                         }
@@ -1689,12 +1758,16 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                         stalled(p, key, kind)
                         return
                     }
+                    // The film's own trouble, not the connection's: its sound output, a decoder, a
+                    // hiccup mid-film. Tried again where it was, a few times, first.
+                    if (http == null && tryInPlace(p, key, error)) return
                     // Unsupported codec etc.: say so in plain words and move on.
                     cantPlay(p, key, error, http, drive)
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (isPlaying) { retryAtOnce.played(); clearStall() }
+                    notePlaying(isPlaying, p.currentMediaItem?.mediaId)
                     updateLoading()
                     // Watched from here: where it stops is worth keeping (keepPlace), and the family's
                     // progress no longer moves it (catchUp).
@@ -1829,7 +1902,10 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             // still go to PlayerView first and only unhandled ones reach the session, so none acts
             // twice. A new id each time: Watch together and Play on TV open a second player before
             // the first one stops, and Media3 refuses a duplicate.
-            session = runCatching { MediaSession.Builder(this, p).setId("player-${++sessionIds}").build() }.getOrNull()
+            // Voice, a Bluetooth remote and the TV's own controls play and pause through the session:
+            // someone's there, as with the remote's keys (Up next's "Still watching?" closed the
+            // player on a family that only ever said "pause" and "play").
+            session = runCatching { MediaSession.Builder(this, SomeoneThere(p) { usedAt = android.os.SystemClock.elapsedRealtime() }).setId("player-${++sessionIds}").build() }.getOrNull()
             if (items.size == 1) fillQueueFromFolder(p)
         }
         updateScreenOn()
@@ -2014,14 +2090,15 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     private var loads = PlayerLoads()
 
     /**
-     * Requests to Drive, in pieces of [pieces]: over OkHttp, on the app's shared connections (one
-     * kept-open HTTP/2 connection to Drive carries every request, so a start and each seek don't wait
-     * for a new connection and handshake; redirects between http and https are still followed), each
-     * with the token asked for afresh ([driveAuthorized]), so a piece asked for an hour into a film
-     * carries a token that's current.
+     * Requests to Drive, in pieces of [pieces], each with the token asked for afresh
+     * ([driveAuthorized]), so a piece asked for an hour into a film carries a token that's current.
+     * The film's own over [filmClient], keeping the places the player jumps away from open
+     * ([BoundedDriveSource.kept]); the scrub preview's on the app's shared connections
+     * ([streamClient]). Redirects between http and https are still followed.
      */
     private fun toDrive(pieces: DrivePieces): androidx.media3.datasource.DataSource.Factory =
-        boundedDrive(driveAuthorized(OkHttpDataSource.Factory(streamClient), ::token), pieces)
+        if (pieces == DrivePieces.FILMS) boundedDrive(driveAuthorized(OkHttpDataSource.Factory(filmClient), ::token), pieces, placesKept = PLACES_KEPT)
+        else boundedDrive(driveAuthorized(OkHttpDataSource.Factory(streamClient), ::token), pieces)
 
     /**
      * The scrub preview's reader for a Drive film ([DriveFrames]): the player's way to Drive, its
@@ -2150,8 +2227,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
             // OK on the scrub bar plays / pauses, as a click on the Siri Remote does (while scrubbing,
             // the bar takes it: it plays from the spot chosen).
             if (ok && timeBar.isFocused && !timeBar.isScrubbing) {
-                androidx.media3.common.util.Util.handlePlayPauseButtonAction(player)
-                view.showController()
+                // Held down, OK repeats: only its first press plays or pauses (it flipped back and forth).
+                if (event.repeatCount == 0) {
+                    androidx.media3.common.util.Util.handlePlayPauseButtonAction(player)
+                    view.showController()
+                }
                 return true
             }
         } else if (ok) {
@@ -2184,6 +2264,10 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         private const val SIZE_MESSAGE_MS = 3_500L
         /** A sleep timer that ran out while the player was covered sleeps this long after it's back ([resumeSleepTimer]). */
         private const val SLEEP_GRACE_MS = 60_000L
+        /** How long a film plays after a try in place before it has all its tries again ([tryInPlace]). */
+        private const val PLAYED_WELL_MS = 60_000L
+        /** How long after it ran out, unseen, a sleep timer is over ([resumeSleepTimer]). */
+        private const val SLEEP_OVER_MS = 10 * 60_000L
         /** What the Subtitles and Audio buttons say while the film is still opening (its tracks aren't known yet). */
         private const val STILL_OPENING = "Still opening…"
         /** How often a video's place is saved as it plays, in seconds of play ([savePlace]). */
@@ -2204,6 +2288,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         private const val EXTRA_START = "start"
         private const val EXTRA_POSITION = "position"
         private const val EXTRA_TOGETHER = "together"
+        private const val EXTRA_TOGETHER_WITH = "togetherWith"
         /** Saved state: the film was left by choice (see leftByChoice). */
         private const val KEY_LEFT_BY_CHOICE = "leftByChoice"
         /** How near the end of a season's last episode the next season is looked for. */
@@ -2225,10 +2310,35 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         }
         private const val STREAM_CONNECT_S = 3L
 
-        /** [keys] are [MediaRef] keys; [titles] line up with them. */
-        fun intent(context: Context, keys: List<String>, titles: List<String>, start: String, positionMs: Long? = null, together: Boolean = false): Intent =
+        /**
+         * [streamClient] for the film itself: each request on a connection of its own (HTTP/1.1),
+         * kept for the next once its piece is read through.
+         *
+         * The player keeps the places it jumps away from open ([BoundedDriveSource.kept]), and on
+         * the shared HTTP/2 connection what Google sends a place kept waiting stays in memory, up to
+         * 16 MB, and fills the window the whole connection has: the read going on, the scrub preview
+         * and every other request to Google on it would stop until the kept place was read or let go.
+         * On connections of their own, a place kept waiting holds only its own (what Google sent it
+         * waits in the TV's network buffer, not the app's memory), and the read going on never waits
+         * on it. A seek costs a new connection where none is free: a few hundredths of a second, next
+         * to Google's wait before its first byte.
+         */
+        private val filmClient by lazy {
+            streamClient.newBuilder()
+                .connectionPool(ConnectionPool(PLACES_KEPT + 2, 2, TimeUnit.MINUTES))
+                .protocols(listOf(Protocol.HTTP_1_1))
+                .build()
+        }
+
+        /** [keys] are [MediaRef] keys; [titles] line up with them. [with]: the TVs (ids) a watch-together leader leads. */
+        fun intent(context: Context, keys: List<String>, titles: List<String>, start: String, positionMs: Long? = null, together: Boolean = false, with: Collection<String>? = null): Intent =
             Intent(context, PlayerActivity::class.java)
+                // Each its own: Android tells launches apart without their extras, and a film sent
+                // from the phone into a task a player started (Woodruff had none) only brought that
+                // player to the front, still on the film before, while the phone was told it started.
+                .setData(android.net.Uri.fromParts("woodruff", "play-${android.os.SystemClock.elapsedRealtimeNanos()}", null))
                 .putExtra(EXTRA_TOGETHER, together)
+                .apply { if (together && with != null) putStringArrayListExtra(EXTRA_TOGETHER_WITH, ArrayList(with)) }
                 .apply { if (positionMs != null) putExtra(EXTRA_POSITION, positionMs) }
                 .putStringArrayListExtra(EXTRA_KEYS, ArrayList(keys.ifEmpty { listOf(start) }))
                 .putStringArrayListExtra(EXTRA_TITLES, ArrayList(titles))
@@ -2384,8 +2494,10 @@ internal const val BACK_BUFFER_MS = 12_000
 internal const val SMALL_HEAP_BACK_BUFFER_MS = 5_000
 
 /**
- * Video OkHttp holds beyond the player's buffer: its HTTP/2 window (16 MB in OkHttp 4.12), what
- * Drive may send ahead of what the player has read, kept in memory while the buffer is full.
+ * Video held beyond the player's buffer, kept back from it on a small heap: OkHttp's HTTP/2 window
+ * (16 MB in OkHttp 4.12), what Drive may send ahead of what's been read, kept in memory. The film
+ * itself now comes over HTTP/1.1 (filmClient), whose bytes sent ahead wait in the TV's network
+ * buffers instead; the scrub preview's still come this way, and the room stays kept.
  */
 internal const val HTTP2_WINDOW_BYTES = 16 * MB
 
@@ -2399,3 +2511,17 @@ private const val MIN_BUFFER_BYTES = 200 * 64 * 1024
  */
 internal fun bufferCapBytes(heapMb: Int): Int? =
     if (heapMb > SMALL_HEAP_MB) null else (heapMb * MB / 2 - HTTP2_WINDOW_BYTES).coerceAtLeast(MIN_BUFFER_BYTES)
+
+/**
+ * [player] as the media session drives it (voice, a Bluetooth remote, the TV's own controls), each
+ * play, pause or seek of theirs saying someone's there ([used]).
+ */
+@OptIn(UnstableApi::class)
+internal class SomeoneThere(player: Player, private val used: () -> Unit) : androidx.media3.common.ForwardingPlayer(player) {
+    override fun play() { used(); super.play() }
+    override fun pause() { used(); super.pause() }
+    override fun setPlayWhenReady(playWhenReady: Boolean) { used(); super.setPlayWhenReady(playWhenReady) }
+    override fun seekTo(positionMs: Long) { used(); super.seekTo(positionMs) }
+    override fun seekBack() { used(); super.seekBack() }
+    override fun seekForward() { used(); super.seekForward() }
+}

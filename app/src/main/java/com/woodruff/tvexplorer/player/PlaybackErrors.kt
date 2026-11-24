@@ -82,6 +82,33 @@ internal object PlaybackErrors {
         else -> "this TV couldn’t open it"
     }
 
+    /**
+     * How many times a film stopped by [errorCode] is tried again where it was, before it's said it
+     * can't play here ([why]) and the player moves on. The TV's sound output failing (a soundbar
+     * waking or reconnecting, the TV changing outputs: Media3 opens it again at every start and seek)
+     * gets every wait in [IN_PLACE_WAITS_MS]; so, nearly, does any trouble in a film that has played
+     * here already ([played]: its format isn't the trouble), which used to skip to the next episode at
+     * once, 40 minutes into one that had played fine. A decoder that wouldn't start (another app had
+     * it a moment longer) or an unexplained read gets one try; a film this TV can't play from the
+     * start isn't held up.
+     */
+    fun triesInPlace(errorCode: Int, played: Boolean): Int = when {
+        errorCode in SOUND_OUTPUT_ERRORS -> IN_PLACE_WAITS_MS.size
+        played -> IN_PLACE_WAITS_MS.size - 1
+        errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+            errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+            errorCode == PlaybackException.ERROR_CODE_UNSPECIFIED -> 1
+        else -> 0
+    }
+
+    /** The waits before each try in place ([triesInPlace]): together under half a minute, as long as a soundbar takes to come back. */
+    val IN_PLACE_WAITS_MS = listOf(1_000L, 3_000L, 8_000L, 15_000L)
+
+    private val SOUND_OUTPUT_ERRORS = setOf(
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
+    )
+
     /** The whole message, said over the film for 6 s as the player moves on. */
     fun cantPlay(title: String?, why: String): String = "Can’t play ${title?.ifBlank { null } ?: "this file"}: $why."
 

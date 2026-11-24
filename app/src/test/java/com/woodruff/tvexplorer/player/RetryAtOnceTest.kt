@@ -185,6 +185,26 @@ class RetryAtOnceTest {
         assertEquals(3, p.prepares)
     }
 
+    @Test fun aTokenRefusedAfterATryAsItWasStillGetsItsNewOne() {
+        val p = Counting(base())
+        var dropped = 0
+        val retry = RetryAtOnce(scope, current = { p }, io = Dispatchers.Main.immediate) { dropped++ }
+        // A blip first: tried as it was.
+        assertTrue(retry.tryAgain(p, "drive:a", null, drive = true))
+        assertFalse(retry.hadNewToken("drive:a"))
+        // That try reached Drive, which refused the token: dropped, and tried with a new one.
+        p.state = Player.STATE_IDLE
+        assertTrue(retry.tryAgain(p, "drive:a", 401, drive = true))
+        until { job.children.none() }
+        assertEquals(1, dropped)
+        assertEquals(2, p.prepares)
+        assertTrue(retry.hadNewToken("drive:a"))
+        // Refused again after the new token: no more at once (the player waits, or says Drive won't send it).
+        p.state = Player.STATE_IDLE
+        assertFalse(retry.tryAgain(p, "drive:a", 403, drive = true))
+        assertFalse(retry.tryAgain(p, "drive:a", 503, drive = true))
+    }
+
     @Test fun aPlayerLetGoWhileItsTokenIsDroppedIsLeftAlone() {
         val p = Counting(base())
         var current: Player? = p

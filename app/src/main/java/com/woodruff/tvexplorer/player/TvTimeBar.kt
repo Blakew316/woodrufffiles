@@ -146,7 +146,10 @@ class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (isEnabled && duration > 0) when (keyCode) {
+        // Not seekable yet (a film just opened, or opened again on coming back): Left and Right wait
+        // here, rather than taking the focus off to the buttons beside it.
+        if (!seekable && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)) return true
+        if (seekable && duration > 0) when (keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 if (!isScrubbing) startScrub()
                 val step = stepFor(event.repeatCount)
@@ -209,8 +212,17 @@ class TvTimeBar @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
     override fun addListener(listener: TimeBar.OnScrubListener) { listeners.add(listener) }
     override fun removeListener(listener: TimeBar.OnScrubListener) { listeners.remove(listener) }
+    /**
+     * Whether the film can be scrubbed now: Media3 says so through setEnabled, false while a film it
+     * has just opened can't be seeked yet. The view itself stays enabled: a disabled view loses its
+     * focus, to the first button (Subtitles), and Android doesn't give it back when it's enabled
+     * again, so OK on a paused film the TV came back to opened Subtitles instead of playing.
+     */
+    var seekable = true
+        private set
+
     override fun setEnabled(enabled: Boolean) {
-        super.setEnabled(enabled)
+        seekable = enabled
         if (!enabled && isScrubbing) stopScrub(canceled = true)
     }
     // Its own steps instead ([stepFor]).

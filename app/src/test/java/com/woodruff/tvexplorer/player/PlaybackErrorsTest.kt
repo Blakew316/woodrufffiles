@@ -163,4 +163,23 @@ class PlaybackErrorsTest {
         assertTrue(PlaybackErrors.outOfMemory(OutOfMemoryError()))
         assertFalse(PlaybackErrors.outOfMemory(RuntimeException("decoder", IllegalStateException("bad frame"))))
     }
+
+    @Test fun theFilmsOwnTroubleIsTriedAgainWhereItWasBeforeItCantPlay() {
+        val sound = PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
+        val decoding = PlaybackException.ERROR_CODE_DECODING_FAILED
+        val unsupported = PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
+        // The soundbar waking or reconnecting: every wait, played or not.
+        assertEquals(PlaybackErrors.IN_PLACE_WAITS_MS.size, PlaybackErrors.triesInPlace(sound, played = false))
+        assertEquals(PlaybackErrors.IN_PLACE_WAITS_MS.size, PlaybackErrors.triesInPlace(PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED, played = true))
+        // Anything in a film that has played already: tried again, not skipped.
+        for (code in listOf(decoding, unsupported, PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, PlaybackException.ERROR_CODE_IO_UNSPECIFIED)) {
+            assertTrue("$code", PlaybackErrors.triesInPlace(code, played = true) >= 2)
+        }
+        // From the start: a decoder that wouldn't start gets one try; a format this TV can't play, none.
+        assertEquals(1, PlaybackErrors.triesInPlace(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, played = false))
+        assertEquals(0, PlaybackErrors.triesInPlace(unsupported, played = false))
+        assertEquals(0, PlaybackErrors.triesInPlace(PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED, played = false))
+        // All of it under half a minute.
+        assertTrue(PlaybackErrors.IN_PLACE_WAITS_MS.sum() < 30_000)
+    }
 }

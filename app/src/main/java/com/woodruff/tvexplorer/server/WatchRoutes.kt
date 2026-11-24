@@ -422,7 +422,7 @@ class WatchRoutes(
                 }
             }.awaitAll()
         }
-        val here = start(PlayerActivity.intent(ctx, listOf(key), listOf(title), key, position, together = true))
+        val here = start(PlayerActivity.intent(ctx, listOf(key), listOf(title), key, position, together = true, with = linked.map { it.id }))
         val failed = results.filter { !it.second }.map { it.first } + (if (here) emptyList() else listOf(TvLinks.name(ctx)))
         return JSONObject().put("ok", true).put("started", results.count { it.second } + (if (here) 1 else 0))
             .put("of", linked.size + 1).put("failed", JSONArray(failed))

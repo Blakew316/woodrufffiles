@@ -19,7 +19,8 @@ import kotlin.coroutines.CoroutineContext
  * ended comes to light in that renewal: the try fails, and the player, waiting now, finds the sign-in
  * gone and says how to sign in again.
  *
- * Once per film, until it plays ([played]). Called on the main thread; dropping the token can wait on a
+ * Once each way per film, until it plays ([played]): a token Drive refuses after a try as it was (a
+ * blip, then the refusal) still gets its new one. Called on the main thread; dropping the token can wait on a
  * renewal already under way, so it never happens there ([io]). Google's own limits get no try at once
  * ([way]): the player waits them out.
  */
@@ -39,8 +40,11 @@ internal class RetryAtOnce(
         NEW_TOKEN,
     }
 
-    /** The film that had its try, until it plays. */
+    /** The film that had its try as it was, until it plays. */
     private var tried: String? = null
+
+    /** The film that had its try with a new token, until it plays. */
+    private var triedNewToken: String? = null
 
     /**
      * Tries [p]'s film [key] again at once, if it hasn't had its try: true when that's under way, false
@@ -48,8 +52,9 @@ internal class RetryAtOnce(
      * the film is in Google Drive.
      */
     fun tryAgain(p: Player, key: String?, http: Int?, drive: Boolean, reason: String? = null): Boolean {
-        val way = way(http, drive, tried = key == tried, reason = reason) ?: return false
-        tried = key
+        val newToken = PlaybackErrors.tokenRefused(http, reason)
+        val way = way(http, drive, tried = key == (if (newToken) triedNewToken else tried), reason = reason) ?: return false
+        if (way == Way.NEW_TOKEN) triedNewToken = key else tried = key
         when (way) {
             Way.AS_IT_WAS -> p.prepare()
             Way.NEW_TOKEN -> scope.launch {
@@ -64,10 +69,14 @@ internal class RetryAtOnce(
     /** The film plays: trouble later on gets a try of its own. */
     fun played() {
         tried = null
+        triedNewToken = null
     }
 
-    /** Whether [key] has had its try at once (since it last played): the next failure isn't a first one. */
-    fun hadTry(key: String?): Boolean = key != null && key == tried
+    /** Whether [key] has had a try at once (since it last played): the next failure isn't a first one. */
+    fun hadTry(key: String?): Boolean = key != null && (key == tried || key == triedNewToken)
+
+    /** Whether [key] has had its try with a new token (since it last played): a refusal after that is Drive's word on the file. */
+    fun hadNewToken(key: String?): Boolean = key != null && key == triedNewToken
 
     companion object {
         /**
