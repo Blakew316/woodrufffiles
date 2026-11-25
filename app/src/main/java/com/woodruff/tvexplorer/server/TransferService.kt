@@ -225,7 +225,7 @@ class TransferService : Service() {
         val routes = CompanionRoutes(app)
         for (port in portsToTry(lastPort ?: PhonePort.saved(app))) {
             val s = TransferServer(port, token, page, storage::roots, ::log, routes::handle, routes::public, homeName = { PhoneIcon.label(app) },
-                driveToken = { GoogleAuth.blockingToken(app) },
+                driveToken = { GoogleAuth.blockingToken(app) }, forgetDriveToken = { GoogleAuth.forgetAccess(app) },
                 onDeleted = { FamilyMemories.moved(app, it, null) }, onReceived = { FamilyMemories.arrived(app, it) })
             try {
                 s.start(SOCKET_TIMEOUT_MS, true)

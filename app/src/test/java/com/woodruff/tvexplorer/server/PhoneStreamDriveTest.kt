@@ -81,7 +81,29 @@ class PhoneStreamDriveTest {
         // Anything else is still the TV's own trouble, as before.
         assertTrue(PhoneStream.answered(500) !is PhoneStream.DriveRefused)
         assertTrue(PhoneStream.answered(404) !is PhoneStream.DriveRefused)
+        // A token Google refuses is told apart, so the server can drop it and ask once more with a new one.
+        assertTrue(PhoneStream.answered(401) is PhoneStream.DriveTokenRefused)
         assertEquals("Past the end of the video", PhoneStream.answered(416).message)
+    }
+
+    /** An answer being relayed holds updates back from its first byte read until it's read out or closed, and not before. */
+    @Test fun anAnswerOnItsWayToAPhoneIsAJobAnUpdateWaitsFor() {
+        com.woodruff.tvexplorer.util.Presence.resetForTest()
+        val made = WhileRelaying(java.io.ByteArrayInputStream(ByteArray(10)))
+        // Made and never sent: nothing held back.
+        assertTrue(!com.woodruff.tvexplorer.util.Presence.isBusy)
+        made.read()
+        assertTrue(com.woodruff.tvexplorer.util.Presence.isBusy)
+        made.close()
+        assertTrue(!com.woodruff.tvexplorer.util.Presence.isBusy)
+        // Read to its end without being closed: over too, and reading on doesn't start it again.
+        val read = WhileRelaying(java.io.ByteArrayInputStream(ByteArray(3)))
+        val into = ByteArray(8)
+        while (read.read(into, 0, into.size) >= 0) Unit
+        assertTrue(!com.woodruff.tvexplorer.util.Presence.isBusy)
+        read.read()
+        assertTrue(!com.woodruff.tvexplorer.util.Presence.isBusy)
+        com.woodruff.tvexplorer.util.Presence.resetForTest()
     }
 
     /** Google Drive turning every request down with [code] and its [reason]. */

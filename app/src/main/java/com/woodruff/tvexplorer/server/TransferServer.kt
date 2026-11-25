@@ -43,6 +43,8 @@ class TransferServer(
     private val homeName: () -> String = { PhoneIcon.APP_NAME },
     /** This TV's Google Drive token, for a Drive video played on a phone (null: none to be had). Blocking. */
     private val driveToken: () -> String? = { null },
+    /** The token [driveToken] gave was refused by Google (401): dropped, so the next one asked for is new. */
+    private val forgetDriveToken: () -> Unit = {},
     /**
      * Something the phone's Files deleted ([onDeleted]) or sent ([onReceived]), for Family Memories to let go of
      * what it kept about it or about the name ([com.woodruff.tvexplorer.photos.FamilyMemories.moved], `arrived`).
@@ -163,7 +165,14 @@ class TransferServer(
         val range = s.headers["range"]
         if (key.startsWith("drive:")) {
             val token = driveToken() ?: throw IOException("This TV isn’t signed in to Google Drive just now")
-            return PhoneStream.drive(key.removePrefix("drive:"), range, { driveToken() ?: token })
+            return try {
+                PhoneStream.drive(key.removePrefix("drive:"), range, { driveToken() ?: token })
+            } catch (e: PhoneStream.DriveTokenRefused) {
+                // A token Google refuses though the TV held it as good: once more with a new one.
+                forgetDriveToken()
+                val fresh = driveToken() ?: throw IOException("This TV isn’t signed in to Google Drive just now")
+                PhoneStream.drive(key.removePrefix("drive:"), range, { driveToken() ?: fresh })
+            }
         }
         val f = resolve(key)
         if (!f.isFile) throw IllegalArgumentException("Not a file")
