@@ -30,6 +30,14 @@ internal object NoisyPause {
     enum class Step { WAIT, PLAY, LEAVE }
 
     /**
+     * Whether the player's word that it's paused ([playWhenReady] false) is Android stopping a film that was playing
+     * ([wasPlaying], what it was meant to do just before) because its output left ([noisy]). The player says the
+     * same of a film that was already paused when the output left: nothing was stopped then, and it must not start
+     * by itself when the output is back.
+     */
+    fun stopped(wasPlaying: Boolean, playWhenReady: Boolean, noisy: Boolean): Boolean = wasPlaying && !playWhenReady && noisy
+
+    /**
      * What to do about [pause] now: [sinceMs] after it, with the outputs [now], and [takenOver] true once someone
      * has used the remote or the phone, played it themselves, or another item is on.
      */

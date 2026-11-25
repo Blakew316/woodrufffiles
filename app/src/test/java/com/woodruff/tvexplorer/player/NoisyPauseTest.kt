@@ -1,6 +1,8 @@
 package com.woodruff.tvexplorer.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** A film paused because its sound output left plays again when that output is back, and only then. */
@@ -40,6 +42,17 @@ class NoisyPauseTest {
 
     @Test fun someoneUsingTheRemoteMeanwhileTakesOver() {
         assertEquals(NoisyPause.Step.LEAVE, NoisyPause.step(paused(hdmi), setOf(hdmi), 4_000, takenOver = true))
+    }
+
+    @Test fun onlyAFilmThatWasPlayingIsOneAndroidStopped() {
+        // Playing, then paused because the output left: that's the pause to come back from.
+        assertTrue(NoisyPause.stopped(wasPlaying = true, playWhenReady = false, noisy = true))
+        // Already paused (by the remote, or at an episode's end) when the output left: the player says the same
+        // again, and the film must stay paused when the output is back.
+        assertFalse(NoisyPause.stopped(wasPlaying = false, playWhenReady = false, noisy = true))
+        // Paused by someone, or playing: not Android's pause.
+        assertFalse(NoisyPause.stopped(wasPlaying = true, playWhenReady = false, noisy = false))
+        assertFalse(NoisyPause.stopped(wasPlaying = true, playWhenReady = true, noisy = true))
     }
 
     @Test fun withNothingKnownOfWhatWasThereItStaysPaused() {

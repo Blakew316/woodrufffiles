@@ -1266,6 +1266,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
     /** The kinds of sound output there at the last look while the film played, and a pause Android made because one left ([NoisyPause]). */
     private var outputsSeen: Set<Int> = emptySet()
     private var noisyPause: NoisyPause.Paused? = null
+    /** Whether the film was meant to be playing before the player's last word on it: only then did a pause stop anything. */
+    private var meantToPlay = false
 
     /** The kinds of sound output connected now (`AudioDeviceInfo.type`). */
     private fun soundOutputs(): Set<Int> = runCatching {
@@ -1722,6 +1724,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         keptBehindMs = backBufferMs(heapMb)
         // A paused film loads a few seconds ahead, and the next episode nothing until it's chosen (PlayerLoads).
         loads = PlayerLoads()
+        // A new player starts out paused, with no pause of Android's to come back from.
+        meantToPlay = false
+        noisyPause = null
         // The TV's own decoders (and sound passed straight through to a soundbar) first; FFmpeg's
         // for the sound the TV can't play itself, so DTS and TrueHD films aren't silent.
         player = ExoPlayer.Builder(this, playerRenderers(this))
@@ -1872,7 +1877,11 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     updateScreenOn()
                     updateLoading()
                     // Paused by Android because the sound output left: it plays again if that output comes back.
-                    noisyPause = if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY) {
+                    // Only a film that was playing: Android says the same of one already paused (by the remote, at
+                    // the end of an episode), and that one stays as it was left.
+                    val was = meantToPlay
+                    meantToPlay = playWhenReady
+                    noisyPause = if (NoisyPause.stopped(was, playWhenReady, reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY)) {
                         NoisyPause.Paused(android.os.SystemClock.elapsedRealtime(), usedAt, outputsSeen, p.currentMediaItem?.mediaId)
                     } else null
                     if (playWhenReady || reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) return
