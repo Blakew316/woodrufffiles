@@ -92,7 +92,14 @@ class PhoneControlsPlayerTest {
     }
 
     @Test fun skipsAreAimedAsTheRemotesAre() {
-        val p = ready(open("Midnight Harbor (2024).wav", at = 29_000), 29_000)
+        // A film opened paused is loaded a few seconds past where it is and no further until it plays (PlayerLoads),
+        // and how far its first read had got when the player took that in is up to the player's threads: nearly
+        // always this small file's end, now and then somewhere short of it, where it then stays. So it's brought to
+        // its spot by a jump back past what the player keeps behind it: that is loaded afresh from the spot, and a
+        // fresh load of a file this small goes to its end in one piece.
+        val p = ready(open("Midnight Harbor (2024).wav", at = 50_000), 50_000)
+        p.seekTo(29_000)
+        settleAt(p, 29_000)
         waitFor("the whole film loaded", p) { p.bufferedPosition >= p.duration }
         // Just short of the end of what's loaded: exactly on the spot (snapping to the next clean frame
         // would ask for more), where the player's own default is to snap.

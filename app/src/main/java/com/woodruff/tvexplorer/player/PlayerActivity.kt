@@ -116,6 +116,7 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                     lastSeen = RecentItem(item.mediaId, item.mediaMetadata.title?.toString() ?: "", p.currentPosition, p.duration.coerceAtLeast(0), 0)
                 }
                 if (p.isPlaying && ++playingSeconds >= SAVE_PLACE_S) { playingSeconds = 0; savePlace(p) }
+                comeBackFromNoisy(p)
             }
             updateScreenOn()
             if (leader && ++syncTicks % 10 == 0) sendSync()
@@ -1261,6 +1262,33 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
      * Up next asks "Still watching?" after [UpNext.STILL_WATCHING_MS] without ([UpNext.stillWatching]).
      */
     private var usedAt = 0L
+
+    /** The kinds of sound output there at the last look while the film played, and a pause Android made because one left ([NoisyPause]). */
+    private var outputsSeen: Set<Int> = emptySet()
+    private var noisyPause: NoisyPause.Paused? = null
+    /** Whether the film was meant to be playing before the player's last word on it: only then did a pause stop anything. */
+    private var meantToPlay = false
+
+    /** The kinds of sound output connected now (`AudioDeviceInfo.type`). */
+    private fun soundOutputs(): Set<Int> = runCatching {
+        (getSystemService(AUDIO_SERVICE) as android.media.AudioManager)
+            .getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).map { it.type }.toSet()
+    }.getOrDefault(emptySet())
+
+    /**
+     * Each second ([report]): what the film plays through is noted while it plays, and a film Android paused because
+     * its output left plays again once that output is back ([NoisyPause]).
+     */
+    private fun comeBackFromNoisy(p: ExoPlayer) {
+        if (p.isPlaying) outputsSeen = soundOutputs()
+        val pause = noisyPause ?: return
+        val takenOver = p.playWhenReady || usedAt != pause.usedAt || p.currentMediaItem?.mediaId != pause.item
+        when (NoisyPause.step(pause, soundOutputs(), android.os.SystemClock.elapsedRealtime() - pause.at, takenOver)) {
+            NoisyPause.Step.WAIT -> Unit
+            NoisyPause.Step.LEAVE -> noisyPause = null
+            NoisyPause.Step.PLAY -> { noisyPause = null; p.play() }
+        }
+    }
     /** "Still watching?" unanswered: the player leaves, as Done does. */
     private val leaveUnanswered = Runnable { stopWatching() }
 
@@ -1393,7 +1421,8 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         val now = android.os.SystemClock.elapsedRealtime()
         val together = leader || syncedAt?.let { now - it < 60_000 } == true
         val stalledMs = stalledSince?.takeIf { stall?.stopped == false }?.let { now - it }
-        val on = together || (p != null && keepScreenOn(p.playWhenReady || heldForRate, p.playbackState, stalledMs))
+        // (A film paused because its sound output left for a moment is still one being watched while that's waited for.)
+        val on = together || (p != null && keepScreenOn(p.playWhenReady || heldForRate || noisyPause != null, p.playbackState, stalledMs))
         if (on == screenOn) return
         screenOn = on
         if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1695,6 +1724,9 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
         keptBehindMs = backBufferMs(heapMb)
         // A paused film loads a few seconds ahead, and the next episode nothing until it's chosen (PlayerLoads).
         loads = PlayerLoads()
+        // A new player starts out paused, with no pause of Android's to come back from.
+        meantToPlay = false
+        noisyPause = null
         // The TV's own decoders (and sound passed straight through to a soundbar) first; FFmpeg's
         // for the sound the TV can't play itself, so DTS and TrueHD films aren't silent.
         player = ExoPlayer.Builder(this, playerRenderers(this))
@@ -1844,6 +1876,14 @@ class PlayerActivity : ComponentActivity(), com.woodruff.tvexplorer.update.Resto
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                     updateScreenOn()
                     updateLoading()
+                    // Paused by Android because the sound output left: it plays again if that output comes back.
+                    // Only a film that was playing: Android says the same of one already paused (by the remote, at
+                    // the end of an episode), and that one stays as it was left.
+                    val was = meantToPlay
+                    meantToPlay = playWhenReady
+                    noisyPause = if (NoisyPause.stopped(was, playWhenReady, reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY)) {
+                        NoisyPause.Paused(android.os.SystemClock.elapsedRealtime(), usedAt, outputsSeen, p.currentMediaItem?.mediaId)
+                    } else null
                     if (playWhenReady || reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) return
                     if (sleepAtEnd) { sleepNow(); return }
                     if (p.hasNextMediaItem()) startUpNext()
