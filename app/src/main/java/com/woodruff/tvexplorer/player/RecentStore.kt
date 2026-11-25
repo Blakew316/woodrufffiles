@@ -66,7 +66,8 @@ class RecentStore(context: Context) {
             // Playing it again outdates its removal.
             write(FamilyMerge.capped(items), removals() - key)
         }
-        if (share && FamilySync.isShared(key)) FamilySync.changed(app)
+        // (A place kept quietly as the film plays goes out with the next routine exchange: [FamilySync.unsent].)
+        if (FamilySync.isShared(key)) { if (share) FamilySync.changed(app) else FamilySync.unsent(app) }
     }
 
     /** [key] comes after an episode that was just finished: offer it on Home and its show's page. */

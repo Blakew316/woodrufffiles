@@ -118,6 +118,17 @@ object FamilySync {
         schedulePush(app, DEBOUNCE_MS, quick = false)
     }
 
+    /**
+     * Something changed that needn't go out by itself (where a film that's playing has got to, kept every half
+     * minute): marked as unsent, so the TV's next routine exchange with the others carries it. Unmarked, a TV cut off
+     * in the middle of a film (switched off at the wall, a stick powered from the TV's USB port) came back with its
+     * place never sent, and the family's other devices went on from an older one, which then replaced it here too.
+     */
+    fun unsent(c: Context) {
+        val app = c.applicationContext
+        if (enabled(app)) markDirty(app)
+    }
+
     /** Playback stopped: send now, before the TV goes to sleep. */
     fun pushNow(c: Context) {
         val app = c.applicationContext
